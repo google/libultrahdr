@@ -1,6 +1,6 @@
 # Ultra HDR Image Format v1.0
 
-## Introduction {:#introduction}
+## Introduction
 
 This document defines the behavior of a new file format that encodes a
 logarithmic range gain map image in a JPEG image file. Legacy readers that don't
@@ -29,8 +29,7 @@ information"/>
 
 **Figure 1.** Example file layout and relevant metadata.{:.img-caption}
 
-## Motivation {:#motivation}
-
+## Motivation
 The goal of this file format is to encode additional information in SDR image
 files that can be used in combination with the display technique to produce
 their optimal HDR renditions, in a single file.
@@ -56,7 +55,7 @@ without ever:
 -   Changing or compressing local contrast.
 -   Changing relative tonal relationships (between objects in the scene).
 
-## Dependencies {:#dependencies}
+## Dependencies
 
 The following are normative references for this specification:
 
@@ -73,7 +72,7 @@ The following are normative references for this specification:
     images][jpeg]{:.external}
 -   [White Paper of CIPA DC-x 007-2009 Multi-Picture Format][mpf]{:.external}
 
-## Definitions {:#definitions}
+## Definitions
 
 -   SDR display
 
@@ -232,14 +231,14 @@ The following are normative references for this specification:
         additional images. For more information, see the [GContainer
         details](#GContainer_details) section.
 
-## Encode {:#encode}
+## Encode
 
 This section describes how to encode a conforming JPEG file. Refer to [T.81
 (09/92) Digital compression and coding of continuous-tone still
 images][jpeg]{:.external}, in the Dependencies section, for more information
 about the JPEG format.
 
-### Gain map generation {:#gain_map-generation}
+### Gain map generation
 
 Camera imaging pipelines commonly perform a range compression operation to
 compress higher dynamic range luminance data to the lower range of conventional
@@ -418,16 +417,16 @@ isn't used.
 
 If present, the gain map's color profile isn't used.
 
-### Gain map container {:#gain-map-container}
+### Gain map container
 
-#### Color profile {:#color-profile}
+#### Color profile
 
 The color profile of the image must be indicated via an ICC Profile for the
 primary image.
 
 Tip: Use a Display-P3 color profile.
 
-#### XMP attributes {:#XMP-attributes}
+#### XMP attributes
 
 The primary image contains XMP metadata to define at least two images with extra
 semantic information for the HDR gain map format.
@@ -439,7 +438,7 @@ information regarding general conformance to GContainer is specified in the
 Attribute values described in the following tables are stored as XMP simple
 values of the specified XMP basic value types.
 
-#### Item semantic values {:#item_semantic_values}
+#### Item semantic values
 
 The `Item:Semantic` property defines the application-specific meaning
 of each media item in the container directory.
@@ -461,7 +460,7 @@ of each media item in the container directory.
   </tr>
 </table>
 
-#### HDR Gain map metadata {:#HDR_gain_map_metadata}
+#### HDR Gain map metadata
 
 Gain map metadata encodes information about how to interpret and apply the gain
 map to produce the HDR representation of the primary image.
@@ -576,7 +575,7 @@ single Real value for all properties which may have an array of Real values.
 Formulas about these properties can be extrapolated to each color channel when
 this isn't the case in practice.
 
-#### Example gain map XMP {:#example_gain_map_XMP}
+#### Example gain map XMP
 
 The following example of a valid gain map XMP packet contains metadata taken
 from the example file illustrated in the [Introduction](#introduction) section.
@@ -601,23 +600,23 @@ from the example file illustrated in the [Introduction](#introduction) section.
 </pre>
 </div>
 
-#### MPF storage of the gain map {:#MPF_storage_of_the_gain_map}
+#### MPF storage of the gain map
 
 The gain map image must be stored as an additional image as defined in [CIPA
 DC-x 007-2009 Multi-Picture Format][mpf]{:.external}, as referenced in the
 [Dependencies](#dependencies) section.
 
-## Decode {:#decode}
+## Decode
 
 This section describes how to decode the gain map from a conforming JPEG file.
 
-### Signal of the format {:#signal_of_the_format}
+### Signal of the format
 
 A JPEG file conforming to this format may be identified by the presence of
 `hdrgm:Version="1.0"` in the primary image's XMP packet, where `hdrgm` is the
 namespace URI `http://ns.adobe.com/hdr-gain-map/1.0/`.
 
-### Locate the gain map image {:#locate_the_gain_map_image}
+### Locate the gain map image
 
 For details on parsing and decoding the image, see the following [GContainer
 details](#GContainer_details) section. A "GainMap" semantic item within the XMP
@@ -625,7 +624,7 @@ details](#GContainer_details) section. A "GainMap" semantic item within the XMP
 Alternatively, the MPF Index IFD and scanning images' XMP is used to determine
 the location of a gain map.
 
-### Handle invalid metadata {:#handle_invalid_metadata}
+### Handle invalid metadata
 
 Metadata is considered invalid if a required field is not present, or if any
 field is present with an invalid value. A value may be invalid because it is not
@@ -634,13 +633,13 @@ parseable to the specified type or because it is outside of its expected range.
 If invalid metadata is encountered, the gain map should be ignored and the SDR
 image should be displayed.
 
-## Display {:#display}
+## Display
 
 Files encoded in the HDR gain map format might be rendered on either
 conventional SDR displays, or on HDR displays capable of higher-luminance
 output.
 
-### Use the gain map to create the adapted HDR rendition {:#use_the_gain_map_to_create_adapted_HDR_rendition}
+### Use the gain map to create the adapted HDR rendition
 
 The following calculations in this section assume floating-point arithmetic.
 
@@ -721,7 +720,7 @@ is 0.5, and Max display boost is 2.0, then the maximum attenuation of the
 displayed image is 0.7071, rather than 0.5 if max display boost is 4.0 or
 higher.
 
-## GContainer details {:#GContainer_details}
+## GContainer details
 
 This section specifies additional requirements such that this format conforms
 with GContainer XML metadata. The metadata is serialized following [ISO
@@ -730,7 +729,7 @@ inside the primary image file as described in [Adobe XMP Specification Part 3
 Storage in Files][xmp-part-3]{:.external}. The primary image file contains the
 following items, formatted as RDF/XML.
 
-### XMP packet requirements {:#xmp_packet_requirements}
+### XMP packet requirements
 
 The XMP packet shall include the gain map metadata XMP extension via the
 namespace URI `http://ns.adobe.com/hdr-gain-map/1.0/`. The default namespace
@@ -738,7 +737,7 @@ prefix is `hdrgm`.
 
 The XMP packet shall define `hdrgm:Version="1.0"`.
 
-### Container element {:#container_element}
+### Container element
 
 The XMP namespace for the GContainer XMP extension is
 `http://ns.google.com/photos/1.0/container/`. The default namespace prefix is
@@ -772,7 +771,7 @@ item in the directory.
   </tr>
 </table>
 
-### Item element {:#item_element}
+### Item element
 
 Item elements describe how each media item is used by the application.
 
@@ -865,7 +864,7 @@ specify its value.
   </tr>
 </table>
 
-### Item MIME type values {:#item_mime_type_values}
+### Item MIME type values
 
 The `Item:Mime` attribute defines the MIME type of each media item
 data.
@@ -881,7 +880,7 @@ data.
   </tr>
 </table>
 
-### Example GContainer XMP {:#example_gcontainer_XMP}
+### Example GContainer XMP
 
 The following example of a valid GContainer XMP packet has metadata taken from
 the example file illustrated in the [Introduction](#introduction) section.
