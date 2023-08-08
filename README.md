@@ -23,7 +23,7 @@ to this format is:
 
 <br>
 
-<img src="/docs/download.png" alt="Example
+<img src="/docs/jpegr_format.png" alt="Example
 Ultra HDR image format file layout, with associated metadata and offset
 information"/>
 
