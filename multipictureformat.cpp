@@ -13,10 +13,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-#include <ultrahdr/multipictureformat.h>
-#include <ultrahdr/jpegrutils.h>
 
-namespace android::ultrahdr {
+#include "ultrahdr/multipictureformat.h"
+
+namespace ultrahdr {
 size_t calculateMpfSize() {
     return sizeof(kMpfSig) +                 // Signature
             kMpEndianSize +                   // Endianness
@@ -27,10 +27,10 @@ size_t calculateMpfSize() {
             kNumPictures * kMPEntrySize;      // MP Entries for each image
 }
 
-sp<DataStruct> generateMpf(int primary_image_size, int primary_image_offset,
-        int secondary_image_size, int secondary_image_offset) {
+std::shared_ptr<DataStruct> generateMpf(int primary_image_size, int primary_image_offset,
+                                        int secondary_image_size, int secondary_image_offset) {
     size_t mpf_size = calculateMpfSize();
-    sp<DataStruct> dataStruct = sp<DataStruct>::make(mpf_size);
+    std::shared_ptr<DataStruct> dataStruct = std::make_shared<DataStruct>(mpf_size);
 
     dataStruct->write(static_cast<const void*>(kMpfSig), sizeof(kMpfSig));
 #if USE_BIG_ENDIAN
@@ -91,4 +91,4 @@ sp<DataStruct> generateMpf(int primary_image_size, int primary_image_offset,
     return dataStruct;
 }
 
-} // namespace android::ultrahdr
+} // namespace ultrahdr

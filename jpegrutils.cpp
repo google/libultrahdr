@@ -14,23 +14,24 @@
  * limitations under the License.
  */
 
-#include <ultrahdr/jpegrutils.h>
-
 #include <algorithm>
 #include <cmath>
 
-#include <image_io/xml/xml_reader.h>
-#include <image_io/xml/xml_writer.h>
-#include <image_io/base/message_handler.h>
-#include <image_io/xml/xml_element_rules.h>
-#include <image_io/xml/xml_handler.h>
-#include <image_io/xml/xml_rule.h>
-#include <utils/Log.h>
+#include "ultrahdr/ultrahdrcommon.h"
+#include "ultrahdr/jpegr.h"
+#include "ultrahdr/jpegrutils.h"
+
+#include "image_io/xml/xml_reader.h"
+#include "image_io/xml/xml_writer.h"
+#include "image_io/base/message_handler.h"
+#include "image_io/xml/xml_element_rules.h"
+#include "image_io/xml/xml_handler.h"
+#include "image_io/xml/xml_rule.h"
 
 using namespace photos_editing_formats::image_io;
 using namespace std;
 
-namespace android::ultrahdr {
+namespace ultrahdr {
 /*
  * Helper function used for generating XMP metadata.
  *
@@ -597,4 +598,4 @@ string generateXmpForSecondaryImage(ultrahdr_metadata_struct& metadata) {
   return ss.str();
 }
 
-} // namespace android::ultrahdr
+} // namespace ultrahdr

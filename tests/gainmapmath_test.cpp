@@ -14,12 +14,12 @@
  * limitations under the License.
  */
 
-#include <cmath>
 #include <gtest/gtest.h>
 #include <gmock/gmock.h>
-#include <ultrahdr/gainmapmath.h>
 
-namespace android::ultrahdr {
+#include "ultrahdr/gainmapmath.h"
+
+namespace ultrahdr {
 
 class GainMapMathTest : public testing::Test {
 public:
@@ -47,11 +47,11 @@ public:
   }
 
   Color ColorMin(Color e1, Color e2) {
-    return {{{ fmin(e1.r, e2.r), fmin(e1.g, e2.g), fmin(e1.b, e2.b) }}};
+    return {{{ fminf(e1.r, e2.r), fminf(e1.g, e2.g), fminf(e1.b, e2.b) }}};
   }
 
   Color ColorMax(Color e1, Color e2) {
-    return {{{ fmax(e1.r, e2.r), fmax(e1.g, e2.g), fmax(e1.b, e2.b) }}};
+    return {{{ fmaxf(e1.r, e2.r), fmaxf(e1.g, e2.g), fmaxf(e1.b, e2.b) }}};
   }
 
   Color RgbBlack() { return {{{ 0.0f, 0.0f, 0.0f }}}; }
@@ -836,9 +836,9 @@ TEST_F(GainMapMathTest, applyGainLUT) {
   }
 
   for (int boost = 1; boost <= 10; boost++) {
-    ultrahdr_metadata_struct metadata = { .maxContentBoost = static_cast<float>(boost),
-                                       .minContentBoost = 1.0f / pow(static_cast<float>(boost),
-                                                              1.0f / 3.0f) };
+    ultrahdr_metadata_struct metadata = {.maxContentBoost = static_cast<float>(boost),
+                                         .minContentBoost = 1.0f /
+                                                 powf(static_cast<float>(boost), 1.0f / 3.0f)};
     GainLUT gainLUT(&metadata);
     GainLUT gainLUTWithBoost(&metadata, metadata.maxContentBoost);
     for (int idx = 0; idx < kGainFactorNumEntries; idx++) {
@@ -1356,4 +1356,4 @@ TEST_F(GainMapMathTest, ApplyMap) {
                 RgbWhite() / 2.0f);
 }
 
-} // namespace android::ultrahdr
+} // namespace ultrahdr

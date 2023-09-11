@@ -32,7 +32,6 @@ cc_defaults {
         "libjpegdecoder",
         "libjpegencoder",
         "libultrahdr",
-        "libutils",
         "liblog",
     ],
     target: {

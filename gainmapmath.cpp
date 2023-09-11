@@ -14,11 +14,9 @@
  * limitations under the License.
  */
 
-#include <cmath>
-#include <vector>
-#include <ultrahdr/gainmapmath.h>
+#include "ultrahdr/gainmapmath.h"
 
-namespace android::ultrahdr {
+namespace ultrahdr {
 
 static const std::vector<float> kPqOETF = [] {
     std::vector<float> result;
@@ -772,4 +770,4 @@ uint64_t colorToRgbaF16(Color e_gamma) {
        | (((uint64_t) floatToHalf(1.0f)) << 48);
 }
 
-} // namespace android::ultrahdr
+} // namespace ultrahdr

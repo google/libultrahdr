@@ -15,11 +15,10 @@
  */
 
 #include <gtest/gtest.h>
-#include <ultrahdr/icc.h>
-#include <ultrahdr/ultrahdr.h>
-#include <utils/Log.h>
 
-namespace android::ultrahdr {
+#include "ultrahdr/icc.h"
+
+namespace ultrahdr {
 
 class IccHelperTest : public testing::Test {
 public:
@@ -39,21 +38,22 @@ void IccHelperTest::SetUp() {}
 void IccHelperTest::TearDown() {}
 
 TEST_F(IccHelperTest, iccWriteThenRead) {
-    sp<DataStruct> iccBt709 = IccHelper::writeIccProfile(ULTRAHDR_TF_SRGB,
-                                                         ULTRAHDR_COLORGAMUT_BT709);
+    std::shared_ptr<DataStruct> iccBt709 =
+            IccHelper::writeIccProfile(ULTRAHDR_TF_SRGB, ULTRAHDR_COLORGAMUT_BT709);
     ASSERT_NE(iccBt709->getLength(), 0);
     ASSERT_NE(iccBt709->getData(), nullptr);
     EXPECT_EQ(IccHelper::readIccColorGamut(iccBt709->getData(), iccBt709->getLength()),
               ULTRAHDR_COLORGAMUT_BT709);
 
-    sp<DataStruct> iccP3 = IccHelper::writeIccProfile(ULTRAHDR_TF_SRGB, ULTRAHDR_COLORGAMUT_P3);
+    std::shared_ptr<DataStruct> iccP3 =
+            IccHelper::writeIccProfile(ULTRAHDR_TF_SRGB, ULTRAHDR_COLORGAMUT_P3);
     ASSERT_NE(iccP3->getLength(), 0);
     ASSERT_NE(iccP3->getData(), nullptr);
     EXPECT_EQ(IccHelper::readIccColorGamut(iccP3->getData(), iccP3->getLength()),
               ULTRAHDR_COLORGAMUT_P3);
 
-    sp<DataStruct> iccBt2100 = IccHelper::writeIccProfile(ULTRAHDR_TF_SRGB,
-                                                          ULTRAHDR_COLORGAMUT_BT2100);
+    std::shared_ptr<DataStruct> iccBt2100 =
+            IccHelper::writeIccProfile(ULTRAHDR_TF_SRGB, ULTRAHDR_COLORGAMUT_BT2100);
     ASSERT_NE(iccBt2100->getLength(), 0);
     ASSERT_NE(iccBt2100->getData(), nullptr);
     EXPECT_EQ(IccHelper::readIccColorGamut(iccBt2100->getData(), iccBt2100->getLength()),
@@ -61,7 +61,8 @@ TEST_F(IccHelperTest, iccWriteThenRead) {
 }
 
 TEST_F(IccHelperTest, iccEndianness) {
-    sp<DataStruct> icc = IccHelper::writeIccProfile(ULTRAHDR_TF_SRGB, ULTRAHDR_COLORGAMUT_BT709);
+    std::shared_ptr<DataStruct> icc =
+            IccHelper::writeIccProfile(ULTRAHDR_TF_SRGB, ULTRAHDR_COLORGAMUT_BT709);
     size_t profile_size = icc->getLength() - kICCIdentifierSize;
 
     uint8_t* icc_bytes = reinterpret_cast<uint8_t*>(icc->getData()) + kICCIdentifierSize;
@@ -73,5 +74,5 @@ TEST_F(IccHelperTest, iccEndianness) {
     EXPECT_EQ(static_cast<size_t>(encoded_size), profile_size);
 }
 
-}  // namespace android::ultrahdr
+}  // namespace ultrahdr
 

@@ -41,7 +41,6 @@ cc_library {
         "libjpegencoder",
         "libjpegdecoder",
         "liblog",
-        "libutils",
     ],
 }
 
@@ -53,7 +52,6 @@ cc_library {
     shared_libs: [
         "libjpeg",
         "liblog",
-        "libutils",
     ],
 
     export_include_dirs: ["include"],
@@ -71,7 +69,6 @@ cc_library {
     shared_libs: [
         "libjpeg",
         "liblog",
-        "libutils",
     ],
 
     export_include_dirs: ["include"],

@@ -14,23 +14,27 @@
  * limitations under the License.
  */
 
-#ifndef ANDROID_ULTRAHDR_JPEGENCODERHELPER_H
-#define ANDROID_ULTRAHDR_JPEGENCODERHELPER_H
+#ifndef ULTRAHDR_JPEGENCODERHELPER_H
+#define ULTRAHDR_JPEGENCODERHELPER_H
 
-// We must include cstdio before jpeglib.h. It is a requirement of libjpeg.
-#include <cstdio>
-#include <vector>
+#include <stdio.h>  // For jpeglib.h.
 
+// C++ build requires extern C for jpeg internals.
+#ifdef __cplusplus
 extern "C" {
+#endif
+
 #include <jerror.h>
 #include <jpeglib.h>
-}
 
-#include <utils/Errors.h>
+#ifdef __cplusplus
+}  // extern "C"
+#endif
 
-namespace android::ultrahdr {
+#include <cstdint>
+#include <vector>
 
-#define ALIGNM(x, m) ((((x) + ((m)-1)) / (m)) * (m))
+namespace ultrahdr {
 
 /*
  * Encapsulates a converter from raw image (YUV420planer or grey-scale) to JPEG format.
@@ -97,6 +101,6 @@ private:
     std::vector<JOCTET> mResultBuffer;
 };
 
-} /* namespace android::ultrahdr  */
+} /* namespace ultrahdr  */
 
-#endif // ANDROID_ULTRAHDR_JPEGENCODERHELPER_H
+#endif // ULTRAHDR_JPEGENCODERHELPER_H

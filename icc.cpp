@@ -14,19 +14,13 @@
  * limitations under the License.
  */
 
-#ifndef USE_BIG_ENDIAN
-#define USE_BIG_ENDIAN true
-#endif
+#include <cstring>
 
-#include <ultrahdr/icc.h>
-#include <vector>
-#include <utils/Log.h>
+#include "ultrahdr/ultrahdrcommon.h"
+#include "ultrahdr/icc.h"
 
-#ifndef FLT_MAX
-#define FLT_MAX 0x1.fffffep127f
-#endif
+namespace ultrahdr {
 
-namespace android::ultrahdr {
 static void Matrix3x3_apply(const Matrix3x3* m, float* x) {
     float y0 = x[0] * m->vals[0][0] + x[1] * m->vals[0][1] + x[2] * m->vals[0][2];
     float y1 = x[0] * m->vals[1][0] + x[1] * m->vals[1][1] + x[2] * m->vals[1][2];
@@ -169,7 +163,7 @@ std::string IccHelper::get_desc_string(const ultrahdr_transfer_function tf,
     return result;
 }
 
-sp<DataStruct> IccHelper::write_text_tag(const char* text) {
+std::shared_ptr<DataStruct> IccHelper::write_text_tag(const char* text) {
     uint32_t text_length = strlen(text);
     uint32_t header[] = {
             Endian_SwapBE32(kTAG_TextType),                         // Type signature
@@ -183,7 +177,7 @@ sp<DataStruct> IccHelper::write_text_tag(const char* text) {
 
     uint32_t total_length = text_length * 2 + sizeof(header);
     total_length = (((total_length + 2) >> 2) << 2);  // 4 aligned
-    sp<DataStruct> dataStruct = sp<DataStruct>::make(total_length);
+    std::shared_ptr<DataStruct> dataStruct = std::make_shared<DataStruct>(total_length);
 
     if (!dataStruct->write(header, sizeof(header))) {
         ALOGE("write_text_tag(): error in writing data");
@@ -199,7 +193,7 @@ sp<DataStruct> IccHelper::write_text_tag(const char* text) {
     return dataStruct;
 }
 
-sp<DataStruct> IccHelper::write_xyz_tag(float x, float y, float z) {
+std::shared_ptr<DataStruct> IccHelper::write_xyz_tag(float x, float y, float z) {
     uint32_t data[] = {
             Endian_SwapBE32(kXYZ_PCSSpace),
             0,
@@ -207,15 +201,16 @@ sp<DataStruct> IccHelper::write_xyz_tag(float x, float y, float z) {
             static_cast<uint32_t>(Endian_SwapBE32(float_round_to_fixed(y))),
             static_cast<uint32_t>(Endian_SwapBE32(float_round_to_fixed(z))),
     };
-    sp<DataStruct> dataStruct = sp<DataStruct>::make(sizeof(data));
+    std::shared_ptr<DataStruct> dataStruct = std::make_shared<DataStruct>(sizeof(data));
     dataStruct->write(&data, sizeof(data));
     return dataStruct;
 }
 
-sp<DataStruct> IccHelper::write_trc_tag(const int table_entries, const void* table_16) {
+std::shared_ptr<DataStruct> IccHelper::write_trc_tag(const int table_entries,
+                                                     const void* table_16) {
     int total_length = 4 + 4 + 4 + table_entries * 2;
     total_length = (((total_length + 2) >> 2) << 2);  // 4 aligned
-    sp<DataStruct> dataStruct = sp<DataStruct>::make(total_length);
+    std::shared_ptr<DataStruct> dataStruct = std::make_shared<DataStruct>(total_length);
     dataStruct->write32(Endian_SwapBE32(kTAG_CurveType));     // Type
     dataStruct->write32(0);                                   // Reserved
     dataStruct->write32(Endian_SwapBE32(table_entries));      // Value count
@@ -226,11 +221,11 @@ sp<DataStruct> IccHelper::write_trc_tag(const int table_entries, const void* tab
     return dataStruct;
 }
 
-sp<DataStruct> IccHelper::write_trc_tag(const TransferFunction& fn) {
+std::shared_ptr<DataStruct> IccHelper::write_trc_tag(const TransferFunction& fn) {
     if (fn.a == 1.f && fn.b == 0.f && fn.c == 0.f
             && fn.d == 0.f && fn.e == 0.f && fn.f == 0.f) {
         int total_length = 16;
-        sp<DataStruct> dataStruct = new DataStruct(total_length);
+        std::shared_ptr<DataStruct> dataStruct = std::make_shared<DataStruct>(total_length);
         dataStruct->write32(Endian_SwapBE32(kTAG_ParaCurveType));  // Type
         dataStruct->write32(0);                                    // Reserved
         dataStruct->write32(Endian_SwapBE16(kExponential_ParaCurveType));
@@ -239,7 +234,7 @@ sp<DataStruct> IccHelper::write_trc_tag(const TransferFunction& fn) {
     }
 
     int total_length = 40;
-    sp<DataStruct> dataStruct = new DataStruct(total_length);
+    std::shared_ptr<DataStruct> dataStruct = std::make_shared<DataStruct>(total_length);
     dataStruct->write32(Endian_SwapBE32(kTAG_ParaCurveType));  // Type
     dataStruct->write32(0);                                    // Reserved
     dataStruct->write32(Endian_SwapBE16(kGABCDEF_ParaCurveType));
@@ -279,10 +274,10 @@ float IccHelper::compute_tone_map_gain(const ultrahdr_transfer_function tf, floa
     return 1.f;
 }
 
-sp<DataStruct> IccHelper::write_cicp_tag(uint32_t color_primaries,
-                                         uint32_t transfer_characteristics) {
+std::shared_ptr<DataStruct> IccHelper::write_cicp_tag(uint32_t color_primaries,
+                                                      uint32_t transfer_characteristics) {
     int total_length = 12;  // 4 + 4 + 1 + 1 + 1 + 1
-    sp<DataStruct> dataStruct = sp<DataStruct>::make(total_length);
+    std::shared_ptr<DataStruct> dataStruct = std::make_shared<DataStruct>(total_length);
     dataStruct->write32(Endian_SwapBE32(kTAG_cicp));    // Type signature
     dataStruct->write32(0);                             // Reserved
     dataStruct->write8(color_primaries);                // Color primaries
@@ -325,7 +320,8 @@ void IccHelper::compute_lut_entry(const Matrix3x3& src_to_XYZD50, float rgb[3]) 
     Matrix3x3_apply(&rec2020_to_XYZD50, rgb);
 }
 
-sp<DataStruct> IccHelper::write_clut(const uint8_t* grid_points, const uint8_t* grid_16) {
+std::shared_ptr<DataStruct> IccHelper::write_clut(const uint8_t* grid_points,
+                                                  const uint8_t* grid_16) {
     uint32_t value_count = kNumChannels;
     for (uint32_t i = 0; i < kNumChannels; ++i) {
         value_count *= grid_points[i];
@@ -333,7 +329,7 @@ sp<DataStruct> IccHelper::write_clut(const uint8_t* grid_points, const uint8_t* 
 
     int total_length = 20 + 2 * value_count;
     total_length = (((total_length + 2) >> 2) << 2);  // 4 aligned
-    sp<DataStruct> dataStruct = sp<DataStruct>::make(total_length);
+    std::shared_ptr<DataStruct> dataStruct = std::make_shared<DataStruct>(total_length);
 
     for (size_t i = 0; i < 16; ++i) {
         dataStruct->write8(i < kNumChannels ? grid_points[i] : 0);  // Grid size
@@ -351,15 +347,14 @@ sp<DataStruct> IccHelper::write_clut(const uint8_t* grid_points, const uint8_t* 
     return dataStruct;
 }
 
-sp<DataStruct> IccHelper::write_mAB_or_mBA_tag(uint32_t type,
-                                               bool has_a_curves,
-                                               const uint8_t* grid_points,
-                                               const uint8_t* grid_16) {
+std::shared_ptr<DataStruct> IccHelper::write_mAB_or_mBA_tag(uint32_t type, bool has_a_curves,
+                                                            const uint8_t* grid_points,
+                                                            const uint8_t* grid_16) {
     const size_t b_curves_offset = 32;
-    sp<DataStruct> b_curves_data[kNumChannels];
-    sp<DataStruct> a_curves_data[kNumChannels];
+    std::shared_ptr<DataStruct> b_curves_data[kNumChannels];
+    std::shared_ptr<DataStruct> a_curves_data[kNumChannels];
     size_t clut_offset = 0;
-    sp<DataStruct> clut;
+    std::shared_ptr<DataStruct> clut;
     size_t a_curves_offset = 0;
 
     // The "B" curve is required.
@@ -391,7 +386,7 @@ sp<DataStruct> IccHelper::write_mAB_or_mBA_tag(uint32_t type,
             total_length += a_curves_data[i]->getLength();
         }
     }
-    sp<DataStruct> dataStruct = sp<DataStruct>::make(total_length);
+    std::shared_ptr<DataStruct> dataStruct = std::make_shared<DataStruct>(total_length);
     dataStruct->write32(Endian_SwapBE32(type));             // Type signature
     dataStruct->write32(0);                                 // Reserved
     dataStruct->write8(kNumChannels);                       // Input channels
@@ -416,11 +411,11 @@ sp<DataStruct> IccHelper::write_mAB_or_mBA_tag(uint32_t type,
     return dataStruct;
 }
 
-sp<DataStruct> IccHelper::writeIccProfile(ultrahdr_transfer_function tf,
-                                          ultrahdr_color_gamut gamut) {
+std::shared_ptr<DataStruct> IccHelper::writeIccProfile(ultrahdr_transfer_function tf,
+                                                       ultrahdr_color_gamut gamut) {
     ICCHeader header;
 
-    std::vector<std::pair<uint32_t, sp<DataStruct>>> tags;
+    std::vector<std::pair<uint32_t, std::shared_ptr<DataStruct>>> tags;
 
     // Compute profile description tag
     std::string desc = get_desc_string(tf, gamut);
@@ -559,7 +554,8 @@ sp<DataStruct> IccHelper::writeIccProfile(ultrahdr_transfer_function tf,
     size_t tag_table_size = kICCTagTableEntrySize * tags.size();
     size_t profile_size = kICCHeaderSize + tag_table_size + tag_data_size;
 
-    sp<DataStruct> dataStruct = sp<DataStruct>::make(profile_size + kICCIdentifierSize);
+    std::shared_ptr<DataStruct> dataStruct =
+            std::make_shared<DataStruct>(profile_size + kICCIdentifierSize);
 
     // Write identifier, chunk count, and chunk ID
     if (!dataStruct->write(kICCIdentifier, sizeof(kICCIdentifier)) ||
@@ -613,12 +609,12 @@ bool IccHelper::tagsEqualToMatrix(const Matrix3x3& matrix,
                                   const uint8_t* red_tag,
                                   const uint8_t* green_tag,
                                   const uint8_t* blue_tag) {
-    sp<DataStruct> red_tag_test = write_xyz_tag(matrix.vals[0][0], matrix.vals[1][0],
-                                                matrix.vals[2][0]);
-    sp<DataStruct> green_tag_test = write_xyz_tag(matrix.vals[0][1], matrix.vals[1][1],
-                                                  matrix.vals[2][1]);
-    sp<DataStruct> blue_tag_test = write_xyz_tag(matrix.vals[0][2], matrix.vals[1][2],
-                                                 matrix.vals[2][2]);
+    std::shared_ptr<DataStruct> red_tag_test =
+            write_xyz_tag(matrix.vals[0][0], matrix.vals[1][0], matrix.vals[2][0]);
+    std::shared_ptr<DataStruct> green_tag_test =
+            write_xyz_tag(matrix.vals[0][1], matrix.vals[1][1], matrix.vals[2][1]);
+    std::shared_ptr<DataStruct> blue_tag_test =
+            write_xyz_tag(matrix.vals[0][2], matrix.vals[1][2], matrix.vals[2][2]);
     return memcmp(red_tag, red_tag_test->getData(), kColorantTagSize) == 0 &&
            memcmp(green_tag, green_tag_test->getData(), kColorantTagSize) == 0 &&
            memcmp(blue_tag, blue_tag_test->getData(), kColorantTagSize) == 0;
@@ -689,4 +685,4 @@ ultrahdr_color_gamut IccHelper::readIccColorGamut(void* icc_data, size_t icc_siz
     return ULTRAHDR_COLORGAMUT_UNSPECIFIED;
 }
 
-} // namespace android::ultrahdr
+} // namespace ultrahdr

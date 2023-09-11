@@ -14,20 +14,17 @@
  * limitations under the License.
  */
 
-// System include files
 #include <fuzzer/FuzzedDataProvider.h>
 #include <algorithm>
 #include <iostream>
+#include <memory>
 #include <random>
-#include <vector>
 
-// User include files
+#include "ultrahdr/ultrahdrcommon.h"
 #include "ultrahdr/gainmapmath.h"
-#include "ultrahdr/jpegdecoderhelper.h"
-#include "ultrahdr/jpegencoderhelper.h"
-#include "utils/Log.h"
+#include "ultrahdr/jpegr.h"
 
-using namespace android::ultrahdr;
+using namespace ultrahdr;
 
 // Color gamuts for image data, sync with ultrahdr.h
 const int kCgMin = ULTRAHDR_COLORGAMUT_UNSPECIFIED + 1;
@@ -161,10 +158,8 @@ void UltraHdrEncFuzzer::process() {
                 fillP010Buffer(bufferUVHdr.get(), width, height / 2, uvStride);
             }
         } else {
-            size_t map_width = static_cast<size_t>(
-                    floor((width + kMapDimensionScaleFactor - 1) / kMapDimensionScaleFactor));
-            size_t map_height = static_cast<size_t>(
-                    floor((height + kMapDimensionScaleFactor - 1) / kMapDimensionScaleFactor));
+            size_t map_width = width / kMapDimensionScaleFactor;
+            size_t map_height = height / kMapDimensionScaleFactor;
             // init 400 image
             grayImg.width = map_width;
             grayImg.height = map_height;
@@ -207,7 +202,7 @@ void UltraHdrEncFuzzer::process() {
                 fill420Buffer(bufferYSdr.get(), width, height, yStride);
                 size_t yuv420UVSize = uvStride * yuv420Img.height / 2 * 2;
                 bufferUVSdr = std::make_unique<uint8_t[]>(yuv420UVSize);
-                yuv420Img.chroma_data = bufferYSdr.get();
+                yuv420Img.chroma_data = bufferUVSdr.get();
                 yuv420Img.chroma_stride = uvStride;
                 fill420Buffer(bufferUVSdr.get(), width / 2, height / 2, uvStride);
                 fill420Buffer(bufferUVSdr.get() + uvStride * height / 2, width / 2, height / 2,
@@ -235,7 +230,7 @@ void UltraHdrEncFuzzer::process() {
 #endif
 
         JpegR jpegHdr;
-        android::status_t status = android::UNKNOWN_ERROR;
+        status_t status = UNKNOWN_ERROR;
         if (muxSwitch == 0) { // api 0
             jpegImgR.length = 0;
             status = jpegHdr.encodeJPEGR(&p010Img, tf, &jpegImgR, quality, nullptr);
@@ -299,12 +294,12 @@ void UltraHdrEncFuzzer::process() {
                 }
             }
         }
-        if (status == android::OK) {
+        if (status == OK) {
             std::vector<uint8_t> iccData(0);
             std::vector<uint8_t> exifData(0);
             jpegr_info_struct info{0, 0, &iccData, &exifData};
             status = jpegHdr.getJPEGRInfo(&jpegImgR, &info);
-            if (status == android::OK) {
+            if (status == OK) {
                 size_t outSize =
                         info.width * info.height * ((of == ULTRAHDR_OUTPUT_HDR_LINEAR) ? 8 : 4);
                 jpegr_uncompressed_struct decodedJpegR;
@@ -315,7 +310,7 @@ void UltraHdrEncFuzzer::process() {
                 status = jpegHdr.decodeJPEGR(&jpegImgR, &decodedJpegR,
                                              mFdp.ConsumeFloatingPointInRange<float>(1.0, FLT_MAX),
                                              nullptr, of, &decodedGainMap, &metadata);
-                if (status != android::OK) {
+                if (status != OK) {
                     ALOGE("encountered error during decoding %d", status);
                 }
                 if (decodedGainMap.data) free(decodedGainMap.data);

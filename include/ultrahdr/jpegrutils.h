@@ -14,18 +14,13 @@
  * limitations under the License.
  */
 
-#ifndef ANDROID_ULTRAHDR_JPEGRUTILS_H
-#define ANDROID_ULTRAHDR_JPEGRUTILS_H
+#ifndef ULTRAHDR_JPEGRUTILS_H
+#define ULTRAHDR_JPEGRUTILS_H
 
-#include <ultrahdr/jpegr.h>
-#include <utils/RefBase.h>
+#include "ultrahdr/ultrahdr.h"
+#include "ultrahdr/jpegr.h"
 
-#include <sstream>
-#include <stdint.h>
-#include <string>
-#include <cstdio>
-
-namespace android::ultrahdr {
+namespace ultrahdr {
 
 static constexpr uint32_t EndianSwap32(uint32_t value) {
     return ((value & 0xFF) << 24) |
@@ -37,27 +32,20 @@ static inline uint16_t EndianSwap16(uint16_t value) {
     return static_cast<uint16_t>((value >> 8) | ((value & 0xFF) << 8));
 }
 
-#if USE_BIG_ENDIAN
-    #define Endian_SwapBE32(n) EndianSwap32(n)
-    #define Endian_SwapBE16(n) EndianSwap16(n)
-#else
-    #define Endian_SwapBE32(n) (n)
-    #define Endian_SwapBE16(n) (n)
-#endif
-
 struct ultrahdr_metadata_struct;
 /*
  * Mutable data structure. Holds information for metadata.
  */
-class DataStruct : public RefBase {
+class DataStruct {
 private:
     void* data;
     int writePos;
     int length;
-    ~DataStruct();
 
 public:
     DataStruct(int s);
+    ~DataStruct();
+
     void* getData();
     int getLength();
     int getBytesWritten();
@@ -162,6 +150,6 @@ std::string generateXmpForPrimaryImage(int secondary_image_length,
  * @return XMP metadata in type of string
  */
  std::string generateXmpForSecondaryImage(ultrahdr_metadata_struct& metadata);
-}  // namespace android::ultrahdr
+}  // namespace ultrahdr
 
-#endif //ANDROID_ULTRAHDR_JPEGRUTILS_H
+#endif //ULTRAHDR_JPEGRUTILS_H

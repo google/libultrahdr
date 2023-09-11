@@ -14,21 +14,28 @@
  * limitations under the License.
  */
 
-#include <ultrahdr/jpegencoderhelper.h>
-#include <gtest/gtest.h>
-#include <utils/Log.h>
-
 #include <fcntl.h>
+#include <gtest/gtest.h>
 
-namespace android::ultrahdr {
+#include "ultrahdr/ultrahdrcommon.h"
+#include "ultrahdr/ultrahdr.h"
+#include "ultrahdr/jpegencoderhelper.h"
 
-#define ALIGNED_IMAGE "/sdcard/Documents/minnie-320x240.yu12"
+namespace ultrahdr {
+
+#ifdef __ANDROID__
+#define ALIGNED_IMAGE "/data/local/tmp/minnie-320x240.yu12"
+#define SINGLE_CHANNEL_IMAGE "/data/local/tmp/minnie-320x240.y"
+#define UNALIGNED_IMAGE "/data/local/tmp/minnie-318x240.yu12"
+#else
+#define ALIGNED_IMAGE "./data/minnie-320x240.yu12"
+#define SINGLE_CHANNEL_IMAGE "./data/minnie-320x240.y"
+#define UNALIGNED_IMAGE "./data/minnie-318x240.yu12"
+#endif
 #define ALIGNED_IMAGE_WIDTH 320
 #define ALIGNED_IMAGE_HEIGHT 240
-#define SINGLE_CHANNEL_IMAGE "/sdcard/Documents/minnie-320x240.y"
 #define SINGLE_CHANNEL_IMAGE_WIDTH ALIGNED_IMAGE_WIDTH
 #define SINGLE_CHANNEL_IMAGE_HEIGHT ALIGNED_IMAGE_HEIGHT
-#define UNALIGNED_IMAGE "/sdcard/Documents/minnie-318x240.yu12"
 #define UNALIGNED_IMAGE_WIDTH 318
 #define UNALIGNED_IMAGE_HEIGHT 240
 #define JPEG_QUALITY 90
@@ -132,4 +139,4 @@ TEST_F(JpegEncoderHelperTest, encodeSingleChannelImage) {
     ASSERT_GT(encoder.getCompressedImageSize(), static_cast<uint32_t>(0));
 }
 
-} // namespace android::ultrahdr
+} // namespace ultrahdr

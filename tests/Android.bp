@@ -22,12 +22,35 @@ package {
 }
 
 cc_test {
+    name: "ultrahdr_sample_app",
+    host_supported: true,
+    gtest: false,
+    test_suites: ["device-tests"],
+    srcs: [
+        "ultrahdr_app.cpp",
+    ],
+    shared_libs: [
+        "libbase",
+        "libimage_io",
+        "libjpeg",
+        "liblog",
+    ],
+    static_libs: [
+        "libjpegdecoder",
+        "libjpegencoder",
+        "libultrahdr",
+    ],
+}
+
+cc_test {
     name: "ultrahdr_unit_test",
     test_suites: ["device-tests"],
     srcs: [
         "gainmapmath_test.cpp",
         "icchelper_test.cpp",
         "jpegr_test.cpp",
+        "jpegencoderhelper_test.cpp",
+        "jpegdecoderhelper_test.cpp",
     ],
     shared_libs: [
         "libimage_io",
@@ -40,40 +63,8 @@ cc_test {
         "libjpegdecoder",
         "libjpegencoder",
         "libultrahdr",
-        "libutils",
     ],
-}
-
-cc_test {
-    name: "jpegencoderhelper_test",
-    test_suites: ["device-tests"],
-    srcs: [
-        "jpegencoderhelper_test.cpp",
-    ],
-    shared_libs: [
-        "libjpeg",
-        "liblog",
-    ],
-    static_libs: [
-        "libgtest",
-        "libjpegencoder",
-    ],
-}
-
-cc_test {
-    name: "jpegdecoderhelper_test",
-    test_suites: ["device-tests"],
-    srcs: [
-        "jpegdecoderhelper_test.cpp",
-    ],
-    shared_libs: [
-        "libjpeg",
-        "liblog",
-    ],
-    static_libs: [
-        "libgtest",
-        "libjpegdecoder",
-        "libultrahdr",
-        "libutils",
+    data: [
+        "./data/*.*",
     ],
 }

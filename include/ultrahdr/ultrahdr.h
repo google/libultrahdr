@@ -14,12 +14,12 @@
  * limitations under the License.
  */
 
-#ifndef ANDROID_ULTRAHDR_ULTRAHDR_H
-#define ANDROID_ULTRAHDR_ULTRAHDR_H
+#ifndef ULTRAHDR_ULTRAHDR_H
+#define ULTRAHDR_ULTRAHDR_H
 
 #include <string>
 
-namespace android::ultrahdr {
+namespace ultrahdr {
 // Color gamuts for image data
 typedef enum {
   ULTRAHDR_COLORGAMUT_UNSPECIFIED = -1,
@@ -30,6 +30,7 @@ typedef enum {
 } ultrahdr_color_gamut;
 
 // Transfer functions for image data
+// TODO: TF LINEAR is deprecated, remove this enum and the code surrounding it.
 typedef enum {
   ULTRAHDR_TF_UNSPECIFIED = -1,
   ULTRAHDR_TF_LINEAR = 0,
@@ -76,6 +77,6 @@ struct ultrahdr_metadata_struct {
 };
 typedef struct ultrahdr_metadata_struct* ultrahdr_metadata_ptr;
 
-}  // namespace android::ultrahdr
+}  // namespace ultrahdr
 
-#endif //ANDROID_ULTRAHDR_ULTRAHDR_H
+#endif //ULTRAHDR_ULTRAHDR_H

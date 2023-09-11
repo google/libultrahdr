@@ -16,12 +16,13 @@
 
 #include <cstring>
 #include <memory>
-#include <vector>
+#include <string>
 
-#include <ultrahdr/jpegencoderhelper.h>
-#include <utils/Log.h>
+#include "ultrahdr/ultrahdrcommon.h"
+#include "ultrahdr/ultrahdr.h"
+#include "ultrahdr/jpegencoderhelper.h"
 
-namespace android::ultrahdr {
+namespace ultrahdr {
 
 // The destination manager that can access |mResultBuffer| in JpegEncoderHelper.
 struct destination_mgr {
@@ -41,7 +42,7 @@ bool JpegEncoderHelper::compressImage(const uint8_t* yBuffer, const uint8_t* uvB
                 iccSize)) {
         return false;
     }
-    ALOGI("Compressed JPEG: %d[%dx%d] -> %zu bytes", (width * height * 12) / 8, width, height,
+    ALOGV("Compressed JPEG: %d[%dx%d] -> %zu bytes", (width * height * 12) / 8, width, height,
           mResultBuffer.size());
     return true;
 }
@@ -270,4 +271,4 @@ bool JpegEncoderHelper::compressY(jpeg_compress_struct* cinfo, const uint8_t* yB
     return true;
 }
 
-} // namespace android::ultrahdr
+} // namespace ultrahdr

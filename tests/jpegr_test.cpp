@@ -15,24 +15,29 @@
  */
 
 #include <sys/time.h>
+#include <gtest/gtest.h>
+
 #include <fstream>
 #include <iostream>
 
-#include <ultrahdr/gainmapmath.h>
-#include <ultrahdr/jpegr.h>
-#include <ultrahdr/jpegrutils.h>
-
-#include <gtest/gtest.h>
-#include <utils/Log.h>
+#include "ultrahdr/ultrahdrcommon.h"
+#include "ultrahdr/jpegr.h"
+#include "ultrahdr/jpegrutils.h"
 
 //#define DUMP_OUTPUT
 
-namespace android::ultrahdr {
+namespace ultrahdr {
 
 // resources used by unit tests
-const char* kYCbCrP010FileName = "raw_p010_image.p010";
-const char* kYCbCr420FileName = "raw_yuv420_image.yuv420";
-const char* kSdrJpgFileName = "jpeg_image.jpg";
+#ifdef __ANDROID__
+const char* kYCbCrP010FileName = "/data/local/tmp/raw_p010_image.p010";
+const char* kYCbCr420FileName = "/data/local/tmp/raw_yuv420_image.yuv420";
+const char* kSdrJpgFileName = "/data/local/tmp/jpeg_image.jpg";
+#else
+const char* kYCbCrP010FileName = "./data/raw_p010_image.p010";
+const char* kYCbCr420FileName = "./data/raw_yuv420_image.yuv420";
+const char* kSdrJpgFileName = "./data/jpeg_image.jpg";
+#endif
 const int kImageWidth = 1280;
 const int kImageHeight = 720;
 const int kQuality = 90;
@@ -2032,4 +2037,4 @@ TEST(JpegRTest, ProfileGainMapFuncs) {
           benchmark.BenchmarkApplyGainMap(rawImg420.getImageHandle(), &map, &metadata, &dest));
 }
 
-} // namespace android::ultrahdr
+} // namespace ultrahdr

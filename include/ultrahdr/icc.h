@@ -14,22 +14,29 @@
  * limitations under the License.
  */
 
-#ifndef ANDROID_ULTRAHDR_ICC_H
-#define ANDROID_ULTRAHDR_ICC_H
+#ifndef ULTRAHDR_ICC_H
+#define ULTRAHDR_ICC_H
 
-#include <ultrahdr/gainmapmath.h>
-#include <ultrahdr/jpegr.h>
-#include <ultrahdr/jpegrutils.h>
-#include <utils/RefBase.h>
-#include <cmath>
-#include <string>
+#include <memory>
 
-#ifdef USE_BIG_ENDIAN
-#undef USE_BIG_ENDIAN
-#define USE_BIG_ENDIAN true
+#ifndef USE_BIG_ENDIAN_IN_ICC
+#define USE_BIG_ENDIAN_IN_ICC true
 #endif
 
-namespace android::ultrahdr {
+#if USE_BIG_ENDIAN_IN_ICC
+    #define Endian_SwapBE32(n) EndianSwap32(n)
+    #define Endian_SwapBE16(n) EndianSwap16(n)
+#else
+    #define Endian_SwapBE32(n) (n)
+    #define Endian_SwapBE16(n) (n)
+#endif
+
+#include "ultrahdr/ultrahdr.h"
+#include "ultrahdr/jpegr.h"
+#include "ultrahdr/gainmapmath.h"
+#include "ultrahdr/jpegrutils.h"
+
+namespace ultrahdr {
 
 typedef int32_t              Fixed;
 #define Fixed1               (1 << 16)
@@ -218,21 +225,21 @@ private:
     static constexpr uint32_t kGridSize = 17;
     static constexpr size_t kNumChannels = 3;
 
-    static sp<DataStruct> write_text_tag(const char* text);
+    static std::shared_ptr<DataStruct> write_text_tag(const char* text);
     static std::string get_desc_string(const ultrahdr_transfer_function tf,
                                        const ultrahdr_color_gamut gamut);
-    static sp<DataStruct> write_xyz_tag(float x, float y, float z);
-    static sp<DataStruct> write_trc_tag(const int table_entries, const void* table_16);
-    static sp<DataStruct> write_trc_tag(const TransferFunction& fn);
+    static std::shared_ptr<DataStruct> write_xyz_tag(float x, float y, float z);
+    static std::shared_ptr<DataStruct> write_trc_tag(const int table_entries, const void* table_16);
+    static std::shared_ptr<DataStruct> write_trc_tag(const TransferFunction& fn);
     static float compute_tone_map_gain(const ultrahdr_transfer_function tf, float L);
-    static sp<DataStruct> write_cicp_tag(uint32_t color_primaries,
-                                         uint32_t transfer_characteristics);
-    static sp<DataStruct> write_mAB_or_mBA_tag(uint32_t type,
-                                               bool has_a_curves,
-                                               const uint8_t* grid_points,
-                                               const uint8_t* grid_16);
+    static std::shared_ptr<DataStruct> write_cicp_tag(uint32_t color_primaries,
+                                                      uint32_t transfer_characteristics);
+    static std::shared_ptr<DataStruct> write_mAB_or_mBA_tag(uint32_t type, bool has_a_curves,
+                                                            const uint8_t* grid_points,
+                                                            const uint8_t* grid_16);
     static void compute_lut_entry(const Matrix3x3& src_to_XYZD50, float rgb[3]);
-    static sp<DataStruct> write_clut(const uint8_t* grid_points, const uint8_t* grid_16);
+    static std::shared_ptr<DataStruct> write_clut(const uint8_t* grid_points,
+                                                  const uint8_t* grid_16);
 
     // Checks if a set of xyz tags is equivalent to a 3x3 Matrix. Each input
     // tag buffer assumed to be at least kColorantTagSize in size.
@@ -244,13 +251,13 @@ private:
 public:
     // Output includes JPEG embedding identifier and chunk information, but not
     // APPx information.
-    static sp<DataStruct> writeIccProfile(const ultrahdr_transfer_function tf,
-                                          const ultrahdr_color_gamut gamut);
+    static std::shared_ptr<DataStruct> writeIccProfile(const ultrahdr_transfer_function tf,
+                                                       const ultrahdr_color_gamut gamut);
     // NOTE: this function is not robust; it can infer gamuts that IccHelper
     // writes out but should not be considered a reference implementation for
     // robust parsing of ICC profiles or their gamuts.
     static ultrahdr_color_gamut readIccColorGamut(void* icc_data, size_t icc_size);
 };
-}  // namespace android::ultrahdr
+}  // namespace ultrahdr
 
-#endif //ANDROID_ULTRAHDR_ICC_H
+#endif //ULTRAHDR_ICC_H

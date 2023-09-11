@@ -14,15 +14,13 @@
  * limitations under the License.
  */
 
-// System include files
 #include <fuzzer/FuzzedDataProvider.h>
 #include <iostream>
-#include <vector>
+#include <memory>
 
-// User include files
 #include "ultrahdr/jpegr.h"
 
-using namespace android::ultrahdr;
+using namespace ultrahdr;
 
 // Transfer functions for image data, sync with ultrahdr.h
 const int kOfMin = ULTRAHDR_OUTPUT_UNSPECIFIED + 1;

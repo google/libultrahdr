@@ -14,17 +14,29 @@
  * limitations under the License.
  */
 
-#ifndef ANDROID_ULTRAHDR_MULTIPICTUREFORMAT_H
-#define ANDROID_ULTRAHDR_MULTIPICTUREFORMAT_H
+#ifndef ULTRAHDR_MULTIPICTUREFORMAT_H
+#define ULTRAHDR_MULTIPICTUREFORMAT_H
 
-#include <ultrahdr/jpegrutils.h>
+#include <memory>
 
-#ifdef USE_BIG_ENDIAN
-#undef USE_BIG_ENDIAN
-#define USE_BIG_ENDIAN true
+#ifndef USE_BIG_ENDIAN_IN_MPF
+#define USE_BIG_ENDIAN_IN_MPF true
 #endif
 
-namespace android::ultrahdr {
+#if USE_BIG_ENDIAN_IN_MPF
+    #define Endian_SwapBE32(n) EndianSwap32(n)
+    #define Endian_SwapBE16(n) EndianSwap16(n)
+#else
+    #define Endian_SwapBE32(n) (n)
+    #define Endian_SwapBE16(n) (n)
+#endif
+
+#include "ultrahdr/ultrahdr.h"
+#include "ultrahdr/jpegr.h"
+#include "ultrahdr/gainmapmath.h"
+#include "ultrahdr/jpegrutils.h"
+
+namespace ultrahdr {
 
 constexpr size_t kNumPictures = 2;
 constexpr size_t kMpEndianSize = 4;
@@ -56,9 +68,9 @@ constexpr uint32_t kMPEntryAttributeFormatJpeg = 0x0000000;
 constexpr uint32_t kMPEntryAttributeTypePrimary = 0x030000;
 
 size_t calculateMpfSize();
-sp<DataStruct> generateMpf(int primary_image_size, int primary_image_offset,
-                           int secondary_image_size, int secondary_image_offset);
+std::shared_ptr<DataStruct> generateMpf(int primary_image_size, int primary_image_offset,
+                                        int secondary_image_size, int secondary_image_offset);
 
-}  // namespace android::ultrahdr
+}  // namespace ultrahdr
 
-#endif //ANDROID_ULTRAHDR_MULTIPICTUREFORMAT_H
+#endif //ULTRAHDR_MULTIPICTUREFORMAT_H

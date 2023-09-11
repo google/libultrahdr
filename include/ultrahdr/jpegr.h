@@ -14,22 +14,16 @@
  * limitations under the License.
  */
 
-#ifndef ANDROID_ULTRAHDR_JPEGR_H
-#define ANDROID_ULTRAHDR_JPEGR_H
+#ifndef ULTRAHDR_JPEGR_H
+#define ULTRAHDR_JPEGR_H
 
-#include <cstdint>
-#include <vector>
+#include <cfloat>
 
+#include "ultrahdr/ultrahdr.h"
 #include "ultrahdr/jpegdecoderhelper.h"
 #include "ultrahdr/jpegencoderhelper.h"
-#include "ultrahdr/jpegrerrorcode.h"
-#include "ultrahdr/ultrahdr.h"
 
-#ifndef FLT_MAX
-#define FLT_MAX 0x1.fffffep127f
-#endif
-
-namespace android::ultrahdr {
+namespace ultrahdr {
 
 // The current JPEGR version that we encode to
 static const char* const kJpegrVersion = "1.0";
@@ -43,11 +37,32 @@ static const size_t kMapDimensionScaleFactor = 4;
 static const int kMinWidth = 2 * kMapDimensionScaleFactor;
 static const int kMinHeight = 2 * kMapDimensionScaleFactor;
 
-// Minimum Codec Unit(MCU) for 420 sub-sampling is decided by JPEG encoder by parameter
-// JpegEncoderHelper::kCompressBatchSize.
-// The width and height of image under compression is expected to be a multiple of MCU size.
-// If this criteria is not satisfied, padding is done.
-static const size_t kJpegBlock = JpegEncoderHelper::kCompressBatchSize;
+typedef enum {
+    OK            = 0,
+    NO_ERROR      = OK,
+    UNKNOWN_ERROR = (-2147483647 - 1),
+
+    JPEGR_IO_ERROR_BASE                  = -10000,
+    ERROR_JPEGR_INVALID_INPUT_TYPE       = JPEGR_IO_ERROR_BASE,
+    ERROR_JPEGR_INVALID_OUTPUT_TYPE      = JPEGR_IO_ERROR_BASE - 1,
+    ERROR_JPEGR_INVALID_NULL_PTR         = JPEGR_IO_ERROR_BASE - 2,
+    ERROR_JPEGR_RESOLUTION_MISMATCH      = JPEGR_IO_ERROR_BASE - 3,
+    ERROR_JPEGR_BUFFER_TOO_SMALL         = JPEGR_IO_ERROR_BASE - 4,
+    ERROR_JPEGR_INVALID_COLORGAMUT       = JPEGR_IO_ERROR_BASE - 5,
+    ERROR_JPEGR_INVALID_TRANS_FUNC       = JPEGR_IO_ERROR_BASE - 6,
+    ERROR_JPEGR_INVALID_METADATA         = JPEGR_IO_ERROR_BASE - 7,
+    ERROR_JPEGR_UNSUPPORTED_METADATA     = JPEGR_IO_ERROR_BASE - 8,
+    ERROR_JPEGR_GAIN_MAP_IMAGE_NOT_FOUND = JPEGR_IO_ERROR_BASE - 9,
+
+    JPEGR_RUNTIME_ERROR_BASE      = -20000,
+    ERROR_JPEGR_ENCODE_ERROR      = JPEGR_RUNTIME_ERROR_BASE - 1,
+    ERROR_JPEGR_DECODE_ERROR      = JPEGR_RUNTIME_ERROR_BASE - 2,
+    ERROR_JPEGR_CALCULATION_ERROR = JPEGR_RUNTIME_ERROR_BASE - 3,
+    ERROR_JPEGR_METADATA_ERROR    = JPEGR_RUNTIME_ERROR_BASE - 4,
+    ERROR_JPEGR_TONEMAP_ERROR     = JPEGR_RUNTIME_ERROR_BASE - 5,
+
+    ERROR_JPEGR_UNSUPPORTED_FEATURE = -20000,
+} status_t;
 
 /*
  * Holds information of jpegr image
@@ -180,8 +195,6 @@ public:
      * @param p010_image_ptr uncompressed HDR image in P010 color format
      * @param yuv420_image_ptr uncompressed SDR image in YUV_420 color format
      * @param yuv420jpg_image_ptr SDR image compressed in jpeg format
-     *                            Note: the compressed SDR image must be the compressed
-     *                                  yuv420_image_ptr image in JPEG format.
      * @param hdr_tf transfer function of the HDR image
      * @param dest destination of the compressed JPEGR image. Please note that {@code maxLength}
      *             represents the maximum available size of the desitination buffer, and it must be
@@ -366,22 +379,24 @@ private:
      * the compressed gain map and optionally the exif package as inputs, and generate the XMP
      * metadata, and finally append everything in the order of:
      *     SOI, APP2(EXIF) (if EXIF is from outside), APP2(XMP), primary image, gain map
-     * Note that EXIF package is only available for encoding API-0 and API-1. For encoding API-2 and
-     * API-3 this parameter is null, but the primary image in JPEG/R may still have EXIF as long as
-     * the input JPEG has EXIF.
      *
-
+     * Note that in the final JPEG/R output, EXIF package will appear if ONLY ONE of the following
+     * conditions is fulfilled:
+     *  (1) EXIF package is available from outside input. I.e. pExif != nullptr.
+     *  (2) Input JPEG has EXIF.
+     * If both conditions are fulfilled, this method will return ERROR_JPEGR_INVALID_INPUT_TYPE
+     *
      * @param primary_jpg_image_ptr destination of primary image
      * @param gainmap_jpg_image_ptr destination of compressed gain map image
-     * @param (nullable) exif EXIF package
-     * @param (nullable) icc ICC package
+     * @param (nullable) pExif EXIF package
+     * @param (nullable) pIcc ICC package
      * @param icc_size length in bytes of ICC package
      * @param metadata JPEG/R metadata to encode in XMP of the jpeg
      * @param dest compressed JPEGR image
      * @return NO_ERROR if calculation succeeds, error code if error occurs.
      */
     status_t appendGainMap(jr_compressed_ptr primary_jpg_image_ptr,
-                           jr_compressed_ptr gainmap_jpg_image_ptr, jr_exif_ptr exif, void* icc,
+                           jr_compressed_ptr gainmap_jpg_image_ptr, jr_exif_ptr pExif, void* pIcc,
                            size_t icc_size, ultrahdr_metadata_ptr metadata, jr_compressed_ptr dest);
 
     /*
@@ -445,6 +460,6 @@ private:
                                     ultrahdr_transfer_function hdr_tf, jr_compressed_ptr dest,
                                     int quality);
 };
-} // namespace android::ultrahdr
+} // namespace ultrahdr
 
-#endif // ANDROID_ULTRAHDR_JPEGR_H
+#endif // ULTRAHDR_JPEGR_H

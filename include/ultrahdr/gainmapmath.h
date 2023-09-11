@@ -14,17 +14,17 @@
  * limitations under the License.
  */
 
-#ifndef ANDROID_ULTRAHDR_RECOVERYMAPMATH_H
-#define ANDROID_ULTRAHDR_RECOVERYMAPMATH_H
+#ifndef ULTRAHDR_GAINMAPMATH_H
+#define ULTRAHDR_GAINMAPMATH_H
 
 #include <cmath>
-#include <stdint.h>
 
-#include <ultrahdr/jpegr.h>
-
-namespace android::ultrahdr {
+#include "ultrahdr/ultrahdr.h"
+#include "ultrahdr/jpegr.h"
 
 #define CLIP3(x, min, max) ((x) < (min)) ? (min) : ((x) > (max)) ? (max) : (x)
+
+namespace ultrahdr {
 
 ////////////////////////////////////////////////////////////////////////////////
 // Framework
@@ -500,6 +500,6 @@ uint32_t colorToRgba1010102(Color e_gamma);
  */
 uint64_t colorToRgbaF16(Color e_gamma);
 
-} // namespace android::ultrahdr
+} // namespace ultrahdr
 
-#endif // ANDROID_ULTRAHDR_RECOVERYMAPMATH_H
+#endif // ULTRAHDR_GAINMAPMATH_H
