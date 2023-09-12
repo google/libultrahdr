@@ -914,32 +914,3 @@ the example file illustrated in the [Introduction](#introduction) section.
 &lt;/x:xmpmeta>
 </pre>
 </div>
-
-
-### Getting Started
-
-Supports:
-- x86_32/x86_64 on Linux.
-
-Preferred Compiler: Clang
-Tested with:
-- C compiler: Clang 15.0.7
-- CXX compiler: Clang 15.0.7
-
-### Building for x86_32 on a x86_64 Linux machine
-```
-$ cd libs/ultrahdr/third_party_libs
-
-# Add libimage_io
-$ git clone https://android.googlesource.com/platform/external/image_io
-$ cd image_io/src
-$ git clone https://android.googlesource.com/platform/external/modp_b64
-$ cd ../..
-$ Add "#include <limits>" in frameworks-native/libs/ultrahdr/third_party_libs/image_io/src/jpeg/jpeg_info_builder.cc
-
-$ cd ..
-$ mkdir build
-$ cd build
-$ cmake ..
-$ make
-```
