@@ -1,0 +1,73 @@
+package {
+    default_applicable_licenses: ["external_image_io_license"],
+}
+
+// Added automatically by a large-scale-change
+// See: http://go/android-license-faq
+license {
+    name: "external_image_io_license",
+    visibility: [":__subpackages__"],
+    license_kinds: [
+        "SPDX-license-identifier-Apache-2.0",
+    ],
+    license_text: [
+        "LICENSE",
+    ],
+}
+
+cc_defaults {
+    name: "libimage_io-defaults",
+    cflags: [
+        "-DUNIX_ENV=1",
+        "-Werror",
+        "-Wno-reorder",
+        "-Wno-unused-parameter",
+    ],
+    rtti: true,
+    cppflags: ["-fno-exceptions"],
+
+    sanitize: {
+        misc_undefined: [
+            "unsigned-integer-overflow",
+            "signed-integer-overflow",
+        ],
+    },
+}
+
+cc_library_headers {
+  name: "libimage_io-headers",
+  host_supported: true,
+  export_include_dirs: ["includes"],
+}
+
+
+cc_library {
+    name: "libimage_io",
+    host_supported: true,
+    defaults: ["libimage_io-defaults"],
+    header_libs: ["libimage_io-headers"],
+    export_include_dirs: ["includes"],
+    srcs: ["src/**/*.cc"],
+    static_libs: [
+        "libmodpb64",
+    ],
+}
+
+cc_library_headers {
+  name: "libimage_io_ndk-headers",
+  export_include_dirs: ["includes"],
+  sdk_version: "current",
+}
+
+cc_library_static {
+    name: "libimage_io_ndk",
+    defaults: ["libimage_io-defaults"],
+    header_libs: ["libimage_io_ndk-headers"],
+    export_include_dirs: ["includes"],
+    srcs: ["src/**/*.cc"],
+    static_libs: [
+        "libmodpb64_ndk",
+    ],
+    sdk_version: "current",
+    stl: "c++_static",
+}
