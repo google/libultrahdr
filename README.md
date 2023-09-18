@@ -10,3 +10,11 @@ Preferred Compiler: Clang
 Tested with:
 - C compiler: Clang 15.0.7
 - CXX compiler: Clang 15.0.7
+
+### Building for x86_32 on a x86_64 Linux machine
+```
+$ mkdir build
+$ cd build
+$ cmake ..
+$ make
+```
