@@ -1,5 +1,6 @@
 #include "image_io/jpeg/jpeg_info_builder.h"
 
+#include <limits>
 #include <sstream>
 #include <string>
 

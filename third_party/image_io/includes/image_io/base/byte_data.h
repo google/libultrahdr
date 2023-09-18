@@ -126,6 +126,14 @@ class ByteData {
     return hex_string;
   }
 
+  /// @param value The UInt16 value to convert to an eight digit hex string.
+  /// @return The big endian hex string equivalent of the value.
+  static std::string UInt162BigEndianHex(UInt16 value) {
+    std::string hex_string = Byte2Hex((value >> 8) & 0xFF);
+    hex_string += Byte2Hex(value & 0xFF);
+    return hex_string;
+  }
+
  private:
   Type type_;
   std::string value_;

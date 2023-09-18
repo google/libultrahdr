@@ -59,6 +59,15 @@ class DataScanner {
   /// @return The set of whitespace characters: " \t\n\r".
   static std::string GetWhitespaceChars();
 
+  /// @return The characters used for base64 encoding and optionally the pad
+  /// char at the end of the string.
+  /// @param include_pad_char Whether to include the base64 pad char at the end
+  /// of the string.
+  static std::string GetBase64Chars(bool include_pad_char);
+
+  /// @return The character used to pad base64 encoded strings.
+  static std::string GetBase64PadChar();
+
   /// @param literal The literal to use for the scanner.
   /// @return A kLiteral type scanner.
   static DataScanner CreateLiteralScanner(const std::string& literal);
@@ -85,11 +94,25 @@ class DataScanner {
   /// @return A kOptionalWhitespace type scanner;
   static DataScanner CreateOptionalWhitespaceScanner();
 
+  /// A function like strspn that accepts the length of string to scan. If the
+  /// return value, ret,  is not slen, then s[ret] is not in scanset.
+  /// @param s The string to scan
+  /// @param slen The length of the string to scan
+  /// @param scanset The set of characters to scan/skip over.
+  /// @return The number of scanned characters in s that were in accept.
+  static size_t ScanChars(const char* s, size_t slen, const char* scanset);
+
   /// @return The type of the scanner.
   Type GetType() const { return type_; }
 
-  /// @return A description of the scanner, based on the type.
+  /// @return A description of the scanner, or one that is based on the type.
   std::string GetDescription() const;
+
+  /// @param The description to use for the scanner instead of an internal one
+  /// that is based on the type of scanner.
+  void SetDescription(const std::string& description) {
+    description_ = description;
+  }
 
   /// @return The literal value of a kLiteral or kThroughLiteral type scanner,
   /// or an empty string otherwise.
@@ -121,6 +144,10 @@ class DataScanner {
   /// Reset the scanner state to the value it had when it was first constructed.
   void Reset();
 
+  /// @param delta_length The byte count to use to extend the token range end.
+  /// @return The new length of the token range.
+  size_t ExtendTokenLength(size_t delta_length);
+
  private:
   explicit DataScanner(Type type) : DataScanner(type, "") {}
   DataScanner(Type type, const std::string& literal_or_sentinels)
@@ -128,10 +155,6 @@ class DataScanner {
         data_(0),
         scan_call_count_(0),
         type_(type) {}
-
-  /// @param delta_length The byte count to use to extend the token range end.
-  /// @return The new length of the token range.
-  size_t ExtendTokenLength(size_t delta_length);
 
   /// The worker functions for scanning each type of literal.
   /// @param cbytes The pointer value to the buffer at the context's location.
@@ -168,6 +191,9 @@ class DataScanner {
 
   /// The string used for kLiteral, kThroughLiteral and kSentinel type scanners.
   std::string literal_or_sentinels_;
+
+  /// The custom description of the scanner.
+  std::string description_;
 
   /// The token range built by one or calls to the Scan() function.
   DataRange token_range_;

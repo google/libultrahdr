@@ -1,5 +1,7 @@
 #include "image_io/base/istream_ref_data_source.h"
 
+#include <algorithm>
+
 #include "image_io/base/data_destination.h"
 #include "image_io/base/data_segment.h"
 

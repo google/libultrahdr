@@ -35,15 +35,17 @@ cc_defaults {
 }
 
 cc_library_headers {
-  name: "libimage_io-headers",
-  host_supported: true,
-  export_include_dirs: ["includes"],
+    name: "libimage_io-headers",
+    host_supported: true,
+    vendor_available: true,
+    export_include_dirs: ["includes"],
 }
 
 
 cc_library {
     name: "libimage_io",
     host_supported: true,
+    vendor_available: true,
     defaults: ["libimage_io-defaults"],
     header_libs: ["libimage_io-headers"],
     export_include_dirs: ["includes"],

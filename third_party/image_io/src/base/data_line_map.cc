@@ -5,8 +5,6 @@
 namespace photos_editing_formats {
 namespace image_io {
 
-size_t DataLineMap::GetDataLineCount() const { return data_lines_.size(); }
-
 DataLine DataLineMap::GetDataLine(size_t location) const {
   if (data_lines_.empty()) {
     return DataLine();

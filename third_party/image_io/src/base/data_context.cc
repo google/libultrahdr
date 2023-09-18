@@ -1,8 +1,10 @@
 #include "image_io/base/data_context.h"
 
+#include <algorithm>
 #include <cctype>
 #include <iomanip>
 #include <sstream>
+#include <string>
 
 #include "image_io/base/byte_data.h"
 

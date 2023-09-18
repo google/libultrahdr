@@ -26,7 +26,10 @@ class DataLineMap {
   DataLineMap() : last_line_incomplete_(false) {}
 
   /// Returns the number of data lines in the map.
-  size_t GetDataLineCount() const;
+  size_t GetDataLineCount() const { return data_lines_.size(); }
+
+  /// Returns the data lines
+  const std::vector<DataLine> GetDataLines() const { return data_lines_; }
 
   /// Returns the data line assocated with the location, or one the number of
   /// which is zero and the range of which is invalid.

@@ -1,5 +1,6 @@
 #include "image_io/base/data_segment.h"
 
+#include <algorithm>
 #include <cstring>
 
 namespace photos_editing_formats {

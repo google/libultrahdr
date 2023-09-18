@@ -2,6 +2,7 @@
 #define IMAGE_IO_BASE_MESSAGE_HANDLER_H_  // NOLINT
 
 #include <memory>
+#include <string>
 #include <vector>
 
 #include "image_io/base/message.h"

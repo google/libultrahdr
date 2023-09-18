@@ -1,11 +1,18 @@
 #include "image_io/base/data_scanner.h"
 
+#include <algorithm>
+
 namespace photos_editing_formats {
 namespace image_io {
+
+using std::string;
 
 namespace {
 
 const char kWhitespaceChars[] = " \t\n\r";
+const char kBase64PadChar = '=';
+const char kBase64Chars[] =
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
 /// This function is like strspn but does not assume a null-terminated string.
 size_t memspn(const char* s, size_t slen, const char* accept) {
@@ -49,9 +56,17 @@ size_t ScanWhitespaceChars(const char* s, size_t slen) {
 
 }  // namespace
 
-std::string DataScanner::GetWhitespaceChars() { return kWhitespaceChars; }
+string DataScanner::GetWhitespaceChars() { return kWhitespaceChars; }
 
-DataScanner DataScanner::CreateLiteralScanner(const std::string& literal) {
+string DataScanner::GetBase64Chars(bool include_pad_char) {
+  string chars(kBase64Chars);
+  if (include_pad_char) chars += kBase64PadChar;
+  return chars;
+}
+
+string DataScanner::GetBase64PadChar() { return string(1, kBase64PadChar); }
+
+DataScanner DataScanner::CreateLiteralScanner(const string& literal) {
   return DataScanner(DataScanner::kLiteral, literal);
 }
 
@@ -63,12 +78,11 @@ DataScanner DataScanner::CreateQuotedStringScanner() {
   return DataScanner(DataScanner::kQuotedString);
 }
 
-DataScanner DataScanner::CreateSentinelScanner(const std::string& sentinels) {
+DataScanner DataScanner::CreateSentinelScanner(const string& sentinels) {
   return DataScanner(DataScanner::kSentinel, sentinels);
 }
 
-DataScanner DataScanner::CreateThroughLiteralScanner(
-    const std::string& literal) {
+DataScanner DataScanner::CreateThroughLiteralScanner(const string& literal) {
   return DataScanner(DataScanner::kThroughLiteral, literal);
 }
 
@@ -80,6 +94,10 @@ DataScanner DataScanner::CreateOptionalWhitespaceScanner() {
   return DataScanner(DataScanner::kOptionalWhitespace);
 }
 
+size_t DataScanner::ScanChars(const char* s, size_t slen, const char* scanset) {
+  return memspn(s, slen, scanset);
+}
+
 size_t DataScanner::ExtendTokenLength(size_t delta_length) {
   token_range_ =
       DataRange(token_range_.GetBegin(), token_range_.GetEnd() + delta_length);
@@ -87,7 +105,7 @@ size_t DataScanner::ExtendTokenLength(size_t delta_length) {
 }
 
 void DataScanner::SetInternalError(const DataContext& context,
-                                   const std::string& error_description,
+                                   const string& error_description,
                                    DataMatchResult* result) {
   result->SetType(DataMatchResult::kError);
   result->SetMessage(
@@ -96,7 +114,7 @@ void DataScanner::SetInternalError(const DataContext& context,
 }
 
 void DataScanner::SetSyntaxError(const DataContext& context,
-                                 const std::string& error_description,
+                                 const string& error_description,
                                  DataMatchResult* result) {
   result->SetType(DataMatchResult::kError);
   result->SetMessage(Message::kSyntaxError,
@@ -215,7 +233,7 @@ DataMatchResult DataScanner::ScanSentinel(const char* cbytes,
     }
   }
   if (result.GetBytesConsumed() == 0) {
-    SetSyntaxError(context, "Expected sentinal character", &result);
+    SetSyntaxError(context, "Unexpected character encountered", &result);
   }
   return result;
 }
@@ -341,8 +359,11 @@ void DataScanner::Reset() {
   ResetTokenRange();
 }
 
-std::string DataScanner::GetDescription() const {
-  std::string description;
+string DataScanner::GetDescription() const {
+  if (!description_.empty()) {
+    return description_;
+  }
+  string description;
   switch (type_) {
     case kLiteral:
       description = "Literal:'";
@@ -375,12 +396,12 @@ std::string DataScanner::GetDescription() const {
   return description;
 }
 
-std::string DataScanner::GetLiteral() const {
+string DataScanner::GetLiteral() const {
   return type_ == kLiteral || type_ == kThroughLiteral ? literal_or_sentinels_
                                                        : "";
 }
 
-std::string DataScanner::GetSentenels() const {
+string DataScanner::GetSentenels() const {
   return type_ == kSentinel ? literal_or_sentinels_ : "";
 }
 

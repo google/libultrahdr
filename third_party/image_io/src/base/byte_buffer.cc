@@ -1,5 +1,6 @@
 #include "image_io/base/byte_buffer.h"
 
+#include <cstring>
 #include <utility>
 
 namespace photos_editing_formats {
@@ -24,7 +25,7 @@ static size_t WriteBytes(const ByteData& byte_data, Byte* pos) {
       }
     }
   } else {
-    memcpy(pos, byte_data.GetValue().c_str(), byte_count);
+    std::memcpy(pos, byte_data.GetValue().c_str(), byte_count);
   }
   return byte_count;
 }

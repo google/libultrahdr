@@ -8,7 +8,7 @@
 namespace photos_editing_formats {
 namespace image_io {
 
-/// This subclass of MessageWriter writes messages to cout.
+/// This subclass of MessageWriter writes messages to std::cout.
 class CoutMessageWriter : public MessageWriter {
  public:
   void WriteMessage(const Message& message) override {

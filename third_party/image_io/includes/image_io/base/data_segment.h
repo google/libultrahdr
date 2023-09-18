@@ -1,6 +1,7 @@
 #ifndef IMAGE_IO_BASE_DATA_SEGMENT_H_  // NOLINT
 #define IMAGE_IO_BASE_DATA_SEGMENT_H_  // NOLINT
 
+#include <cstring>
 #include <memory>
 
 #include "image_io/base/data_range.h"
@@ -97,7 +98,7 @@ class DataSegment {
   /// @return The location of the start of the string, or the segment's end
   ///     location value.
   size_t Find(size_t start_location, const char* str) const {
-    return Find(start_location, str, strlen(str));
+    return Find(start_location, str, std::strlen(str));
   }
 
   /// Finds the location of the string in the data segment. Although a data
