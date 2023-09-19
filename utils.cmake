@@ -55,8 +55,6 @@ function(libultrahdr_add_executable NAME LIB)
 
   target_link_libraries(${NAME} ${LIB} ${ARG_LIBS})
   if(ARG_FUZZER)
-    target_compile_options(${NAME}
-                           PRIVATE $<$<COMPILE_LANGUAGE:CXX>:-std=c++17>)
     if(DEFINED ENV{LIB_FUZZING_ENGINE})
       set_target_properties(${NAME} PROPERTIES LINK_FLAGS
                                                $ENV{LIB_FUZZING_ENGINE})

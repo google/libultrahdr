@@ -14,25 +14,22 @@
 # the License.
 #
 
-cmake_minimum_required(VERSION 3.4.1)
+cmake_minimum_required(VERSION 3.5)
 
 project(IMAGE_IO VERSION 1.0.0)
+
+set(CMAKE_CXX_STANDARD 17)
 
 # Check the target architecture and set compiler flags accordingly
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64")
     # 64-bit architecture
-    message("Building for 64-bit architecture")
-    #set(CMAKE_ANDROID_ARCH_ABI x86_64)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -m64")
     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -m64")
 else()
     # 32-bit architecture
-    message("Building for 32-bit architecture")
-    #set(CMAKE_ANDROID_ARCH_ABI x86)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -m32")
     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -m32")
 endif()
-#set(CMAKE_C_FLAGS "-Wall -Werror -Wextra -Wstrict-prototypes -Wmissing-prototypes -Waggregate-return -Wcast-align -Wnested-externs -Wshadow -Wundef -Wmissing-declarations -Winline ${CMAKE_C_FLAGS}")
 
 set(IMAGE_IO_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../image_io")
 
@@ -41,8 +38,6 @@ file(GLOB IMAGE_IO_SRC "${IMAGE_IO_DIR}/src/**/*.cc")
 add_library(image_io STATIC
     ${IMAGE_IO_SRC}
 )
-
-set_target_properties(image_io PROPERTIES COMPILE_FLAGS -std=c++17)
 
 # Set include directories for the target
 target_include_directories(image_io PRIVATE

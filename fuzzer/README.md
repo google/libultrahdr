@@ -5,7 +5,7 @@ This describes steps to build ultrahdr_dec_fuzzer and ultrahdr_enc_fuzzer.
 ## Linux x86/x64
 
 ###  Requirements
-- cmake (3.4.1 or above)
+- cmake (3.5 or above)
 - make
 - clang (12.0 or above)
   needs to support -fsanitize=fuzzer, -fsanitize=fuzzer-no-link
