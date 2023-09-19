@@ -12,6 +12,24 @@ include(CheckCXXCompilerFlag)
 # LIBS: Additional libraries
 # FUZZER: flag to specify if the target is a fuzzer binary
 # cmake-format: on
+
+# Adds compiler options for all targets
+function(libultrahdr_add_compile_options)
+  if(DEFINED SANITIZE)
+    set(CMAKE_REQUIRED_FLAGS -fsanitize=${SANITIZE})
+    check_cxx_compiler_flag(-fsanitize=${SANITIZE} COMPILER_HAS_SANITIZER)
+    unset(CMAKE_REQUIRED_FLAGS)
+
+    if(NOT COMPILER_HAS_SANITIZER)
+      message(
+        FATAL_ERROR "ERROR: Compiler doesn't support -fsanitize=${SANITIZE}")
+      return()
+    endif()
+    add_compile_options(-fno-omit-frame-pointer -fsanitize=${SANITIZE})
+  endif()
+
+endfunction()
+
 function(libultrahdr_add_executable NAME LIB)
   set(multi_value_args SOURCES INCLUDES LIBS)
   set(optional_args FUZZER)
