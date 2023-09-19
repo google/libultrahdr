@@ -14,28 +14,27 @@
 # the License.
 #
 
-cmake_minimum_required(VERSION 3.4.1)
+cmake_minimum_required(VERSION 3.5)
 
 project(ULTRAHDR VERSION 1.0.0)
+
+set(CMAKE_CXX_STANDARD 17)
 
 include(ExternalProject)
 
 # Check the target architecture and set compiler flags accordingly
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64")
     # 64-bit architecture
-    message("Building for 64-bit architecture")
-    #set(CMAKE_ANDROID_ARCH_ABI x86_64)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -m64")
 else()
     # 32-bit architecture
-    message("Building for 32-bit architecture")
-    #set(CMAKE_ANDROID_ARCH_ABI x86)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -m32")
 endif()
 
 set(SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
 
 include("${SRC_DIR}/utils.cmake")
+libultrahdr_add_compile_options()
 
 ADD_SUBDIRECTORY("${SRC_DIR}/third_party/cmake/image_io")
 
@@ -82,34 +81,37 @@ target_link_libraries(ultrahdr PRIVATE
     image_io
 )
 
-# Add source files to the test target
-add_executable(ultrahdr_unit_test
-    "${SRC_DIR}/tests/jpegr_test.cpp"
-    "${SRC_DIR}/tests/gainmapmath_test.cpp"
-    "${SRC_DIR}/tests/icchelper_test.cpp"
-    "${SRC_DIR}/tests/jpegencoderhelper_test.cpp"
-    "${SRC_DIR}/tests/jpegdecoderhelper_test.cpp"
-    "${SRC_DIR}/tests/icchelper_test.cpp"
+libultrahdr_add_executable(ultrahdr_unit_test
+    ultrahdr
+    SOURCES
+        "${SRC_DIR}/tests/jpegr_test.cpp"
+        "${SRC_DIR}/tests/gainmapmath_test.cpp"
+        "${SRC_DIR}/tests/icchelper_test.cpp"
+        "${SRC_DIR}/tests/jpegencoderhelper_test.cpp"
+        "${SRC_DIR}/tests/jpegdecoderhelper_test.cpp"
+        "${SRC_DIR}/tests/icchelper_test.cpp"
+    INCLUDES
+        "${SRC_DIR}/include"
+        "${SRC_DIR}/third_party/googletest/googletest/include"
+        "${SRC_DIR}/third_party/googletest/googlemock/include"
+        "${SRC_DIR}/third_party/libjpeg-turbo/"
+        "${SRC_DIR}/third_party/build/libjpeg-turbo/src/libjpeg-turbo-build"
 )
 
-set_target_properties(ultrahdr_unit_test PROPERTIES
-    COMPILE_FLAGS -std=c++17
-    LINK_FLAGS "-L ./third_party/build/libjpeg-turbo/src/libjpeg-turbo-build/ -pthread")
-
-target_include_directories(ultrahdr_unit_test PRIVATE
-    "${SRC_DIR}/include"
-    "${SRC_DIR}/third_party/googletest/googletest/include"
-    "${SRC_DIR}/third_party/googletest/googlemock/include"
-    "${SRC_DIR}/third_party/libjpeg-turbo/"
-    "${SRC_DIR}/third_party/build/libjpeg-turbo/src/libjpeg-turbo-build"
+libultrahdr_add_executable(ultrahdr_app
+    ultrahdr
+    SOURCES
+        "${SRC_DIR}/tests/ultrahdr_app.cpp"
+    INCLUDES
+        "${SRC_DIR}/include"
+        "${SRC_DIR}/third_party/libjpeg-turbo/"
+        "${SRC_DIR}/third_party/build/libjpeg-turbo/src/libjpeg-turbo-build"
 )
 
-target_link_libraries(ultrahdr_unit_test PRIVATE
-        ultrahdr
-        image_io
-        ${SRC_DIR}/third_party/build/googletest/src/googletest-build/lib/libgmock.a
-        ${SRC_DIR}/third_party/build/googletest/src/googletest-build/lib/libgtest.a
-        ${SRC_DIR}/third_party/build/googletest/src/googletest-build/lib/libgtest_main.a
+target_link_libraries(ultrahdr_unit_test
+    ${SRC_DIR}/third_party/build/googletest/src/googletest-build/lib/libgmock.a
+    ${SRC_DIR}/third_party/build/googletest/src/googletest-build/lib/libgtest.a
+    ${SRC_DIR}/third_party/build/googletest/src/googletest-build/lib/libgtest_main.a
 )
 
 libultrahdr_add_fuzzer(ultrahdr_enc_fuzzer ultrahdr
