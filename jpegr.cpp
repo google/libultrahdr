@@ -344,7 +344,7 @@ status_t JpegR::encodeJPEGR(jr_uncompressed_ptr p010_image_ptr,
       if (yuv420_bt601_image.luma_stride == yuv420_image.luma_stride) {
         memcpy(y_dst, y_src, yuv420_bt601_image.luma_stride * yuv420_image.height);
       } else {
-        for (size_t i = 0; i < yuv420_image.height; i++) {
+        for (int i = 0; i < yuv420_image.height; i++) {
           memcpy(y_dst, y_src, yuv420_image.width);
           if (yuv420_image.width != yuv420_bt601_image.luma_stride) {
             memset(y_dst + yuv420_image.width, 0,
@@ -367,7 +367,7 @@ status_t JpegR::encodeJPEGR(jr_uncompressed_ptr p010_image_ptr,
       uint8_t* cb_src = reinterpret_cast<uint8_t*>(yuv420_image.chroma_data);
       uint8_t* cr_dst = cb_dst + (yuv420_bt601_image.chroma_stride * yuv420_bt601_image.height / 2);
       uint8_t* cr_src = cb_src + (yuv420_image.chroma_stride * yuv420_image.height / 2);
-      for (size_t i = 0; i < yuv420_image.height / 2; i++) {
+      for (int i = 0; i < yuv420_image.height / 2; i++) {
         memcpy(cb_dst, cb_src, yuv420_image.width / 2);
         memcpy(cr_dst, cr_src, yuv420_image.width / 2);
         if (yuv420_bt601_image.width / 2 != yuv420_bt601_image.chroma_stride) {
@@ -750,19 +750,19 @@ static_assert(kJobSzInRows > 0 && kJobSzInRows % kMapDimensionScaleFactor == 0,
 
 class JobQueue {
 public:
-  bool dequeueJob(size_t& rowStart, size_t& rowEnd);
-  void enqueueJob(size_t rowStart, size_t rowEnd);
+  bool dequeueJob(int& rowStart, int& rowEnd);
+  void enqueueJob(int rowStart, int rowEnd);
   void markQueueForEnd();
   void reset();
 
 private:
   bool mQueuedAllJobs = false;
-  std::deque<std::tuple<size_t, size_t>> mJobs;
+  std::deque<std::tuple<int, int>> mJobs;
   std::mutex mMutex;
   std::condition_variable mCv;
 };
 
-bool JobQueue::dequeueJob(size_t& rowStart, size_t& rowEnd) {
+bool JobQueue::dequeueJob(int& rowStart, int& rowEnd) {
   std::unique_lock<std::mutex> lock{mMutex};
   while (true) {
     if (mJobs.empty()) {
@@ -782,7 +782,7 @@ bool JobQueue::dequeueJob(size_t& rowStart, size_t& rowEnd) {
   return false;
 }
 
-void JobQueue::enqueueJob(size_t rowStart, size_t rowEnd) {
+void JobQueue::enqueueJob(int rowStart, int rowEnd) {
   std::unique_lock<std::mutex> lock{mMutex};
   mJobs.push_back(std::make_tuple(rowStart, rowEnd));
   lock.unlock();
@@ -921,17 +921,17 @@ status_t JpegR::generateGainMap(jr_uncompressed_ptr yuv420_image_ptr,
 
   std::mutex mutex;
   const int threads = std::clamp(GetCPUCoreCount(), 1, 4);
-  size_t rowStep = threads == 1 ? image_height : kJobSzInRows;
+  int rowStep = threads == 1 ? image_height : kJobSzInRows;
   JobQueue jobQueue;
 
   std::function<void()> generateMap = [yuv420_image_ptr, p010_image_ptr, metadata, dest, hdrInvOetf,
                                        hdrGamutConversionFn, luminanceFn, sdrYuvToRgbFn,
                                        hdrYuvToRgbFn, hdr_white_nits, log2MinBoost, log2MaxBoost,
                                        &jobQueue]() -> void {
-    size_t rowStart, rowEnd;
+    int rowStart, rowEnd;
     while (jobQueue.dequeueJob(rowStart, rowEnd)) {
-      for (size_t y = rowStart; y < rowEnd; ++y) {
-        for (size_t x = 0; x < dest->width; ++x) {
+      for (int y = rowStart; y < rowEnd; ++y) {
+        for (int x = 0; x < dest->width; ++x) {
           Color sdr_yuv_gamma = sampleYuv420(yuv420_image_ptr, kMapDimensionScaleFactor, x, y);
           Color sdr_rgb_gamma = sdrYuvToRgbFn(sdr_yuv_gamma);
           // We are assuming the SDR input is always sRGB transfer.
@@ -948,7 +948,7 @@ status_t JpegR::generateGainMap(jr_uncompressed_ptr yuv420_image_ptr,
           hdr_rgb = hdrGamutConversionFn(hdr_rgb);
           float hdr_y_nits = luminanceFn(hdr_rgb) * hdr_white_nits;
 
-          size_t pixel_idx = x + y * dest->width;
+          int pixel_idx = x + y * dest->width;
           reinterpret_cast<uint8_t*>(dest->data)[pixel_idx] =
                   encodeGain(sdr_y_nits, hdr_y_nits, metadata, log2MinBoost, log2MaxBoost);
         }
@@ -1005,10 +1005,10 @@ status_t JpegR::applyGainMap(jr_uncompressed_ptr yuv420_image_ptr,
   }
 
   // TODO: remove once map scaling factor is computed based on actual map dims
-  size_t image_width = yuv420_image_ptr->width;
-  size_t image_height = yuv420_image_ptr->height;
-  size_t map_width = image_width / kMapDimensionScaleFactor;
-  size_t map_height = image_height / kMapDimensionScaleFactor;
+  int image_width = yuv420_image_ptr->width;
+  int image_height = yuv420_image_ptr->height;
+  int map_width = image_width / kMapDimensionScaleFactor;
+  int map_height = image_height / kMapDimensionScaleFactor;
   if (map_width != gainmap_image_ptr->width || map_height != gainmap_image_ptr->height) {
     ALOGE("gain map dimensions and primary image dimensions are not to scale, computed gain map "
           "resolution is %dx%d, received gain map resolution is %dx%d",
@@ -1026,13 +1026,12 @@ status_t JpegR::applyGainMap(jr_uncompressed_ptr yuv420_image_ptr,
   std::function<void()> applyRecMap = [yuv420_image_ptr, gainmap_image_ptr, metadata, dest,
                                        &jobQueue, &idwTable, output_format, &gainLUT,
                                        display_boost]() -> void {
-    size_t width = yuv420_image_ptr->width;
-    size_t height = yuv420_image_ptr->height;
+    int width = yuv420_image_ptr->width;
 
-    size_t rowStart, rowEnd;
+    int rowStart, rowEnd;
     while (jobQueue.dequeueJob(rowStart, rowEnd)) {
-      for (size_t y = rowStart; y < rowEnd; ++y) {
-        for (size_t x = 0; x < width; ++x) {
+      for (int y = rowStart; y < rowEnd; ++y) {
+        for (int x = 0; x < width; ++x) {
           Color yuv_gamma_sdr = getYuv420Pixel(yuv420_image_ptr, x, y);
           // Assuming the sdr image is a decoded JPEG, we should always use Rec.601 YUV coefficients
           Color rgb_gamma_sdr = p3YuvToRgb(yuv_gamma_sdr);
@@ -1044,9 +1043,9 @@ status_t JpegR::applyGainMap(jr_uncompressed_ptr yuv420_image_ptr,
 #endif
           float gain;
           // TODO: determine map scaling factor based on actual map dims
-          size_t map_scale_factor = kMapDimensionScaleFactor;
+          int map_scale_factor = kMapDimensionScaleFactor;
           // TODO: If map_scale_factor is guaranteed to be an integer, then remove the following.
-          // Currently map_scale_factor is of type size_t, but it could be changed to a float
+          // Currently map_scale_factor is of type int, but it could be changed to a float
           // later.
           if (map_scale_factor != floorf(map_scale_factor)) {
             gain = sampleMap(gainmap_image_ptr, map_scale_factor, x, y);
@@ -1060,7 +1059,7 @@ status_t JpegR::applyGainMap(jr_uncompressed_ptr yuv420_image_ptr,
           Color rgb_hdr = applyGain(rgb_sdr, gain, metadata, display_boost);
 #endif
           rgb_hdr = rgb_hdr / display_boost;
-          size_t pixel_idx = x + y * width;
+          int pixel_idx = x + y * width;
 
           switch (output_format) {
             case ULTRAHDR_OUTPUT_HDR_LINEAR: {
@@ -1386,10 +1385,10 @@ status_t JpegR::toneMap(jr_uncompressed_ptr src, jr_uncompressed_ptr dest) {
   }
   uint16_t* src_y_data = reinterpret_cast<uint16_t*>(src->data);
   uint8_t* dst_y_data = reinterpret_cast<uint8_t*>(dest->data);
-  for (size_t y = 0; y < src->height; ++y) {
+  for (int y = 0; y < src->height; ++y) {
     uint16_t* src_y_row = src_y_data + y * src->luma_stride;
     uint8_t* dst_y_row = dst_y_data + y * dest->luma_stride;
-    for (size_t x = 0; x < src->width; ++x) {
+    for (int x = 0; x < src->width; ++x) {
       uint16_t y_uint = src_y_row[x] >> 6;
       dst_y_row[x] = static_cast<uint8_t>((y_uint >> 2) & 0xff);
     }
@@ -1399,13 +1398,13 @@ status_t JpegR::toneMap(jr_uncompressed_ptr src, jr_uncompressed_ptr dest) {
   }
   uint16_t* src_uv_data = reinterpret_cast<uint16_t*>(src->chroma_data);
   uint8_t* dst_u_data = reinterpret_cast<uint8_t*>(dest->chroma_data);
-  size_t dst_v_offset = (dest->chroma_stride * dest->height / 2);
+  int dst_v_offset = (dest->chroma_stride * dest->height / 2);
   uint8_t* dst_v_data = dst_u_data + dst_v_offset;
-  for (size_t y = 0; y < src->height / 2; ++y) {
+  for (int y = 0; y < src->height / 2; ++y) {
     uint16_t* src_uv_row = src_uv_data + y * src->chroma_stride;
     uint8_t* dst_u_row = dst_u_data + y * dest->chroma_stride;
     uint8_t* dst_v_row = dst_v_data + y * dest->chroma_stride;
-    for (size_t x = 0; x < src->width / 2; ++x) {
+    for (int x = 0; x < src->width / 2; ++x) {
       uint16_t u_uint = src_uv_row[x << 1] >> 6;
       uint16_t v_uint = src_uv_row[(x << 1) + 1] >> 6;
       dst_u_row[x] = static_cast<uint8_t>((u_uint >> 2) & 0xff);
@@ -1487,8 +1486,8 @@ status_t JpegR::convertYuv(jr_uncompressed_ptr image, ultrahdr_color_gamut src_e
     return ERROR_JPEGR_INVALID_COLORGAMUT;
   }
 
-  for (size_t y = 0; y < image->height / 2; ++y) {
-    for (size_t x = 0; x < image->width / 2; ++x) {
+  for (int y = 0; y < image->height / 2; ++y) {
+    for (int x = 0; x < image->width / 2; ++x) {
       transformYuv420(image, x, y, conversionFn);
     }
   }

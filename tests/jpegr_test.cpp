@@ -273,6 +273,7 @@ jr_compressed_ptr UhdrCompressedStructWrapper::getImageHandle() {
   return &mImg;
 }
 
+#ifdef DUMP_OUTPUT
 static bool writeFile(const char* filename, void*& result, int length) {
   std::ofstream ofd(filename, std::ios::binary);
   if (ofd.is_open()) {
@@ -282,6 +283,7 @@ static bool writeFile(const char* filename, void*& result, int length) {
   std::cerr << "unable to write to file : " << filename << std::endl;
   return false;
 }
+#endif
 
 static bool readFile(const char* fileName, void*& result, int maxLength, int& length) {
   std::ifstream ifd(fileName, std::ios::binary | std::ios::ate);
