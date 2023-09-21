@@ -146,8 +146,8 @@ inline uint16_t floatToHalf(float f) {
             | (e > 143) * 0x7FFF;
 }
 
-constexpr int kGainFactorPrecision = 10;
-constexpr int kGainFactorNumEntries = 1 << kGainFactorPrecision;
+constexpr size_t kGainFactorPrecision = 10;
+constexpr size_t kGainFactorNumEntries = 1 << kGainFactorPrecision;
 struct GainLUT {
   GainLUT(ultrahdr_metadata_ptr metadata) {
     for (int idx = 0; idx < kGainFactorNumEntries; idx++) {
@@ -267,8 +267,8 @@ Color srgbInvOetf(Color e_gamma);
 float srgbInvOetfLUT(float e_gamma);
 Color srgbInvOetfLUT(Color e_gamma);
 
-constexpr int kSrgbInvOETFPrecision = 10;
-constexpr int kSrgbInvOETFNumEntries = 1 << kSrgbInvOETFPrecision;
+constexpr size_t kSrgbInvOETFPrecision = 10;
+constexpr size_t kSrgbInvOETFNumEntries = 1 << kSrgbInvOETFPrecision;
 
 ////////////////////////////////////////////////////////////////////////////////
 // Display-P3 transformations
@@ -329,8 +329,8 @@ Color hlgOetf(Color e);
 float hlgOetfLUT(float e);
 Color hlgOetfLUT(Color e);
 
-constexpr int kHlgOETFPrecision = 16;
-constexpr int kHlgOETFNumEntries = 1 << kHlgOETFPrecision;
+constexpr size_t kHlgOETFPrecision = 16;
+constexpr size_t kHlgOETFNumEntries = 1 << kHlgOETFPrecision;
 
 /*
  * Convert from HLG to scene luminance.
@@ -342,8 +342,8 @@ Color hlgInvOetf(Color e_gamma);
 float hlgInvOetfLUT(float e_gamma);
 Color hlgInvOetfLUT(Color e_gamma);
 
-constexpr int kHlgInvOETFPrecision = 12;
-constexpr int kHlgInvOETFNumEntries = 1 << kHlgInvOETFPrecision;
+constexpr size_t kHlgInvOETFPrecision = 12;
+constexpr size_t kHlgInvOETFNumEntries = 1 << kHlgInvOETFPrecision;
 
 /*
  * Convert from scene luminance to PQ.
@@ -355,8 +355,8 @@ Color pqOetf(Color e);
 float pqOetfLUT(float e);
 Color pqOetfLUT(Color e);
 
-constexpr int kPqOETFPrecision = 16;
-constexpr int kPqOETFNumEntries = 1 << kPqOETFPrecision;
+constexpr size_t kPqOETFPrecision = 16;
+constexpr size_t kPqOETFNumEntries = 1 << kPqOETFPrecision;
 
 /*
  * Convert from PQ to scene luminance in nits.
@@ -368,8 +368,8 @@ Color pqInvOetf(Color e_gamma);
 float pqInvOetfLUT(float e_gamma);
 Color pqInvOetfLUT(Color e_gamma);
 
-constexpr int kPqInvOETFPrecision = 12;
-constexpr int kPqInvOETFNumEntries = 1 << kPqInvOETFPrecision;
+constexpr size_t kPqInvOETFPrecision = 12;
+constexpr size_t kPqInvOETFNumEntries = 1 << kPqInvOETFPrecision;
 
 
 ////////////////////////////////////////////////////////////////////////////////

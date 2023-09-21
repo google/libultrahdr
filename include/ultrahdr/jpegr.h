@@ -29,7 +29,7 @@ namespace ultrahdr {
 static const char* const kJpegrVersion = "1.0";
 
 // Map is quarter res / sixteenth size
-static const int kMapDimensionScaleFactor = 4;
+static const size_t kMapDimensionScaleFactor = 4;
 
 // Gain Map width is (image_width / kMapDimensionScaleFactor). If we were to
 // compress 420 GainMap in jpeg, then we need at least 2 samples. For Grayscale

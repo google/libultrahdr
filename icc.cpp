@@ -214,7 +214,7 @@ std::shared_ptr<DataStruct> IccHelper::write_trc_tag(const int table_entries,
     dataStruct->write32(Endian_SwapBE32(kTAG_CurveType));     // Type
     dataStruct->write32(0);                                   // Reserved
     dataStruct->write32(Endian_SwapBE32(table_entries));      // Value count
-    for (int i = 0; i < table_entries; ++i) {
+    for (size_t i = 0; i < table_entries; ++i) {
         uint16_t value = reinterpret_cast<const uint16_t*>(table_16)[i];
         dataStruct->write16(value);
     }

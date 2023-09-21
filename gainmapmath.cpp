@@ -472,7 +472,6 @@ ColorTransformFn getHdrConversionFn(ultrahdr_color_gamut sdr_gamut,
     case ULTRAHDR_COLORGAMUT_UNSPECIFIED:
       return nullptr;
   }
-  return nullptr;
 }
 
 // All of these conversions are derived from the respective input YUV->RGB conversion followed by
