@@ -20,7 +20,7 @@ namespace ultrahdr {
 
 static const std::vector<float> kPqOETF = [] {
     std::vector<float> result;
-    for (int idx = 0; idx < kPqOETFNumEntries; idx++) {
+    for (size_t idx = 0; idx < kPqOETFNumEntries; idx++) {
       float value = static_cast<float>(idx) / static_cast<float>(kPqOETFNumEntries - 1);
       result.push_back(pqOetf(value));
     }
@@ -29,7 +29,7 @@ static const std::vector<float> kPqOETF = [] {
 
 static const std::vector<float> kPqInvOETF = [] {
     std::vector<float> result;
-    for (int idx = 0; idx < kPqInvOETFNumEntries; idx++) {
+    for (size_t idx = 0; idx < kPqInvOETFNumEntries; idx++) {
       float value = static_cast<float>(idx) / static_cast<float>(kPqInvOETFNumEntries - 1);
       result.push_back(pqInvOetf(value));
     }
@@ -38,7 +38,7 @@ static const std::vector<float> kPqInvOETF = [] {
 
 static const std::vector<float> kHlgOETF = [] {
     std::vector<float> result;
-    for (int idx = 0; idx < kHlgOETFNumEntries; idx++) {
+    for (size_t idx = 0; idx < kHlgOETFNumEntries; idx++) {
       float value = static_cast<float>(idx) / static_cast<float>(kHlgOETFNumEntries - 1);
       result.push_back(hlgOetf(value));
     }
@@ -47,7 +47,7 @@ static const std::vector<float> kHlgOETF = [] {
 
 static const std::vector<float> kHlgInvOETF = [] {
     std::vector<float> result;
-    for (int idx = 0; idx < kHlgInvOETFNumEntries; idx++) {
+    for (size_t idx = 0; idx < kHlgInvOETFNumEntries; idx++) {
       float value = static_cast<float>(idx) / static_cast<float>(kHlgInvOETFNumEntries - 1);
       result.push_back(hlgInvOetf(value));
     }
@@ -56,7 +56,7 @@ static const std::vector<float> kHlgInvOETF = [] {
 
 static const std::vector<float> kSrgbInvOETF = [] {
     std::vector<float> result;
-    for (int idx = 0; idx < kSrgbInvOETFNumEntries; idx++) {
+    for (size_t idx = 0; idx < kSrgbInvOETFNumEntries; idx++) {
       float value = static_cast<float>(idx) / static_cast<float>(kSrgbInvOETFNumEntries - 1);
       result.push_back(srgbInvOetf(value));
     }
@@ -472,6 +472,7 @@ ColorTransformFn getHdrConversionFn(ultrahdr_color_gamut sdr_gamut,
     case ULTRAHDR_COLORGAMUT_UNSPECIFIED:
       return nullptr;
   }
+  return nullptr;
 }
 
 // All of these conversions are derived from the respective input YUV->RGB conversion followed by
@@ -727,10 +728,10 @@ float sampleMap(jr_uncompressed_ptr map, size_t map_scale_factor, size_t x, size
                 ShepardsIDW& weightTables) {
   // TODO: If map_scale_factor is guaranteed to be an integer power of 2, then optimize the
   // following by computing log2(map_scale_factor) once and then using >> log2(map_scale_factor)
-  int x_lower = x / map_scale_factor;
-  int x_upper = x_lower + 1;
-  int y_lower = y / map_scale_factor;
-  int y_upper = y_lower + 1;
+  size_t x_lower = x / map_scale_factor;
+  size_t x_upper = x_lower + 1;
+  size_t y_lower = y / map_scale_factor;
+  size_t y_upper = y_lower + 1;
 
   x_lower = std::min(x_lower, map->width - 1);
   x_upper = std::min(x_upper, map->width - 1);

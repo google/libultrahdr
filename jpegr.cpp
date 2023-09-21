@@ -100,17 +100,17 @@ status_t JpegR::areInputArgumentsValid(jr_uncompressed_ptr p010_image_ptr,
     return ERROR_JPEGR_INVALID_NULL_PTR;
   }
   if (p010_image_ptr->width % 2 != 0 || p010_image_ptr->height % 2 != 0) {
-    ALOGE("Image dimensions cannot be odd, image dimensions %dx%d", p010_image_ptr->width,
+    ALOGE("Image dimensions cannot be odd, image dimensions %zux%zu", p010_image_ptr->width,
           p010_image_ptr->height);
     return ERROR_JPEGR_INVALID_INPUT_TYPE;
   }
   if (p010_image_ptr->width < kMinWidth || p010_image_ptr->height < kMinHeight) {
-    ALOGE("Image dimensions cannot be less than %dx%d, image dimensions %dx%d", kMinWidth,
+    ALOGE("Image dimensions cannot be less than %dx%d, image dimensions %zux%zu", kMinWidth,
           kMinHeight, p010_image_ptr->width, p010_image_ptr->height);
     return ERROR_JPEGR_INVALID_INPUT_TYPE;
   }
   if (p010_image_ptr->width > kMaxWidth || p010_image_ptr->height > kMaxHeight) {
-    ALOGE("Image dimensions cannot be larger than %dx%d, image dimensions %dx%d", kMaxWidth,
+    ALOGE("Image dimensions cannot be larger than %dx%d, image dimensions %zux%zu", kMaxWidth,
           kMaxHeight, p010_image_ptr->width, p010_image_ptr->height);
     return ERROR_JPEGR_INVALID_INPUT_TYPE;
   }
@@ -120,13 +120,13 @@ status_t JpegR::areInputArgumentsValid(jr_uncompressed_ptr p010_image_ptr,
     return ERROR_JPEGR_INVALID_INPUT_TYPE;
   }
   if (p010_image_ptr->luma_stride != 0 && p010_image_ptr->luma_stride < p010_image_ptr->width) {
-    ALOGE("Luma stride must not be smaller than width, stride=%d, width=%d",
+    ALOGE("Luma stride must not be smaller than width, stride=%zu, width=%zu",
           p010_image_ptr->luma_stride, p010_image_ptr->width);
     return ERROR_JPEGR_INVALID_INPUT_TYPE;
   }
   if (p010_image_ptr->chroma_data != nullptr &&
       p010_image_ptr->chroma_stride < p010_image_ptr->width) {
-    ALOGE("Chroma stride must not be smaller than width, stride=%d, width=%d",
+    ALOGE("Chroma stride must not be smaller than width, stride=%zu, width=%zu",
           p010_image_ptr->chroma_stride, p010_image_ptr->width);
     return ERROR_JPEGR_INVALID_INPUT_TYPE;
   }
@@ -147,19 +147,19 @@ status_t JpegR::areInputArgumentsValid(jr_uncompressed_ptr p010_image_ptr,
   }
   if (yuv420_image_ptr->luma_stride != 0 &&
       yuv420_image_ptr->luma_stride < yuv420_image_ptr->width) {
-    ALOGE("Luma stride must not be smaller than width, stride=%d, width=%d",
+    ALOGE("Luma stride must not be smaller than width, stride=%zu, width=%zu",
           yuv420_image_ptr->luma_stride, yuv420_image_ptr->width);
     return ERROR_JPEGR_INVALID_INPUT_TYPE;
   }
   if (yuv420_image_ptr->chroma_data != nullptr &&
       yuv420_image_ptr->chroma_stride < yuv420_image_ptr->width / 2) {
-    ALOGE("Chroma stride must not be smaller than (width / 2), stride=%d, width=%d",
+    ALOGE("Chroma stride must not be smaller than (width / 2), stride=%zu, width=%zu",
           yuv420_image_ptr->chroma_stride, yuv420_image_ptr->width);
     return ERROR_JPEGR_INVALID_INPUT_TYPE;
   }
   if (p010_image_ptr->width != yuv420_image_ptr->width ||
       p010_image_ptr->height != yuv420_image_ptr->height) {
-    ALOGE("Image resolutions mismatch: P010: %dx%d, YUV420: %dx%d", p010_image_ptr->width,
+    ALOGE("Image resolutions mismatch: P010: %zux%zu, YUV420: %zux%zu", p010_image_ptr->width,
           p010_image_ptr->height, yuv420_image_ptr->width, yuv420_image_ptr->height);
     return ERROR_JPEGR_RESOLUTION_MISMATCH;
   }
@@ -204,7 +204,7 @@ status_t JpegR::encodeJPEGR(jr_uncompressed_ptr p010_image_ptr, ultrahdr_transfe
     p010_image.chroma_stride = p010_image.luma_stride;
   }
 
-  const int yu420_luma_stride = ALIGNM(p010_image.width, JpegEncoderHelper::kCompressBatchSize);
+  const size_t yu420_luma_stride = ALIGNM(p010_image.width, JpegEncoderHelper::kCompressBatchSize);
   unique_ptr<uint8_t[]> yuv420_image_data =
           make_unique<uint8_t[]>(yu420_luma_stride * p010_image.height * 3 / 2);
   jpegr_uncompressed_struct yuv420_image = {.data = yuv420_image_data.get(),
@@ -326,7 +326,7 @@ status_t JpegR::encodeJPEGR(jr_uncompressed_ptr p010_image_ptr,
   unique_ptr<uint8_t[]> yuv_420_bt601_data;
   // Convert to bt601 YUV encoding for JPEG encode
   if (yuv420_image.colorGamut != ULTRAHDR_COLORGAMUT_P3) {
-    const int yuv_420_bt601_luma_stride =
+    const size_t yuv_420_bt601_luma_stride =
             ALIGNM(yuv420_image.width, JpegEncoderHelper::kCompressBatchSize);
     yuv_420_bt601_data =
             make_unique<uint8_t[]>(yuv_420_bt601_luma_stride * yuv420_image.height * 3 / 2);
@@ -1011,8 +1011,8 @@ status_t JpegR::applyGainMap(jr_uncompressed_ptr yuv420_image_ptr,
   size_t map_height = image_height / kMapDimensionScaleFactor;
   if (map_width != gainmap_image_ptr->width || map_height != gainmap_image_ptr->height) {
     ALOGE("gain map dimensions and primary image dimensions are not to scale, computed gain map "
-          "resolution is %dx%d, received gain map resolution is %dx%d",
-          (int)map_width, (int)map_height, gainmap_image_ptr->width, gainmap_image_ptr->height);
+          "resolution is %zux%zu, received gain map resolution is %zux%zu",
+          map_width, map_height, gainmap_image_ptr->width, gainmap_image_ptr->height);
     return ERROR_JPEGR_INVALID_INPUT_TYPE;
   }
 
@@ -1027,7 +1027,6 @@ status_t JpegR::applyGainMap(jr_uncompressed_ptr yuv420_image_ptr,
                                        &jobQueue, &idwTable, output_format, &gainLUT,
                                        display_boost]() -> void {
     size_t width = yuv420_image_ptr->width;
-    size_t height = yuv420_image_ptr->height;
 
     size_t rowStart, rowEnd;
     while (jobQueue.dequeueJob(rowStart, rowEnd)) {
@@ -1105,7 +1104,7 @@ status_t JpegR::applyGainMap(jr_uncompressed_ptr yuv420_image_ptr,
     workers.push_back(std::thread(applyRecMap));
   }
   const int rowStep = threads == 1 ? yuv420_image_ptr->height : kJobSzInRows;
-  for (int rowStart = 0; rowStart < yuv420_image_ptr->height;) {
+  for (size_t rowStart = 0; rowStart < yuv420_image_ptr->height;) {
     int rowEnd = std::min(rowStart + rowStep, yuv420_image_ptr->height);
     jobQueue.enqueueJob(rowStart, rowEnd);
     rowStart = rowEnd;

@@ -425,7 +425,7 @@ bool JpegDecoderHelper::decompressYUV(jpeg_decompress_struct* cinfo, const uint8
     std::unique_ptr<uint8_t[]> empty = std::make_unique<uint8_t[]>(cinfo->image_width);
     memset(empty.get(), 0, cinfo->image_width);
 
-    const int aligned_width = ALIGNM(cinfo->image_width, kCompressBatchSize);
+    const size_t aligned_width = ALIGNM(cinfo->image_width, kCompressBatchSize);
     bool is_width_aligned = (aligned_width == cinfo->image_width);
     std::unique_ptr<uint8_t[]> buffer_intrm = nullptr;
     uint8_t* y_plane_intrm = nullptr;
@@ -500,7 +500,7 @@ bool JpegDecoderHelper::decompressSingleChannel(jpeg_decompress_struct* cinfo,
     std::unique_ptr<uint8_t[]> empty = std::make_unique<uint8_t[]>(cinfo->image_width);
     memset(empty.get(), 0, cinfo->image_width);
 
-    int aligned_width = ALIGNM(cinfo->image_width, kCompressBatchSize);
+    const size_t aligned_width = ALIGNM(cinfo->image_width, kCompressBatchSize);
     bool is_width_aligned = (aligned_width == cinfo->image_width);
     std::unique_ptr<uint8_t[]> buffer_intrm = nullptr;
     uint8_t* y_plane_intrm = nullptr;
