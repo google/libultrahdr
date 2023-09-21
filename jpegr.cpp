@@ -1023,7 +1023,7 @@ status_t JpegR::applyGainMap(jr_uncompressed_ptr yuv420_image_ptr,
   GainLUT gainLUT(metadata, display_boost);
 
   JobQueue jobQueue;
-  std::function<void()> applyRecMap = [yuv420_image_ptr, gainmap_image_ptr, metadata, dest,
+  std::function<void()> applyRecMap = [yuv420_image_ptr, gainmap_image_ptr, dest,
                                        &jobQueue, &idwTable, output_format, &gainLUT,
                                        display_boost]() -> void {
     size_t width = yuv420_image_ptr->width;

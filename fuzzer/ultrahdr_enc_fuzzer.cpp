@@ -136,7 +136,6 @@ void UltraHdrEncFuzzer::process() {
             p010Img.height = height;
             p010Img.colorGamut = p010Cg;
             p010Img.luma_stride = hasYStride ? yStride : 0;
-            int bppP010 = 2;
             if (isUVContiguous) {
                 size_t p010Size = yStride * height * 3 / 2;
                 bufferYHdr = std::make_unique<uint16_t[]>(p010Size);
