@@ -20,8 +20,6 @@ project(ULTRAHDR VERSION 1.0.0)
 
 set(CMAKE_CXX_STANDARD 17)
 
-include(ExternalProject)
-
 # Check the target architecture and set compiler flags accordingly
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64")
     # 64-bit architecture
@@ -38,23 +36,11 @@ libultrahdr_add_compile_options()
 
 ADD_SUBDIRECTORY("${SRC_DIR}/third_party/cmake/image_io")
 
-ExternalProject_Add(libjpeg-turbo
-    GIT_REPOSITORY https://github.com/libjpeg-turbo/libjpeg-turbo.git
-    GIT_TAG main
-    PREFIX ${SRC_DIR}/third_party/build/libjpeg-turbo
-    SOURCE_DIR ${SRC_DIR}/third_party/libjpeg-turbo
-    TMP_DIR ${SRC_DIR}/third_party/build/libjpeg-turbo/tmp
-    INSTALL_COMMAND ""
-)
+# Locate libjpeg
+find_package(JPEG REQUIRED)
 
-ExternalProject_Add(googletest
-    GIT_REPOSITORY https://android.googlesource.com/platform/external/googletest
-    GIT_TAG main
-    PREFIX ${SRC_DIR}/third_party/build/googletest
-    SOURCE_DIR ${SRC_DIR}/third_party/googletest
-    TMP_DIR ${SRC_DIR}/third_party/build/googletest/tmp
-    INSTALL_COMMAND ""
-)
+# Locate GTest
+find_package(GTest REQUIRED)
 
 add_library(ultrahdr STATIC
     "${SRC_DIR}/gainmapmath.cpp"
@@ -71,13 +57,12 @@ set_target_properties(ultrahdr PROPERTIES COMPILE_FLAGS -std=c++17)
 # Set include directories for the target
 target_include_directories(ultrahdr PRIVATE
     "${SRC_DIR}/include"
-    "${SRC_DIR}/third_party/libjpeg-turbo/"
-    "${SRC_DIR}/third_party/build/libjpeg-turbo/src/libjpeg-turbo-build"
     "${SRC_DIR}/third_party/image_io/includes/"
+    "${JPEG_INCLUDE_DIRS}"
 )
 
 target_link_libraries(ultrahdr PRIVATE
-    ${SRC_DIR}/third_party/build/libjpeg-turbo/src/libjpeg-turbo-build/libjpeg.a
+    JPEG::JPEG
     image_io
 )
 
@@ -92,10 +77,8 @@ libultrahdr_add_executable(ultrahdr_unit_test
         "${SRC_DIR}/tests/icchelper_test.cpp"
     INCLUDES
         "${SRC_DIR}/include"
-        "${SRC_DIR}/third_party/googletest/googletest/include"
-        "${SRC_DIR}/third_party/googletest/googlemock/include"
-        "${SRC_DIR}/third_party/libjpeg-turbo/"
-        "${SRC_DIR}/third_party/build/libjpeg-turbo/src/libjpeg-turbo-build"
+        "${GTEST_INCLUDE_DIRS}"
+        "${JPEG_INCLUDE_DIRS}"
 )
 
 libultrahdr_add_executable(ultrahdr_app
@@ -104,14 +87,13 @@ libultrahdr_add_executable(ultrahdr_app
         "${SRC_DIR}/tests/ultrahdr_app.cpp"
     INCLUDES
         "${SRC_DIR}/include"
-        "${SRC_DIR}/third_party/libjpeg-turbo/"
-        "${SRC_DIR}/third_party/build/libjpeg-turbo/src/libjpeg-turbo-build"
+        "${JPEG_INCLUDE_DIRS}"
 )
 
 target_link_libraries(ultrahdr_unit_test
-    ${SRC_DIR}/third_party/build/googletest/src/googletest-build/lib/libgmock.a
-    ${SRC_DIR}/third_party/build/googletest/src/googletest-build/lib/libgtest.a
-    ${SRC_DIR}/third_party/build/googletest/src/googletest-build/lib/libgtest_main.a
+    GTest::gtest
+    GTest::gtest_main
+    GTest::gmock
 )
 
 libultrahdr_add_fuzzer(ultrahdr_enc_fuzzer ultrahdr
@@ -119,8 +101,7 @@ libultrahdr_add_fuzzer(ultrahdr_enc_fuzzer ultrahdr
         ${SRC_DIR}/fuzzer/ultrahdr_enc_fuzzer.cpp
     INCLUDES
         ${SRC_DIR}/include
-        ${SRC_DIR}/third_party/libjpeg-turbo/
-        ${SRC_DIR}/third_party/build/libjpeg-turbo/src/libjpeg-turbo-build
+        "${JPEG_INCLUDE_DIRS}"
 )
 
 libultrahdr_add_fuzzer(ultrahdr_dec_fuzzer ultrahdr
@@ -128,6 +109,5 @@ libultrahdr_add_fuzzer(ultrahdr_dec_fuzzer ultrahdr
         ${SRC_DIR}/fuzzer/ultrahdr_dec_fuzzer.cpp
     INCLUDES
         ${SRC_DIR}/include
-        ${SRC_DIR}/third_party/libjpeg-turbo/
-        ${SRC_DIR}/third_party/build/libjpeg-turbo/src/libjpeg-turbo-build
+        "${JPEG_INCLUDE_DIRS}"
 )
