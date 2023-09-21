@@ -5,6 +5,7 @@ https://developer.android.com/guide/topics/media/platform/hdr-image-format
 
 Supports:
 - x86_32/x86_64 on Linux.
+- Mac Os
 
 Preferred Compiler: Clang
 Tested with:
