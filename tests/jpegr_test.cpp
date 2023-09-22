@@ -38,8 +38,8 @@ const char* kYCbCrP010FileName = "./data/raw_p010_image.p010";
 const char* kYCbCr420FileName = "./data/raw_yuv420_image.yuv420";
 const char* kSdrJpgFileName = "./data/jpeg_image.jpg";
 #endif
-const int kImageWidth = 1280;
-const int kImageHeight = 720;
+const size_t kImageWidth = 1280;
+const size_t kImageHeight = 720;
 const int kQuality = 90;
 
 // Wrapper to describe the input type
@@ -60,11 +60,11 @@ typedef enum {
  */
 class UhdrUnCompressedStructWrapper {
 public:
-  UhdrUnCompressedStructWrapper(uint32_t width, uint32_t height, UhdrInputFormat format);
+  UhdrUnCompressedStructWrapper(size_t width, size_t height, UhdrInputFormat format);
   ~UhdrUnCompressedStructWrapper() = default;
 
   bool setChromaMode(bool isChromaContiguous);
-  bool setImageStride(int lumaStride, int chromaStride);
+  bool setImageStride(size_t lumaStride, size_t chromaStride);
   bool setImageColorGamut(ultrahdr_color_gamut colorGamut);
   bool allocateMemory();
   bool loadRawResource(const char* fileName);
@@ -86,7 +86,7 @@ private:
  */
 class UhdrCompressedStructWrapper {
 public:
-  UhdrCompressedStructWrapper(uint32_t width, uint32_t height);
+  UhdrCompressedStructWrapper(size_t width, size_t height);
   ~UhdrCompressedStructWrapper() = default;
 
   bool allocateMemory();
@@ -95,11 +95,11 @@ public:
 private:
   std::unique_ptr<uint8_t[]> mData;
   jpegr_compressed_struct mImg{};
-  uint32_t mWidth;
-  uint32_t mHeight;
+  size_t mWidth;
+  size_t mHeight;
 };
 
-UhdrUnCompressedStructWrapper::UhdrUnCompressedStructWrapper(uint32_t width, uint32_t height,
+UhdrUnCompressedStructWrapper::UhdrUnCompressedStructWrapper(size_t width, size_t height,
                                                              UhdrInputFormat format) {
   mImg.data = nullptr;
   mImg.width = width;
@@ -121,7 +121,7 @@ bool UhdrUnCompressedStructWrapper::setChromaMode(bool isChromaContiguous) {
   return true;
 }
 
-bool UhdrUnCompressedStructWrapper::setImageStride(int lumaStride, int chromaStride) {
+bool UhdrUnCompressedStructWrapper::setImageStride(size_t lumaStride, size_t chromaStride) {
   if (mLumaData.get() != nullptr) {
     std::cerr << "Object has sailed, no further modifications are allowed" << std::endl;
     return false;
@@ -207,16 +207,16 @@ bool UhdrUnCompressedStructWrapper::loadRawResource(const char* fileName) {
       return false;
     }
     ifd.seekg(0, std::ios::beg);
-    int lumaStride = mImg.luma_stride == 0 ? mImg.width : mImg.luma_stride;
+    size_t lumaStride = mImg.luma_stride == 0 ? mImg.width : mImg.luma_stride;
     char* mem = static_cast<char*>(mImg.data);
-    for (int i = 0; i < mImg.height; i++) {
+    for (size_t i = 0; i < mImg.height; i++) {
       ifd.read(mem, mImg.width * bpp);
       mem += lumaStride * bpp;
     }
     if (!mIsChromaContiguous) {
       mem = static_cast<char*>(mImg.chroma_data);
     }
-    int chromaStride;
+    size_t chromaStride;
     if (mIsChromaContiguous) {
       chromaStride = mFormat == YCbCr_p010 ? lumaStride : lumaStride / 2;
     } else {
@@ -227,16 +227,16 @@ bool UhdrUnCompressedStructWrapper::loadRawResource(const char* fileName) {
       }
     }
     if (mFormat == YCbCr_p010) {
-      for (int i = 0; i < mImg.height / 2; i++) {
+      for (size_t i = 0; i < mImg.height / 2; i++) {
         ifd.read(mem, mImg.width * 2);
         mem += chromaStride * 2;
       }
     } else {
-      for (int i = 0; i < mImg.height / 2; i++) {
+      for (size_t i = 0; i < mImg.height / 2; i++) {
         ifd.read(mem, (mImg.width / 2));
         mem += chromaStride;
       }
-      for (int i = 0; i < mImg.height / 2; i++) {
+      for (size_t i = 0; i < mImg.height / 2; i++) {
         ifd.read(mem, (mImg.width / 2));
         mem += chromaStride;
       }
@@ -251,7 +251,7 @@ jr_uncompressed_ptr UhdrUnCompressedStructWrapper::getImageHandle() {
   return &mImg;
 }
 
-UhdrCompressedStructWrapper::UhdrCompressedStructWrapper(uint32_t width, uint32_t height) {
+UhdrCompressedStructWrapper::UhdrCompressedStructWrapper(size_t width, size_t height) {
   mWidth = width;
   mHeight = height;
 }
@@ -273,6 +273,7 @@ jr_compressed_ptr UhdrCompressedStructWrapper::getImageHandle() {
   return &mImg;
 }
 
+#ifdef DUMP_OUTPUT
 static bool writeFile(const char* filename, void*& result, int length) {
   std::ofstream ofd(filename, std::ios::binary);
   if (ofd.is_open()) {
@@ -282,6 +283,7 @@ static bool writeFile(const char* filename, void*& result, int length) {
   std::cerr << "unable to write to file : " << filename << std::endl;
   return false;
 }
+#endif
 
 static bool readFile(const char* fileName, void*& result, int maxLength, int& length) {
   std::ifstream ifd(fileName, std::ios::binary | std::ios::ate);
@@ -1969,8 +1971,8 @@ void JpegRBenchmark::BenchmarkGenerateGainMap(jr_uncompressed_ptr yuv420Image,
     if (i != kProfileCount - 1) delete[] static_cast<uint8_t*>(map->data);
   }
   profileGenerateMap.timerStop();
-  ALOGE("Generate Gain Map:- Res = %i x %i, time = %f ms", yuv420Image->width, yuv420Image->height,
-        profileGenerateMap.elapsedTime() / (kProfileCount * 1000.f));
+  ALOGE("Generate Gain Map:- Res = %zu x %zu, time = %f ms", yuv420Image->width,
+         yuv420Image->height, profileGenerateMap.elapsedTime() / (kProfileCount * 1000.f));
 }
 
 void JpegRBenchmark::BenchmarkApplyGainMap(jr_uncompressed_ptr yuv420Image, jr_uncompressed_ptr map,
@@ -1984,7 +1986,7 @@ void JpegRBenchmark::BenchmarkApplyGainMap(jr_uncompressed_ptr yuv420Image, jr_u
                            metadata->maxContentBoost /* displayBoost */, dest));
   }
   profileRecMap.timerStop();
-  ALOGE("Apply Gain Map:- Res = %i x %i, time = %f ms", yuv420Image->width, yuv420Image->height,
+  ALOGE("Apply Gain Map:- Res = %zu x %zu, time = %f ms", yuv420Image->width, yuv420Image->height,
         profileRecMap.elapsedTime() / (kProfileCount * 1000.f));
 }
 

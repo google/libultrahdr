@@ -170,11 +170,11 @@ static uint16_t float_round_to_unorm16(float x) {
     return static_cast<uint16_t>(x);
 }
 
-static void float_to_table16(const float f, uint8_t* table_16) {
+static inline void float_to_table16(const float f, uint8_t* table_16) {
     *reinterpret_cast<uint16_t*>(table_16) = Endian_SwapBE16(float_round_to_unorm16(f));
 }
 
-static bool isfinitef_(float x) { return 0 == x*0; }
+static inline bool isfinitef_(float x) { return 0 == x*0; }
 
 struct ICCHeader {
     // Size of the profile (computed)

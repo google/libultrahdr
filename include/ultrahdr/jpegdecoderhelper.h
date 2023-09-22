@@ -144,7 +144,7 @@ private:
     size_t mHeight;
 
     // Position of EXIF package, default value is -1 which means no EXIF package appears.
-    ssize_t mExifPos = -1;
+    int mExifPos = -1;
 };
 } /* namespace ultrahdr  */
 

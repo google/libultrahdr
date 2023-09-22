@@ -97,7 +97,7 @@ static bool writeFile(const char* filename, void*& result, int length) {
 
 class UltraHdrAppInput {
 public:
-    UltraHdrAppInput(const char* p010File, const char* yuv420File, int width, int height,
+    UltraHdrAppInput(const char* p010File, const char* yuv420File, size_t width, size_t height,
                      ultrahdr_color_gamut p010Cg = ULTRAHDR_COLORGAMUT_BT709,
                      ultrahdr_color_gamut yuv420Cg = ULTRAHDR_COLORGAMUT_BT709,
                      ultrahdr_transfer_function tf = ULTRAHDR_TF_HLG, int quality = 100,
@@ -181,7 +181,7 @@ bool UltraHdrAppInput::encode() {
     if (!fillP010ImageHandle()) return false;
     if (mYuv420File != nullptr && !fillYuv420ImageHandle()) return false;
 
-    mJpegImgR.maxLength = std::max(8 * 1024 /* min size 8kb */,
+    mJpegImgR.maxLength = std::max(static_cast<size_t>(8 * 1024) /* min size 8kb */,
                                    mRawP010Image.width * mRawP010Image.height * 3 * 2);
     mJpegImgR.data = malloc(mJpegImgR.maxLength);
     if (mJpegImgR.data == nullptr) {
@@ -266,8 +266,8 @@ bool UltraHdrAppInput::convertP010ToRGBImage() {
     uint16_t* u = y + mRawP010Image.width * mRawP010Image.height;
     uint16_t* v = u + 1;
 
-    for (int i = 0; i < mRawP010Image.height; i++) {
-        for (int j = 0; j < mRawP010Image.width; j++) {
+    for (size_t i = 0; i < mRawP010Image.height; i++) {
+        for (size_t j = 0; j < mRawP010Image.width; j++) {
             float y0 = float(y[mRawP010Image.width * i + j] >> 6);
             float u0 = float(u[mRawP010Image.width * (i / 2) + (j / 2) * 2] >> 6);
             float v0 = float(v[mRawP010Image.width * (i / 2) + (j / 2) * 2] >> 6);
@@ -317,8 +317,8 @@ bool UltraHdrAppInput::convertYuv420ToRGBImage() {
     uint8_t* v = u + (mRawYuv420Image.width * mRawYuv420Image.height / 4);
 
     const float* coeffs = BT601YUVtoRGBMatrix;
-    for (int i = 0; i < mRawYuv420Image.height; i++) {
-        for (int j = 0; j < mRawYuv420Image.width; j++) {
+    for (size_t i = 0; i < mRawYuv420Image.height; i++) {
+        for (size_t j = 0; j < mRawYuv420Image.width; j++) {
             float y0 = float(y[mRawYuv420Image.width * i + j]);
             float u0 = float(u[mRawYuv420Image.width / 2 * (i / 2) + (j / 2)] - 128);
             float v0 = float(v[mRawYuv420Image.width / 2 * (i / 2) + (j / 2)] - 128);
@@ -369,8 +369,8 @@ bool UltraHdrAppInput::convertRgba8888ToYUV444Image() {
     uint8_t* vData = uData + (mDestYUV444Image.width * mDestYUV444Image.height);
 
     const float* coeffs = BT601RGBtoYUVMatrix;
-    for (int i = 0; i < mDestImage.height; i++) {
-        for (int j = 0; j < mDestImage.width; j++) {
+    for (size_t i = 0; i < mDestImage.height; i++) {
+        for (size_t j = 0; j < mDestImage.width; j++) {
             float r0 = float(rgbData[mDestImage.width * i + j] & 0xff);
             float g0 = float((rgbData[mDestImage.width * i + j] >> 8) & 0xff);
             float b0 = float((rgbData[mDestImage.width * i + j] >> 16) & 0xff);
@@ -429,8 +429,8 @@ bool UltraHdrAppInput::convertRgba1010102ToYUV444Image() {
     uint16_t* uData = yData + (mDestYUV444Image.width * mDestYUV444Image.height);
     uint16_t* vData = uData + (mDestYUV444Image.width * mDestYUV444Image.height);
 
-    for (int i = 0; i < mDestImage.height; i++) {
-        for (int j = 0; j < mDestImage.width; j++) {
+    for (size_t i = 0; i < mDestImage.height; i++) {
+        for (size_t j = 0; j < mDestImage.width; j++) {
             float r0 = float(rgbData[mDestImage.width * i + j] & 0x3ff);
             float g0 = float((rgbData[mDestImage.width * i + j] >> 10) & 0x3ff);
             float b0 = float((rgbData[mDestImage.width * i + j] >> 20) & 0x3ff);
@@ -479,7 +479,7 @@ void UltraHdrAppInput::computeRGBHdrPSNR() {
                   << std::endl;
     }
     uint64_t rSqError = 0, gSqError = 0, bSqError = 0;
-    for (int i = 0; i < mRawP010Image.width * mRawP010Image.height; i++) {
+    for (size_t i = 0; i < mRawP010Image.width * mRawP010Image.height; i++) {
         int rSrc = *rgbDataSrc & 0x3ff;
         int rDst = *rgbDataDst & 0x3ff;
         rSqError += (rSrc - rDst) * (rSrc - rDst);
@@ -521,7 +521,7 @@ void UltraHdrAppInput::computeRGBSdrPSNR() {
     }
 
     uint64_t rSqError = 0, gSqError = 0, bSqError = 0;
-    for (int i = 0; i < mRawYuv420Image.width * mRawYuv420Image.height; i++) {
+    for (size_t i = 0; i < mRawYuv420Image.width * mRawYuv420Image.height; i++) {
         int rSrc = *rgbDataSrc & 0xff;
         int rDst = *rgbDataDst & 0xff;
         rSqError += (rSrc - rDst) * (rSrc - rDst);
@@ -577,8 +577,8 @@ void UltraHdrAppInput::computeYUVHdrPSNR() {
     uint16_t* vDataDst = uDataDst + (mDestYUV444Image.width * mDestYUV444Image.height);
 
     uint64_t ySqError = 0, uSqError = 0, vSqError = 0;
-    for (int i = 0; i < mDestYUV444Image.height; i++) {
-        for (int j = 0; j < mDestYUV444Image.width; j++) {
+    for (size_t i = 0; i < mDestYUV444Image.height; i++) {
+        for (size_t j = 0; j < mDestYUV444Image.width; j++) {
             int ySrc = (yDataSrc[mRawP010Image.width * i + j] >> 6) & 0x3ff;
             ySrc = CLIP3(ySrc, 64, 940);
             int yDst = yDataDst[mDestYUV444Image.width * i + j] & 0x3ff;
@@ -634,8 +634,8 @@ void UltraHdrAppInput::computeYUVSdrPSNR() {
     uint8_t* vDataDst = uDataDst + (mDestYUV444Image.width * mDestYUV444Image.height);
 
     uint64_t ySqError = 0, uSqError = 0, vSqError = 0;
-    for (int i = 0; i < mDestYUV444Image.height; i++) {
-        for (int j = 0; j < mDestYUV444Image.width; j++) {
+    for (size_t i = 0; i < mDestYUV444Image.height; i++) {
+        for (size_t j = 0; j < mDestYUV444Image.width; j++) {
             int ySrc = yDataSrc[mRawYuv420Image.width * i + j];
             int yDst = yDataDst[mDestYUV444Image.width * i + j];
             ySqError += (ySrc - yDst) * (ySrc - yDst);
