@@ -4,8 +4,8 @@ https://developer.android.com/guide/topics/media/platform/hdr-image-format
 ## Getting Started
 
 Supports:
-- x86_32/x86_64 on Linux.
-- Mac Os
+- x86_32/x86_64 on Linux
+- macOS
 
 Preferred Compiler: Clang
 Tested with:
@@ -21,7 +21,7 @@ $ cd build
 $ cmake ..
 $ make
 ```
-### For Mac OS
+### For macOS
 ```
 $ mkdir build
 $ cd build
