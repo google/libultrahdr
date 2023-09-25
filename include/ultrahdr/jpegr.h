@@ -81,9 +81,9 @@ struct jpegr_uncompressed_struct {
     // Pointer to the data location.
     void* data;
     // Width of the gain map or the luma plane of the image in pixels.
-    int width;
+    size_t width;
     // Height of the gain map or the luma plane of the image in pixels.
-    int height;
+    size_t height;
     // Color gamut.
     ultrahdr_color_gamut colorGamut;
 
@@ -94,7 +94,7 @@ struct jpegr_uncompressed_struct {
     // Stride of Y plane in number of pixels. 0 indicates the member is uninitialized. If
     // non-zero this value must be larger than or equal to luma width. If stride is
     // uninitialized then it is assumed to be equal to luma width.
-    int luma_stride = 0;
+    size_t luma_stride = 0;
     // Stride of UV plane in number of pixels.
     // 1. If this handle points to P010 image then this value must be larger than
     //    or equal to luma width.
@@ -102,7 +102,7 @@ struct jpegr_uncompressed_struct {
     //    or equal to (luma width / 2).
     // NOTE: if chroma_data is nullptr, chroma_stride is irrelevant. Just as the way,
     // chroma_data is derived from luma ptr, chroma stride is derived from luma stride.
-    int chroma_stride = 0;
+    size_t chroma_stride = 0;
 };
 
 /*
@@ -126,7 +126,7 @@ struct jpegr_exif_struct {
     // Pointer to the data location.
     void* data;
     // Data length;
-    int length;
+    size_t length;
 };
 
 typedef struct jpegr_uncompressed_struct* jr_uncompressed_ptr;

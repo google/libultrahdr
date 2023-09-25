@@ -740,35 +740,35 @@ TEST_F(GainMapMathTest, PqInvOetf) {
 }
 
 TEST_F(GainMapMathTest, PqInvOetfLUT) {
-    for (int idx = 0; idx < kPqInvOETFNumEntries; idx++) {
+    for (size_t idx = 0; idx < kPqInvOETFNumEntries; idx++) {
       float value = static_cast<float>(idx) / static_cast<float>(kPqInvOETFNumEntries - 1);
       EXPECT_FLOAT_EQ(pqInvOetf(value), pqInvOetfLUT(value));
     }
 }
 
 TEST_F(GainMapMathTest, HlgInvOetfLUT) {
-    for (int idx = 0; idx < kHlgInvOETFNumEntries; idx++) {
+    for (size_t idx = 0; idx < kHlgInvOETFNumEntries; idx++) {
       float value = static_cast<float>(idx) / static_cast<float>(kHlgInvOETFNumEntries - 1);
       EXPECT_FLOAT_EQ(hlgInvOetf(value), hlgInvOetfLUT(value));
     }
 }
 
 TEST_F(GainMapMathTest, pqOetfLUT) {
-    for (int idx = 0; idx < kPqOETFNumEntries; idx++) {
+    for (size_t idx = 0; idx < kPqOETFNumEntries; idx++) {
       float value = static_cast<float>(idx) / static_cast<float>(kPqOETFNumEntries - 1);
       EXPECT_FLOAT_EQ(pqOetf(value), pqOetfLUT(value));
     }
 }
 
 TEST_F(GainMapMathTest, hlgOetfLUT) {
-    for (int idx = 0; idx < kHlgOETFNumEntries; idx++) {
+    for (size_t idx = 0; idx < kHlgOETFNumEntries; idx++) {
       float value = static_cast<float>(idx) / static_cast<float>(kHlgOETFNumEntries - 1);
       EXPECT_FLOAT_EQ(hlgOetf(value), hlgOetfLUT(value));
     }
 }
 
 TEST_F(GainMapMathTest, srgbInvOetfLUT) {
-    for (int idx = 0; idx < kSrgbInvOETFNumEntries; idx++) {
+    for (size_t idx = 0; idx < kSrgbInvOETFNumEntries; idx++) {
       float value = static_cast<float>(idx) / static_cast<float>(kSrgbInvOETFNumEntries - 1);
       EXPECT_FLOAT_EQ(srgbInvOetf(value), srgbInvOetfLUT(value));
     }
@@ -780,7 +780,7 @@ TEST_F(GainMapMathTest, applyGainLUT) {
                                        .minContentBoost = 1.0f / static_cast<float>(boost) };
     GainLUT gainLUT(&metadata);
     GainLUT gainLUTWithBoost(&metadata, metadata.maxContentBoost);
-    for (int idx = 0; idx < kGainFactorNumEntries; idx++) {
+    for (size_t idx = 0; idx < kGainFactorNumEntries; idx++) {
       float value = static_cast<float>(idx) / static_cast<float>(kGainFactorNumEntries - 1);
       EXPECT_RGB_NEAR(applyGain(RgbBlack(), value, &metadata),
                       applyGainLUT(RgbBlack(), value, gainLUT));
@@ -810,7 +810,7 @@ TEST_F(GainMapMathTest, applyGainLUT) {
                                        .minContentBoost = 1.0f };
     GainLUT gainLUT(&metadata);
     GainLUT gainLUTWithBoost(&metadata, metadata.maxContentBoost);
-    for (int idx = 0; idx < kGainFactorNumEntries; idx++) {
+    for (size_t idx = 0; idx < kGainFactorNumEntries; idx++) {
       float value = static_cast<float>(idx) / static_cast<float>(kGainFactorNumEntries - 1);
       EXPECT_RGB_NEAR(applyGain(RgbBlack(), value, &metadata),
                       applyGainLUT(RgbBlack(), value, gainLUT));
@@ -841,7 +841,7 @@ TEST_F(GainMapMathTest, applyGainLUT) {
                                                  powf(static_cast<float>(boost), 1.0f / 3.0f)};
     GainLUT gainLUT(&metadata);
     GainLUT gainLUTWithBoost(&metadata, metadata.maxContentBoost);
-    for (int idx = 0; idx < kGainFactorNumEntries; idx++) {
+    for (size_t idx = 0; idx < kGainFactorNumEntries; idx++) {
       float value = static_cast<float>(idx) / static_cast<float>(kGainFactorNumEntries - 1);
       EXPECT_RGB_NEAR(applyGain(RgbBlack(), value, &metadata),
                       applyGainLUT(RgbBlack(), value, gainLUT));

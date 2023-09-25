@@ -150,7 +150,7 @@ constexpr size_t kGainFactorPrecision = 10;
 constexpr size_t kGainFactorNumEntries = 1 << kGainFactorPrecision;
 struct GainLUT {
   GainLUT(ultrahdr_metadata_ptr metadata) {
-    for (int idx = 0; idx < kGainFactorNumEntries; idx++) {
+    for (size_t idx = 0; idx < kGainFactorNumEntries; idx++) {
       float value = static_cast<float>(idx) / static_cast<float>(kGainFactorNumEntries - 1);
       float logBoost = log2(metadata->minContentBoost) * (1.0f - value)
                      + log2(metadata->maxContentBoost) * value;
@@ -160,7 +160,7 @@ struct GainLUT {
 
   GainLUT(ultrahdr_metadata_ptr metadata, float displayBoost) {
     float boostFactor = displayBoost > 0 ? displayBoost / metadata->maxContentBoost : 1.0f;
-    for (int idx = 0; idx < kGainFactorNumEntries; idx++) {
+    for (size_t idx = 0; idx < kGainFactorNumEntries; idx++) {
       float value = static_cast<float>(idx) / static_cast<float>(kGainFactorNumEntries - 1);
       float logBoost = log2(metadata->minContentBoost) * (1.0f - value)
                      + log2(metadata->maxContentBoost) * value;
