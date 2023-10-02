@@ -18,6 +18,16 @@ cmake_minimum_required(VERSION 3.5)
 
 project(ULTRAHDR VERSION 1.0.0)
 
+option(ENABLE_FUZZERS "Enables fuzzers" OFF)
+
+# Add -fuzzer-no-link to sanitize argument if fuzzer build is enabled
+if (${ENABLE_FUZZERS})
+if(DEFINED SANITIZE)
+    set(SANITIZE "${SANITIZE},fuzzer-no-link")
+else()
+    set(SANITIZE "fuzzer-no-link")
+endif()
+endif()
 set(CMAKE_CXX_STANDARD 17)
 
 include(ExternalProject)
@@ -114,6 +124,7 @@ target_link_libraries(ultrahdr_unit_test
     ${SRC_DIR}/third_party/build/googletest/src/googletest-build/lib/libgtest_main.a
 )
 
+if (${ENABLE_FUZZERS})
 libultrahdr_add_fuzzer(ultrahdr_enc_fuzzer ultrahdr
     SOURCES
         ${SRC_DIR}/fuzzer/ultrahdr_enc_fuzzer.cpp
@@ -131,3 +142,4 @@ libultrahdr_add_fuzzer(ultrahdr_dec_fuzzer ultrahdr
         ${SRC_DIR}/third_party/libjpeg-turbo/
         ${SRC_DIR}/third_party/build/libjpeg-turbo/src/libjpeg-turbo-build
 )
+endif()
