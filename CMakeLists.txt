@@ -32,6 +32,9 @@ set(CMAKE_CXX_STANDARD 17)
 
 include(ExternalProject)
 
+set(THREADS_PREFER_PTHREAD_FLAG ON)
+find_package(Threads REQUIRED)
+
 # Check the target architecture and set compiler flags accordingly
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64")
     # 64-bit architecture
@@ -89,6 +92,7 @@ target_include_directories(ultrahdr PRIVATE
 target_link_libraries(ultrahdr PRIVATE
     ${SRC_DIR}/third_party/build/libjpeg-turbo/src/libjpeg-turbo-build/libjpeg.a
     image_io
+    Threads::Threads
 )
 
 libultrahdr_add_executable(ultrahdr_unit_test
