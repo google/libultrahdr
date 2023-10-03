@@ -17,12 +17,21 @@ jobs:
             cc: gcc
             cxx: g++
             build-system: cmake
+            cmake-opts: '-DENABLE_FUZZERS=OFF'
 
           - name: ubuntu-latest-clang-cmake
             os: ubuntu-latest
             cc: clang
             cxx: clang++
             build-system: cmake
+            cmake-opts: '-DENABLE_FUZZERS=ON'
+
+          - name: macos-latest-clang-cmake
+            os: macos-latest
+            cc: clang
+            cxx: clang++
+            build-system: cmake
+            cmake-opts: '-DENABLE_FUZZERS=OFF'
 
     runs-on: ${{ matrix.os }}
 
@@ -33,7 +42,7 @@ jobs:
       env:
         CC: ${{ matrix.cc }}
         CXX: ${{ matrix.cxx }}
-      run: cmake -B ${{github.workspace}}/out -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}}
+      run: cmake -B ${{github.workspace}}/out -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} ${{ matrix.cmake-opts }}
 
     - name: Build
       run: cmake --build ${{github.workspace}}/out --config ${{env.BUILD_TYPE}}
