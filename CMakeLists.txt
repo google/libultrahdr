@@ -57,8 +57,15 @@ ExternalProject_Add(libjpeg-turbo
     PREFIX ${SRC_DIR}/third_party/build/libjpeg-turbo
     SOURCE_DIR ${SRC_DIR}/third_party/libjpeg-turbo
     TMP_DIR ${SRC_DIR}/third_party/build/libjpeg-turbo/tmp
+    BUILD_COMMAND ${CMAKE_COMMAND} --build <BINARY_DIR> --config $<CONFIG> --target jpeg-static
     INSTALL_COMMAND ""
 )
+
+set(JPEG_INCLUDE_DIR
+    ${SRC_DIR}/third_party/libjpeg-turbo/
+    ${SRC_DIR}/third_party/build/libjpeg-turbo/src/libjpeg-turbo-build)
+
+set(JPEG_LIBRARIES ${SRC_DIR}/third_party/build/libjpeg-turbo/src/libjpeg-turbo-build/libjpeg.a)
 
 ExternalProject_Add(googletest
     GIT_REPOSITORY https://android.googlesource.com/platform/external/googletest
@@ -68,6 +75,14 @@ ExternalProject_Add(googletest
     TMP_DIR ${SRC_DIR}/third_party/build/googletest/tmp
     INSTALL_COMMAND ""
 )
+
+set(GTEST_INCLUDE_DIRS
+    ${SRC_DIR}/third_party/googletest/googletest/include
+    ${SRC_DIR}/third_party/googletest/googlemock/include)
+
+set(GTEST_LIBRARIES
+    ${SRC_DIR}/third_party/build/googletest/src/googletest-build/lib/libgtest.a
+    ${SRC_DIR}/third_party/build/googletest/src/googletest-build/lib/libgtest_main.a)
 
 add_library(ultrahdr STATIC
     "${SRC_DIR}/gainmapmath.cpp"
@@ -79,21 +94,18 @@ add_library(ultrahdr STATIC
     "${SRC_DIR}/multipictureformat.cpp"
 )
 
-set_target_properties(ultrahdr PROPERTIES COMPILE_FLAGS -std=c++17)
-
-# Set include directories for the target
 target_include_directories(ultrahdr PRIVATE
     "${SRC_DIR}/include"
-    "${SRC_DIR}/third_party/libjpeg-turbo/"
-    "${SRC_DIR}/third_party/build/libjpeg-turbo/src/libjpeg-turbo-build"
+    ${JPEG_INCLUDE_DIR}
     "${SRC_DIR}/third_party/image_io/includes/"
 )
 
 target_link_libraries(ultrahdr PRIVATE
-    ${SRC_DIR}/third_party/build/libjpeg-turbo/src/libjpeg-turbo-build/libjpeg.a
+    ${JPEG_LIBRARIES}
     image_io
     Threads::Threads
 )
+add_dependencies(ultrahdr libjpeg-turbo)
 
 libultrahdr_add_executable(ultrahdr_unit_test
     ultrahdr
@@ -106,11 +118,10 @@ libultrahdr_add_executable(ultrahdr_unit_test
         "${SRC_DIR}/tests/icchelper_test.cpp"
     INCLUDES
         "${SRC_DIR}/include"
-        "${SRC_DIR}/third_party/googletest/googletest/include"
-        "${SRC_DIR}/third_party/googletest/googlemock/include"
-        "${SRC_DIR}/third_party/libjpeg-turbo/"
-        "${SRC_DIR}/third_party/build/libjpeg-turbo/src/libjpeg-turbo-build"
+        ${GTEST_INCLUDE_DIRS}
+        ${JPEG_INCLUDE_DIR}
 )
+add_dependencies(ultrahdr_unit_test googletest libjpeg-turbo)
 
 libultrahdr_add_executable(ultrahdr_app
     ultrahdr
@@ -118,15 +129,11 @@ libultrahdr_add_executable(ultrahdr_app
         "${SRC_DIR}/tests/ultrahdr_app.cpp"
     INCLUDES
         "${SRC_DIR}/include"
-        "${SRC_DIR}/third_party/libjpeg-turbo/"
-        "${SRC_DIR}/third_party/build/libjpeg-turbo/src/libjpeg-turbo-build"
+        ${JPEG_INCLUDE_DIR}
 )
+add_dependencies(ultrahdr_app googletest libjpeg-turbo)
 
-target_link_libraries(ultrahdr_unit_test
-    ${SRC_DIR}/third_party/build/googletest/src/googletest-build/lib/libgmock.a
-    ${SRC_DIR}/third_party/build/googletest/src/googletest-build/lib/libgtest.a
-    ${SRC_DIR}/third_party/build/googletest/src/googletest-build/lib/libgtest_main.a
-)
+target_link_libraries(ultrahdr_unit_test ${GTEST_LIBRARIES})
 
 if (${ENABLE_FUZZERS})
 libultrahdr_add_fuzzer(ultrahdr_enc_fuzzer ultrahdr
@@ -134,16 +141,17 @@ libultrahdr_add_fuzzer(ultrahdr_enc_fuzzer ultrahdr
         ${SRC_DIR}/fuzzer/ultrahdr_enc_fuzzer.cpp
     INCLUDES
         ${SRC_DIR}/include
-        ${SRC_DIR}/third_party/libjpeg-turbo/
-        ${SRC_DIR}/third_party/build/libjpeg-turbo/src/libjpeg-turbo-build
+        ${JPEG_INCLUDE_DIR}
 )
+add_dependencies(ultrahdr_enc_fuzzer libjpeg-turbo)
+
 
 libultrahdr_add_fuzzer(ultrahdr_dec_fuzzer ultrahdr
     SOURCES
         ${SRC_DIR}/fuzzer/ultrahdr_dec_fuzzer.cpp
     INCLUDES
         ${SRC_DIR}/include
-        ${SRC_DIR}/third_party/libjpeg-turbo/
-        ${SRC_DIR}/third_party/build/libjpeg-turbo/src/libjpeg-turbo-build
+        ${JPEG_INCLUDE_DIR}
 )
+add_dependencies(ultrahdr_dec_fuzzer libjpeg-turbo)
 endif()
