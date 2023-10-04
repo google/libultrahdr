@@ -35,15 +35,6 @@ include(ExternalProject)
 set(THREADS_PREFER_PTHREAD_FLAG ON)
 find_package(Threads REQUIRED)
 
-# Check the target architecture and set compiler flags accordingly
-if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64")
-    # 64-bit architecture
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -m64")
-else()
-    # 32-bit architecture
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -m32")
-endif()
-
 set(SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
 
 include("${SRC_DIR}/utils.cmake")
