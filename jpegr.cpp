@@ -71,6 +71,16 @@ int GetCPUCoreCount() {
 }
 
 /*
+ * MessageWriter implementation for ALOG functions.
+ */
+class AlogMessageWriter : public MessageWriter {
+ public:
+  void WriteMessage(const Message& message) override {
+    ALOGD(GetFormattedMessage(message));
+  }
+};
+
+/*
  * Helper function copies the JPEG image from without EXIF.
  *
  * @param pDest destination of the data to be written.
@@ -1122,6 +1132,7 @@ status_t JpegR::extractPrimaryImageAndGainMap(jr_compressed_ptr jpegr_image_ptr,
   }
 
   MessageHandler msg_handler;
+  msg_handler.SetMessageWriter(make_unique<AlogMessageWriter>(AlogMessageWriter()));
   std::shared_ptr<DataSegment> seg =
           DataSegment::Create(DataRange(0, jpegr_image_ptr->length),
                               static_cast<const uint8_t*>(jpegr_image_ptr->data),
