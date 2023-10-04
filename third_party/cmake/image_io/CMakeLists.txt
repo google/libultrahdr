@@ -20,17 +20,6 @@ project(IMAGE_IO VERSION 1.0.0)
 
 set(CMAKE_CXX_STANDARD 17)
 
-# Check the target architecture and set compiler flags accordingly
-if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64")
-    # 64-bit architecture
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -m64")
-    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -m64")
-else()
-    # 32-bit architecture
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -m32")
-    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -m32")
-endif()
-
 set(IMAGE_IO_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../image_io")
 
 file(GLOB IMAGE_IO_SRC "${IMAGE_IO_DIR}/src/**/*.cc")
