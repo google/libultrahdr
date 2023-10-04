@@ -97,6 +97,14 @@ static void jpegrerror_exit(j_common_ptr cinfo) {
     longjmp(err->setjmp_buffer, 1);
 }
 
+static void output_message(j_common_ptr cinfo) {
+    char buffer[JMSG_LENGTH_MAX];
+
+    /* Create the message */
+    (*cinfo->err->format_message)(cinfo, buffer);
+    ALOGE("%s\n", buffer);
+}
+
 JpegDecoderHelper::JpegDecoderHelper() {}
 
 JpegDecoderHelper::~JpegDecoderHelper() {}
@@ -163,6 +171,7 @@ bool JpegDecoderHelper::extractEXIF(const void* image, int length) {
 
     cinfo.err = jpeg_std_error(&myerr.pub);
     myerr.pub.error_exit = jpegrerror_exit;
+    myerr.pub.output_message = output_message;
 
     if (setjmp(myerr.setjmp_buffer)) {
         jpeg_destroy_decompress(&cinfo);
@@ -209,6 +218,8 @@ bool JpegDecoderHelper::decode(const void* image, int length, bool decodeToRGBA)
     jpegrerror_mgr myerr;
     cinfo.err = jpeg_std_error(&myerr.pub);
     myerr.pub.error_exit = jpegrerror_exit;
+    myerr.pub.output_message = output_message;
+
     if (setjmp(myerr.setjmp_buffer)) {
         jpeg_destroy_decompress(&cinfo);
         return false;
@@ -342,6 +353,8 @@ bool JpegDecoderHelper::getCompressedImageParameters(const void* image, int leng
     jpegrerror_mgr myerr;
     cinfo.err = jpeg_std_error(&myerr.pub);
     myerr.pub.error_exit = jpegrerror_exit;
+    myerr.pub.output_message = output_message;
+
     if (setjmp(myerr.setjmp_buffer)) {
         jpeg_destroy_decompress(&cinfo);
         return false;
