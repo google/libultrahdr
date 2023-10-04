@@ -1,6 +1,7 @@
 #ifndef IMAGE_IO_JPEG_JPEG_XMP_INFO_H_  // NOLINT
 #define IMAGE_IO_JPEG_JPEG_XMP_INFO_H_  // NOLINT
 
+#include <cstdint>
 #include <string>
 #include <vector>
 
