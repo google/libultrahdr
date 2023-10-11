@@ -68,7 +68,7 @@ static bool loadFile(const char* filename, void*& result, int length) {
         int size = ifd.tellg();
         if (size < length) {
             std::cerr << "requested to read " << length << " bytes from file : " << filename
-                      << ", file contains only " << length << " bytes" << std::endl;
+                      << ", file contains only " << size << " bytes" << std::endl;
             return false;
         }
         ifd.seekg(0, std::ios::beg);
@@ -104,13 +104,28 @@ public:
                      ultrahdr_output_format of = ULTRAHDR_OUTPUT_HDR_HLG)
           : mP010File(p010File),
             mYuv420File(yuv420File),
+            mJpegRFile(nullptr),
             mWidth(width),
             mHeight(height),
             mP010Cg(p010Cg),
             mYuv420Cg(yuv420Cg),
             mTf(tf),
             mQuality(quality),
-            mOf(of){};
+            mOf(of),
+            mMode(0){};
+
+    UltraHdrAppInput(const char* jpegRFile, ultrahdr_output_format of = ULTRAHDR_OUTPUT_HDR_HLG)
+          : mP010File(nullptr),
+            mYuv420File(nullptr),
+            mJpegRFile(jpegRFile),
+            mWidth(0),
+            mHeight(0),
+            mP010Cg(ULTRAHDR_COLORGAMUT_UNSPECIFIED),
+            mYuv420Cg(ULTRAHDR_COLORGAMUT_UNSPECIFIED),
+            mTf(ULTRAHDR_TF_UNSPECIFIED),
+            mQuality(100),
+            mOf(of),
+            mMode(1){};
 
     ~UltraHdrAppInput() {
         if (mRawP010Image.data) free(mRawP010Image.data);
@@ -128,6 +143,7 @@ public:
         if (mDestYUV444Image.chroma_data) free(mDestYUV444Image.chroma_data);
     }
 
+    bool fillJpegRImageHandle();
     bool fillP010ImageHandle();
     bool convertP010ToRGBImage();
     bool fillYuv420ImageHandle();
@@ -143,6 +159,7 @@ public:
 
     const char* mP010File;
     const char* mYuv420File;
+    const char* mJpegRFile;
     const int mWidth;
     const int mHeight;
     const ultrahdr_color_gamut mP010Cg;
@@ -150,6 +167,7 @@ public:
     const ultrahdr_transfer_function mTf;
     const int mQuality;
     const ultrahdr_output_format mOf;
+    const int mMode;
     jpegr_uncompressed_struct mRawP010Image{};
     jpegr_uncompressed_struct mRawRgba1010102Image{};
     jpegr_uncompressed_struct mRawYuv420Image{};
@@ -175,6 +193,20 @@ bool UltraHdrAppInput::fillYuv420ImageHandle() {
     mRawYuv420Image.height = mHeight;
     mRawYuv420Image.colorGamut = mYuv420Cg;
     return loadFile(mYuv420File, mRawYuv420Image.data, yuv420Size);
+}
+
+bool UltraHdrAppInput::fillJpegRImageHandle() {
+    std::ifstream ifd(mJpegRFile, std::ios::binary | std::ios::ate);
+    if (ifd.good()) {
+        int size = ifd.tellg();
+        mJpegImgR.length = size;
+        mJpegImgR.maxLength = size;
+        mJpegImgR.data = nullptr;
+        mJpegImgR.colorGamut = mYuv420Cg;
+        ifd.close();
+        return loadFile(mJpegRFile, mJpegImgR.data, size);
+    }
+    return false;
 }
 
 bool UltraHdrAppInput::encode() {
@@ -212,6 +244,7 @@ bool UltraHdrAppInput::encode() {
 }
 
 bool UltraHdrAppInput::decode() {
+    if (mMode == 1 && !fillJpegRImageHandle()) return false;
     std::vector<uint8_t> iccData(0);
     std::vector<uint8_t> exifData(0);
     jpegr_info_struct info{0, 0, &iccData, &exifData};
@@ -675,29 +708,32 @@ void UltraHdrAppInput::computeYUVSdrPSNR() {
 static void usage(const char* name) {
     fprintf(stderr, "Usage: %s \n", name);
     fprintf(stderr, "ultra hdr demo application \n");
-    fprintf(stderr, "    -p    p010 file path, mandatory \n");
+    fprintf(stderr, "    -p    p010 file path, mandatory in encode mode \n");
     fprintf(stderr, "    -y    yuv420 file path, optional \n");
-    fprintf(stderr, "    -w    input width, mandatory \n");
-    fprintf(stderr, "    -h    input height, mandatory \n");
+    fprintf(stderr, "    -w    input width, mandatory in encode mode \n");
+    fprintf(stderr, "    -h    input height, mandatory in encode mode \n");
     fprintf(stderr, "    -C    p010 color gamut, optional [0:bt709, 1:p3, 2:bt2100] \n");
     fprintf(stderr, "    -c    yuv420 color gamut, optional [0:bt709, 1:p3, 2:bt2100] \n");
     fprintf(stderr, "    -t    input transfer function, optional [0:linear, 1:hlg, 2:pq] \n");
     fprintf(stderr, "    -q    quality factor, optional [0-100] \n");
+    fprintf(stderr, "    -j    jpegr file path, mandatory in decode mode \n");
+    fprintf(stderr, "    -m    mode [0: encode, 1:decode] \n");
     fprintf(stderr,
             "    -o    output transfer function, optional [0:sdr, 1:hdr_linear, 2:hdr_pq, "
             "3:hdr_hlg] \n");
 }
 
 int main(int argc, char* argv[]) {
-    char *p010_file = nullptr, *yuv420_file = nullptr;
+    char *p010_file = nullptr, *yuv420_file = nullptr, *jpegr_file = nullptr;
     int width = 0, height = 0;
     ultrahdr_color_gamut p010Cg = ULTRAHDR_COLORGAMUT_BT709;
     ultrahdr_color_gamut yuv420Cg = ULTRAHDR_COLORGAMUT_BT709;
     ultrahdr_transfer_function tf = ULTRAHDR_TF_HLG;
     int quality = 100;
     ultrahdr_output_format of = ULTRAHDR_OUTPUT_HDR_HLG;
+    int mode = 0;
     int ch;
-    while ((ch = getopt(argc, argv, "p:y:w:h:C:c:t:q:o:")) != -1) {
+    while ((ch = getopt(argc, argv, "p:y:w:h:C:c:t:q:o:m:j:")) != -1) {
         switch (ch) {
             case 'p':
                 p010_file = optarg;
@@ -726,30 +762,51 @@ int main(int argc, char* argv[]) {
             case 'o':
                 of = static_cast<ultrahdr_output_format>(atoi(optarg));
                 break;
+            case 'm':
+                mode = atoi(optarg);
+                break;
+            case 'j':
+                jpegr_file = optarg;
+                break;
             default:
                 usage(argv[0]);
                 return -1;
         }
     }
-    if (width <= 0 || height <= 0 || p010_file == nullptr) {
+    if (mode == 0) {
+        if (width <= 0 || height <= 0 || p010_file == nullptr) {
+            std::cerr << "invalid raw file name or raw image dimensions" << std::endl;
+            usage(argv[0]);
+            return -1;
+        }
+        UltraHdrAppInput appInput(p010_file, yuv420_file, width, height, p010Cg, yuv420Cg, tf,
+                                  quality, of);
+        if (!appInput.encode()) return -1;
+        if (!appInput.decode()) return -1;
+        if (of == ULTRAHDR_OUTPUT_SDR && yuv420_file != nullptr) {
+            appInput.convertYuv420ToRGBImage();
+            appInput.computeRGBSdrPSNR();
+            appInput.convertRgba8888ToYUV444Image();
+            appInput.computeYUVSdrPSNR();
+        } else if (of == ULTRAHDR_OUTPUT_HDR_HLG || of == ULTRAHDR_OUTPUT_HDR_PQ) {
+            appInput.convertP010ToRGBImage();
+            appInput.computeRGBHdrPSNR();
+            appInput.convertRgba1010102ToYUV444Image();
+            appInput.computeYUVHdrPSNR();
+        }
+    } else if (mode == 1) {
+        if (jpegr_file == nullptr) {
+            std::cerr << "invalid jpegr image file name " << std::endl;
+            usage(argv[0]);
+            return -1;
+        }
+        UltraHdrAppInput appInput(jpegr_file, of);
+        if (!appInput.decode()) return -1;
+    } else {
+        std::cerr << "unrecognized input mode " << mode << std::endl;
         usage(argv[0]);
         return -1;
     }
 
-    UltraHdrAppInput appInput(p010_file, yuv420_file, width, height, p010Cg, yuv420Cg, tf, quality,
-                              of);
-    if (!appInput.encode()) return -1;
-    if (!appInput.decode()) return -1;
-    if (of == ULTRAHDR_OUTPUT_SDR && yuv420_file != nullptr) {
-        appInput.convertYuv420ToRGBImage();
-        appInput.computeRGBSdrPSNR();
-        appInput.convertRgba8888ToYUV444Image();
-        appInput.computeYUVSdrPSNR();
-    } else if (of == ULTRAHDR_OUTPUT_HDR_HLG || of == ULTRAHDR_OUTPUT_HDR_PQ) {
-        appInput.convertP010ToRGBImage();
-        appInput.computeRGBHdrPSNR();
-        appInput.convertRgba1010102ToYUV444Image();
-        appInput.computeYUVHdrPSNR();
-    }
     return 0;
 }
