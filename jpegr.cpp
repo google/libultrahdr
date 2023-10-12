@@ -76,7 +76,8 @@ int GetCPUCoreCount() {
 class AlogMessageWriter : public MessageWriter {
  public:
   void WriteMessage(const Message& message) override {
-    ALOGD(GetFormattedMessage(message));
+    std::string log = GetFormattedMessage(message);
+    ALOGD("%s", log.c_str());
   }
 };
 

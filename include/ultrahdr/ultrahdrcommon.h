@@ -25,11 +25,31 @@
     #ifdef LOG_NDEBUG
         #include <cstdio>
 
-        #define ALOGD(...) fprintf(stderr, __VA_ARGS__)
-        #define ALOGE(...) fprintf(stderr, __VA_ARGS__)
-        #define ALOGI(...) fprintf(stdout, __VA_ARGS__)
-        #define ALOGV(...) fprintf(stdout, __VA_ARGS__)
-        #define ALOGW(...) fprintf(stderr, __VA_ARGS__)
+        #define ALOGD(...)                \
+          do {                            \
+            fprintf(stderr, __VA_ARGS__); \
+            fprintf(stderr, "\n");        \
+          } while (0)
+        #define ALOGE(...)                \
+          do {                            \
+            fprintf(stderr, __VA_ARGS__); \
+            fprintf(stderr, "\n");        \
+          } while (0)
+        #define ALOGI(...)                \
+          do {                            \
+            fprintf(stdout, __VA_ARGS__); \
+            fprintf(stdout, "\n");        \
+          } while (0)
+        #define ALOGV(...)                \
+          do {                            \
+            fprintf(stdout, __VA_ARGS__); \
+            fprintf(stdout, "\n");        \
+          } while (0)
+        #define ALOGW(...)                \
+          do {                            \
+            fprintf(stderr, __VA_ARGS__); \
+            fprintf(stderr, "\n");        \
+          } while (0)
     #else
         #define ALOGD(...) ((void)0)
         #define ALOGE(...) ((void)0)
@@ -42,4 +62,3 @@
 #define ALIGNM(x, m) ((((x) + ((m) - 1)) / (m)) * (m))
 
 #endif // ULTRAHDR_ULTRAHDRCOMMON_H
-
