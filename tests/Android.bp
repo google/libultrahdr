@@ -15,10 +15,10 @@
 package {
     // See: http://go/android-license-faq
     // A large-scale-change added 'default_applicable_licenses' to import
-    // all of the 'license_kinds' from "frameworks_native_license"
+    // all of the 'license_kinds' from "external_libultrahdr_license"
     // to get the below license kinds:
     //   SPDX-license-identifier-Apache-2.0
-    default_applicable_licenses: ["frameworks_native_license"],
+    default_applicable_licenses: ["external_libultrahdr_license"],
 }
 
 cc_test {
