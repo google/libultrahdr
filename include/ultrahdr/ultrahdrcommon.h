@@ -29,27 +29,27 @@
           do {                            \
             fprintf(stderr, __VA_ARGS__); \
             fprintf(stderr, "\n");        \
-          } while (0);
+          } while (0)
         #define ALOGE(...)                \
           do {                            \
             fprintf(stderr, __VA_ARGS__); \
             fprintf(stderr, "\n");        \
-          } while (0);
+          } while (0)
         #define ALOGI(...)                \
           do {                            \
             fprintf(stdout, __VA_ARGS__); \
             fprintf(stdout, "\n");        \
-          } while (0);
+          } while (0)
         #define ALOGV(...)                \
           do {                            \
             fprintf(stdout, __VA_ARGS__); \
             fprintf(stdout, "\n");        \
-          } while (0);
+          } while (0)
         #define ALOGW(...)                \
           do {                            \
             fprintf(stderr, __VA_ARGS__); \
             fprintf(stderr, "\n");        \
-          } while (0);
+          } while (0)
     #else
         #define ALOGD(...) ((void)0)
         #define ALOGE(...) ((void)0)
