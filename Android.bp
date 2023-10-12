@@ -15,8 +15,19 @@
 package {
     // See: http://go/android-license-faq
     default_applicable_licenses: [
-        "frameworks_native_license",
+        "external_libultrahdr_license",
         "adobe_hdr_gain_map_license",
+    ],
+}
+
+license {
+    name: "external_libultrahdr_license",
+    visibility: [":__subpackages__"],
+    license_kinds: [
+        "SPDX-license-identifier-Apache-2.0",
+    ],
+    license_text: [
+        "LICENSE",
     ],
 }
 
