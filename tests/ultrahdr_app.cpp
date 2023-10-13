@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+#include <sys/time.h>
 #include <unistd.h>
 
 #include <algorithm>
@@ -61,6 +62,25 @@ const float BT2020RGBtoYUVMatrix[9] = {0.2627,
                                        0.5,
                                        (-0.6780 / 1.4746),
                                        (-0.0593 / 1.4746)};
+
+//#define PROFILE_ENABLE 1
+class Profiler {
+public:
+    void timerStart() { gettimeofday(&mStartingTime, nullptr); }
+
+    void timerStop() { gettimeofday(&mEndingTime, nullptr); }
+
+    int64_t elapsedTime() {
+        struct timeval elapsedMicroseconds;
+        elapsedMicroseconds.tv_sec = mEndingTime.tv_sec - mStartingTime.tv_sec;
+        elapsedMicroseconds.tv_usec = mEndingTime.tv_usec - mStartingTime.tv_usec;
+        return elapsedMicroseconds.tv_sec * 1000000 + elapsedMicroseconds.tv_usec;
+    }
+
+private:
+    struct timeval mStartingTime;
+    struct timeval mEndingTime;
+};
 
 static bool loadFile(const char* filename, void*& result, int length) {
     std::ifstream ifd(filename, std::ios::binary | std::ios::ate);
@@ -223,6 +243,12 @@ bool UltraHdrAppInput::encode() {
 
     JpegR jpegHdr;
     status_t status = UNKNOWN_ERROR;
+#ifdef PROFILE_ENABLE
+    const int profileCount = 10;
+    Profiler profileEncode;
+    profileEncode.timerStart();
+    for (auto i = 0; i < profileCount; i++) {
+#endif
     if (mYuv420File == nullptr) { // api-0
         status = jpegHdr.encodeJPEGR(&mRawP010Image, mTf, &mJpegImgR, mQuality, nullptr);
         if (OK != status) {
@@ -239,6 +265,12 @@ bool UltraHdrAppInput::encode() {
             return false;
         }
     }
+#ifdef PROFILE_ENABLE
+    }
+    profileEncode.timerStop();
+    auto avgEncTime = profileEncode.elapsedTime() / (profileCount * 1000.f);
+    printf("Average encode time for res %d x %d is %f ms \n", mWidth, mHeight, avgEncTime);
+#endif
     writeFile("out.jpeg", mJpegImgR.data, mJpegImgR.length);
     return true;
 }
@@ -257,6 +289,12 @@ bool UltraHdrAppInput::decode() {
             std::cerr << "failed to allocate memory to store decoded output" << std::endl;
             return false;
         }
+#ifdef PROFILE_ENABLE
+        const int profileCount = 10;
+        Profiler profileDecode;
+        profileDecode.timerStart();
+        for (auto i = 0; i < profileCount; i++) {
+#endif
         status = jpegHdr.decodeJPEGR(&mJpegImgR, &mDestImage, FLT_MAX, nullptr, mOf, nullptr,
                                      nullptr);
         if (OK != status) {
@@ -264,6 +302,13 @@ bool UltraHdrAppInput::decode() {
                       << std::endl;
             return false;
         }
+#ifdef PROFILE_ENABLE
+        }
+        profileDecode.timerStop();
+        auto avgDecTime = profileDecode.elapsedTime() / (profileCount * 1000.f);
+        printf("Average decode time for res %ld x %ld is %f ms \n", info.width, info.height,
+               avgDecTime);
+#endif
         writeFile("outrgb.raw", mDestImage.data, outSize);
     } else {
         std::cerr << "Encountered error during getJPEGRInfo call, error code " << status
