@@ -32,6 +32,7 @@ extern "C" {
 #endif
 
 #include <cstdint>
+#include <memory>
 #include <vector>
 
 // constraint on max width and max height is only due to device alloc constraints
@@ -145,6 +146,9 @@ private:
 
     // Position of EXIF package, default value is -1 which means no EXIF package appears.
     int mExifPos = -1;
+
+    std::unique_ptr<uint8_t[]> mEmpty = nullptr;
+    std::unique_ptr<uint8_t[]> mBufferIntermediate = nullptr;
 };
 } /* namespace ultrahdr  */
 
