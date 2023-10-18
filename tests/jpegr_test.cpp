@@ -1968,7 +1968,10 @@ void JpegRBenchmark::BenchmarkGenerateGainMap(jr_uncompressed_ptr yuv420Image,
     ASSERT_EQ(OK,
               generateGainMap(yuv420Image, p010Image, ultrahdr_transfer_function::ULTRAHDR_TF_HLG,
                               metadata, map));
-    if (i != kProfileCount - 1) delete[] static_cast<uint8_t*>(map->data);
+    if (i != kProfileCount - 1) {
+      delete[] static_cast<uint8_t*>(map->data);
+      map->data = nullptr;
+    }
   }
   profileGenerateMap.timerStop();
   ALOGE("Generate Gain Map:- Res = %zu x %zu, time = %f ms", yuv420Image->width,
@@ -2037,6 +2040,11 @@ TEST(JpegRTest, ProfileGainMapFuncs) {
 
   ASSERT_NO_FATAL_FAILURE(
           benchmark.BenchmarkApplyGainMap(rawImg420.getImageHandle(), &map, &metadata, &dest));
+
+  if (map.data) {
+    delete[] static_cast<uint8_t*>(map.data);
+    map.data = nullptr;
+  }
 }
 
 } // namespace ultrahdr
