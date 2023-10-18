@@ -52,6 +52,7 @@ void UltraHdrDecFuzzer::process() {
     std::cout << "input buffer size " << jpegImgR.length << std::endl;
     std::cout << "image dimensions " << info.width << " x " << info.width << std::endl;
 #endif
+    if (info.width > kMaxWidth || info.height > kMaxHeight) return;
     size_t outSize = info.width * info.height * ((of == ULTRAHDR_OUTPUT_HDR_LINEAR) ? 8 : 4);
     jpegr_uncompressed_struct decodedJpegR;
     auto decodedRaw = std::make_unique<uint8_t[]>(outSize);
