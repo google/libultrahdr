@@ -37,8 +37,8 @@ extern "C" {
 
 // constraint on max width and max height is only due to device alloc constraints
 // Can tune these values basing on the target device
-static const int kMaxWidth = 8192;
-static const int kMaxHeight = 8192;
+static const int kMaxWidth = 5312;
+static const int kMaxHeight = 5312;
 
 namespace ultrahdr {
 /*
