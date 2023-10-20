@@ -142,46 +142,58 @@ void JpegEncoderHelper::setJpegCompressStruct(int width, int height, int quality
 
 bool JpegEncoderHelper::compressYuv(jpeg_compress_struct* cinfo, const uint8_t* yBuffer,
                                     const uint8_t* uvBuffer, int lumaStride, int chromaStride) {
+    size_t chroma_plane_size = chromaStride * cinfo->image_height / 2;
+    uint8_t* y_plane = const_cast<uint8_t*>(yBuffer);
+    uint8_t* u_plane = const_cast<uint8_t*>(uvBuffer);
+    uint8_t* v_plane = const_cast<uint8_t*>(u_plane + chroma_plane_size);
+
+    const int aligned_width = ALIGNM(cinfo->image_width, kCompressBatchSize);
+    const bool need_luma_padding = (lumaStride < aligned_width);
+    const int aligned_chroma_width = ALIGNM(cinfo->image_width / 2, kCompressBatchSize / 2);
+    const bool need_chroma_padding = (chromaStride < aligned_chroma_width);
+
+    std::unique_ptr<uint8_t[]> empty = nullptr;
+    std::unique_ptr<uint8_t[]> y_mcu_row = nullptr;
+    std::unique_ptr<uint8_t[]> cb_mcu_row = nullptr;
+    std::unique_ptr<uint8_t[]> cr_mcu_row = nullptr;
+    uint8_t* y_mcu_row_ptr = nullptr;
+    uint8_t* cb_mcu_row_ptr = nullptr;
+    uint8_t* cr_mcu_row_ptr = nullptr;
+
     JSAMPROW y[kCompressBatchSize];
     JSAMPROW cb[kCompressBatchSize / 2];
     JSAMPROW cr[kCompressBatchSize / 2];
     JSAMPARRAY planes[3]{y, cb, cr};
 
-    const int aligned_width = ALIGNM(cinfo->image_width, kCompressBatchSize);
-    const bool need_padding = (lumaStride < aligned_width);
-    size_t u_plane_size = chromaStride * cinfo->image_height / 2;
-    uint8_t* y_plane = const_cast<uint8_t*>(yBuffer);
-    uint8_t* u_plane = const_cast<uint8_t*>(uvBuffer);
-    uint8_t* v_plane = const_cast<uint8_t*>(u_plane + u_plane_size);
-    std::unique_ptr<uint8_t[]> empty = std::make_unique<uint8_t[]>(aligned_width);
-    memset(empty.get(), 0, aligned_width);
+    if (cinfo->image_height % kCompressBatchSize != 0) {
+        empty = std::make_unique<uint8_t[]>(aligned_width);
+        memset(empty.get(), 0, aligned_width);
+    }
 
-    std::unique_ptr<uint8_t[]> buffer_intrm = nullptr;
-    uint8_t* y_plane_intrm = nullptr;
-    uint8_t* u_plane_intrm = nullptr;
-    uint8_t* v_plane_intrm = nullptr;
-    JSAMPROW y_intrm[kCompressBatchSize];
-    JSAMPROW cb_intrm[kCompressBatchSize / 2];
-    JSAMPROW cr_intrm[kCompressBatchSize / 2];
-    JSAMPARRAY planes_intrm[3]{y_intrm, cb_intrm, cr_intrm};
-    if (need_padding) {
-        size_t mcu_row_size = aligned_width * kCompressBatchSize * 3 / 2;
-        buffer_intrm = std::make_unique<uint8_t[]>(mcu_row_size);
-        y_plane_intrm = buffer_intrm.get();
-        u_plane_intrm = y_plane_intrm + (aligned_width * kCompressBatchSize);
-        v_plane_intrm = u_plane_intrm + (aligned_width * kCompressBatchSize) / 4;
-        for (int i = 0; i < kCompressBatchSize; ++i) {
-            y_intrm[i] = y_plane_intrm + i * aligned_width;
-            memset(y_intrm[i] + cinfo->image_width, 0, aligned_width - cinfo->image_width);
+    if (need_luma_padding) {
+        size_t mcu_row_size = aligned_width * kCompressBatchSize;
+        y_mcu_row = std::make_unique<uint8_t[]>(mcu_row_size);
+        y_mcu_row_ptr = y_mcu_row.get();
+        uint8_t* tmp = y_mcu_row_ptr;
+        for (int i = 0; i < kCompressBatchSize; ++i, tmp += aligned_width) {
+            memset(tmp + cinfo->image_width, 0, aligned_width - cinfo->image_width);
         }
-        for (int i = 0; i < kCompressBatchSize / 2; ++i) {
-            int offset_intrm = i * (aligned_width / 2);
-            cb_intrm[i] = u_plane_intrm + offset_intrm;
-            cr_intrm[i] = v_plane_intrm + offset_intrm;
-            memset(cb_intrm[i] + cinfo->image_width / 2, 0,
-                   (aligned_width - cinfo->image_width) / 2);
-            memset(cr_intrm[i] + cinfo->image_width / 2, 0,
-                   (aligned_width - cinfo->image_width) / 2);
+    }
+
+    if (need_chroma_padding) {
+        size_t mcu_row_size = aligned_chroma_width * kCompressBatchSize / 2;
+        cb_mcu_row = std::make_unique<uint8_t[]>(mcu_row_size);
+        cb_mcu_row_ptr = cb_mcu_row.get();
+        cr_mcu_row = std::make_unique<uint8_t[]>(mcu_row_size);
+        cr_mcu_row_ptr = cr_mcu_row.get();
+        uint8_t* tmp1 = cb_mcu_row_ptr;
+        uint8_t* tmp2 = cr_mcu_row_ptr;
+        for (int i = 0; i < kCompressBatchSize / 2;
+             ++i, tmp1 += aligned_chroma_width, tmp2 += aligned_chroma_width) {
+            memset(tmp1 + cinfo->image_width / 2, 0,
+                   aligned_chroma_width - (cinfo->image_width / 2));
+            memset(tmp2 + cinfo->image_width / 2, 0,
+                   aligned_chroma_width - (cinfo->image_width / 2));
         }
     }
 
@@ -190,11 +202,13 @@ bool JpegEncoderHelper::compressYuv(jpeg_compress_struct* cinfo, const uint8_t* 
             size_t scanline = cinfo->next_scanline + i;
             if (scanline < cinfo->image_height) {
                 y[i] = y_plane + scanline * lumaStride;
+                if (need_luma_padding) {
+                    uint8_t* tmp = y_mcu_row_ptr + i * aligned_width;
+                    memcpy(tmp, y[i], cinfo->image_width);
+                    y[i] = tmp;
+                }
             } else {
                 y[i] = empty.get();
-            }
-            if (need_padding) {
-                memcpy(y_intrm[i], y[i], cinfo->image_width);
             }
         }
         // cb, cr only have half scanlines
@@ -204,16 +218,19 @@ bool JpegEncoderHelper::compressYuv(jpeg_compress_struct* cinfo, const uint8_t* 
                 int offset = scanline * chromaStride;
                 cb[i] = u_plane + offset;
                 cr[i] = v_plane + offset;
+                if (need_chroma_padding) {
+                    uint8_t* tmp = cb_mcu_row_ptr + i * aligned_chroma_width;
+                    memcpy(tmp, cb[i], cinfo->image_width / 2);
+                    cb[i] = tmp;
+                    tmp = cr_mcu_row_ptr + i * aligned_chroma_width;
+                    memcpy(tmp, cr[i], cinfo->image_width / 2);
+                    cr[i] = tmp;
+                }
             } else {
                 cb[i] = cr[i] = empty.get();
             }
-            if (need_padding) {
-                memcpy(cb_intrm[i], cb[i], cinfo->image_width / 2);
-                memcpy(cr_intrm[i], cr[i], cinfo->image_width / 2);
-            }
         }
-        int processed = jpeg_write_raw_data(cinfo, need_padding ? planes_intrm : planes,
-                                            kCompressBatchSize);
+        int processed = jpeg_write_raw_data(cinfo, planes, kCompressBatchSize);
         if (processed != kCompressBatchSize) {
             ALOGE("Number of processed lines does not equal input lines.");
             return false;
@@ -224,26 +241,30 @@ bool JpegEncoderHelper::compressYuv(jpeg_compress_struct* cinfo, const uint8_t* 
 
 bool JpegEncoderHelper::compressY(jpeg_compress_struct* cinfo, const uint8_t* yBuffer,
                                   int lumaStride) {
+    uint8_t* y_plane = const_cast<uint8_t*>(yBuffer);
+
+    const int aligned_luma_width = ALIGNM(cinfo->image_width, kCompressBatchSize);
+    const bool need_luma_padding = (lumaStride < aligned_luma_width);
+
+    std::unique_ptr<uint8_t[]> empty = nullptr;
+    std::unique_ptr<uint8_t[]> y_mcu_row = nullptr;
+    uint8_t* y_mcu_row_ptr = nullptr;
+
     JSAMPROW y[kCompressBatchSize];
     JSAMPARRAY planes[1]{y};
 
-    const int aligned_width = ALIGNM(cinfo->image_width, kCompressBatchSize);
-    const bool need_padding = (lumaStride < aligned_width);
+    if (cinfo->image_height % kCompressBatchSize != 0) {
+        empty = std::make_unique<uint8_t[]>(aligned_luma_width);
+        memset(empty.get(), 0, aligned_luma_width);
+    }
 
-    uint8_t* y_plane = const_cast<uint8_t*>(yBuffer);
-    std::unique_ptr<uint8_t[]> empty = std::make_unique<uint8_t[]>(aligned_width);
-    memset(empty.get(), 0, aligned_width);
-    std::unique_ptr<uint8_t[]> buffer_intrm = nullptr;
-    uint8_t* y_plane_intrm = nullptr;
-    JSAMPROW y_intrm[kCompressBatchSize];
-    JSAMPARRAY planes_intrm[]{y_intrm};
-    if (need_padding) {
-        size_t mcu_row_size = aligned_width * kCompressBatchSize;
-        buffer_intrm = std::make_unique<uint8_t[]>(mcu_row_size);
-        y_plane_intrm = buffer_intrm.get();
-        for (int i = 0; i < kCompressBatchSize; ++i) {
-            y_intrm[i] = y_plane_intrm + i * aligned_width;
-            memset(y_intrm[i] + cinfo->image_width, 0, aligned_width - cinfo->image_width);
+    if (need_luma_padding) {
+        size_t mcu_row_size = aligned_luma_width * kCompressBatchSize;
+        y_mcu_row = std::make_unique<uint8_t[]>(mcu_row_size);
+        y_mcu_row_ptr = y_mcu_row.get();
+        uint8_t* tmp = y_mcu_row_ptr;
+        for (int i = 0; i < kCompressBatchSize; ++i, tmp += aligned_luma_width) {
+            memset(tmp + cinfo->image_width, 0, aligned_luma_width - cinfo->image_width);
         }
     }
 
@@ -252,15 +273,16 @@ bool JpegEncoderHelper::compressY(jpeg_compress_struct* cinfo, const uint8_t* yB
             size_t scanline = cinfo->next_scanline + i;
             if (scanline < cinfo->image_height) {
                 y[i] = y_plane + scanline * lumaStride;
+                if (need_luma_padding) {
+                    uint8_t* tmp = y_mcu_row_ptr + i * aligned_luma_width;
+                    memcpy(tmp, y[i], cinfo->image_width);
+                    y[i] = tmp;
+                }
             } else {
                 y[i] = empty.get();
             }
-            if (need_padding) {
-                memcpy(y_intrm[i], y[i], cinfo->image_width);
-            }
         }
-        int processed = jpeg_write_raw_data(cinfo, need_padding ? planes_intrm : planes,
-                                            kCompressBatchSize);
+        int processed = jpeg_write_raw_data(cinfo, planes, kCompressBatchSize);
         if (processed != kCompressBatchSize / 2) {
             ALOGE("Number of processed lines does not equal input lines.");
             return false;
