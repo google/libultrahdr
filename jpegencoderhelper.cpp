@@ -147,15 +147,15 @@ bool JpegEncoderHelper::compressYuv(jpeg_compress_struct* cinfo, const uint8_t* 
     JSAMPROW cr[kCompressBatchSize / 2];
     JSAMPARRAY planes[3]{y, cb, cr};
 
+    const int aligned_width = ALIGNM(cinfo->image_width, kCompressBatchSize);
+    const bool need_padding = (lumaStride < aligned_width);
     size_t u_plane_size = chromaStride * cinfo->image_height / 2;
     uint8_t* y_plane = const_cast<uint8_t*>(yBuffer);
     uint8_t* u_plane = const_cast<uint8_t*>(uvBuffer);
     uint8_t* v_plane = const_cast<uint8_t*>(u_plane + u_plane_size);
-    std::unique_ptr<uint8_t[]> empty = std::make_unique<uint8_t[]>(cinfo->image_width);
-    memset(empty.get(), 0, cinfo->image_width);
+    std::unique_ptr<uint8_t[]> empty = std::make_unique<uint8_t[]>(aligned_width);
+    memset(empty.get(), 0, aligned_width);
 
-    const int aligned_width = ALIGNM(cinfo->image_width, kCompressBatchSize);
-    const bool need_padding = (lumaStride < aligned_width);
     std::unique_ptr<uint8_t[]> buffer_intrm = nullptr;
     uint8_t* y_plane_intrm = nullptr;
     uint8_t* u_plane_intrm = nullptr;
@@ -227,12 +227,12 @@ bool JpegEncoderHelper::compressY(jpeg_compress_struct* cinfo, const uint8_t* yB
     JSAMPROW y[kCompressBatchSize];
     JSAMPARRAY planes[1]{y};
 
-    uint8_t* y_plane = const_cast<uint8_t*>(yBuffer);
-    std::unique_ptr<uint8_t[]> empty = std::make_unique<uint8_t[]>(cinfo->image_width);
-    memset(empty.get(), 0, cinfo->image_width);
-
     const int aligned_width = ALIGNM(cinfo->image_width, kCompressBatchSize);
     const bool need_padding = (lumaStride < aligned_width);
+
+    uint8_t* y_plane = const_cast<uint8_t*>(yBuffer);
+    std::unique_ptr<uint8_t[]> empty = std::make_unique<uint8_t[]>(aligned_width);
+    memset(empty.get(), 0, aligned_width);
     std::unique_ptr<uint8_t[]> buffer_intrm = nullptr;
     uint8_t* y_plane_intrm = nullptr;
     JSAMPROW y_intrm[kCompressBatchSize];
