@@ -424,28 +424,31 @@ bool JpegDecoderHelper::decompressRGBA(jpeg_decompress_struct* cinfo, const uint
 }
 
 bool JpegDecoderHelper::decompressYUV(jpeg_decompress_struct* cinfo, const uint8_t* dest) {
+    size_t luma_plane_size = cinfo->image_width * cinfo->image_height;
+    size_t chroma_plane_size = luma_plane_size / 4;
+    uint8_t* y_plane = const_cast<uint8_t*>(dest);
+    uint8_t* u_plane = const_cast<uint8_t*>(dest + luma_plane_size);
+    uint8_t* v_plane = const_cast<uint8_t*>(dest + luma_plane_size + chroma_plane_size);
+
+    const size_t aligned_width = ALIGNM(cinfo->image_width, kCompressBatchSize);
+    const bool is_width_aligned = (aligned_width == cinfo->image_width);
+    uint8_t* y_plane_intrm = nullptr;
+    uint8_t* u_plane_intrm = nullptr;
+    uint8_t* v_plane_intrm = nullptr;
+
     JSAMPROW y[kCompressBatchSize];
     JSAMPROW cb[kCompressBatchSize / 2];
     JSAMPROW cr[kCompressBatchSize / 2];
     JSAMPARRAY planes[3]{y, cb, cr};
-
-    size_t y_plane_size = cinfo->image_width * cinfo->image_height;
-    size_t uv_plane_size = y_plane_size / 4;
-    uint8_t* y_plane = const_cast<uint8_t*>(dest);
-    uint8_t* u_plane = const_cast<uint8_t*>(dest + y_plane_size);
-    uint8_t* v_plane = const_cast<uint8_t*>(dest + y_plane_size + uv_plane_size);
-    mEmpty = std::make_unique<uint8_t[]>(cinfo->image_width);
-    memset(mEmpty.get(), 0, cinfo->image_width);
-
-    const size_t aligned_width = ALIGNM(cinfo->image_width, kCompressBatchSize);
-    bool is_width_aligned = (aligned_width == cinfo->image_width);
-    uint8_t* y_plane_intrm = nullptr;
-    uint8_t* u_plane_intrm = nullptr;
-    uint8_t* v_plane_intrm = nullptr;
     JSAMPROW y_intrm[kCompressBatchSize];
     JSAMPROW cb_intrm[kCompressBatchSize / 2];
     JSAMPROW cr_intrm[kCompressBatchSize / 2];
     JSAMPARRAY planes_intrm[3]{y_intrm, cb_intrm, cr_intrm};
+
+    if (cinfo->image_height % kCompressBatchSize != 0) {
+        mEmpty = std::make_unique<uint8_t[]>(aligned_width);
+    }
+
     if (!is_width_aligned) {
         size_t mcu_row_size = aligned_width * kCompressBatchSize * 3 / 2;
         mBufferIntermediate = std::make_unique<uint8_t[]>(mcu_row_size);
@@ -463,6 +466,7 @@ bool JpegDecoderHelper::decompressYUV(jpeg_decompress_struct* cinfo, const uint8
     }
 
     while (cinfo->output_scanline < cinfo->image_height) {
+        size_t scanline_copy = cinfo->output_scanline;
         for (int i = 0; i < kCompressBatchSize; ++i) {
             size_t scanline = cinfo->output_scanline + i;
             if (scanline < cinfo->image_height) {
@@ -491,11 +495,15 @@ bool JpegDecoderHelper::decompressYUV(jpeg_decompress_struct* cinfo, const uint8
         }
         if (!is_width_aligned) {
             for (int i = 0; i < kCompressBatchSize; ++i) {
-                memcpy(y[i], y_intrm[i], cinfo->image_width);
+                if (scanline_copy + i < cinfo->image_height) {
+                    memcpy(y[i], y_intrm[i], cinfo->image_width);
+                }
             }
             for (int i = 0; i < kCompressBatchSize / 2; ++i) {
-                memcpy(cb[i], cb_intrm[i], cinfo->image_width / 2);
-                memcpy(cr[i], cr_intrm[i], cinfo->image_width / 2);
+                if (((scanline_copy / 2) + i) < (cinfo->image_height / 2)) {
+                    memcpy(cb[i], cb_intrm[i], cinfo->image_width / 2);
+                    memcpy(cr[i], cr_intrm[i], cinfo->image_width / 2);
+                }
             }
         }
     }
@@ -504,18 +512,21 @@ bool JpegDecoderHelper::decompressYUV(jpeg_decompress_struct* cinfo, const uint8
 
 bool JpegDecoderHelper::decompressSingleChannel(jpeg_decompress_struct* cinfo,
                                                 const uint8_t* dest) {
-    JSAMPROW y[kCompressBatchSize];
-    JSAMPARRAY planes[1]{y};
-
     uint8_t* y_plane = const_cast<uint8_t*>(dest);
-    mEmpty = std::make_unique<uint8_t[]>(cinfo->image_width);
-    memset(mEmpty.get(), 0, cinfo->image_width);
+    uint8_t* y_plane_intrm = nullptr;
 
     const size_t aligned_width = ALIGNM(cinfo->image_width, kCompressBatchSize);
-    bool is_width_aligned = (aligned_width == cinfo->image_width);
-    uint8_t* y_plane_intrm = nullptr;
+    const bool is_width_aligned = (aligned_width == cinfo->image_width);
+
+    JSAMPROW y[kCompressBatchSize];
+    JSAMPARRAY planes[1]{y};
     JSAMPROW y_intrm[kCompressBatchSize];
     JSAMPARRAY planes_intrm[1]{y_intrm};
+
+    if (cinfo->image_height % kCompressBatchSize != 0) {
+        mEmpty = std::make_unique<uint8_t[]>(aligned_width);
+    }
+
     if (!is_width_aligned) {
         size_t mcu_row_size = aligned_width * kCompressBatchSize;
         mBufferIntermediate = std::make_unique<uint8_t[]>(mcu_row_size);
@@ -526,6 +537,7 @@ bool JpegDecoderHelper::decompressSingleChannel(jpeg_decompress_struct* cinfo,
     }
 
     while (cinfo->output_scanline < cinfo->image_height) {
+        size_t scanline_copy = cinfo->output_scanline;
         for (int i = 0; i < kCompressBatchSize; ++i) {
             size_t scanline = cinfo->output_scanline + i;
             if (scanline < cinfo->image_height) {
@@ -543,7 +555,9 @@ bool JpegDecoderHelper::decompressSingleChannel(jpeg_decompress_struct* cinfo,
         }
         if (!is_width_aligned) {
             for (int i = 0; i < kCompressBatchSize; ++i) {
-                memcpy(y[i], y_intrm[i], cinfo->image_width);
+                if (scanline_copy + i < cinfo->image_height) {
+                    memcpy(y[i], y_intrm[i], cinfo->image_width);
+                }
             }
         }
     }
