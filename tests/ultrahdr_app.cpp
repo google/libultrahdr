@@ -751,21 +751,34 @@ void UltraHdrAppInput::computeYUVSdrPSNR() {
 }
 
 static void usage(const char* name) {
-    fprintf(stderr, "Usage: %s \n", name);
-    fprintf(stderr, "ultra hdr demo application \n");
-    fprintf(stderr, "    -p    p010 file path, mandatory in encode mode \n");
-    fprintf(stderr, "    -y    yuv420 file path, optional \n");
-    fprintf(stderr, "    -w    input width, mandatory in encode mode \n");
-    fprintf(stderr, "    -h    input height, mandatory in encode mode \n");
-    fprintf(stderr, "    -C    p010 color gamut, optional [0:bt709, 1:p3, 2:bt2100] \n");
-    fprintf(stderr, "    -c    yuv420 color gamut, optional [0:bt709, 1:p3, 2:bt2100] \n");
-    fprintf(stderr, "    -t    input transfer function, optional [0:linear, 1:hlg, 2:pq] \n");
-    fprintf(stderr, "    -q    quality factor, optional [0-100] \n");
-    fprintf(stderr, "    -j    jpegr file path, mandatory in decode mode \n");
-    fprintf(stderr, "    -m    mode [0: encode, 1:decode] \n");
-    fprintf(stderr,
-            "    -o    output transfer function, optional [0:sdr, 1:hdr_linear, 2:hdr_pq, "
-            "3:hdr_hlg] \n");
+    fprintf(stderr, "\n## ultra hdr demo application.\nUsage : %s \n", name);
+    fprintf(stderr, "    -m    mode of operation. [0: encode, 1:decode] \n");
+    fprintf(stderr, "\n## encoder options : \n");
+    fprintf(stderr, "    -p    raw 10 bit input resource in p010 color format, mandatory. \n");
+    fprintf(stderr, "    -y    raw 8 bit input resource in yuv420, optional. \n"
+                    "          if not provided tonemapping happens internally. \n");
+    fprintf(stderr, "    -w    input file width, mandatory. \n");
+    fprintf(stderr, "    -h    input file height, mandatory. \n");
+    fprintf(stderr, "    -C    10 bit input color gamut, optional. [0:bt709, 1:p3, 2:bt2100] \n");
+    fprintf(stderr, "    -c    8 bit input color gamut, optional. [0:bt709, 1:p3, 2:bt2100] \n");
+    fprintf(stderr, "    -t    input transfer function, optional. [0:linear, 1:hlg, 2:pq] \n");
+    fprintf(stderr, "    -q    quality factor to be used while encoding 8 bit image, optional. [0-100].\n"
+                    "          gain map image does not use this quality factor. \n"
+                    "          for now gain map image quality factor is not configurable. \n");
+    fprintf(stderr, "    -e    compute psnr, optional. [0:yes, 1:no] \n");
+    fprintf(stderr, "\n## decoder options : \n");
+    fprintf(stderr, "    -j    ultra hdr input resource, mandatory in decode mode. \n");
+    fprintf(stderr, "    -o    output transfer function, optional. [0:sdr, 1:hdr_linear, 2:hdr_pq, 3:hdr_hlg] \n");
+    fprintf(stderr, "\n## examples of usage :\n");
+    fprintf(stderr, "    ultrahdr_app -m 0 -p cosmat_1920x1080_p010.yuv -w 1920 -h 1080 -q 97\n");
+    fprintf(stderr, "    ultrahdr_app -m 0 -p cosmat_1920x1080_p010.yuv -y cosmat_1920x1080_420.yuv -w 1920 -h 1080 -q 97\n");
+    fprintf(stderr, "    ultrahdr_app -m 0 -p cosmat_1920x1080_p010.yuv -y cosmat_1920x1080_420.yuv -w 1920 -h 1080 -q 97\n");
+    fprintf(stderr, "    ultrahdr_app -m 0 -p cosmat_1920x1080_p010.yuv -w 1920 -h 1080 -q 97 -C 2 -t 2\n");
+    fprintf(stderr, "    ultrahdr_app -m 0 -p cosmat_1920x1080_p010.yuv -y cosmat_1920x1080_420.yuv -w 1920 -h 1080 -q 97 -C 2 -c 1 -t 1\n");
+    fprintf(stderr, "    ultrahdr_app -m 0 -p cosmat_1920x1080_p010.yuv -y cosmat_1920x1080_420.yuv -w 1920 -h 1080 -q 97 -C 2 -c 1 -t 1 -e 1\n");
+    fprintf(stderr, "    ultrahdr_app -m 1 -j cosmat_1920x1080_hdr.jpg \n");
+    fprintf(stderr, "    ultrahdr_app -m 1 -j cosmat_1920x1080_hdr.jpg -o 2\n");
+    fprintf(stderr, "\n");
 }
 
 int main(int argc, char* argv[]) {
@@ -777,8 +790,9 @@ int main(int argc, char* argv[]) {
     int quality = 100;
     ultrahdr_output_format of = ULTRAHDR_OUTPUT_HDR_HLG;
     int mode = 0;
+    int compute_psnr = 0;
     int ch;
-    while ((ch = getopt(argc, argv, "p:y:w:h:C:c:t:q:o:m:j:")) != -1) {
+    while ((ch = getopt(argc, argv, "p:y:w:h:C:c:t:q:o:m:j:e:")) != -1) {
         switch (ch) {
             case 'p':
                 p010_file = optarg;
@@ -813,6 +827,9 @@ int main(int argc, char* argv[]) {
             case 'j':
                 jpegr_file = optarg;
                 break;
+            case 'e':
+                compute_psnr = atoi(optarg);
+                break;
             default:
                 usage(argv[0]);
                 return -1;
@@ -820,28 +837,28 @@ int main(int argc, char* argv[]) {
     }
     if (mode == 0) {
         if (width <= 0 || height <= 0 || p010_file == nullptr) {
-            std::cerr << "invalid raw file name or raw image dimensions" << std::endl;
             usage(argv[0]);
             return -1;
         }
         UltraHdrAppInput appInput(p010_file, yuv420_file, width, height, p010Cg, yuv420Cg, tf,
                                   quality, of);
         if (!appInput.encode()) return -1;
-        if (!appInput.decode()) return -1;
-        if (of == ULTRAHDR_OUTPUT_SDR && yuv420_file != nullptr) {
-            appInput.convertYuv420ToRGBImage();
-            appInput.computeRGBSdrPSNR();
-            appInput.convertRgba8888ToYUV444Image();
-            appInput.computeYUVSdrPSNR();
-        } else if (of == ULTRAHDR_OUTPUT_HDR_HLG || of == ULTRAHDR_OUTPUT_HDR_PQ) {
-            appInput.convertP010ToRGBImage();
-            appInput.computeRGBHdrPSNR();
-            appInput.convertRgba1010102ToYUV444Image();
-            appInput.computeYUVHdrPSNR();
+        if (compute_psnr == 1) {
+            if (!appInput.decode()) return -1;
+            if (of == ULTRAHDR_OUTPUT_SDR && yuv420_file != nullptr) {
+                appInput.convertYuv420ToRGBImage();
+                appInput.computeRGBSdrPSNR();
+                appInput.convertRgba8888ToYUV444Image();
+                appInput.computeYUVSdrPSNR();
+            } else if (of == ULTRAHDR_OUTPUT_HDR_HLG || of == ULTRAHDR_OUTPUT_HDR_PQ) {
+                appInput.convertP010ToRGBImage();
+                appInput.computeRGBHdrPSNR();
+                appInput.convertRgba1010102ToYUV444Image();
+                appInput.computeYUVHdrPSNR();
+            }
         }
     } else if (mode == 1) {
         if (jpegr_file == nullptr) {
-            std::cerr << "invalid jpegr image file name " << std::endl;
             usage(argv[0]);
             return -1;
         }
