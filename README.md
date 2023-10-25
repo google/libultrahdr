@@ -19,7 +19,7 @@ Building libultrahdr
 ======================
 
 libultrahdr compresses base image and gain map image in to jpeg format.
-For this libjpeg is used. This is cloned from
+For this libjpeg-turbo is used. This is cloned from
 <https://github.com/libjpeg-turbo/libjpeg-turbo.git> and included in the
 build process.
 
