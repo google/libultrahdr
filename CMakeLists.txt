@@ -124,6 +124,7 @@ add_library(ultrahdr STATIC
   "${SRC_DIR}/jpegdecoderhelper.cpp"
   "${SRC_DIR}/multipictureformat.cpp"
 )
+add_dependencies(ultrahdr libjpeg-turbo)
 
 target_include_directories(ultrahdr PRIVATE
   ${JPEG_INCLUDE_DIRS}
@@ -145,6 +146,7 @@ libultrahdr_add_executable(ultrahdr_app
     ${JPEG_INCLUDE_DIRS}
     "${SRC_DIR}/include"
 )
+add_dependencies(ultrahdr_app libjpeg-turbo)
 
 if (${ENABLE_FUZZERS})
   libultrahdr_add_fuzzer(ultrahdr_enc_fuzzer ultrahdr
@@ -154,6 +156,7 @@ if (${ENABLE_FUZZERS})
       ${JPEG_INCLUDE_DIRS}
       "${SRC_DIR}/include"
   )
+  add_dependencies(ultrahdr_enc_fuzzer libjpeg-turbo)
 
   libultrahdr_add_fuzzer(ultrahdr_dec_fuzzer ultrahdr
     SOURCES
@@ -162,6 +165,7 @@ if (${ENABLE_FUZZERS})
       ${JPEG_INCLUDE_DIRS}
       "${SRC_DIR}/include"
   )
+  add_dependencies(ultrahdr_dec_fuzzer libjpeg-turbo)
 endif()
 
 if(${ENABLE_TESTS})
@@ -179,6 +183,11 @@ if(${ENABLE_TESTS})
       ${GTEST_INCLUDE_DIRS}
       "${SRC_DIR}/include"
   )
+  if(GTest_FOUND)
+    add_dependencies(ultrahdr_unit_test libjpeg-turbo)
+  else()
+    add_dependencies(ultrahdr_unit_test googletest libjpeg-turbo)
+  endif()
 
   target_link_libraries(ultrahdr_unit_test ${GTEST_BOTH_LIBRARIES})
 
