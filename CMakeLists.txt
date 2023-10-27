@@ -65,46 +65,56 @@ libultrahdr_add_compile_options()
 
 ADD_SUBDIRECTORY("${SRC_DIR}/third_party/cmake/image_io")
 
+get_directory_property(ULTRA_HDR_FLAGS COMPILE_OPTIONS)
+string (REPLACE ";" " " ULTRA_HDR_FLAGS_STR "${ULTRA_HDR_FLAGS}")
+set(ULTRA_HDR_CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${ULTRA_HDR_FLAGS_STR}")
+set(ULTRA_HDR_CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${ULTRA_HDR_FLAGS_STR}")
+
 include(ExternalProject)
 
 function(fetch_libjpegturbo)
   ExternalProject_Add(libjpeg-turbo
       GIT_REPOSITORY https://github.com/libjpeg-turbo/libjpeg-turbo.git
       GIT_TAG 3.0.1
-      PREFIX ${SRC_DIR}/third_party/build/libjpeg-turbo
+      PREFIX ${CMAKE_CURRENT_BINARY_DIR}/libjpeg-turbo
       SOURCE_DIR ${SRC_DIR}/third_party/libjpeg-turbo
-      TMP_DIR ${SRC_DIR}/third_party/build/libjpeg-turbo/tmp
-      BUILD_COMMAND ${CMAKE_COMMAND} --build <BINARY_DIR> --config $<CONFIG> --target jpeg-static
+      BUILD_COMMAND ${CMAKE_COMMAND} --build <BINARY_DIR> --target jpeg-static
       CMAKE_ARGS -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
                  -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
+                 -DCMAKE_C_FLAGS=${ULTRA_HDR_CMAKE_C_FLAGS}
       INSTALL_COMMAND ""
   )
   set(JPEG_INCLUDE_DIRS
       ${SRC_DIR}/third_party/libjpeg-turbo/
-      ${SRC_DIR}/third_party/build/libjpeg-turbo/src/libjpeg-turbo-build PARENT_SCOPE)
+      ${CMAKE_CURRENT_BINARY_DIR}/libjpeg-turbo/src/libjpeg-turbo-build PARENT_SCOPE)
   set(JPEG_LIBRARIES
-      ${SRC_DIR}/third_party/build/libjpeg-turbo/src/libjpeg-turbo-build/libjpeg.a PARENT_SCOPE)
+      ${CMAKE_CURRENT_BINARY_DIR}/libjpeg-turbo/src/libjpeg-turbo-build/libjpeg.a PARENT_SCOPE)
 endfunction()
 
 function(fetch_googletest)
   ExternalProject_Add(googletest
       GIT_REPOSITORY https://github.com/google/googletest
       GIT_TAG v1.13.0
-      PREFIX ${SRC_DIR}/third_party/build/googletest
+      PREFIX ${CMAKE_CURRENT_BINARY_DIR}/googletest
       SOURCE_DIR ${SRC_DIR}/third_party/googletest
-      TMP_DIR ${SRC_DIR}/third_party/build/googletest/tmp
       CMAKE_ARGS -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
                  -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
                  -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
+                 -DCMAKE_C_FLAGS=${ULTRA_HDR_CMAKE_C_FLAGS}
+                 -DCMAKE_CXX_FLAGS=${ULTRA_HDR_CMAKE_CXX_FLAGS}
       INSTALL_COMMAND ""
   )
   set(GTEST_INCLUDE_DIRS
-      ${SRC_DIR}/third_party/googletest/googletest/include
-      ${SRC_DIR}/third_party/googletest/googlemock/include PARENT_SCOPE)
+      ${CMAKE_CURRENT_BINARY_DIR}/googletest/googletest/include
+      ${CMAKE_CURRENT_BINARY_DIR}/googletest/googlemock/include PARENT_SCOPE)
   set(GTEST_BOTH_LIBRARIES
-      ${SRC_DIR}/third_party/build/googletest/src/googletest-build/lib/libgtest.a
-      ${SRC_DIR}/third_party/build/googletest/src/googletest-build/lib/libgtest_main.a PARENT_SCOPE)
+      ${CMAKE_CURRENT_BINARY_DIR}/googletest/src/googletest-build/lib/libgtest.a
+      ${CMAKE_CURRENT_BINARY_DIR}/googletest/src/googletest-build/lib/libgtest_main.a PARENT_SCOPE)
 endfunction()
+
+set_property(DIRECTORY PROPERTY ADDITIONAL_MAKE_CLEAN_FILES
+    ${CMAKE_CURRENT_BINARY_DIR}/libjpeg-turbo/src/libjpeg-turbo-build
+    ${CMAKE_CURRENT_BINARY_DIR}/googletest/src/googletest-build)
 
 fetch_libjpegturbo()
 
