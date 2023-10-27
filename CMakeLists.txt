@@ -105,8 +105,8 @@ function(fetch_googletest)
       INSTALL_COMMAND ""
   )
   set(GTEST_INCLUDE_DIRS
-      ${CMAKE_CURRENT_BINARY_DIR}/googletest/googletest/include
-      ${CMAKE_CURRENT_BINARY_DIR}/googletest/googlemock/include PARENT_SCOPE)
+      ${SRC_DIR}/third_party/googletest/googletest/include
+      ${SRC_DIR}/third_party/googletest/googlemock/include PARENT_SCOPE)
   set(GTEST_BOTH_LIBRARIES
       ${CMAKE_CURRENT_BINARY_DIR}/googletest/src/googletest-build/lib/libgtest.a
       ${CMAKE_CURRENT_BINARY_DIR}/googletest/src/googletest-build/lib/libgtest_main.a PARENT_SCOPE)
@@ -119,10 +119,7 @@ set_property(DIRECTORY PROPERTY ADDITIONAL_MAKE_CLEAN_FILES
 fetch_libjpegturbo()
 
 if(${ENABLE_TESTS})
-  find_package(GTest)
-  if(NOT GTest_FOUND)
-    fetch_googletest()
-  endif()
+  fetch_googletest()
 endif()
 
 add_library(ultrahdr STATIC
@@ -193,11 +190,7 @@ if(${ENABLE_TESTS})
       ${GTEST_INCLUDE_DIRS}
       "${SRC_DIR}/include"
   )
-  if(GTest_FOUND)
-    add_dependencies(ultrahdr_unit_test libjpeg-turbo)
-  else()
-    add_dependencies(ultrahdr_unit_test googletest libjpeg-turbo)
-  endif()
+  add_dependencies(ultrahdr_unit_test googletest libjpeg-turbo)
 
   target_link_libraries(ultrahdr_unit_test ${GTEST_BOTH_LIBRARIES})
 
