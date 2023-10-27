@@ -117,13 +117,15 @@ static bool writeFile(const char* filename, void*& result, int length) {
 
 class UltraHdrAppInput {
 public:
-    UltraHdrAppInput(const char* p010File, const char* yuv420File, size_t width, size_t height,
+    UltraHdrAppInput(const char* p010File, const char* yuv420File, const char* yuv420JpegFile,
+                     size_t width, size_t height,
                      ultrahdr_color_gamut p010Cg = ULTRAHDR_COLORGAMUT_BT709,
                      ultrahdr_color_gamut yuv420Cg = ULTRAHDR_COLORGAMUT_BT709,
                      ultrahdr_transfer_function tf = ULTRAHDR_TF_HLG, int quality = 100,
                      ultrahdr_output_format of = ULTRAHDR_OUTPUT_HDR_HLG)
           : mP010File(p010File),
             mYuv420File(yuv420File),
+            mYuv420JpegFile(yuv420JpegFile),
             mJpegRFile(nullptr),
             mWidth(width),
             mHeight(height),
@@ -167,6 +169,7 @@ public:
     bool fillP010ImageHandle();
     bool convertP010ToRGBImage();
     bool fillYuv420ImageHandle();
+    bool fillYuv420JpegImageHandle();
     bool convertYuv420ToRGBImage();
     bool convertRgba8888ToYUV444Image();
     bool convertRgba1010102ToYUV444Image();
@@ -179,6 +182,7 @@ public:
 
     const char* mP010File;
     const char* mYuv420File;
+    const char* mYuv420JpegFile;
     const char* mJpegRFile;
     const int mWidth;
     const int mHeight;
@@ -191,6 +195,7 @@ public:
     jpegr_uncompressed_struct mRawP010Image{};
     jpegr_uncompressed_struct mRawRgba1010102Image{};
     jpegr_uncompressed_struct mRawYuv420Image{};
+    jpegr_compressed_struct mYuv420JpegImage{};
     jpegr_uncompressed_struct mRawRgba8888Image{};
     jpegr_compressed_struct mJpegImgR{};
     jpegr_uncompressed_struct mDestImage{};
@@ -215,6 +220,20 @@ bool UltraHdrAppInput::fillYuv420ImageHandle() {
     return loadFile(mYuv420File, mRawYuv420Image.data, yuv420Size);
 }
 
+bool UltraHdrAppInput::fillYuv420JpegImageHandle() {
+    std::ifstream ifd(mYuv420JpegFile, std::ios::binary | std::ios::ate);
+    if (ifd.good()) {
+        int size = ifd.tellg();
+        mYuv420JpegImage.length = size;
+        mYuv420JpegImage.maxLength = size;
+        mYuv420JpegImage.data = nullptr;
+        mYuv420JpegImage.colorGamut = mYuv420Cg;
+        ifd.close();
+        return loadFile(mYuv420JpegFile, mYuv420JpegImage.data, size);
+    }
+    return false;
+}
+
 bool UltraHdrAppInput::fillJpegRImageHandle() {
     std::ifstream ifd(mJpegRFile, std::ios::binary | std::ios::ate);
     if (ifd.good()) {
@@ -232,6 +251,7 @@ bool UltraHdrAppInput::fillJpegRImageHandle() {
 bool UltraHdrAppInput::encode() {
     if (!fillP010ImageHandle()) return false;
     if (mYuv420File != nullptr && !fillYuv420ImageHandle()) return false;
+    if (mYuv420JpegFile != nullptr && !fillYuv420JpegImageHandle()) return false;
 
     mJpegImgR.maxLength = std::max(static_cast<size_t>(8 * 1024) /* min size 8kb */,
                                    mRawP010Image.width * mRawP010Image.height * 3 * 2);
@@ -249,16 +269,31 @@ bool UltraHdrAppInput::encode() {
     profileEncode.timerStart();
     for (auto i = 0; i < profileCount; i++) {
 #endif
-    if (mYuv420File == nullptr) { // api-0
+    if (mYuv420File == nullptr && mYuv420JpegFile == nullptr) { // api-0
         status = jpegHdr.encodeJPEGR(&mRawP010Image, mTf, &mJpegImgR, mQuality, nullptr);
         if (OK != status) {
             std::cerr << "Encountered error during encodeJPEGR call, error code " << status
                       << std::endl;
             return false;
         }
-    } else { // api-1
+    } else if (mYuv420File != nullptr && mYuv420JpegFile == nullptr) { // api-1
         status = jpegHdr.encodeJPEGR(&mRawP010Image, &mRawYuv420Image, mTf, &mJpegImgR, mQuality,
                                      nullptr);
+        if (OK != status) {
+            std::cerr << "Encountered error during encodeJPEGR call, error code " << status
+                      << std::endl;
+            return false;
+        }
+    } else if (mYuv420File != nullptr && mYuv420JpegFile != nullptr) { // api-2
+        status = jpegHdr.encodeJPEGR(&mRawP010Image, &mRawYuv420Image, &mYuv420JpegImage, mTf,
+                                     &mJpegImgR);
+        if (OK != status) {
+            std::cerr << "Encountered error during encodeJPEGR call, error code " << status
+                      << std::endl;
+            return false;
+        }
+    } else if (mYuv420File == nullptr && mYuv420JpegFile != nullptr) { // api-3
+        status = jpegHdr.encodeJPEGR(&mRawP010Image, &mYuv420JpegImage, mTf, &mJpegImgR);
         if (OK != status) {
             std::cerr << "Encountered error during encodeJPEGR call, error code " << status
                       << std::endl;
@@ -757,6 +792,7 @@ static void usage(const char* name) {
     fprintf(stderr, "    -p    raw 10 bit input resource in p010 color format, mandatory. \n");
     fprintf(stderr, "    -y    raw 8 bit input resource in yuv420, optional. \n"
                     "          if not provided tonemapping happens internally. \n");
+    fprintf(stderr, "    -i    compressed 8 bit jpeg file path, optional \n");
     fprintf(stderr, "    -w    input file width, mandatory. \n");
     fprintf(stderr, "    -h    input file height, mandatory. \n");
     fprintf(stderr, "    -C    10 bit input color gamut, optional. [0:bt709, 1:p3, 2:bt2100] \n");
@@ -770,19 +806,27 @@ static void usage(const char* name) {
     fprintf(stderr, "    -j    ultra hdr input resource, mandatory in decode mode. \n");
     fprintf(stderr, "    -o    output transfer function, optional. [0:sdr, 1:hdr_linear, 2:hdr_pq, 3:hdr_hlg] \n");
     fprintf(stderr, "\n## examples of usage :\n");
+    fprintf(stderr, "\n## encode api-0 :\n");
     fprintf(stderr, "    ultrahdr_app -m 0 -p cosmat_1920x1080_p010.yuv -w 1920 -h 1080 -q 97\n");
-    fprintf(stderr, "    ultrahdr_app -m 0 -p cosmat_1920x1080_p010.yuv -y cosmat_1920x1080_420.yuv -w 1920 -h 1080 -q 97\n");
-    fprintf(stderr, "    ultrahdr_app -m 0 -p cosmat_1920x1080_p010.yuv -y cosmat_1920x1080_420.yuv -w 1920 -h 1080 -q 97\n");
     fprintf(stderr, "    ultrahdr_app -m 0 -p cosmat_1920x1080_p010.yuv -w 1920 -h 1080 -q 97 -C 2 -t 2\n");
+    fprintf(stderr, "\n## encode api-1 :\n");
+    fprintf(stderr, "    ultrahdr_app -m 0 -p cosmat_1920x1080_p010.yuv -y cosmat_1920x1080_420.yuv -w 1920 -h 1080 -q 97\n");
+    fprintf(stderr, "    ultrahdr_app -m 0 -p cosmat_1920x1080_p010.yuv -y cosmat_1920x1080_420.yuv -w 1920 -h 1080 -q 97\n");
     fprintf(stderr, "    ultrahdr_app -m 0 -p cosmat_1920x1080_p010.yuv -y cosmat_1920x1080_420.yuv -w 1920 -h 1080 -q 97 -C 2 -c 1 -t 1\n");
     fprintf(stderr, "    ultrahdr_app -m 0 -p cosmat_1920x1080_p010.yuv -y cosmat_1920x1080_420.yuv -w 1920 -h 1080 -q 97 -C 2 -c 1 -t 1 -e 1\n");
+    fprintf(stderr, "\n## encode api-2 :\n");
+    fprintf(stderr, "    ultrahdr_app -m 0 -p cosmat_1920x1080_p010.yuv -y cosmat_1920x1080_420.yuv -i cosmat_1920x1080_420_8bit.jpg -w 1920 -h 1080 -t 1 -o 3 -e 1\n");
+    fprintf(stderr, "\n## encode api-3 :\n");
+    fprintf(stderr, "    ultrahdr_app -m 0 -p cosmat_1920x1080_p010.yuv -i cosmat_1920x1080_420_8bit.jpg -w 1920 -h 1080 -t 1 -o 3 -e 1\n");
+    fprintf(stderr, "\n## decode api :\n");
     fprintf(stderr, "    ultrahdr_app -m 1 -j cosmat_1920x1080_hdr.jpg \n");
     fprintf(stderr, "    ultrahdr_app -m 1 -j cosmat_1920x1080_hdr.jpg -o 2\n");
     fprintf(stderr, "\n");
 }
 
 int main(int argc, char* argv[]) {
-    char *p010_file = nullptr, *yuv420_file = nullptr, *jpegr_file = nullptr;
+    char *p010_file = nullptr, *yuv420_file = nullptr, *jpegr_file = nullptr,
+         *yuv420_jpeg_file = nullptr;
     int width = 0, height = 0;
     ultrahdr_color_gamut p010Cg = ULTRAHDR_COLORGAMUT_BT709;
     ultrahdr_color_gamut yuv420Cg = ULTRAHDR_COLORGAMUT_BT709;
@@ -792,13 +836,16 @@ int main(int argc, char* argv[]) {
     int mode = 0;
     int compute_psnr = 0;
     int ch;
-    while ((ch = getopt(argc, argv, "p:y:w:h:C:c:t:q:o:m:j:e:")) != -1) {
+    while ((ch = getopt(argc, argv, "p:y:i:w:h:C:c:t:q:o:m:j:e:")) != -1) {
         switch (ch) {
             case 'p':
                 p010_file = optarg;
                 break;
             case 'y':
                 yuv420_file = optarg;
+                break;
+             case 'i':
+                yuv420_jpeg_file = optarg;
                 break;
             case 'w':
                 width = atoi(optarg);
@@ -840,8 +887,8 @@ int main(int argc, char* argv[]) {
             usage(argv[0]);
             return -1;
         }
-        UltraHdrAppInput appInput(p010_file, yuv420_file, width, height, p010Cg, yuv420Cg, tf,
-                                  quality, of);
+        UltraHdrAppInput appInput(p010_file, yuv420_file, yuv420_jpeg_file, width, height, p010Cg,
+                                  yuv420Cg, tf, quality, of);
         if (!appInput.encode()) return -1;
         if (compute_psnr == 1) {
             if (!appInput.decode()) return -1;
