@@ -20,45 +20,45 @@
 //#define LOG_NDEBUG 0
 
 #ifdef __ANDROID__
-    #include "log/log.h"
+#include "log/log.h"
 #else
-    #ifdef LOG_NDEBUG
-        #include <cstdio>
+#ifdef LOG_NDEBUG
+#include <cstdio>
 
-        #define ALOGD(...)                \
-          do {                            \
-            fprintf(stderr, __VA_ARGS__); \
-            fprintf(stderr, "\n");        \
-          } while (0)
-        #define ALOGE(...)                \
-          do {                            \
-            fprintf(stderr, __VA_ARGS__); \
-            fprintf(stderr, "\n");        \
-          } while (0)
-        #define ALOGI(...)                \
-          do {                            \
-            fprintf(stdout, __VA_ARGS__); \
-            fprintf(stdout, "\n");        \
-          } while (0)
-        #define ALOGV(...)                \
-          do {                            \
-            fprintf(stdout, __VA_ARGS__); \
-            fprintf(stdout, "\n");        \
-          } while (0)
-        #define ALOGW(...)                \
-          do {                            \
-            fprintf(stderr, __VA_ARGS__); \
-            fprintf(stderr, "\n");        \
-          } while (0)
-    #else
-        #define ALOGD(...) ((void)0)
-        #define ALOGE(...) ((void)0)
-        #define ALOGI(...) ((void)0)
-        #define ALOGV(...) ((void)0)
-        #define ALOGW(...) ((void)0)
-    #endif
+#define ALOGD(...)                \
+  do {                            \
+    fprintf(stderr, __VA_ARGS__); \
+    fprintf(stderr, "\n");        \
+  } while (0)
+#define ALOGE(...)                \
+  do {                            \
+    fprintf(stderr, __VA_ARGS__); \
+    fprintf(stderr, "\n");        \
+  } while (0)
+#define ALOGI(...)                \
+  do {                            \
+    fprintf(stdout, __VA_ARGS__); \
+    fprintf(stdout, "\n");        \
+  } while (0)
+#define ALOGV(...)                \
+  do {                            \
+    fprintf(stdout, __VA_ARGS__); \
+    fprintf(stdout, "\n");        \
+  } while (0)
+#define ALOGW(...)                \
+  do {                            \
+    fprintf(stderr, __VA_ARGS__); \
+    fprintf(stderr, "\n");        \
+  } while (0)
+#else
+#define ALOGD(...) ((void)0)
+#define ALOGE(...) ((void)0)
+#define ALOGI(...) ((void)0)
+#define ALOGV(...) ((void)0)
+#define ALOGW(...) ((void)0)
+#endif
 #endif
 
-#define ALIGNM(x, m) ((((x) + ((m) - 1)) / (m)) * (m))
+#define ALIGNM(x, m) ((((x) + ((m)-1)) / (m)) * (m))
 
-#endif // ULTRAHDR_ULTRAHDRCOMMON_H
+#endif  // ULTRAHDR_ULTRAHDRCOMMON_H

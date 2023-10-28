@@ -41,20 +41,20 @@ namespace ultrahdr {
 #define JPEG_QUALITY 90
 
 class JpegEncoderHelperTest : public testing::Test {
-public:
-    struct Image {
-        std::unique_ptr<uint8_t[]> buffer;
-        size_t width;
-        size_t height;
-    };
-    JpegEncoderHelperTest();
-    ~JpegEncoderHelperTest();
+ public:
+  struct Image {
+    std::unique_ptr<uint8_t[]> buffer;
+    size_t width;
+    size_t height;
+  };
+  JpegEncoderHelperTest();
+  ~JpegEncoderHelperTest();
 
-protected:
-    virtual void SetUp();
-    virtual void TearDown();
+ protected:
+  virtual void SetUp();
+  virtual void TearDown();
 
-    Image mAlignedImage, mUnalignedImage, mSingleChannelImage;
+  Image mAlignedImage, mUnalignedImage, mSingleChannelImage;
 };
 
 JpegEncoderHelperTest::JpegEncoderHelperTest() {}
@@ -62,81 +62,78 @@ JpegEncoderHelperTest::JpegEncoderHelperTest() {}
 JpegEncoderHelperTest::~JpegEncoderHelperTest() {}
 
 static size_t getFileSize(int fd) {
-    struct stat st;
-    if (fstat(fd, &st) < 0) {
-        ALOGW("%s : fstat failed", __func__);
-        return 0;
-    }
-    return st.st_size; // bytes
+  struct stat st;
+  if (fstat(fd, &st) < 0) {
+    ALOGW("%s : fstat failed", __func__);
+    return 0;
+  }
+  return st.st_size;  // bytes
 }
 
 static bool loadFile(const char filename[], JpegEncoderHelperTest::Image* result) {
-    int fd = open(filename, O_CLOEXEC);
-    if (fd < 0) {
-        return false;
-    }
-    int length = getFileSize(fd);
-    if (length == 0) {
-        close(fd);
-        return false;
-    }
-    result->buffer.reset(new uint8_t[length]);
-    if (read(fd, result->buffer.get(), length) != static_cast<ssize_t>(length)) {
-        close(fd);
-        return false;
-    }
+  int fd = open(filename, O_CLOEXEC);
+  if (fd < 0) {
+    return false;
+  }
+  int length = getFileSize(fd);
+  if (length == 0) {
     close(fd);
-    return true;
+    return false;
+  }
+  result->buffer.reset(new uint8_t[length]);
+  if (read(fd, result->buffer.get(), length) != static_cast<ssize_t>(length)) {
+    close(fd);
+    return false;
+  }
+  close(fd);
+  return true;
 }
 
 void JpegEncoderHelperTest::SetUp() {
-    if (!loadFile(ALIGNED_IMAGE, &mAlignedImage)) {
-        FAIL() << "Load file " << ALIGNED_IMAGE << " failed";
-    }
-    mAlignedImage.width = ALIGNED_IMAGE_WIDTH;
-    mAlignedImage.height = ALIGNED_IMAGE_HEIGHT;
-    if (!loadFile(UNALIGNED_IMAGE, &mUnalignedImage)) {
-        FAIL() << "Load file " << UNALIGNED_IMAGE << " failed";
-    }
-    mUnalignedImage.width = UNALIGNED_IMAGE_WIDTH;
-    mUnalignedImage.height = UNALIGNED_IMAGE_HEIGHT;
-    if (!loadFile(SINGLE_CHANNEL_IMAGE, &mSingleChannelImage)) {
-        FAIL() << "Load file " << SINGLE_CHANNEL_IMAGE << " failed";
-    }
-    mSingleChannelImage.width = SINGLE_CHANNEL_IMAGE_WIDTH;
-    mSingleChannelImage.height = SINGLE_CHANNEL_IMAGE_HEIGHT;
+  if (!loadFile(ALIGNED_IMAGE, &mAlignedImage)) {
+    FAIL() << "Load file " << ALIGNED_IMAGE << " failed";
+  }
+  mAlignedImage.width = ALIGNED_IMAGE_WIDTH;
+  mAlignedImage.height = ALIGNED_IMAGE_HEIGHT;
+  if (!loadFile(UNALIGNED_IMAGE, &mUnalignedImage)) {
+    FAIL() << "Load file " << UNALIGNED_IMAGE << " failed";
+  }
+  mUnalignedImage.width = UNALIGNED_IMAGE_WIDTH;
+  mUnalignedImage.height = UNALIGNED_IMAGE_HEIGHT;
+  if (!loadFile(SINGLE_CHANNEL_IMAGE, &mSingleChannelImage)) {
+    FAIL() << "Load file " << SINGLE_CHANNEL_IMAGE << " failed";
+  }
+  mSingleChannelImage.width = SINGLE_CHANNEL_IMAGE_WIDTH;
+  mSingleChannelImage.height = SINGLE_CHANNEL_IMAGE_HEIGHT;
 }
 
 void JpegEncoderHelperTest::TearDown() {}
 
 TEST_F(JpegEncoderHelperTest, encodeAlignedImage) {
-    JpegEncoderHelper encoder;
-    EXPECT_TRUE(encoder.compressImage(mAlignedImage.buffer.get(),
-                                      mAlignedImage.buffer.get() +
-                                              mAlignedImage.width * mAlignedImage.height,
-                                      mAlignedImage.width, mAlignedImage.height,
-                                      mAlignedImage.width, mAlignedImage.width / 2, JPEG_QUALITY,
-                                      NULL, 0));
-    ASSERT_GT(encoder.getCompressedImageSize(), static_cast<uint32_t>(0));
+  JpegEncoderHelper encoder;
+  EXPECT_TRUE(encoder.compressImage(
+      mAlignedImage.buffer.get(),
+      mAlignedImage.buffer.get() + mAlignedImage.width * mAlignedImage.height, mAlignedImage.width,
+      mAlignedImage.height, mAlignedImage.width, mAlignedImage.width / 2, JPEG_QUALITY, NULL, 0));
+  ASSERT_GT(encoder.getCompressedImageSize(), static_cast<uint32_t>(0));
 }
 
 TEST_F(JpegEncoderHelperTest, encodeUnalignedImage) {
-    JpegEncoderHelper encoder;
-    EXPECT_TRUE(encoder.compressImage(mUnalignedImage.buffer.get(),
-                                      mUnalignedImage.buffer.get() +
-                                              mUnalignedImage.width * mUnalignedImage.height,
-                                      mUnalignedImage.width, mUnalignedImage.height,
-                                      mUnalignedImage.width, mUnalignedImage.width / 2,
-                                      JPEG_QUALITY, NULL, 0));
-    ASSERT_GT(encoder.getCompressedImageSize(), static_cast<uint32_t>(0));
+  JpegEncoderHelper encoder;
+  EXPECT_TRUE(encoder.compressImage(
+      mUnalignedImage.buffer.get(),
+      mUnalignedImage.buffer.get() + mUnalignedImage.width * mUnalignedImage.height,
+      mUnalignedImage.width, mUnalignedImage.height, mUnalignedImage.width,
+      mUnalignedImage.width / 2, JPEG_QUALITY, NULL, 0));
+  ASSERT_GT(encoder.getCompressedImageSize(), static_cast<uint32_t>(0));
 }
 
 TEST_F(JpegEncoderHelperTest, encodeSingleChannelImage) {
-    JpegEncoderHelper encoder;
-    EXPECT_TRUE(encoder.compressImage(mSingleChannelImage.buffer.get(), nullptr,
-                                      mSingleChannelImage.width, mSingleChannelImage.height,
-                                      mSingleChannelImage.width, 0, JPEG_QUALITY, NULL, 0));
-    ASSERT_GT(encoder.getCompressedImageSize(), static_cast<uint32_t>(0));
+  JpegEncoderHelper encoder;
+  EXPECT_TRUE(encoder.compressImage(mSingleChannelImage.buffer.get(), nullptr,
+                                    mSingleChannelImage.width, mSingleChannelImage.height,
+                                    mSingleChannelImage.width, 0, JPEG_QUALITY, NULL, 0));
+  ASSERT_GT(encoder.getCompressedImageSize(), static_cast<uint32_t>(0));
 }
 
-} // namespace ultrahdr
+}  // namespace ultrahdr

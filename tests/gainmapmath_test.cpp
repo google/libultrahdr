@@ -22,7 +22,7 @@
 namespace ultrahdr {
 
 class GainMapMathTest : public testing::Test {
-public:
+ public:
   GainMapMathTest();
   ~GainMapMathTest();
 
@@ -31,50 +31,47 @@ public:
   float YuvConversionEpsilon() { return 1.0f / (255.0f * 2.0f); }
 
   Color Yuv420(uint8_t y, uint8_t u, uint8_t v) {
-      return {{{ static_cast<float>(y) / 255.0f,
-                 (static_cast<float>(u) - 128.0f) / 255.0f,
-                 (static_cast<float>(v) - 128.0f) / 255.0f }}};
+    return {{{static_cast<float>(y) / 255.0f, (static_cast<float>(u) - 128.0f) / 255.0f,
+              (static_cast<float>(v) - 128.0f) / 255.0f}}};
   }
 
   Color P010(uint16_t y, uint16_t u, uint16_t v) {
-      return {{{ (static_cast<float>(y) - 64.0f) / 876.0f,
-                 (static_cast<float>(u) - 64.0f) / 896.0f - 0.5f,
-                 (static_cast<float>(v) - 64.0f) / 896.0f - 0.5f }}};
+    return {
+        {{(static_cast<float>(y) - 64.0f) / 876.0f, (static_cast<float>(u) - 64.0f) / 896.0f - 0.5f,
+          (static_cast<float>(v) - 64.0f) / 896.0f - 0.5f}}};
   }
 
-  float Map(uint8_t e) {
-    return static_cast<float>(e) / 255.0f;
-  }
+  float Map(uint8_t e) { return static_cast<float>(e) / 255.0f; }
 
   Color ColorMin(Color e1, Color e2) {
-    return {{{ fminf(e1.r, e2.r), fminf(e1.g, e2.g), fminf(e1.b, e2.b) }}};
+    return {{{fminf(e1.r, e2.r), fminf(e1.g, e2.g), fminf(e1.b, e2.b)}}};
   }
 
   Color ColorMax(Color e1, Color e2) {
-    return {{{ fmaxf(e1.r, e2.r), fmaxf(e1.g, e2.g), fmaxf(e1.b, e2.b) }}};
+    return {{{fmaxf(e1.r, e2.r), fmaxf(e1.g, e2.g), fmaxf(e1.b, e2.b)}}};
   }
 
-  Color RgbBlack() { return {{{ 0.0f, 0.0f, 0.0f }}}; }
-  Color RgbWhite() { return {{{ 1.0f, 1.0f, 1.0f }}}; }
+  Color RgbBlack() { return {{{0.0f, 0.0f, 0.0f}}}; }
+  Color RgbWhite() { return {{{1.0f, 1.0f, 1.0f}}}; }
 
-  Color RgbRed() { return {{{ 1.0f, 0.0f, 0.0f }}}; }
-  Color RgbGreen() { return {{{ 0.0f, 1.0f, 0.0f }}}; }
-  Color RgbBlue() { return {{{ 0.0f, 0.0f, 1.0f }}}; }
+  Color RgbRed() { return {{{1.0f, 0.0f, 0.0f}}}; }
+  Color RgbGreen() { return {{{0.0f, 1.0f, 0.0f}}}; }
+  Color RgbBlue() { return {{{0.0f, 0.0f, 1.0f}}}; }
 
-  Color YuvBlack() { return {{{ 0.0f, 0.0f, 0.0f }}}; }
-  Color YuvWhite() { return {{{ 1.0f, 0.0f, 0.0f }}}; }
+  Color YuvBlack() { return {{{0.0f, 0.0f, 0.0f}}}; }
+  Color YuvWhite() { return {{{1.0f, 0.0f, 0.0f}}}; }
 
-  Color SrgbYuvRed() { return {{{ 0.2126f, -0.11457f, 0.5f }}}; }
-  Color SrgbYuvGreen() { return {{{ 0.7152f, -0.38543f, -0.45415f }}}; }
-  Color SrgbYuvBlue() { return {{{ 0.0722f, 0.5f, -0.04585f }}}; }
+  Color SrgbYuvRed() { return {{{0.2126f, -0.11457f, 0.5f}}}; }
+  Color SrgbYuvGreen() { return {{{0.7152f, -0.38543f, -0.45415f}}}; }
+  Color SrgbYuvBlue() { return {{{0.0722f, 0.5f, -0.04585f}}}; }
 
-  Color P3YuvRed() { return {{{ 0.299f, -0.16874f, 0.5f }}}; }
-  Color P3YuvGreen() { return {{{ 0.587f, -0.33126f, -0.41869f }}}; }
-  Color P3YuvBlue() { return {{{ 0.114f, 0.5f, -0.08131f }}}; }
+  Color P3YuvRed() { return {{{0.299f, -0.16874f, 0.5f}}}; }
+  Color P3YuvGreen() { return {{{0.587f, -0.33126f, -0.41869f}}}; }
+  Color P3YuvBlue() { return {{{0.114f, 0.5f, -0.08131f}}}; }
 
-  Color Bt2100YuvRed() { return {{{ 0.2627f, -0.13963f, 0.5f }}}; }
-  Color Bt2100YuvGreen() { return {{{ 0.6780f, -0.36037f, -0.45979f }}}; }
-  Color Bt2100YuvBlue() { return {{{ 0.0593f, 0.5f, -0.04021f }}}; }
+  Color Bt2100YuvRed() { return {{{0.2627f, -0.13963f, 0.5f}}}; }
+  Color Bt2100YuvGreen() { return {{{0.6780f, -0.36037f, -0.45979f}}}; }
+  Color Bt2100YuvBlue() { return {{{0.0593f, 0.5f, -0.04021f}}}; }
 
   float SrgbYuvToLuminance(Color yuv_gamma, ColorCalculationFn luminanceFn) {
     Color rgb_gamma = srgbYuvToRgb(yuv_gamma);
@@ -108,99 +105,168 @@ public:
 
   jpegr_uncompressed_struct Yuv420Image() {
     static uint8_t pixels[] = {
-      // Y
-      0x00, 0x10, 0x20, 0x30,
-      0x01, 0x11, 0x21, 0x31,
-      0x02, 0x12, 0x22, 0x32,
-      0x03, 0x13, 0x23, 0x33,
-      // U
-      0xA0, 0xA1,
-      0xA2, 0xA3,
-      // V
-      0xB0, 0xB1,
-      0xB2, 0xB3,
+        // Y
+        0x00,
+        0x10,
+        0x20,
+        0x30,
+        0x01,
+        0x11,
+        0x21,
+        0x31,
+        0x02,
+        0x12,
+        0x22,
+        0x32,
+        0x03,
+        0x13,
+        0x23,
+        0x33,
+        // U
+        0xA0,
+        0xA1,
+        0xA2,
+        0xA3,
+        // V
+        0xB0,
+        0xB1,
+        0xB2,
+        0xB3,
     };
-    return { pixels, 4, 4, ULTRAHDR_COLORGAMUT_BT709, pixels + 16, 4, 2 };
+    return {pixels, 4, 4, ULTRAHDR_COLORGAMUT_BT709, pixels + 16, 4, 2};
   }
 
   Color (*Yuv420Colors())[4] {
     static Color colors[4][4] = {
-      {
-        Yuv420(0x00, 0xA0, 0xB0), Yuv420(0x10, 0xA0, 0xB0),
-        Yuv420(0x20, 0xA1, 0xB1), Yuv420(0x30, 0xA1, 0xB1),
-      }, {
-        Yuv420(0x01, 0xA0, 0xB0), Yuv420(0x11, 0xA0, 0xB0),
-        Yuv420(0x21, 0xA1, 0xB1), Yuv420(0x31, 0xA1, 0xB1),
-      }, {
-        Yuv420(0x02, 0xA2, 0xB2), Yuv420(0x12, 0xA2, 0xB2),
-        Yuv420(0x22, 0xA3, 0xB3), Yuv420(0x32, 0xA3, 0xB3),
-      }, {
-        Yuv420(0x03, 0xA2, 0xB2), Yuv420(0x13, 0xA2, 0xB2),
-        Yuv420(0x23, 0xA3, 0xB3), Yuv420(0x33, 0xA3, 0xB3),
-      },
+        {
+            Yuv420(0x00, 0xA0, 0xB0),
+            Yuv420(0x10, 0xA0, 0xB0),
+            Yuv420(0x20, 0xA1, 0xB1),
+            Yuv420(0x30, 0xA1, 0xB1),
+        },
+        {
+            Yuv420(0x01, 0xA0, 0xB0),
+            Yuv420(0x11, 0xA0, 0xB0),
+            Yuv420(0x21, 0xA1, 0xB1),
+            Yuv420(0x31, 0xA1, 0xB1),
+        },
+        {
+            Yuv420(0x02, 0xA2, 0xB2),
+            Yuv420(0x12, 0xA2, 0xB2),
+            Yuv420(0x22, 0xA3, 0xB3),
+            Yuv420(0x32, 0xA3, 0xB3),
+        },
+        {
+            Yuv420(0x03, 0xA2, 0xB2),
+            Yuv420(0x13, 0xA2, 0xB2),
+            Yuv420(0x23, 0xA3, 0xB3),
+            Yuv420(0x33, 0xA3, 0xB3),
+        },
     };
     return colors;
   }
 
   jpegr_uncompressed_struct P010Image() {
     static uint16_t pixels[] = {
-      // Y
-      0x00 << 6, 0x10 << 6, 0x20 << 6, 0x30 << 6,
-      0x01 << 6, 0x11 << 6, 0x21 << 6, 0x31 << 6,
-      0x02 << 6, 0x12 << 6, 0x22 << 6, 0x32 << 6,
-      0x03 << 6, 0x13 << 6, 0x23 << 6, 0x33 << 6,
-      // UV
-      0xA0 << 6, 0xB0 << 6, 0xA1 << 6, 0xB1 << 6,
-      0xA2 << 6, 0xB2 << 6, 0xA3 << 6, 0xB3 << 6,
+        // Y
+        0x00 << 6,
+        0x10 << 6,
+        0x20 << 6,
+        0x30 << 6,
+        0x01 << 6,
+        0x11 << 6,
+        0x21 << 6,
+        0x31 << 6,
+        0x02 << 6,
+        0x12 << 6,
+        0x22 << 6,
+        0x32 << 6,
+        0x03 << 6,
+        0x13 << 6,
+        0x23 << 6,
+        0x33 << 6,
+        // UV
+        0xA0 << 6,
+        0xB0 << 6,
+        0xA1 << 6,
+        0xB1 << 6,
+        0xA2 << 6,
+        0xB2 << 6,
+        0xA3 << 6,
+        0xB3 << 6,
     };
-    return { pixels, 4, 4, ULTRAHDR_COLORGAMUT_BT709, pixels + 16, 4, 4 };
+    return {pixels, 4, 4, ULTRAHDR_COLORGAMUT_BT709, pixels + 16, 4, 4};
   }
 
   Color (*P010Colors())[4] {
     static Color colors[4][4] = {
-      {
-        P010(0x00, 0xA0, 0xB0), P010(0x10, 0xA0, 0xB0),
-        P010(0x20, 0xA1, 0xB1), P010(0x30, 0xA1, 0xB1),
-      }, {
-        P010(0x01, 0xA0, 0xB0), P010(0x11, 0xA0, 0xB0),
-        P010(0x21, 0xA1, 0xB1), P010(0x31, 0xA1, 0xB1),
-      }, {
-        P010(0x02, 0xA2, 0xB2), P010(0x12, 0xA2, 0xB2),
-        P010(0x22, 0xA3, 0xB3), P010(0x32, 0xA3, 0xB3),
-      }, {
-        P010(0x03, 0xA2, 0xB2), P010(0x13, 0xA2, 0xB2),
-        P010(0x23, 0xA3, 0xB3), P010(0x33, 0xA3, 0xB3),
-      },
+        {
+            P010(0x00, 0xA0, 0xB0),
+            P010(0x10, 0xA0, 0xB0),
+            P010(0x20, 0xA1, 0xB1),
+            P010(0x30, 0xA1, 0xB1),
+        },
+        {
+            P010(0x01, 0xA0, 0xB0),
+            P010(0x11, 0xA0, 0xB0),
+            P010(0x21, 0xA1, 0xB1),
+            P010(0x31, 0xA1, 0xB1),
+        },
+        {
+            P010(0x02, 0xA2, 0xB2),
+            P010(0x12, 0xA2, 0xB2),
+            P010(0x22, 0xA3, 0xB3),
+            P010(0x32, 0xA3, 0xB3),
+        },
+        {
+            P010(0x03, 0xA2, 0xB2),
+            P010(0x13, 0xA2, 0xB2),
+            P010(0x23, 0xA3, 0xB3),
+            P010(0x33, 0xA3, 0xB3),
+        },
     };
     return colors;
   }
 
   jpegr_uncompressed_struct MapImage() {
     static uint8_t pixels[] = {
-      0x00, 0x10, 0x20, 0x30,
-      0x01, 0x11, 0x21, 0x31,
-      0x02, 0x12, 0x22, 0x32,
-      0x03, 0x13, 0x23, 0x33,
+        0x00, 0x10, 0x20, 0x30, 0x01, 0x11, 0x21, 0x31,
+        0x02, 0x12, 0x22, 0x32, 0x03, 0x13, 0x23, 0x33,
     };
-    return { pixels, 4, 4, ULTRAHDR_COLORGAMUT_UNSPECIFIED };
+    return {pixels, 4, 4, ULTRAHDR_COLORGAMUT_UNSPECIFIED};
   }
 
   float (*MapValues())[4] {
     static float values[4][4] = {
-      {
-        Map(0x00), Map(0x10), Map(0x20), Map(0x30),
-      }, {
-        Map(0x01), Map(0x11), Map(0x21), Map(0x31),
-      }, {
-        Map(0x02), Map(0x12), Map(0x22), Map(0x32),
-      }, {
-        Map(0x03), Map(0x13), Map(0x23), Map(0x33),
-      },
+        {
+            Map(0x00),
+            Map(0x10),
+            Map(0x20),
+            Map(0x30),
+        },
+        {
+            Map(0x01),
+            Map(0x11),
+            Map(0x21),
+            Map(0x31),
+        },
+        {
+            Map(0x02),
+            Map(0x12),
+            Map(0x22),
+            Map(0x32),
+        },
+        {
+            Map(0x03),
+            Map(0x13),
+            Map(0x23),
+            Map(0x33),
+        },
     };
     return values;
   }
 
-protected:
+ protected:
   virtual void SetUp();
   virtual void TearDown();
 };
@@ -211,9 +277,9 @@ GainMapMathTest::~GainMapMathTest() {}
 void GainMapMathTest::SetUp() {}
 void GainMapMathTest::TearDown() {}
 
-#define EXPECT_RGB_EQ(e1, e2)       \
-  EXPECT_FLOAT_EQ((e1).r, (e2).r);  \
-  EXPECT_FLOAT_EQ((e1).g, (e2).g);  \
+#define EXPECT_RGB_EQ(e1, e2)      \
+  EXPECT_FLOAT_EQ((e1).r, (e2).r); \
+  EXPECT_FLOAT_EQ((e1).g, (e2).g); \
   EXPECT_FLOAT_EQ((e1).b, (e2).b)
 
 #define EXPECT_RGB_NEAR(e1, e2)                     \
@@ -226,9 +292,9 @@ void GainMapMathTest::TearDown() {}
   EXPECT_NEAR((e1).g, (e2).g, ComparisonEpsilon() * 10.0f); \
   EXPECT_NEAR((e1).b, (e2).b, ComparisonEpsilon() * 10.0f)
 
-#define EXPECT_YUV_EQ(e1, e2)       \
-  EXPECT_FLOAT_EQ((e1).y, (e2).y);  \
-  EXPECT_FLOAT_EQ((e1).u, (e2).u);  \
+#define EXPECT_YUV_EQ(e1, e2)      \
+  EXPECT_FLOAT_EQ((e1).y, (e2).y); \
+  EXPECT_FLOAT_EQ((e1).u, (e2).u); \
   EXPECT_FLOAT_EQ((e1).v, (e2).v)
 
 #define EXPECT_YUV_NEAR(e1, e2)                     \
@@ -244,7 +310,7 @@ void GainMapMathTest::TearDown() {}
 // TODO: a bunch of these tests can be parameterized.
 
 TEST_F(GainMapMathTest, ColorConstruct) {
-  Color e1 = {{{ 0.1f, 0.2f, 0.3f }}};
+  Color e1 = {{{0.1f, 0.2f, 0.3f}}};
 
   EXPECT_FLOAT_EQ(e1.r, 0.1f);
   EXPECT_FLOAT_EQ(e1.g, 0.2f);
@@ -256,7 +322,7 @@ TEST_F(GainMapMathTest, ColorConstruct) {
 }
 
 TEST_F(GainMapMathTest, ColorAddColor) {
-  Color e1 = {{{ 0.1f, 0.2f, 0.3f }}};
+  Color e1 = {{{0.1f, 0.2f, 0.3f}}};
 
   Color e2 = e1 + e1;
   EXPECT_FLOAT_EQ(e2.r, e1.r * 2.0f);
@@ -270,7 +336,7 @@ TEST_F(GainMapMathTest, ColorAddColor) {
 }
 
 TEST_F(GainMapMathTest, ColorAddFloat) {
-  Color e1 = {{{ 0.1f, 0.2f, 0.3f }}};
+  Color e1 = {{{0.1f, 0.2f, 0.3f}}};
 
   Color e2 = e1 + 0.1f;
   EXPECT_FLOAT_EQ(e2.r, e1.r + 0.1f);
@@ -284,7 +350,7 @@ TEST_F(GainMapMathTest, ColorAddFloat) {
 }
 
 TEST_F(GainMapMathTest, ColorSubtractColor) {
-  Color e1 = {{{ 0.1f, 0.2f, 0.3f }}};
+  Color e1 = {{{0.1f, 0.2f, 0.3f}}};
 
   Color e2 = e1 - e1;
   EXPECT_FLOAT_EQ(e2.r, 0.0f);
@@ -298,7 +364,7 @@ TEST_F(GainMapMathTest, ColorSubtractColor) {
 }
 
 TEST_F(GainMapMathTest, ColorSubtractFloat) {
-  Color e1 = {{{ 0.1f, 0.2f, 0.3f }}};
+  Color e1 = {{{0.1f, 0.2f, 0.3f}}};
 
   Color e2 = e1 - 0.1f;
   EXPECT_FLOAT_EQ(e2.r, e1.r - 0.1f);
@@ -312,7 +378,7 @@ TEST_F(GainMapMathTest, ColorSubtractFloat) {
 }
 
 TEST_F(GainMapMathTest, ColorMultiplyFloat) {
-  Color e1 = {{{ 0.1f, 0.2f, 0.3f }}};
+  Color e1 = {{{0.1f, 0.2f, 0.3f}}};
 
   Color e2 = e1 * 2.0f;
   EXPECT_FLOAT_EQ(e2.r, e1.r * 2.0f);
@@ -326,7 +392,7 @@ TEST_F(GainMapMathTest, ColorMultiplyFloat) {
 }
 
 TEST_F(GainMapMathTest, ColorDivideFloat) {
-  Color e1 = {{{ 0.1f, 0.2f, 0.3f }}};
+  Color e1 = {{{0.1f, 0.2f, 0.3f}}};
 
   Color e2 = e1 / 2.0f;
   EXPECT_FLOAT_EQ(e2.r, e1.r / 2.0f);
@@ -626,8 +692,8 @@ TEST_F(GainMapMathTest, Bt2100ToBt601YuvConversion) {
 }
 
 TEST_F(GainMapMathTest, TransformYuv420) {
-  ColorTransformFn transforms[] = { yuv709To601, yuv709To2100, yuv601To709, yuv601To2100,
-                                    yuv2100To709, yuv2100To601 };
+  ColorTransformFn transforms[] = {yuv709To601,  yuv709To2100, yuv601To709,
+                                   yuv601To2100, yuv2100To709, yuv2100To601};
   for (const ColorTransformFn& transform : transforms) {
     jpegr_uncompressed_struct input = Yuv420Image();
 
@@ -655,10 +721,10 @@ TEST_F(GainMapMathTest, TransformYuv420) {
     }
 
     // modified pixels should be updated as intended by the transformYuv420 algorithm
-    Color in1 = getYuv420Pixel(&input,   2, 2);
-    Color in2 = getYuv420Pixel(&input,   3, 2);
-    Color in3 = getYuv420Pixel(&input,   2, 3);
-    Color in4 = getYuv420Pixel(&input,   3, 3);
+    Color in1 = getYuv420Pixel(&input, 2, 2);
+    Color in2 = getYuv420Pixel(&input, 3, 2);
+    Color in3 = getYuv420Pixel(&input, 2, 3);
+    Color in4 = getYuv420Pixel(&input, 3, 3);
     Color out1 = getYuv420Pixel(&output, 2, 2);
     Color out2 = getYuv420Pixel(&output, 3, 2);
     Color out3 = getYuv420Pixel(&output, 2, 3);
@@ -690,8 +756,8 @@ TEST_F(GainMapMathTest, HlgOetf) {
   EXPECT_NEAR(hlgOetf(0.5f), 0.87164f, ComparisonEpsilon());
   EXPECT_FLOAT_EQ(hlgOetf(1.0f), 1.0f);
 
-  Color e = {{{ 0.04167f, 0.08333f, 0.5f }}};
-  Color e_gamma = {{{ 0.35357f, 0.5f, 0.87164f }}};
+  Color e = {{{0.04167f, 0.08333f, 0.5f}}};
+  Color e_gamma = {{{0.35357f, 0.5f, 0.87164f}}};
   EXPECT_RGB_NEAR(hlgOetf(e), e_gamma);
 }
 
@@ -702,8 +768,8 @@ TEST_F(GainMapMathTest, HlgInvOetf) {
   EXPECT_NEAR(hlgInvOetf(0.75f), 0.26496f, ComparisonEpsilon());
   EXPECT_FLOAT_EQ(hlgInvOetf(1.0f), 1.0f);
 
-  Color e_gamma = {{{ 0.25f, 0.5f, 0.75f }}};
-  Color e = {{{ 0.02083f, 0.08333f, 0.26496f }}};
+  Color e_gamma = {{{0.25f, 0.5f, 0.75f}}};
+  Color e = {{{0.02083f, 0.08333f, 0.26496f}}};
   EXPECT_RGB_NEAR(hlgInvOetf(e_gamma), e);
 }
 
@@ -722,8 +788,8 @@ TEST_F(GainMapMathTest, PqOetf) {
   EXPECT_NEAR(pqOetf(0.99f), 0.99895f, ComparisonEpsilon());
   EXPECT_FLOAT_EQ(pqOetf(1.0f), 1.0f);
 
-  Color e = {{{ 0.01f, 0.5f, 0.99f }}};
-  Color e_gamma = {{{ 0.50808f, 0.92655f, 0.99895f }}};
+  Color e = {{{0.01f, 0.5f, 0.99f}}};
+  Color e_gamma = {{{0.50808f, 0.92655f, 0.99895f}}};
   EXPECT_RGB_NEAR(pqOetf(e), e_gamma);
 }
 
@@ -734,80 +800,50 @@ TEST_F(GainMapMathTest, PqInvOetf) {
   EXPECT_NEAR(pqInvOetf(0.99f), 0.90903f, ComparisonEpsilon());
   EXPECT_FLOAT_EQ(pqInvOetf(1.0f), 1.0f);
 
-  Color e_gamma = {{{ 0.01f, 0.5f, 0.99f }}};
-  Color e = {{{ 2.31017e-7f, 0.00922f, 0.90903f }}};
+  Color e_gamma = {{{0.01f, 0.5f, 0.99f}}};
+  Color e = {{{2.31017e-7f, 0.00922f, 0.90903f}}};
   EXPECT_RGB_NEAR(pqInvOetf(e_gamma), e);
 }
 
 TEST_F(GainMapMathTest, PqInvOetfLUT) {
-    for (size_t idx = 0; idx < kPqInvOETFNumEntries; idx++) {
-      float value = static_cast<float>(idx) / static_cast<float>(kPqInvOETFNumEntries - 1);
-      EXPECT_FLOAT_EQ(pqInvOetf(value), pqInvOetfLUT(value));
-    }
+  for (size_t idx = 0; idx < kPqInvOETFNumEntries; idx++) {
+    float value = static_cast<float>(idx) / static_cast<float>(kPqInvOETFNumEntries - 1);
+    EXPECT_FLOAT_EQ(pqInvOetf(value), pqInvOetfLUT(value));
+  }
 }
 
 TEST_F(GainMapMathTest, HlgInvOetfLUT) {
-    for (size_t idx = 0; idx < kHlgInvOETFNumEntries; idx++) {
-      float value = static_cast<float>(idx) / static_cast<float>(kHlgInvOETFNumEntries - 1);
-      EXPECT_FLOAT_EQ(hlgInvOetf(value), hlgInvOetfLUT(value));
-    }
+  for (size_t idx = 0; idx < kHlgInvOETFNumEntries; idx++) {
+    float value = static_cast<float>(idx) / static_cast<float>(kHlgInvOETFNumEntries - 1);
+    EXPECT_FLOAT_EQ(hlgInvOetf(value), hlgInvOetfLUT(value));
+  }
 }
 
 TEST_F(GainMapMathTest, pqOetfLUT) {
-    for (size_t idx = 0; idx < kPqOETFNumEntries; idx++) {
-      float value = static_cast<float>(idx) / static_cast<float>(kPqOETFNumEntries - 1);
-      EXPECT_FLOAT_EQ(pqOetf(value), pqOetfLUT(value));
-    }
+  for (size_t idx = 0; idx < kPqOETFNumEntries; idx++) {
+    float value = static_cast<float>(idx) / static_cast<float>(kPqOETFNumEntries - 1);
+    EXPECT_FLOAT_EQ(pqOetf(value), pqOetfLUT(value));
+  }
 }
 
 TEST_F(GainMapMathTest, hlgOetfLUT) {
-    for (size_t idx = 0; idx < kHlgOETFNumEntries; idx++) {
-      float value = static_cast<float>(idx) / static_cast<float>(kHlgOETFNumEntries - 1);
-      EXPECT_FLOAT_EQ(hlgOetf(value), hlgOetfLUT(value));
-    }
+  for (size_t idx = 0; idx < kHlgOETFNumEntries; idx++) {
+    float value = static_cast<float>(idx) / static_cast<float>(kHlgOETFNumEntries - 1);
+    EXPECT_FLOAT_EQ(hlgOetf(value), hlgOetfLUT(value));
+  }
 }
 
 TEST_F(GainMapMathTest, srgbInvOetfLUT) {
-    for (size_t idx = 0; idx < kSrgbInvOETFNumEntries; idx++) {
-      float value = static_cast<float>(idx) / static_cast<float>(kSrgbInvOETFNumEntries - 1);
-      EXPECT_FLOAT_EQ(srgbInvOetf(value), srgbInvOetfLUT(value));
-    }
+  for (size_t idx = 0; idx < kSrgbInvOETFNumEntries; idx++) {
+    float value = static_cast<float>(idx) / static_cast<float>(kSrgbInvOETFNumEntries - 1);
+    EXPECT_FLOAT_EQ(srgbInvOetf(value), srgbInvOetfLUT(value));
+  }
 }
 
 TEST_F(GainMapMathTest, applyGainLUT) {
   for (int boost = 1; boost <= 10; boost++) {
-    ultrahdr_metadata_struct metadata = { .maxContentBoost = static_cast<float>(boost),
-                                       .minContentBoost = 1.0f / static_cast<float>(boost) };
-    GainLUT gainLUT(&metadata);
-    GainLUT gainLUTWithBoost(&metadata, metadata.maxContentBoost);
-    for (size_t idx = 0; idx < kGainFactorNumEntries; idx++) {
-      float value = static_cast<float>(idx) / static_cast<float>(kGainFactorNumEntries - 1);
-      EXPECT_RGB_NEAR(applyGain(RgbBlack(), value, &metadata),
-                      applyGainLUT(RgbBlack(), value, gainLUT));
-      EXPECT_RGB_NEAR(applyGain(RgbWhite(), value, &metadata),
-                      applyGainLUT(RgbWhite(), value, gainLUT));
-      EXPECT_RGB_NEAR(applyGain(RgbRed(), value, &metadata),
-                      applyGainLUT(RgbRed(), value, gainLUT));
-      EXPECT_RGB_NEAR(applyGain(RgbGreen(), value, &metadata),
-                      applyGainLUT(RgbGreen(), value, gainLUT));
-      EXPECT_RGB_NEAR(applyGain(RgbBlue(), value, &metadata),
-                      applyGainLUT(RgbBlue(), value, gainLUT));
-      EXPECT_RGB_EQ(applyGainLUT(RgbBlack(), value, gainLUT),
-                    applyGainLUT(RgbBlack(), value, gainLUTWithBoost));
-      EXPECT_RGB_EQ(applyGainLUT(RgbWhite(), value, gainLUT),
-                    applyGainLUT(RgbWhite(), value, gainLUTWithBoost));
-      EXPECT_RGB_EQ(applyGainLUT(RgbRed(), value, gainLUT),
-                    applyGainLUT(RgbRed(), value, gainLUTWithBoost));
-      EXPECT_RGB_EQ(applyGainLUT(RgbGreen(), value, gainLUT),
-                    applyGainLUT(RgbGreen(), value, gainLUTWithBoost));
-      EXPECT_RGB_EQ(applyGainLUT(RgbBlue(), value, gainLUT),
-                    applyGainLUT(RgbBlue(), value, gainLUTWithBoost));
-    }
-  }
-
-  for (int boost = 1; boost <= 10; boost++) {
-    ultrahdr_metadata_struct metadata = { .maxContentBoost = static_cast<float>(boost),
-                                       .minContentBoost = 1.0f };
+    ultrahdr_metadata_struct metadata = {.maxContentBoost = static_cast<float>(boost),
+                                         .minContentBoost = 1.0f / static_cast<float>(boost)};
     GainLUT gainLUT(&metadata);
     GainLUT gainLUTWithBoost(&metadata, metadata.maxContentBoost);
     for (size_t idx = 0; idx < kGainFactorNumEntries; idx++) {
@@ -837,8 +873,38 @@ TEST_F(GainMapMathTest, applyGainLUT) {
 
   for (int boost = 1; boost <= 10; boost++) {
     ultrahdr_metadata_struct metadata = {.maxContentBoost = static_cast<float>(boost),
-                                         .minContentBoost = 1.0f /
-                                                 powf(static_cast<float>(boost), 1.0f / 3.0f)};
+                                         .minContentBoost = 1.0f};
+    GainLUT gainLUT(&metadata);
+    GainLUT gainLUTWithBoost(&metadata, metadata.maxContentBoost);
+    for (size_t idx = 0; idx < kGainFactorNumEntries; idx++) {
+      float value = static_cast<float>(idx) / static_cast<float>(kGainFactorNumEntries - 1);
+      EXPECT_RGB_NEAR(applyGain(RgbBlack(), value, &metadata),
+                      applyGainLUT(RgbBlack(), value, gainLUT));
+      EXPECT_RGB_NEAR(applyGain(RgbWhite(), value, &metadata),
+                      applyGainLUT(RgbWhite(), value, gainLUT));
+      EXPECT_RGB_NEAR(applyGain(RgbRed(), value, &metadata),
+                      applyGainLUT(RgbRed(), value, gainLUT));
+      EXPECT_RGB_NEAR(applyGain(RgbGreen(), value, &metadata),
+                      applyGainLUT(RgbGreen(), value, gainLUT));
+      EXPECT_RGB_NEAR(applyGain(RgbBlue(), value, &metadata),
+                      applyGainLUT(RgbBlue(), value, gainLUT));
+      EXPECT_RGB_EQ(applyGainLUT(RgbBlack(), value, gainLUT),
+                    applyGainLUT(RgbBlack(), value, gainLUTWithBoost));
+      EXPECT_RGB_EQ(applyGainLUT(RgbWhite(), value, gainLUT),
+                    applyGainLUT(RgbWhite(), value, gainLUTWithBoost));
+      EXPECT_RGB_EQ(applyGainLUT(RgbRed(), value, gainLUT),
+                    applyGainLUT(RgbRed(), value, gainLUTWithBoost));
+      EXPECT_RGB_EQ(applyGainLUT(RgbGreen(), value, gainLUT),
+                    applyGainLUT(RgbGreen(), value, gainLUTWithBoost));
+      EXPECT_RGB_EQ(applyGainLUT(RgbBlue(), value, gainLUT),
+                    applyGainLUT(RgbBlue(), value, gainLUTWithBoost));
+    }
+  }
+
+  for (int boost = 1; boost <= 10; boost++) {
+    ultrahdr_metadata_struct metadata = {
+        .maxContentBoost = static_cast<float>(boost),
+        .minContentBoost = 1.0f / powf(static_cast<float>(boost), 1.0f / 3.0f)};
     GainLUT gainLUT(&metadata);
     GainLUT gainLUTWithBoost(&metadata, metadata.maxContentBoost);
     for (size_t idx = 0; idx < kGainFactorNumEntries; idx++) {
@@ -880,26 +946,20 @@ TEST_F(GainMapMathTest, ColorConversionLookup) {
             nullptr);
   EXPECT_EQ(getHdrConversionFn(ULTRAHDR_COLORGAMUT_BT709, ULTRAHDR_COLORGAMUT_BT709),
             identityConversion);
-  EXPECT_EQ(getHdrConversionFn(ULTRAHDR_COLORGAMUT_BT709, ULTRAHDR_COLORGAMUT_P3),
-            p3ToBt709);
+  EXPECT_EQ(getHdrConversionFn(ULTRAHDR_COLORGAMUT_BT709, ULTRAHDR_COLORGAMUT_P3), p3ToBt709);
   EXPECT_EQ(getHdrConversionFn(ULTRAHDR_COLORGAMUT_BT709, ULTRAHDR_COLORGAMUT_BT2100),
             bt2100ToBt709);
 
-  EXPECT_EQ(getHdrConversionFn(ULTRAHDR_COLORGAMUT_P3, ULTRAHDR_COLORGAMUT_UNSPECIFIED),
-            nullptr);
-  EXPECT_EQ(getHdrConversionFn(ULTRAHDR_COLORGAMUT_P3, ULTRAHDR_COLORGAMUT_BT709),
-            bt709ToP3);
-  EXPECT_EQ(getHdrConversionFn(ULTRAHDR_COLORGAMUT_P3, ULTRAHDR_COLORGAMUT_P3),
-            identityConversion);
-  EXPECT_EQ(getHdrConversionFn(ULTRAHDR_COLORGAMUT_P3, ULTRAHDR_COLORGAMUT_BT2100),
-            bt2100ToP3);
+  EXPECT_EQ(getHdrConversionFn(ULTRAHDR_COLORGAMUT_P3, ULTRAHDR_COLORGAMUT_UNSPECIFIED), nullptr);
+  EXPECT_EQ(getHdrConversionFn(ULTRAHDR_COLORGAMUT_P3, ULTRAHDR_COLORGAMUT_BT709), bt709ToP3);
+  EXPECT_EQ(getHdrConversionFn(ULTRAHDR_COLORGAMUT_P3, ULTRAHDR_COLORGAMUT_P3), identityConversion);
+  EXPECT_EQ(getHdrConversionFn(ULTRAHDR_COLORGAMUT_P3, ULTRAHDR_COLORGAMUT_BT2100), bt2100ToP3);
 
   EXPECT_EQ(getHdrConversionFn(ULTRAHDR_COLORGAMUT_BT2100, ULTRAHDR_COLORGAMUT_UNSPECIFIED),
             nullptr);
   EXPECT_EQ(getHdrConversionFn(ULTRAHDR_COLORGAMUT_BT2100, ULTRAHDR_COLORGAMUT_BT709),
             bt709ToBt2100);
-  EXPECT_EQ(getHdrConversionFn(ULTRAHDR_COLORGAMUT_BT2100, ULTRAHDR_COLORGAMUT_P3),
-            p3ToBt2100);
+  EXPECT_EQ(getHdrConversionFn(ULTRAHDR_COLORGAMUT_BT2100, ULTRAHDR_COLORGAMUT_P3), p3ToBt2100);
   EXPECT_EQ(getHdrConversionFn(ULTRAHDR_COLORGAMUT_BT2100, ULTRAHDR_COLORGAMUT_BT2100),
             identityConversion);
 
@@ -907,15 +967,13 @@ TEST_F(GainMapMathTest, ColorConversionLookup) {
             nullptr);
   EXPECT_EQ(getHdrConversionFn(ULTRAHDR_COLORGAMUT_UNSPECIFIED, ULTRAHDR_COLORGAMUT_BT709),
             nullptr);
-  EXPECT_EQ(getHdrConversionFn(ULTRAHDR_COLORGAMUT_UNSPECIFIED, ULTRAHDR_COLORGAMUT_P3),
-            nullptr);
+  EXPECT_EQ(getHdrConversionFn(ULTRAHDR_COLORGAMUT_UNSPECIFIED, ULTRAHDR_COLORGAMUT_P3), nullptr);
   EXPECT_EQ(getHdrConversionFn(ULTRAHDR_COLORGAMUT_UNSPECIFIED, ULTRAHDR_COLORGAMUT_BT2100),
             nullptr);
 }
 
 TEST_F(GainMapMathTest, EncodeGain) {
-  ultrahdr_metadata_struct metadata = { .maxContentBoost = 4.0f,
-                                        .minContentBoost = 1.0f / 4.0f };
+  ultrahdr_metadata_struct metadata = {.maxContentBoost = 4.0f, .minContentBoost = 1.0f / 4.0f};
 
   EXPECT_EQ(encodeGain(0.0f, 0.0f, &metadata), 127);
   EXPECT_EQ(encodeGain(0.0f, 1.0f, &metadata), 127);
@@ -972,8 +1030,7 @@ TEST_F(GainMapMathTest, EncodeGain) {
 }
 
 TEST_F(GainMapMathTest, ApplyGain) {
-  ultrahdr_metadata_struct metadata = { .maxContentBoost = 4.0f,
-                                        .minContentBoost = 1.0f / 4.0f };
+  ultrahdr_metadata_struct metadata = {.maxContentBoost = 4.0f, .minContentBoost = 1.0f / 4.0f};
   float displayBoost = metadata.maxContentBoost;
 
   EXPECT_RGB_NEAR(applyGain(RgbBlack(), 0.0f, &metadata), RgbBlack());
@@ -1021,7 +1078,7 @@ TEST_F(GainMapMathTest, ApplyGain) {
   EXPECT_RGB_NEAR(applyGain(RgbWhite(), 0.75f, &metadata), RgbWhite() * 4.0f);
   EXPECT_RGB_NEAR(applyGain(RgbWhite(), 1.0f, &metadata), RgbWhite() * 8.0f);
 
-  Color e = {{{ 0.0f, 0.5f, 1.0f }}};
+  Color e = {{{0.0f, 0.5f, 1.0f}}};
   metadata.maxContentBoost = 4.0f;
   metadata.minContentBoost = 1.0f / 4.0f;
 
@@ -1041,13 +1098,12 @@ TEST_F(GainMapMathTest, ApplyGain) {
                 applyGain(RgbGreen(), 1.0f, &metadata, displayBoost));
   EXPECT_RGB_EQ(applyGain(RgbBlue(), 1.0f, &metadata),
                 applyGain(RgbBlue(), 1.0f, &metadata, displayBoost));
-  EXPECT_RGB_EQ(applyGain(e, 1.0f, &metadata),
-                applyGain(e, 1.0f, &metadata, displayBoost));
+  EXPECT_RGB_EQ(applyGain(e, 1.0f, &metadata), applyGain(e, 1.0f, &metadata, displayBoost));
 }
 
 TEST_F(GainMapMathTest, GetYuv420Pixel) {
   jpegr_uncompressed_struct image = Yuv420Image();
-  Color (*colors)[4] = Yuv420Colors();
+  Color(*colors)[4] = Yuv420Colors();
 
   for (size_t y = 0; y < 4; ++y) {
     for (size_t x = 0; x < 4; ++x) {
@@ -1058,7 +1114,7 @@ TEST_F(GainMapMathTest, GetYuv420Pixel) {
 
 TEST_F(GainMapMathTest, GetP010Pixel) {
   jpegr_uncompressed_struct image = P010Image();
-  Color (*colors)[4] = P010Colors();
+  Color(*colors)[4] = P010Colors();
 
   for (size_t y = 0; y < 4; ++y) {
     for (size_t x = 0; x < 4; ++x) {
@@ -1069,13 +1125,13 @@ TEST_F(GainMapMathTest, GetP010Pixel) {
 
 TEST_F(GainMapMathTest, SampleYuv420) {
   jpegr_uncompressed_struct image = Yuv420Image();
-  Color (*colors)[4] = Yuv420Colors();
+  Color(*colors)[4] = Yuv420Colors();
 
   static const size_t kMapScaleFactor = 2;
   for (size_t y = 0; y < 4 / kMapScaleFactor; ++y) {
     for (size_t x = 0; x < 4 / kMapScaleFactor; ++x) {
-      Color min = {{{ 1.0f, 1.0f, 1.0f }}};
-      Color max = {{{ -1.0f, -1.0f, -1.0f }}};
+      Color min = {{{1.0f, 1.0f, 1.0f}}};
+      Color max = {{{-1.0f, -1.0f, -1.0f}}};
 
       for (size_t dy = 0; dy < kMapScaleFactor; ++dy) {
         for (size_t dx = 0; dx < kMapScaleFactor; ++dx) {
@@ -1095,13 +1151,13 @@ TEST_F(GainMapMathTest, SampleYuv420) {
 
 TEST_F(GainMapMathTest, SampleP010) {
   jpegr_uncompressed_struct image = P010Image();
-  Color (*colors)[4] = P010Colors();
+  Color(*colors)[4] = P010Colors();
 
   static const size_t kMapScaleFactor = 2;
   for (size_t y = 0; y < 4 / kMapScaleFactor; ++y) {
     for (size_t x = 0; x < 4 / kMapScaleFactor; ++x) {
-      Color min = {{{ 1.0f, 1.0f, 1.0f }}};
-      Color max = {{{ -1.0f, -1.0f, -1.0f }}};
+      Color min = {{{1.0f, 1.0f, 1.0f}}};
+      Color max = {{{-1.0f, -1.0f, -1.0f}}};
 
       for (size_t dy = 0; dy < kMapScaleFactor; ++dy) {
         for (size_t dx = 0; dx < kMapScaleFactor; ++dx) {
@@ -1121,7 +1177,7 @@ TEST_F(GainMapMathTest, SampleP010) {
 
 TEST_F(GainMapMathTest, SampleMap) {
   jpegr_uncompressed_struct image = MapImage();
-  float (*values)[4] = MapValues();
+  float(*values)[4] = MapValues();
 
   static const size_t kMapScaleFactor = 2;
   ShepardsIDW idwTable(kMapScaleFactor);
@@ -1166,22 +1222,21 @@ TEST_F(GainMapMathTest, ColorToRgba1010102) {
   EXPECT_EQ(colorToRgba1010102(RgbGreen()), 0x3 << 30 | 0x3ff << 10);
   EXPECT_EQ(colorToRgba1010102(RgbBlue()), 0x3 << 30 | 0x3ff << 20);
 
-  Color e_gamma = {{{ 0.1f, 0.2f, 0.3f }}};
+  Color e_gamma = {{{0.1f, 0.2f, 0.3f}}};
   EXPECT_EQ(colorToRgba1010102(e_gamma),
-            0x3 << 30
-          | static_cast<uint32_t>(0.1f * static_cast<float>(0x3ff))
-          | static_cast<uint32_t>(0.2f * static_cast<float>(0x3ff)) << 10
-          | static_cast<uint32_t>(0.3f * static_cast<float>(0x3ff)) << 20);
+            0x3 << 30 | static_cast<uint32_t>(0.1f * static_cast<float>(0x3ff)) |
+                static_cast<uint32_t>(0.2f * static_cast<float>(0x3ff)) << 10 |
+                static_cast<uint32_t>(0.3f * static_cast<float>(0x3ff)) << 20);
 }
 
 TEST_F(GainMapMathTest, ColorToRgbaF16) {
-  EXPECT_EQ(colorToRgbaF16(RgbBlack()), ((uint64_t) 0x3C00) << 48);
+  EXPECT_EQ(colorToRgbaF16(RgbBlack()), ((uint64_t)0x3C00) << 48);
   EXPECT_EQ(colorToRgbaF16(RgbWhite()), 0x3C003C003C003C00);
-  EXPECT_EQ(colorToRgbaF16(RgbRed()),   (((uint64_t) 0x3C00) << 48) | ((uint64_t) 0x3C00));
-  EXPECT_EQ(colorToRgbaF16(RgbGreen()), (((uint64_t) 0x3C00) << 48) | (((uint64_t) 0x3C00) << 16));
-  EXPECT_EQ(colorToRgbaF16(RgbBlue()),  (((uint64_t) 0x3C00) << 48) | (((uint64_t) 0x3C00) << 32));
+  EXPECT_EQ(colorToRgbaF16(RgbRed()), (((uint64_t)0x3C00) << 48) | ((uint64_t)0x3C00));
+  EXPECT_EQ(colorToRgbaF16(RgbGreen()), (((uint64_t)0x3C00) << 48) | (((uint64_t)0x3C00) << 16));
+  EXPECT_EQ(colorToRgbaF16(RgbBlue()), (((uint64_t)0x3C00) << 48) | (((uint64_t)0x3C00) << 32));
 
-  Color e_gamma = {{{ 0.1f, 0.2f, 0.3f }}};
+  Color e_gamma = {{{0.1f, 0.2f, 0.3f}}};
   EXPECT_EQ(colorToRgbaF16(e_gamma), 0x3C0034CD32662E66);
 }
 
@@ -1190,16 +1245,14 @@ TEST_F(GainMapMathTest, Float32ToFloat16) {
   EXPECT_EQ(floatToHalf(0.0f), 0x0);
   EXPECT_EQ(floatToHalf(1.0f), 0x3C00);
   EXPECT_EQ(floatToHalf(-1.0f), 0xBC00);
-  EXPECT_EQ(floatToHalf(0x1.fffffep127f), 0x7FFF);  // float max
+  EXPECT_EQ(floatToHalf(0x1.fffffep127f), 0x7FFF);   // float max
   EXPECT_EQ(floatToHalf(-0x1.fffffep127f), 0xFFFF);  // float min
-  EXPECT_EQ(floatToHalf(0x1.0p-126f), 0x0);  // float zero
+  EXPECT_EQ(floatToHalf(0x1.0p-126f), 0x0);          // float zero
 }
 
 TEST_F(GainMapMathTest, GenerateMapLuminanceSrgb) {
-  EXPECT_FLOAT_EQ(SrgbYuvToLuminance(YuvBlack(), srgbLuminance),
-                  0.0f);
-  EXPECT_FLOAT_EQ(SrgbYuvToLuminance(YuvWhite(), srgbLuminance),
-                  kSdrWhiteNits);
+  EXPECT_FLOAT_EQ(SrgbYuvToLuminance(YuvBlack(), srgbLuminance), 0.0f);
+  EXPECT_FLOAT_EQ(SrgbYuvToLuminance(YuvWhite(), srgbLuminance), kSdrWhiteNits);
   EXPECT_NEAR(SrgbYuvToLuminance(SrgbYuvRed(), srgbLuminance),
               srgbLuminance(RgbRed()) * kSdrWhiteNits, LuminanceEpsilon());
   EXPECT_NEAR(SrgbYuvToLuminance(SrgbYuvGreen(), srgbLuminance),
@@ -1209,12 +1262,10 @@ TEST_F(GainMapMathTest, GenerateMapLuminanceSrgb) {
 }
 
 TEST_F(GainMapMathTest, GenerateMapLuminanceSrgbP3) {
-  EXPECT_FLOAT_EQ(SrgbYuvToLuminance(YuvBlack(), p3Luminance),
-                  0.0f);
-  EXPECT_FLOAT_EQ(SrgbYuvToLuminance(YuvWhite(), p3Luminance),
-                  kSdrWhiteNits);
-  EXPECT_NEAR(SrgbYuvToLuminance(SrgbYuvRed(), p3Luminance),
-              p3Luminance(RgbRed()) * kSdrWhiteNits, LuminanceEpsilon());
+  EXPECT_FLOAT_EQ(SrgbYuvToLuminance(YuvBlack(), p3Luminance), 0.0f);
+  EXPECT_FLOAT_EQ(SrgbYuvToLuminance(YuvWhite(), p3Luminance), kSdrWhiteNits);
+  EXPECT_NEAR(SrgbYuvToLuminance(SrgbYuvRed(), p3Luminance), p3Luminance(RgbRed()) * kSdrWhiteNits,
+              LuminanceEpsilon());
   EXPECT_NEAR(SrgbYuvToLuminance(SrgbYuvGreen(), p3Luminance),
               p3Luminance(RgbGreen()) * kSdrWhiteNits, LuminanceEpsilon());
   EXPECT_NEAR(SrgbYuvToLuminance(SrgbYuvBlue(), p3Luminance),
@@ -1222,10 +1273,8 @@ TEST_F(GainMapMathTest, GenerateMapLuminanceSrgbP3) {
 }
 
 TEST_F(GainMapMathTest, GenerateMapLuminanceSrgbBt2100) {
-  EXPECT_FLOAT_EQ(SrgbYuvToLuminance(YuvBlack(), bt2100Luminance),
-                  0.0f);
-  EXPECT_FLOAT_EQ(SrgbYuvToLuminance(YuvWhite(), bt2100Luminance),
-                  kSdrWhiteNits);
+  EXPECT_FLOAT_EQ(SrgbYuvToLuminance(YuvBlack(), bt2100Luminance), 0.0f);
+  EXPECT_FLOAT_EQ(SrgbYuvToLuminance(YuvWhite(), bt2100Luminance), kSdrWhiteNits);
   EXPECT_NEAR(SrgbYuvToLuminance(SrgbYuvRed(), bt2100Luminance),
               bt2100Luminance(RgbRed()) * kSdrWhiteNits, LuminanceEpsilon());
   EXPECT_NEAR(SrgbYuvToLuminance(SrgbYuvGreen(), bt2100Luminance),
@@ -1235,125 +1284,91 @@ TEST_F(GainMapMathTest, GenerateMapLuminanceSrgbBt2100) {
 }
 
 TEST_F(GainMapMathTest, GenerateMapLuminanceHlg) {
-  EXPECT_FLOAT_EQ(Bt2100YuvToLuminance(YuvBlack(), hlgInvOetf, identityConversion,
-                                       bt2100Luminance, kHlgMaxNits),
+  EXPECT_FLOAT_EQ(Bt2100YuvToLuminance(YuvBlack(), hlgInvOetf, identityConversion, bt2100Luminance,
+                                       kHlgMaxNits),
                   0.0f);
-  EXPECT_FLOAT_EQ(Bt2100YuvToLuminance(YuvWhite(), hlgInvOetf, identityConversion,
-                                       bt2100Luminance, kHlgMaxNits),
+  EXPECT_FLOAT_EQ(Bt2100YuvToLuminance(YuvWhite(), hlgInvOetf, identityConversion, bt2100Luminance,
+                                       kHlgMaxNits),
                   kHlgMaxNits);
-  EXPECT_NEAR(Bt2100YuvToLuminance(Bt2100YuvRed(), hlgInvOetf, identityConversion,
-                                   bt2100Luminance, kHlgMaxNits),
+  EXPECT_NEAR(Bt2100YuvToLuminance(Bt2100YuvRed(), hlgInvOetf, identityConversion, bt2100Luminance,
+                                   kHlgMaxNits),
               bt2100Luminance(RgbRed()) * kHlgMaxNits, LuminanceEpsilon());
   EXPECT_NEAR(Bt2100YuvToLuminance(Bt2100YuvGreen(), hlgInvOetf, identityConversion,
                                    bt2100Luminance, kHlgMaxNits),
               bt2100Luminance(RgbGreen()) * kHlgMaxNits, LuminanceEpsilon());
-  EXPECT_NEAR(Bt2100YuvToLuminance(Bt2100YuvBlue(), hlgInvOetf, identityConversion,
-                                   bt2100Luminance, kHlgMaxNits),
+  EXPECT_NEAR(Bt2100YuvToLuminance(Bt2100YuvBlue(), hlgInvOetf, identityConversion, bt2100Luminance,
+                                   kHlgMaxNits),
               bt2100Luminance(RgbBlue()) * kHlgMaxNits, LuminanceEpsilon());
 }
 
 TEST_F(GainMapMathTest, GenerateMapLuminancePq) {
-  EXPECT_FLOAT_EQ(Bt2100YuvToLuminance(YuvBlack(), pqInvOetf, identityConversion,
-                                       bt2100Luminance, kPqMaxNits),
-                  0.0f);
-  EXPECT_FLOAT_EQ(Bt2100YuvToLuminance(YuvWhite(), pqInvOetf, identityConversion,
-                                       bt2100Luminance, kPqMaxNits),
-                  kPqMaxNits);
-  EXPECT_NEAR(Bt2100YuvToLuminance(Bt2100YuvRed(), pqInvOetf, identityConversion,
-                                       bt2100Luminance, kPqMaxNits),
+  EXPECT_FLOAT_EQ(
+      Bt2100YuvToLuminance(YuvBlack(), pqInvOetf, identityConversion, bt2100Luminance, kPqMaxNits),
+      0.0f);
+  EXPECT_FLOAT_EQ(
+      Bt2100YuvToLuminance(YuvWhite(), pqInvOetf, identityConversion, bt2100Luminance, kPqMaxNits),
+      kPqMaxNits);
+  EXPECT_NEAR(Bt2100YuvToLuminance(Bt2100YuvRed(), pqInvOetf, identityConversion, bt2100Luminance,
+                                   kPqMaxNits),
               bt2100Luminance(RgbRed()) * kPqMaxNits, LuminanceEpsilon());
-  EXPECT_NEAR(Bt2100YuvToLuminance(Bt2100YuvGreen(), pqInvOetf, identityConversion,
-                                       bt2100Luminance, kPqMaxNits),
+  EXPECT_NEAR(Bt2100YuvToLuminance(Bt2100YuvGreen(), pqInvOetf, identityConversion, bt2100Luminance,
+                                   kPqMaxNits),
               bt2100Luminance(RgbGreen()) * kPqMaxNits, LuminanceEpsilon());
-  EXPECT_NEAR(Bt2100YuvToLuminance(Bt2100YuvBlue(), pqInvOetf, identityConversion,
-                                       bt2100Luminance, kPqMaxNits),
+  EXPECT_NEAR(Bt2100YuvToLuminance(Bt2100YuvBlue(), pqInvOetf, identityConversion, bt2100Luminance,
+                                   kPqMaxNits),
               bt2100Luminance(RgbBlue()) * kPqMaxNits, LuminanceEpsilon());
 }
 
 TEST_F(GainMapMathTest, ApplyMap) {
-  ultrahdr_metadata_struct metadata = { .maxContentBoost = 8.0f,
-                                     .minContentBoost = 1.0f / 8.0f };
+  ultrahdr_metadata_struct metadata = {.maxContentBoost = 8.0f, .minContentBoost = 1.0f / 8.0f};
 
-  EXPECT_RGB_EQ(Recover(YuvWhite(), 1.0f, &metadata),
-                RgbWhite() * 8.0f);
-  EXPECT_RGB_EQ(Recover(YuvBlack(), 1.0f, &metadata),
-                RgbBlack());
-  EXPECT_RGB_CLOSE(Recover(SrgbYuvRed(), 1.0f, &metadata),
-                  RgbRed() * 8.0f);
-  EXPECT_RGB_CLOSE(Recover(SrgbYuvGreen(), 1.0f, &metadata),
-                  RgbGreen() * 8.0f);
-  EXPECT_RGB_CLOSE(Recover(SrgbYuvBlue(), 1.0f, &metadata),
-                  RgbBlue() * 8.0f);
+  EXPECT_RGB_EQ(Recover(YuvWhite(), 1.0f, &metadata), RgbWhite() * 8.0f);
+  EXPECT_RGB_EQ(Recover(YuvBlack(), 1.0f, &metadata), RgbBlack());
+  EXPECT_RGB_CLOSE(Recover(SrgbYuvRed(), 1.0f, &metadata), RgbRed() * 8.0f);
+  EXPECT_RGB_CLOSE(Recover(SrgbYuvGreen(), 1.0f, &metadata), RgbGreen() * 8.0f);
+  EXPECT_RGB_CLOSE(Recover(SrgbYuvBlue(), 1.0f, &metadata), RgbBlue() * 8.0f);
 
-  EXPECT_RGB_EQ(Recover(YuvWhite(), 0.75f, &metadata),
-                RgbWhite() * sqrt(8.0f));
-  EXPECT_RGB_EQ(Recover(YuvBlack(), 0.75f, &metadata),
-                RgbBlack());
-  EXPECT_RGB_CLOSE(Recover(SrgbYuvRed(), 0.75f, &metadata),
-                  RgbRed() * sqrt(8.0f));
-  EXPECT_RGB_CLOSE(Recover(SrgbYuvGreen(), 0.75f, &metadata),
-                  RgbGreen() * sqrt(8.0f));
-  EXPECT_RGB_CLOSE(Recover(SrgbYuvBlue(), 0.75f, &metadata),
-                  RgbBlue() * sqrt(8.0f));
+  EXPECT_RGB_EQ(Recover(YuvWhite(), 0.75f, &metadata), RgbWhite() * sqrt(8.0f));
+  EXPECT_RGB_EQ(Recover(YuvBlack(), 0.75f, &metadata), RgbBlack());
+  EXPECT_RGB_CLOSE(Recover(SrgbYuvRed(), 0.75f, &metadata), RgbRed() * sqrt(8.0f));
+  EXPECT_RGB_CLOSE(Recover(SrgbYuvGreen(), 0.75f, &metadata), RgbGreen() * sqrt(8.0f));
+  EXPECT_RGB_CLOSE(Recover(SrgbYuvBlue(), 0.75f, &metadata), RgbBlue() * sqrt(8.0f));
 
-  EXPECT_RGB_EQ(Recover(YuvWhite(), 0.5f, &metadata),
-                RgbWhite());
-  EXPECT_RGB_EQ(Recover(YuvBlack(), 0.5f, &metadata),
-                RgbBlack());
-  EXPECT_RGB_CLOSE(Recover(SrgbYuvRed(), 0.5f, &metadata),
-                  RgbRed());
-  EXPECT_RGB_CLOSE(Recover(SrgbYuvGreen(), 0.5f, &metadata),
-                  RgbGreen());
-  EXPECT_RGB_CLOSE(Recover(SrgbYuvBlue(), 0.5f, &metadata),
-                  RgbBlue());
+  EXPECT_RGB_EQ(Recover(YuvWhite(), 0.5f, &metadata), RgbWhite());
+  EXPECT_RGB_EQ(Recover(YuvBlack(), 0.5f, &metadata), RgbBlack());
+  EXPECT_RGB_CLOSE(Recover(SrgbYuvRed(), 0.5f, &metadata), RgbRed());
+  EXPECT_RGB_CLOSE(Recover(SrgbYuvGreen(), 0.5f, &metadata), RgbGreen());
+  EXPECT_RGB_CLOSE(Recover(SrgbYuvBlue(), 0.5f, &metadata), RgbBlue());
 
-  EXPECT_RGB_EQ(Recover(YuvWhite(), 0.25f, &metadata),
-                RgbWhite() / sqrt(8.0f));
-  EXPECT_RGB_EQ(Recover(YuvBlack(), 0.25f, &metadata),
-                RgbBlack());
-  EXPECT_RGB_CLOSE(Recover(SrgbYuvRed(), 0.25f, &metadata),
-                  RgbRed() / sqrt(8.0f));
-  EXPECT_RGB_CLOSE(Recover(SrgbYuvGreen(), 0.25f, &metadata),
-                  RgbGreen() / sqrt(8.0f));
-  EXPECT_RGB_CLOSE(Recover(SrgbYuvBlue(), 0.25f, &metadata),
-                  RgbBlue() / sqrt(8.0f));
+  EXPECT_RGB_EQ(Recover(YuvWhite(), 0.25f, &metadata), RgbWhite() / sqrt(8.0f));
+  EXPECT_RGB_EQ(Recover(YuvBlack(), 0.25f, &metadata), RgbBlack());
+  EXPECT_RGB_CLOSE(Recover(SrgbYuvRed(), 0.25f, &metadata), RgbRed() / sqrt(8.0f));
+  EXPECT_RGB_CLOSE(Recover(SrgbYuvGreen(), 0.25f, &metadata), RgbGreen() / sqrt(8.0f));
+  EXPECT_RGB_CLOSE(Recover(SrgbYuvBlue(), 0.25f, &metadata), RgbBlue() / sqrt(8.0f));
 
-  EXPECT_RGB_EQ(Recover(YuvWhite(), 0.0f, &metadata),
-                RgbWhite() / 8.0f);
-  EXPECT_RGB_EQ(Recover(YuvBlack(), 0.0f, &metadata),
-                RgbBlack());
-  EXPECT_RGB_CLOSE(Recover(SrgbYuvRed(), 0.0f, &metadata),
-                  RgbRed() / 8.0f);
-  EXPECT_RGB_CLOSE(Recover(SrgbYuvGreen(), 0.0f, &metadata),
-                  RgbGreen() / 8.0f);
-  EXPECT_RGB_CLOSE(Recover(SrgbYuvBlue(), 0.0f, &metadata),
-                  RgbBlue() / 8.0f);
+  EXPECT_RGB_EQ(Recover(YuvWhite(), 0.0f, &metadata), RgbWhite() / 8.0f);
+  EXPECT_RGB_EQ(Recover(YuvBlack(), 0.0f, &metadata), RgbBlack());
+  EXPECT_RGB_CLOSE(Recover(SrgbYuvRed(), 0.0f, &metadata), RgbRed() / 8.0f);
+  EXPECT_RGB_CLOSE(Recover(SrgbYuvGreen(), 0.0f, &metadata), RgbGreen() / 8.0f);
+  EXPECT_RGB_CLOSE(Recover(SrgbYuvBlue(), 0.0f, &metadata), RgbBlue() / 8.0f);
 
   metadata.maxContentBoost = 8.0f;
   metadata.minContentBoost = 1.0f;
 
-  EXPECT_RGB_EQ(Recover(YuvWhite(), 1.0f, &metadata),
-                RgbWhite() * 8.0f);
-  EXPECT_RGB_EQ(Recover(YuvWhite(), 2.0f / 3.0f, &metadata),
-                RgbWhite() * 4.0f);
-  EXPECT_RGB_EQ(Recover(YuvWhite(), 1.0f / 3.0f, &metadata),
-                RgbWhite() * 2.0f);
-  EXPECT_RGB_EQ(Recover(YuvWhite(), 0.0f, &metadata),
-                RgbWhite());
+  EXPECT_RGB_EQ(Recover(YuvWhite(), 1.0f, &metadata), RgbWhite() * 8.0f);
+  EXPECT_RGB_EQ(Recover(YuvWhite(), 2.0f / 3.0f, &metadata), RgbWhite() * 4.0f);
+  EXPECT_RGB_EQ(Recover(YuvWhite(), 1.0f / 3.0f, &metadata), RgbWhite() * 2.0f);
+  EXPECT_RGB_EQ(Recover(YuvWhite(), 0.0f, &metadata), RgbWhite());
 
   metadata.maxContentBoost = 8.0f;
-  metadata.minContentBoost = 0.5f;;
+  metadata.minContentBoost = 0.5f;
+  ;
 
-  EXPECT_RGB_EQ(Recover(YuvWhite(), 1.0f, &metadata),
-                RgbWhite() * 8.0f);
-  EXPECT_RGB_EQ(Recover(YuvWhite(), 0.75, &metadata),
-                RgbWhite() * 4.0f);
-  EXPECT_RGB_EQ(Recover(YuvWhite(), 0.5f, &metadata),
-                RgbWhite() * 2.0f);
-  EXPECT_RGB_EQ(Recover(YuvWhite(), 0.25f, &metadata),
-                RgbWhite());
-  EXPECT_RGB_EQ(Recover(YuvWhite(), 0.0f, &metadata),
-                RgbWhite() / 2.0f);
+  EXPECT_RGB_EQ(Recover(YuvWhite(), 1.0f, &metadata), RgbWhite() * 8.0f);
+  EXPECT_RGB_EQ(Recover(YuvWhite(), 0.75, &metadata), RgbWhite() * 4.0f);
+  EXPECT_RGB_EQ(Recover(YuvWhite(), 0.5f, &metadata), RgbWhite() * 2.0f);
+  EXPECT_RGB_EQ(Recover(YuvWhite(), 0.25f, &metadata), RgbWhite());
+  EXPECT_RGB_EQ(Recover(YuvWhite(), 0.0f, &metadata), RgbWhite() / 2.0f);
 }
 
-} // namespace ultrahdr
+}  // namespace ultrahdr

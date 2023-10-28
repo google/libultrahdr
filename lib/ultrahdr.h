@@ -43,10 +43,10 @@ typedef enum {
 // Target output formats for decoder
 typedef enum {
   ULTRAHDR_OUTPUT_UNSPECIFIED = -1,
-  ULTRAHDR_OUTPUT_SDR,          // SDR in RGBA_8888 color format
-  ULTRAHDR_OUTPUT_HDR_LINEAR,   // HDR in F16 color format (linear)
-  ULTRAHDR_OUTPUT_HDR_PQ,       // HDR in RGBA_1010102 color format (PQ transfer function)
-  ULTRAHDR_OUTPUT_HDR_HLG,      // HDR in RGBA_1010102 color format (HLG transfer function)
+  ULTRAHDR_OUTPUT_SDR,         // SDR in RGBA_8888 color format
+  ULTRAHDR_OUTPUT_HDR_LINEAR,  // HDR in F16 color format (linear)
+  ULTRAHDR_OUTPUT_HDR_PQ,      // HDR in RGBA_1010102 color format (PQ transfer function)
+  ULTRAHDR_OUTPUT_HDR_HLG,     // HDR in RGBA_1010102 color format (HLG transfer function)
   ULTRAHDR_OUTPUT_MAX = ULTRAHDR_OUTPUT_HDR_HLG,
 } ultrahdr_output_format;
 
@@ -79,4 +79,4 @@ typedef struct ultrahdr_metadata_struct* ultrahdr_metadata_ptr;
 
 }  // namespace ultrahdr
 
-#endif //ULTRAHDR_ULTRAHDR_H
+#endif  // ULTRAHDR_ULTRAHDR_H
