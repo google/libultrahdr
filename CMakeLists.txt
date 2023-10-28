@@ -195,7 +195,7 @@ if(${ENABLE_TESTS})
   target_link_libraries(ultrahdr_unit_test ${GTEST_BOTH_LIBRARIES})
 
   execute_process(COMMAND cmake -E create_symlink
-    "${SRC_DIR}/third_party/data/"
+    "${SRC_DIR}/tests/data/"
     "${CMAKE_CURRENT_BINARY_DIR}/data"
   )
 
