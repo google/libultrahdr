@@ -27,46 +27,46 @@ const int kOfMin = ULTRAHDR_OUTPUT_UNSPECIFIED + 1;
 const int kOfMax = ULTRAHDR_OUTPUT_MAX;
 
 class UltraHdrDecFuzzer {
-public:
-    UltraHdrDecFuzzer(const uint8_t* data, size_t size) : mFdp(data, size){};
-    void process();
+ public:
+  UltraHdrDecFuzzer(const uint8_t* data, size_t size) : mFdp(data, size){};
+  void process();
 
-private:
-    FuzzedDataProvider mFdp;
+ private:
+  FuzzedDataProvider mFdp;
 };
 
 void UltraHdrDecFuzzer::process() {
-    // hdr_of
-    auto of = static_cast<ultrahdr_output_format>(mFdp.ConsumeIntegralInRange<int>(kOfMin, kOfMax));
-    auto buffer = mFdp.ConsumeRemainingBytes<uint8_t>();
-    jpegr_compressed_struct jpegImgR{buffer.data(), (int)buffer.size(), (int)buffer.size(),
-                                     ULTRAHDR_COLORGAMUT_UNSPECIFIED};
+  // hdr_of
+  auto of = static_cast<ultrahdr_output_format>(mFdp.ConsumeIntegralInRange<int>(kOfMin, kOfMax));
+  auto buffer = mFdp.ConsumeRemainingBytes<uint8_t>();
+  jpegr_compressed_struct jpegImgR{buffer.data(), (int)buffer.size(), (int)buffer.size(),
+                                   ULTRAHDR_COLORGAMUT_UNSPECIFIED};
 
-    std::vector<uint8_t> iccData(0);
-    std::vector<uint8_t> exifData(0);
-    jpegr_info_struct info{0, 0, &iccData, &exifData};
-    JpegR jpegHdr;
-    (void)jpegHdr.getJPEGRInfo(&jpegImgR, &info);
+  std::vector<uint8_t> iccData(0);
+  std::vector<uint8_t> exifData(0);
+  jpegr_info_struct info{0, 0, &iccData, &exifData};
+  JpegR jpegHdr;
+  (void)jpegHdr.getJPEGRInfo(&jpegImgR, &info);
 //#define DUMP_PARAM
 #ifdef DUMP_PARAM
-    std::cout << "input buffer size " << jpegImgR.length << std::endl;
-    std::cout << "image dimensions " << info.width << " x " << info.width << std::endl;
+  std::cout << "input buffer size " << jpegImgR.length << std::endl;
+  std::cout << "image dimensions " << info.width << " x " << info.width << std::endl;
 #endif
-    if (info.width > kMaxWidth || info.height > kMaxHeight) return;
-    size_t outSize = info.width * info.height * ((of == ULTRAHDR_OUTPUT_HDR_LINEAR) ? 8 : 4);
-    jpegr_uncompressed_struct decodedJpegR;
-    auto decodedRaw = std::make_unique<uint8_t[]>(outSize);
-    decodedJpegR.data = decodedRaw.get();
-    ultrahdr_metadata_struct metadata;
-    jpegr_uncompressed_struct decodedGainMap{};
-    (void)jpegHdr.decodeJPEGR(&jpegImgR, &decodedJpegR,
-                              mFdp.ConsumeFloatingPointInRange<float>(1.0, FLT_MAX), nullptr, of,
-                              &decodedGainMap, &metadata);
-    if (decodedGainMap.data) free(decodedGainMap.data);
+  if (info.width > kMaxWidth || info.height > kMaxHeight) return;
+  size_t outSize = info.width * info.height * ((of == ULTRAHDR_OUTPUT_HDR_LINEAR) ? 8 : 4);
+  jpegr_uncompressed_struct decodedJpegR;
+  auto decodedRaw = std::make_unique<uint8_t[]>(outSize);
+  decodedJpegR.data = decodedRaw.get();
+  ultrahdr_metadata_struct metadata;
+  jpegr_uncompressed_struct decodedGainMap{};
+  (void)jpegHdr.decodeJPEGR(&jpegImgR, &decodedJpegR,
+                            mFdp.ConsumeFloatingPointInRange<float>(1.0, FLT_MAX), nullptr, of,
+                            &decodedGainMap, &metadata);
+  if (decodedGainMap.data) free(decodedGainMap.data);
 }
 
 extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
-    UltraHdrDecFuzzer fuzzHandle(data, size);
-    fuzzHandle.process();
-    return 0;
+  UltraHdrDecFuzzer fuzzHandle(data, size);
+  fuzzHandle.process();
+  return 0;
 }

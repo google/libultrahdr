@@ -19,48 +19,48 @@
 namespace ultrahdr {
 
 static const std::vector<float> kPqOETF = [] {
-    std::vector<float> result;
-    for (size_t idx = 0; idx < kPqOETFNumEntries; idx++) {
-      float value = static_cast<float>(idx) / static_cast<float>(kPqOETFNumEntries - 1);
-      result.push_back(pqOetf(value));
-    }
-    return result;
+  std::vector<float> result;
+  for (size_t idx = 0; idx < kPqOETFNumEntries; idx++) {
+    float value = static_cast<float>(idx) / static_cast<float>(kPqOETFNumEntries - 1);
+    result.push_back(pqOetf(value));
+  }
+  return result;
 }();
 
 static const std::vector<float> kPqInvOETF = [] {
-    std::vector<float> result;
-    for (size_t idx = 0; idx < kPqInvOETFNumEntries; idx++) {
-      float value = static_cast<float>(idx) / static_cast<float>(kPqInvOETFNumEntries - 1);
-      result.push_back(pqInvOetf(value));
-    }
-    return result;
+  std::vector<float> result;
+  for (size_t idx = 0; idx < kPqInvOETFNumEntries; idx++) {
+    float value = static_cast<float>(idx) / static_cast<float>(kPqInvOETFNumEntries - 1);
+    result.push_back(pqInvOetf(value));
+  }
+  return result;
 }();
 
 static const std::vector<float> kHlgOETF = [] {
-    std::vector<float> result;
-    for (size_t idx = 0; idx < kHlgOETFNumEntries; idx++) {
-      float value = static_cast<float>(idx) / static_cast<float>(kHlgOETFNumEntries - 1);
-      result.push_back(hlgOetf(value));
-    }
-    return result;
+  std::vector<float> result;
+  for (size_t idx = 0; idx < kHlgOETFNumEntries; idx++) {
+    float value = static_cast<float>(idx) / static_cast<float>(kHlgOETFNumEntries - 1);
+    result.push_back(hlgOetf(value));
+  }
+  return result;
 }();
 
 static const std::vector<float> kHlgInvOETF = [] {
-    std::vector<float> result;
-    for (size_t idx = 0; idx < kHlgInvOETFNumEntries; idx++) {
-      float value = static_cast<float>(idx) / static_cast<float>(kHlgInvOETFNumEntries - 1);
-      result.push_back(hlgInvOetf(value));
-    }
-    return result;
+  std::vector<float> result;
+  for (size_t idx = 0; idx < kHlgInvOETFNumEntries; idx++) {
+    float value = static_cast<float>(idx) / static_cast<float>(kHlgInvOETFNumEntries - 1);
+    result.push_back(hlgInvOetf(value));
+  }
+  return result;
 }();
 
 static const std::vector<float> kSrgbInvOETF = [] {
-    std::vector<float> result;
-    for (size_t idx = 0; idx < kSrgbInvOETFNumEntries; idx++) {
-      float value = static_cast<float>(idx) / static_cast<float>(kSrgbInvOETFNumEntries - 1);
-      result.push_back(srgbInvOetf(value));
-    }
-    return result;
+  std::vector<float> result;
+  for (size_t idx = 0; idx < kSrgbInvOETFNumEntries; idx++) {
+    float value = static_cast<float>(idx) / static_cast<float>(kSrgbInvOETFNumEntries - 1);
+    result.push_back(srgbInvOetf(value));
+  }
+  return result;
 }();
 
 // Use Shepard's method for inverse distance weighting. For more information:
@@ -70,7 +70,7 @@ float ShepardsIDW::euclideanDistance(float x1, float x2, float y1, float y2) {
   return sqrt(((y2 - y1) * (y2 - y1)) + (x2 - x1) * (x2 - x1));
 }
 
-void ShepardsIDW::fillShepardsIDW(float *weights, int incR, int incB) {
+void ShepardsIDW::fillShepardsIDW(float* weights, int incR, int incB) {
   for (int y = 0; y < mMapScaleFactor; y++) {
     for (int x = 0; x < mMapScaleFactor; x++) {
       float pos_x = ((float)x) / mMapScaleFactor;
@@ -114,15 +114,13 @@ void ShepardsIDW::fillShepardsIDW(float *weights, int incR, int incB) {
 
 static const float kMaxPixelFloat = 1.0f;
 static float clampPixelFloat(float value) {
-    return (value < 0.0f) ? 0.0f : (value > kMaxPixelFloat) ? kMaxPixelFloat : value;
+  return (value < 0.0f) ? 0.0f : (value > kMaxPixelFloat) ? kMaxPixelFloat : value;
 }
 
 // See IEC 61966-2-1/Amd 1:2003, Equation F.7.
 static const float kSrgbR = 0.2126f, kSrgbG = 0.7152f, kSrgbB = 0.0722f;
 
-float srgbLuminance(Color e) {
-  return kSrgbR * e.r + kSrgbG * e.g + kSrgbB * e.b;
-}
+float srgbLuminance(Color e) { return kSrgbR * e.r + kSrgbG * e.g + kSrgbB * e.b; }
 
 // See ITU-R BT.709-6, Section 3.
 // Uses the same coefficients for deriving luma signal as
@@ -132,9 +130,7 @@ static const float kSrgbCb = 1.8556f, kSrgbCr = 1.5748f;
 
 Color srgbRgbToYuv(Color e_gamma) {
   float y_gamma = srgbLuminance(e_gamma);
-  return {{{ y_gamma,
-             (e_gamma.b - y_gamma) / kSrgbCb,
-             (e_gamma.r - y_gamma) / kSrgbCr }}};
+  return {{{y_gamma, (e_gamma.b - y_gamma) / kSrgbCb, (e_gamma.r - y_gamma) / kSrgbCr}}};
 }
 
 // See ITU-R BT.709-6, Section 3.
@@ -144,9 +140,9 @@ static const float kSrgbGCb = kSrgbB * kSrgbCb / kSrgbG;
 static const float kSrgbGCr = kSrgbR * kSrgbCr / kSrgbG;
 
 Color srgbYuvToRgb(Color e_gamma) {
-  return {{{ clampPixelFloat(e_gamma.y + kSrgbCr * e_gamma.v),
-             clampPixelFloat(e_gamma.y - kSrgbGCb * e_gamma.u - kSrgbGCr * e_gamma.v),
-             clampPixelFloat(e_gamma.y + kSrgbCb * e_gamma.u) }}};
+  return {{{clampPixelFloat(e_gamma.y + kSrgbCr * e_gamma.v),
+            clampPixelFloat(e_gamma.y - kSrgbGCb * e_gamma.u - kSrgbGCr * e_gamma.v),
+            clampPixelFloat(e_gamma.y + kSrgbCb * e_gamma.u)}}};
 }
 
 // See IEC 61966-2-1/Amd 1:2003, Equations F.5 and F.6.
@@ -159,23 +155,19 @@ float srgbInvOetf(float e_gamma) {
 }
 
 Color srgbInvOetf(Color e_gamma) {
-  return {{{ srgbInvOetf(e_gamma.r),
-             srgbInvOetf(e_gamma.g),
-             srgbInvOetf(e_gamma.b) }}};
+  return {{{srgbInvOetf(e_gamma.r), srgbInvOetf(e_gamma.g), srgbInvOetf(e_gamma.b)}}};
 }
 
 // See IEC 61966-2-1, Equations F.5 and F.6.
 float srgbInvOetfLUT(float e_gamma) {
   uint32_t value = static_cast<uint32_t>(e_gamma * (kSrgbInvOETFNumEntries - 1) + 0.5);
-  //TODO() : Remove once conversion modules have appropriate clamping in place
+  // TODO() : Remove once conversion modules have appropriate clamping in place
   value = CLIP3(value, 0, kSrgbInvOETFNumEntries - 1);
   return kSrgbInvOETF[value];
 }
 
 Color srgbInvOetfLUT(Color e_gamma) {
-  return {{{ srgbInvOetfLUT(e_gamma.r),
-             srgbInvOetfLUT(e_gamma.g),
-             srgbInvOetfLUT(e_gamma.b) }}};
+  return {{{srgbInvOetfLUT(e_gamma.r), srgbInvOetfLUT(e_gamma.g), srgbInvOetfLUT(e_gamma.b)}}};
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -184,9 +176,7 @@ Color srgbInvOetfLUT(Color e_gamma) {
 // See SMPTE EG 432-1, Equation 7-8.
 static const float kP3R = 0.20949f, kP3G = 0.72160f, kP3B = 0.06891f;
 
-float p3Luminance(Color e) {
-  return kP3R * e.r + kP3G * e.g + kP3B * e.b;
-}
+float p3Luminance(Color e) { return kP3R * e.r + kP3G * e.g + kP3B * e.b; }
 
 // See ITU-R BT.601-7, Sections 2.5.1 and 2.5.2.
 // Unfortunately, calculation of luma signal differs from calculation of
@@ -196,9 +186,7 @@ static const float kP3Cb = 1.772f, kP3Cr = 1.402f;
 
 Color p3RgbToYuv(Color e_gamma) {
   float y_gamma = kP3YR * e_gamma.r + kP3YG * e_gamma.g + kP3YB * e_gamma.b;
-  return {{{ y_gamma,
-             (e_gamma.b - y_gamma) / kP3Cb,
-             (e_gamma.r - y_gamma) / kP3Cr }}};
+  return {{{y_gamma, (e_gamma.b - y_gamma) / kP3Cb, (e_gamma.r - y_gamma) / kP3Cr}}};
 }
 
 // See ITU-R BT.601-7, Sections 2.5.1 and 2.5.2.
@@ -208,11 +196,10 @@ static const float kP3GCb = kP3YB * kP3Cb / kP3YG;
 static const float kP3GCr = kP3YR * kP3Cr / kP3YG;
 
 Color p3YuvToRgb(Color e_gamma) {
-  return {{{ clampPixelFloat(e_gamma.y + kP3Cr * e_gamma.v),
-             clampPixelFloat(e_gamma.y - kP3GCb * e_gamma.u - kP3GCr * e_gamma.v),
-             clampPixelFloat(e_gamma.y + kP3Cb * e_gamma.u) }}};
+  return {{{clampPixelFloat(e_gamma.y + kP3Cr * e_gamma.v),
+            clampPixelFloat(e_gamma.y - kP3GCb * e_gamma.u - kP3GCr * e_gamma.v),
+            clampPixelFloat(e_gamma.y + kP3Cb * e_gamma.u)}}};
 }
-
 
 ////////////////////////////////////////////////////////////////////////////////
 // BT.2100 transformations - according to ITU-R BT.2100-2
@@ -220,9 +207,7 @@ Color p3YuvToRgb(Color e_gamma) {
 // See ITU-R BT.2100-2, Table 5, HLG Reference OOTF
 static const float kBt2100R = 0.2627f, kBt2100G = 0.6780f, kBt2100B = 0.0593f;
 
-float bt2100Luminance(Color e) {
-  return kBt2100R * e.r + kBt2100G * e.g + kBt2100B * e.b;
-}
+float bt2100Luminance(Color e) { return kBt2100R * e.r + kBt2100G * e.g + kBt2100B * e.b; }
 
 // See ITU-R BT.2100-2, Table 6, Derivation of colour difference signals.
 // BT.2100 uses the same coefficients for calculating luma signal and luminance,
@@ -231,9 +216,7 @@ static const float kBt2100Cb = 1.8814f, kBt2100Cr = 1.4746f;
 
 Color bt2100RgbToYuv(Color e_gamma) {
   float y_gamma = bt2100Luminance(e_gamma);
-  return {{{ y_gamma,
-             (e_gamma.b - y_gamma) / kBt2100Cb,
-             (e_gamma.r - y_gamma) / kBt2100Cr }}};
+  return {{{y_gamma, (e_gamma.b - y_gamma) / kBt2100Cb, (e_gamma.r - y_gamma) / kBt2100Cr}}};
 }
 
 // See ITU-R BT.2100-2, Table 6, Derivation of colour difference signals.
@@ -265,37 +248,33 @@ static const float kBt2100GCb = kBt2100B * kBt2100Cb / kBt2100G;
 static const float kBt2100GCr = kBt2100R * kBt2100Cr / kBt2100G;
 
 Color bt2100YuvToRgb(Color e_gamma) {
-  return {{{ clampPixelFloat(e_gamma.y + kBt2100Cr * e_gamma.v),
-             clampPixelFloat(e_gamma.y - kBt2100GCb * e_gamma.u - kBt2100GCr * e_gamma.v),
-             clampPixelFloat(e_gamma.y + kBt2100Cb * e_gamma.u) }}};
+  return {{{clampPixelFloat(e_gamma.y + kBt2100Cr * e_gamma.v),
+            clampPixelFloat(e_gamma.y - kBt2100GCb * e_gamma.u - kBt2100GCr * e_gamma.v),
+            clampPixelFloat(e_gamma.y + kBt2100Cb * e_gamma.u)}}};
 }
 
 // See ITU-R BT.2100-2, Table 5, HLG Reference OETF.
 static const float kHlgA = 0.17883277f, kHlgB = 0.28466892f, kHlgC = 0.55991073;
 
 float hlgOetf(float e) {
-  if (e <= 1.0f/12.0f) {
+  if (e <= 1.0f / 12.0f) {
     return sqrt(3.0f * e);
   } else {
     return kHlgA * log(12.0f * e - kHlgB) + kHlgC;
   }
 }
 
-Color hlgOetf(Color e) {
-  return {{{ hlgOetf(e.r), hlgOetf(e.g), hlgOetf(e.b) }}};
-}
+Color hlgOetf(Color e) { return {{{hlgOetf(e.r), hlgOetf(e.g), hlgOetf(e.b)}}}; }
 
 float hlgOetfLUT(float e) {
   uint32_t value = static_cast<uint32_t>(e * (kHlgOETFNumEntries - 1) + 0.5);
-  //TODO() : Remove once conversion modules have appropriate clamping in place
+  // TODO() : Remove once conversion modules have appropriate clamping in place
   value = CLIP3(value, 0, kHlgOETFNumEntries - 1);
 
   return kHlgOETF[value];
 }
 
-Color hlgOetfLUT(Color e) {
-  return {{{ hlgOetfLUT(e.r), hlgOetfLUT(e.g), hlgOetfLUT(e.b) }}};
-}
+Color hlgOetfLUT(Color e) { return {{{hlgOetfLUT(e.r), hlgOetfLUT(e.g), hlgOetfLUT(e.b)}}}; }
 
 // See ITU-R BT.2100-2, Table 5, HLG Reference EOTF.
 float hlgInvOetf(float e_gamma) {
@@ -307,23 +286,19 @@ float hlgInvOetf(float e_gamma) {
 }
 
 Color hlgInvOetf(Color e_gamma) {
-  return {{{ hlgInvOetf(e_gamma.r),
-             hlgInvOetf(e_gamma.g),
-             hlgInvOetf(e_gamma.b) }}};
+  return {{{hlgInvOetf(e_gamma.r), hlgInvOetf(e_gamma.g), hlgInvOetf(e_gamma.b)}}};
 }
 
 float hlgInvOetfLUT(float e_gamma) {
   uint32_t value = static_cast<uint32_t>(e_gamma * (kHlgInvOETFNumEntries - 1) + 0.5);
-  //TODO() : Remove once conversion modules have appropriate clamping in place
+  // TODO() : Remove once conversion modules have appropriate clamping in place
   value = CLIP3(value, 0, kHlgInvOETFNumEntries - 1);
 
   return kHlgInvOETF[value];
 }
 
 Color hlgInvOetfLUT(Color e_gamma) {
-  return {{{ hlgInvOetfLUT(e_gamma.r),
-             hlgInvOetfLUT(e_gamma.g),
-             hlgInvOetfLUT(e_gamma.b) }}};
+  return {{{hlgInvOetfLUT(e_gamma.r), hlgInvOetfLUT(e_gamma.g), hlgInvOetfLUT(e_gamma.b)}}};
 }
 
 // See ITU-R BT.2100-2, Table 4, Reference PQ OETF.
@@ -333,25 +308,20 @@ static const float kPqC1 = 3424.0f / 4096.0f, kPqC2 = 2413.0f / 4096.0f * 32.0f,
 
 float pqOetf(float e) {
   if (e <= 0.0f) return 0.0f;
-  return pow((kPqC1 + kPqC2 * pow(e, kPqM1)) / (1 + kPqC3 * pow(e, kPqM1)),
-             kPqM2);
+  return pow((kPqC1 + kPqC2 * pow(e, kPqM1)) / (1 + kPqC3 * pow(e, kPqM1)), kPqM2);
 }
 
-Color pqOetf(Color e) {
-  return {{{ pqOetf(e.r), pqOetf(e.g), pqOetf(e.b) }}};
-}
+Color pqOetf(Color e) { return {{{pqOetf(e.r), pqOetf(e.g), pqOetf(e.b)}}}; }
 
 float pqOetfLUT(float e) {
   uint32_t value = static_cast<uint32_t>(e * (kPqOETFNumEntries - 1) + 0.5);
-  //TODO() : Remove once conversion modules have appropriate clamping in place
+  // TODO() : Remove once conversion modules have appropriate clamping in place
   value = CLIP3(value, 0, kPqOETFNumEntries - 1);
 
   return kPqOETF[value];
 }
 
-Color pqOetfLUT(Color e) {
-  return {{{ pqOetfLUT(e.r), pqOetfLUT(e.g), pqOetfLUT(e.b) }}};
-}
+Color pqOetfLUT(Color e) { return {{{pqOetfLUT(e.r), pqOetfLUT(e.g), pqOetfLUT(e.b)}}}; }
 
 // Derived from the inverse of the Reference PQ OETF.
 static const float kPqInvA = 128.0f, kPqInvB = 107.0f, kPqInvC = 2413.0f, kPqInvD = 2392.0f,
@@ -362,70 +332,64 @@ float pqInvOetf(float e_gamma) {
   // always catch 0.0. So, check on 0.0001, since anything this small will
   // effectively be crushed to zero anyways.
   if (e_gamma <= 0.0001f) return 0.0f;
-  return pow((kPqInvA * pow(e_gamma, kPqInvF) - kPqInvB)
-           / (kPqInvC - kPqInvD * pow(e_gamma, kPqInvF)),
-             kPqInvE);
+  return pow(
+      (kPqInvA * pow(e_gamma, kPqInvF) - kPqInvB) / (kPqInvC - kPqInvD * pow(e_gamma, kPqInvF)),
+      kPqInvE);
 }
 
 Color pqInvOetf(Color e_gamma) {
-  return {{{ pqInvOetf(e_gamma.r),
-             pqInvOetf(e_gamma.g),
-             pqInvOetf(e_gamma.b) }}};
+  return {{{pqInvOetf(e_gamma.r), pqInvOetf(e_gamma.g), pqInvOetf(e_gamma.b)}}};
 }
 
 float pqInvOetfLUT(float e_gamma) {
   uint32_t value = static_cast<uint32_t>(e_gamma * (kPqInvOETFNumEntries - 1) + 0.5);
-  //TODO() : Remove once conversion modules have appropriate clamping in place
+  // TODO() : Remove once conversion modules have appropriate clamping in place
   value = CLIP3(value, 0, kPqInvOETFNumEntries - 1);
 
   return kPqInvOETF[value];
 }
 
 Color pqInvOetfLUT(Color e_gamma) {
-  return {{{ pqInvOetfLUT(e_gamma.r),
-             pqInvOetfLUT(e_gamma.g),
-             pqInvOetfLUT(e_gamma.b) }}};
+  return {{{pqInvOetfLUT(e_gamma.r), pqInvOetfLUT(e_gamma.g), pqInvOetfLUT(e_gamma.b)}}};
 }
-
 
 ////////////////////////////////////////////////////////////////////////////////
 // Color conversions
 
 Color bt709ToP3(Color e) {
- return {{{ 0.82254f * e.r + 0.17755f * e.g + 0.00006f * e.b,
+  return {{{0.82254f * e.r + 0.17755f * e.g + 0.00006f * e.b,
             0.03312f * e.r + 0.96684f * e.g + -0.00001f * e.b,
-            0.01706f * e.r + 0.07240f * e.g + 0.91049f * e.b }}};
+            0.01706f * e.r + 0.07240f * e.g + 0.91049f * e.b}}};
 }
 
 Color bt709ToBt2100(Color e) {
- return {{{ 0.62740f * e.r + 0.32930f * e.g + 0.04332f * e.b,
+  return {{{0.62740f * e.r + 0.32930f * e.g + 0.04332f * e.b,
             0.06904f * e.r + 0.91958f * e.g + 0.01138f * e.b,
-            0.01636f * e.r + 0.08799f * e.g + 0.89555f * e.b }}};
+            0.01636f * e.r + 0.08799f * e.g + 0.89555f * e.b}}};
 }
 
 Color p3ToBt709(Color e) {
- return {{{ 1.22482f * e.r + -0.22490f * e.g + -0.00007f * e.b,
+  return {{{1.22482f * e.r + -0.22490f * e.g + -0.00007f * e.b,
             -0.04196f * e.r + 1.04199f * e.g + 0.00001f * e.b,
-            -0.01961f * e.r + -0.07865f * e.g + 1.09831f * e.b }}};
+            -0.01961f * e.r + -0.07865f * e.g + 1.09831f * e.b}}};
 }
 
 Color p3ToBt2100(Color e) {
- return {{{ 0.75378f * e.r + 0.19862f * e.g + 0.04754f * e.b,
+  return {{{0.75378f * e.r + 0.19862f * e.g + 0.04754f * e.b,
             0.04576f * e.r + 0.94177f * e.g + 0.01250f * e.b,
-            -0.00121f * e.r + 0.01757f * e.g + 0.98359f * e.b }}};
+            -0.00121f * e.r + 0.01757f * e.g + 0.98359f * e.b}}};
 }
 
 Color bt2100ToBt709(Color e) {
- return {{{ 1.66045f * e.r + -0.58764f * e.g + -0.07286f * e.b,
+  return {{{1.66045f * e.r + -0.58764f * e.g + -0.07286f * e.b,
             -0.12445f * e.r + 1.13282f * e.g + -0.00837f * e.b,
-            -0.01811f * e.r + -0.10057f * e.g + 1.11878f * e.b }}};
+            -0.01811f * e.r + -0.10057f * e.g + 1.11878f * e.b}}};
 }
 
 Color bt2100ToP3(Color e) {
- return {{{ 1.34369f * e.r + -0.28223f * e.g + -0.06135f * e.b,
+  return {{{1.34369f * e.r + -0.28223f * e.g + -0.06135f * e.b,
             -0.06533f * e.r + 1.07580f * e.g + -0.01051f * e.b,
-            0.00283f * e.r + -0.01957f * e.g + 1.01679f * e.b
- }}};
+            0.00283f * e.r + -0.01957f * e.g + 1.01679f * e.b}}};
 }
 
 // TODO: confirm we always want to convert like this before calculating
@@ -481,46 +445,46 @@ ColorTransformFn getHdrConversionFn(ultrahdr_color_gamut sdr_gamut,
 // DataSpace.
 
 Color yuv709To601(Color e_gamma) {
-  return {{{ 1.0f * e_gamma.y +  0.101579f * e_gamma.u +  0.196076f * e_gamma.v,
-             0.0f * e_gamma.y +  0.989854f * e_gamma.u + -0.110653f * e_gamma.v,
-             0.0f * e_gamma.y + -0.072453f * e_gamma.u +  0.983398f * e_gamma.v }}};
+  return {{{1.0f * e_gamma.y + 0.101579f * e_gamma.u + 0.196076f * e_gamma.v,
+            0.0f * e_gamma.y + 0.989854f * e_gamma.u + -0.110653f * e_gamma.v,
+            0.0f * e_gamma.y + -0.072453f * e_gamma.u + 0.983398f * e_gamma.v}}};
 }
 
 Color yuv709To2100(Color e_gamma) {
-  return {{{ 1.0f * e_gamma.y + -0.016969f * e_gamma.u +  0.096312f * e_gamma.v,
-             0.0f * e_gamma.y +  0.995306f * e_gamma.u + -0.051192f * e_gamma.v,
-             0.0f * e_gamma.y +  0.011507f * e_gamma.u +  1.002637f * e_gamma.v }}};
+  return {{{1.0f * e_gamma.y + -0.016969f * e_gamma.u + 0.096312f * e_gamma.v,
+            0.0f * e_gamma.y + 0.995306f * e_gamma.u + -0.051192f * e_gamma.v,
+            0.0f * e_gamma.y + 0.011507f * e_gamma.u + 1.002637f * e_gamma.v}}};
 }
 
 Color yuv601To709(Color e_gamma) {
-  return {{{ 1.0f * e_gamma.y + -0.118188f * e_gamma.u + -0.212685f * e_gamma.v,
-             0.0f * e_gamma.y +  1.018640f * e_gamma.u +  0.114618f * e_gamma.v,
-             0.0f * e_gamma.y +  0.075049f * e_gamma.u +  1.025327f * e_gamma.v }}};
+  return {{{1.0f * e_gamma.y + -0.118188f * e_gamma.u + -0.212685f * e_gamma.v,
+            0.0f * e_gamma.y + 1.018640f * e_gamma.u + 0.114618f * e_gamma.v,
+            0.0f * e_gamma.y + 0.075049f * e_gamma.u + 1.025327f * e_gamma.v}}};
 }
 
 Color yuv601To2100(Color e_gamma) {
-  return {{{ 1.0f * e_gamma.y + -0.128245f * e_gamma.u + -0.115879f * e_gamma.v,
-             0.0f * e_gamma.y +  1.010016f * e_gamma.u +  0.061592f * e_gamma.v,
-             0.0f * e_gamma.y +  0.086969f * e_gamma.u +  1.029350f * e_gamma.v }}};
+  return {{{1.0f * e_gamma.y + -0.128245f * e_gamma.u + -0.115879f * e_gamma.v,
+            0.0f * e_gamma.y + 1.010016f * e_gamma.u + 0.061592f * e_gamma.v,
+            0.0f * e_gamma.y + 0.086969f * e_gamma.u + 1.029350f * e_gamma.v}}};
 }
 
 Color yuv2100To709(Color e_gamma) {
-  return {{{ 1.0f * e_gamma.y +  0.018149f * e_gamma.u + -0.095132f * e_gamma.v,
-             0.0f * e_gamma.y +  1.004123f * e_gamma.u +  0.051267f * e_gamma.v,
-             0.0f * e_gamma.y + -0.011524f * e_gamma.u +  0.996782f * e_gamma.v }}};
+  return {{{1.0f * e_gamma.y + 0.018149f * e_gamma.u + -0.095132f * e_gamma.v,
+            0.0f * e_gamma.y + 1.004123f * e_gamma.u + 0.051267f * e_gamma.v,
+            0.0f * e_gamma.y + -0.011524f * e_gamma.u + 0.996782f * e_gamma.v}}};
 }
 
 Color yuv2100To601(Color e_gamma) {
-  return {{{ 1.0f * e_gamma.y +  0.117887f * e_gamma.u +  0.105521f * e_gamma.v,
-             0.0f * e_gamma.y +  0.995211f * e_gamma.u + -0.059549f * e_gamma.v,
-             0.0f * e_gamma.y + -0.084085f * e_gamma.u +  0.976518f * e_gamma.v }}};
+  return {{{1.0f * e_gamma.y + 0.117887f * e_gamma.u + 0.105521f * e_gamma.v,
+            0.0f * e_gamma.y + 0.995211f * e_gamma.u + -0.059549f * e_gamma.v,
+            0.0f * e_gamma.y + -0.084085f * e_gamma.u + 0.976518f * e_gamma.v}}};
 }
 
 void transformYuv420(jr_uncompressed_ptr image, size_t x_chroma, size_t y_chroma,
                      ColorTransformFn fn) {
-  Color yuv1 = getYuv420Pixel(image, x_chroma * 2,     y_chroma * 2    );
-  Color yuv2 = getYuv420Pixel(image, x_chroma * 2 + 1, y_chroma * 2    );
-  Color yuv3 = getYuv420Pixel(image, x_chroma * 2,     y_chroma * 2 + 1);
+  Color yuv1 = getYuv420Pixel(image, x_chroma * 2, y_chroma * 2);
+  Color yuv2 = getYuv420Pixel(image, x_chroma * 2 + 1, y_chroma * 2);
+  Color yuv3 = getYuv420Pixel(image, x_chroma * 2, y_chroma * 2 + 1);
   Color yuv4 = getYuv420Pixel(image, x_chroma * 2 + 1, y_chroma * 2 + 1);
 
   yuv1 = fn(yuv1);
@@ -530,9 +494,9 @@ void transformYuv420(jr_uncompressed_ptr image, size_t x_chroma, size_t y_chroma
 
   Color new_uv = (yuv1 + yuv2 + yuv3 + yuv4) / 4.0f;
 
-  size_t pixel_y1_idx =  x_chroma * 2      +  y_chroma * 2      * image->luma_stride;
-  size_t pixel_y2_idx = (x_chroma * 2 + 1) +  y_chroma * 2      * image->luma_stride;
-  size_t pixel_y3_idx =  x_chroma * 2      + (y_chroma * 2 + 1) * image->luma_stride;
+  size_t pixel_y1_idx = x_chroma * 2 + y_chroma * 2 * image->luma_stride;
+  size_t pixel_y2_idx = (x_chroma * 2 + 1) + y_chroma * 2 * image->luma_stride;
+  size_t pixel_y3_idx = x_chroma * 2 + (y_chroma * 2 + 1) * image->luma_stride;
   size_t pixel_y4_idx = (x_chroma * 2 + 1) + (y_chroma * 2 + 1) * image->luma_stride;
 
   uint8_t& y1_uint = reinterpret_cast<uint8_t*>(image->data)[pixel_y1_idx];
@@ -558,8 +522,8 @@ void transformYuv420(jr_uncompressed_ptr image, size_t x_chroma, size_t y_chroma
 ////////////////////////////////////////////////////////////////////////////////
 // Gain map calculations
 uint8_t encodeGain(float y_sdr, float y_hdr, ultrahdr_metadata_ptr metadata) {
-  return encodeGain(y_sdr, y_hdr, metadata,
-                    log2(metadata->minContentBoost), log2(metadata->maxContentBoost));
+  return encodeGain(y_sdr, y_hdr, metadata, log2(metadata->minContentBoost),
+                    log2(metadata->maxContentBoost));
 }
 
 uint8_t encodeGain(float y_sdr, float y_hdr, ultrahdr_metadata_ptr metadata,
@@ -572,21 +536,20 @@ uint8_t encodeGain(float y_sdr, float y_hdr, ultrahdr_metadata_ptr metadata,
   if (gain < metadata->minContentBoost) gain = metadata->minContentBoost;
   if (gain > metadata->maxContentBoost) gain = metadata->maxContentBoost;
 
-  return static_cast<uint8_t>((log2(gain) - log2MinContentBoost)
-                            / (log2MaxContentBoost - log2MinContentBoost)
-                            * 255.0f);
+  return static_cast<uint8_t>((log2(gain) - log2MinContentBoost) /
+                              (log2MaxContentBoost - log2MinContentBoost) * 255.0f);
 }
 
 Color applyGain(Color e, float gain, ultrahdr_metadata_ptr metadata) {
-  float logBoost = log2(metadata->minContentBoost) * (1.0f - gain)
-                 + log2(metadata->maxContentBoost) * gain;
+  float logBoost =
+      log2(metadata->minContentBoost) * (1.0f - gain) + log2(metadata->maxContentBoost) * gain;
   float gainFactor = exp2(logBoost);
   return e * gainFactor;
 }
 
 Color applyGain(Color e, float gain, ultrahdr_metadata_ptr metadata, float displayBoost) {
-  float logBoost = log2(metadata->minContentBoost) * (1.0f - gain)
-                 + log2(metadata->maxContentBoost) * gain;
+  float logBoost =
+      log2(metadata->minContentBoost) * (1.0f - gain) + log2(metadata->maxContentBoost) * gain;
   float gainFactor = exp2(logBoost * displayBoost / metadata->maxContentBoost);
   return e * gainFactor;
 }
@@ -612,9 +575,8 @@ Color getYuv420Pixel(jr_uncompressed_ptr image, size_t x, size_t y) {
 
   // 128 bias for UV given we are using jpeglib; see:
   // https://github.com/kornelski/libjpeg/blob/master/structure.doc
-  return {{{ static_cast<float>(y_uint) / 255.0f,
-             (static_cast<float>(u_uint) - 128.0f) / 255.0f,
-             (static_cast<float>(v_uint) - 128.0f) / 255.0f }}};
+  return {{{static_cast<float>(y_uint) / 255.0f, (static_cast<float>(u_uint) - 128.0f) / 255.0f,
+            (static_cast<float>(v_uint) - 128.0f) / 255.0f}}};
 }
 
 Color getP010Pixel(jr_uncompressed_ptr image, size_t x, size_t y) {
@@ -632,16 +594,16 @@ Color getP010Pixel(jr_uncompressed_ptr image, size_t x, size_t y) {
   uint16_t v_uint = chroma_data[pixel_v_idx] >> 6;
 
   // Conversions include taking narrow-range into account.
-  return {{{ (static_cast<float>(y_uint) - 64.0f) / 876.0f,
-             (static_cast<float>(u_uint) - 64.0f) / 896.0f - 0.5f,
-             (static_cast<float>(v_uint) - 64.0f) / 896.0f - 0.5f }}};
+  return {{{(static_cast<float>(y_uint) - 64.0f) / 876.0f,
+            (static_cast<float>(u_uint) - 64.0f) / 896.0f - 0.5f,
+            (static_cast<float>(v_uint) - 64.0f) / 896.0f - 0.5f}}};
 }
 
 typedef Color (*getPixelFn)(jr_uncompressed_ptr, size_t, size_t);
 
 static Color samplePixels(jr_uncompressed_ptr image, size_t map_scale_factor, size_t x, size_t y,
                           getPixelFn get_pixel_fn) {
-  Color e = {{{ 0.0f, 0.0f, 0.0f }}};
+  Color e = {{{0.0f, 0.0f, 0.0f}}};
   for (size_t dy = 0; dy < map_scale_factor; ++dy) {
     for (size_t dx = 0; dx < map_scale_factor; ++dx) {
       e += get_pixel_fn(image, x * map_scale_factor + dx, y * map_scale_factor + dy);
@@ -666,9 +628,7 @@ static size_t clamp(const size_t& val, const size_t& low, const size_t& high) {
   return val < low ? low : (high < val ? high : val);
 }
 
-static float mapUintToFloat(uint8_t map_uint) {
-  return static_cast<float>(map_uint) / 255.0f;
-}
+static float mapUintToFloat(uint8_t map_uint) { return static_cast<float>(map_uint) / 255.0f; }
 
 static float pythDistance(float x_diff, float y_diff) {
   return sqrt(pow(x_diff, 2.0f) + pow(y_diff, 2.0f));
@@ -693,23 +653,23 @@ float sampleMap(jr_uncompressed_ptr map, float map_scale_factor, size_t x, size_
   // en.wikipedia.org/wiki/Inverse_distance_weighting#Shepard's_method
 
   float e1 = mapUintToFloat(reinterpret_cast<uint8_t*>(map->data)[x_lower + y_lower * map->width]);
-  float e1_dist = pythDistance(x_map - static_cast<float>(x_lower),
-                               y_map - static_cast<float>(y_lower));
+  float e1_dist =
+      pythDistance(x_map - static_cast<float>(x_lower), y_map - static_cast<float>(y_lower));
   if (e1_dist == 0.0f) return e1;
 
   float e2 = mapUintToFloat(reinterpret_cast<uint8_t*>(map->data)[x_lower + y_upper * map->width]);
-  float e2_dist = pythDistance(x_map - static_cast<float>(x_lower),
-                               y_map - static_cast<float>(y_upper));
+  float e2_dist =
+      pythDistance(x_map - static_cast<float>(x_lower), y_map - static_cast<float>(y_upper));
   if (e2_dist == 0.0f) return e2;
 
   float e3 = mapUintToFloat(reinterpret_cast<uint8_t*>(map->data)[x_upper + y_lower * map->width]);
-  float e3_dist = pythDistance(x_map - static_cast<float>(x_upper),
-                               y_map - static_cast<float>(y_lower));
+  float e3_dist =
+      pythDistance(x_map - static_cast<float>(x_upper), y_map - static_cast<float>(y_lower));
   if (e3_dist == 0.0f) return e3;
 
   float e4 = mapUintToFloat(reinterpret_cast<uint8_t*>(map->data)[x_upper + y_upper * map->width]);
-  float e4_dist = pythDistance(x_map - static_cast<float>(x_upper),
-                               y_map - static_cast<float>(y_upper));
+  float e4_dist =
+      pythDistance(x_map - static_cast<float>(x_upper), y_map - static_cast<float>(y_upper));
   if (e4_dist == 0.0f) return e2;
 
   float e1_weight = 1.0f / e1_dist;
@@ -718,10 +678,8 @@ float sampleMap(jr_uncompressed_ptr map, float map_scale_factor, size_t x, size_
   float e4_weight = 1.0f / e4_dist;
   float total_weight = e1_weight + e2_weight + e3_weight + e4_weight;
 
-  return e1 * (e1_weight / total_weight)
-       + e2 * (e2_weight / total_weight)
-       + e3 * (e3_weight / total_weight)
-       + e4 * (e4_weight / total_weight);
+  return e1 * (e1_weight / total_weight) + e2 * (e2_weight / total_weight) +
+         e3 * (e3_weight / total_weight) + e4 * (e4_weight / total_weight);
 }
 
 float sampleMap(jr_uncompressed_ptr map, size_t map_scale_factor, size_t x, size_t y,
@@ -749,26 +707,27 @@ float sampleMap(jr_uncompressed_ptr map, size_t map_scale_factor, size_t x, size
   int offset_y = y % map_scale_factor;
 
   float* weights = weightTables.mWeights;
-  if (x_lower == x_upper && y_lower == y_upper) weights = weightTables.mWeightsC;
-  else if (x_lower == x_upper) weights = weightTables.mWeightsNR;
-  else if (y_lower == y_upper) weights = weightTables.mWeightsNB;
+  if (x_lower == x_upper && y_lower == y_upper)
+    weights = weightTables.mWeightsC;
+  else if (x_lower == x_upper)
+    weights = weightTables.mWeightsNR;
+  else if (y_lower == y_upper)
+    weights = weightTables.mWeightsNB;
   weights += offset_y * map_scale_factor * 4 + offset_x * 4;
 
   return e1 * weights[0] + e2 * weights[1] + e3 * weights[2] + e4 * weights[3];
 }
 
 uint32_t colorToRgba1010102(Color e_gamma) {
-  return (0x3ff & static_cast<uint32_t>(e_gamma.r * 1023.0f))
-       | ((0x3ff & static_cast<uint32_t>(e_gamma.g * 1023.0f)) << 10)
-       | ((0x3ff & static_cast<uint32_t>(e_gamma.b * 1023.0f)) << 20)
-       | (0x3 << 30);  // Set alpha to 1.0
+  return (0x3ff & static_cast<uint32_t>(e_gamma.r * 1023.0f)) |
+         ((0x3ff & static_cast<uint32_t>(e_gamma.g * 1023.0f)) << 10) |
+         ((0x3ff & static_cast<uint32_t>(e_gamma.b * 1023.0f)) << 20) |
+         (0x3 << 30);  // Set alpha to 1.0
 }
 
 uint64_t colorToRgbaF16(Color e_gamma) {
-  return (uint64_t) floatToHalf(e_gamma.r)
-       | (((uint64_t) floatToHalf(e_gamma.g)) << 16)
-       | (((uint64_t) floatToHalf(e_gamma.b)) << 32)
-       | (((uint64_t) floatToHalf(1.0f)) << 48);
+  return (uint64_t)floatToHalf(e_gamma.r) | (((uint64_t)floatToHalf(e_gamma.g)) << 16) |
+         (((uint64_t)floatToHalf(e_gamma.b)) << 32) | (((uint64_t)floatToHalf(1.0f)) << 48);
 }
 
-} // namespace ultrahdr
+}  // namespace ultrahdr
