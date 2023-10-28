@@ -16,8 +16,8 @@
 
 #include <cstring>
 
-#include "ultrahdr/ultrahdrcommon.h"
-#include "ultrahdr/icc.h"
+#include "ultrahdrcommon.h"
+#include "icc.h"
 
 namespace ultrahdr {
 

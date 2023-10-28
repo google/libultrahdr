@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-#include "ultrahdr/gainmapmath.h"
+#include "gainmapmath.h"
 
 namespace ultrahdr {
 

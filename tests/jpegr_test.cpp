@@ -20,9 +20,9 @@
 #include <fstream>
 #include <iostream>
 
-#include "ultrahdr/ultrahdrcommon.h"
-#include "ultrahdr/jpegr.h"
-#include "ultrahdr/jpegrutils.h"
+#include "ultrahdrcommon.h"
+#include "jpegr.h"
+#include "jpegrutils.h"
 
 //#define DUMP_OUTPUT
 

@@ -57,13 +57,13 @@ set(CMAKE_THREAD_PREFER_PTHREAD ON)
 set(THREADS_PREFER_PTHREAD_FLAG ON)
 find_package(Threads REQUIRED)
 
-set(SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
+set(PROJ_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
 
-include("${SRC_DIR}/utils.cmake")
+include("${PROJ_DIR}/utils.cmake")
 
 libultrahdr_add_compile_options()
 
-ADD_SUBDIRECTORY("${SRC_DIR}/third_party/cmake/image_io")
+ADD_SUBDIRECTORY("${PROJ_DIR}/third_party/cmake/image_io")
 
 get_directory_property(ULTRA_HDR_FLAGS COMPILE_OPTIONS)
 string (REPLACE ";" " " ULTRA_HDR_FLAGS_STR "${ULTRA_HDR_FLAGS}")
@@ -77,7 +77,7 @@ function(fetch_libjpegturbo)
       GIT_REPOSITORY https://github.com/libjpeg-turbo/libjpeg-turbo.git
       GIT_TAG 3.0.1
       PREFIX ${CMAKE_CURRENT_BINARY_DIR}/libjpeg-turbo
-      SOURCE_DIR ${SRC_DIR}/third_party/libjpeg-turbo
+      SOURCE_DIR ${PROJ_DIR}/third_party/libjpeg-turbo
       BUILD_COMMAND ${CMAKE_COMMAND} --build <BINARY_DIR> --target jpeg-static
       CMAKE_ARGS -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
                  -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
@@ -85,7 +85,7 @@ function(fetch_libjpegturbo)
       INSTALL_COMMAND ""
   )
   set(JPEG_INCLUDE_DIRS
-      ${SRC_DIR}/third_party/libjpeg-turbo/
+      ${PROJ_DIR}/third_party/libjpeg-turbo/
       ${CMAKE_CURRENT_BINARY_DIR}/libjpeg-turbo/src/libjpeg-turbo-build PARENT_SCOPE)
   set(JPEG_LIBRARIES
       ${CMAKE_CURRENT_BINARY_DIR}/libjpeg-turbo/src/libjpeg-turbo-build/libjpeg.a PARENT_SCOPE)
@@ -96,7 +96,7 @@ function(fetch_googletest)
       GIT_REPOSITORY https://github.com/google/googletest
       GIT_TAG v1.13.0
       PREFIX ${CMAKE_CURRENT_BINARY_DIR}/googletest
-      SOURCE_DIR ${SRC_DIR}/third_party/googletest
+      SOURCE_DIR ${PROJ_DIR}/third_party/googletest
       CMAKE_ARGS -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
                  -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
                  -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
@@ -105,8 +105,8 @@ function(fetch_googletest)
       INSTALL_COMMAND ""
   )
   set(GTEST_INCLUDE_DIRS
-      ${SRC_DIR}/third_party/googletest/googletest/include
-      ${SRC_DIR}/third_party/googletest/googlemock/include PARENT_SCOPE)
+      ${PROJ_DIR}/third_party/googletest/googletest/include
+      ${PROJ_DIR}/third_party/googletest/googlemock/include PARENT_SCOPE)
   set(GTEST_BOTH_LIBRARIES
       ${CMAKE_CURRENT_BINARY_DIR}/googletest/src/googletest-build/lib/libgtest.a
       ${CMAKE_CURRENT_BINARY_DIR}/googletest/src/googletest-build/lib/libgtest_main.a PARENT_SCOPE)
@@ -123,20 +123,20 @@ if(${ENABLE_TESTS})
 endif()
 
 add_library(ultrahdr STATIC
-  "${SRC_DIR}/gainmapmath.cpp"
-  "${SRC_DIR}/icc.cpp"
-  "${SRC_DIR}/jpegr.cpp"
-  "${SRC_DIR}/jpegrutils.cpp"
-  "${SRC_DIR}/jpegencoderhelper.cpp"
-  "${SRC_DIR}/jpegdecoderhelper.cpp"
-  "${SRC_DIR}/multipictureformat.cpp"
+  "${PROJ_DIR}/lib/gainmapmath.cpp"
+  "${PROJ_DIR}/lib/icc.cpp"
+  "${PROJ_DIR}/lib/jpegr.cpp"
+  "${PROJ_DIR}/lib/jpegrutils.cpp"
+  "${PROJ_DIR}/lib/jpegencoderhelper.cpp"
+  "${PROJ_DIR}/lib/jpegdecoderhelper.cpp"
+  "${PROJ_DIR}/lib/multipictureformat.cpp"
 )
 add_dependencies(ultrahdr libjpeg-turbo)
 
 target_include_directories(ultrahdr PRIVATE
   ${JPEG_INCLUDE_DIRS}
-  "${SRC_DIR}/include"
-  "${SRC_DIR}/third_party/image_io/includes/"
+  "${PROJ_DIR}/lib"
+  "${PROJ_DIR}/third_party/image_io/includes/"
 )
 
 target_link_libraries(ultrahdr PRIVATE
@@ -148,29 +148,29 @@ target_link_libraries(ultrahdr PRIVATE
 libultrahdr_add_executable(ultrahdr_app
   ultrahdr
   SOURCES
-    "${SRC_DIR}/tests/ultrahdr_app.cpp"
+    "${PROJ_DIR}/examples/ultrahdr_app.cpp"
   INCLUDES
     ${JPEG_INCLUDE_DIRS}
-    "${SRC_DIR}/include"
+    "${PROJ_DIR}/lib"
 )
 add_dependencies(ultrahdr_app libjpeg-turbo)
 
 if (${ENABLE_FUZZERS})
   libultrahdr_add_fuzzer(ultrahdr_enc_fuzzer ultrahdr
     SOURCES
-      ${SRC_DIR}/fuzzer/ultrahdr_enc_fuzzer.cpp
+      ${PROJ_DIR}/fuzzer/ultrahdr_enc_fuzzer.cpp
     INCLUDES
       ${JPEG_INCLUDE_DIRS}
-      "${SRC_DIR}/include"
+      "${PROJ_DIR}/lib"
   )
   add_dependencies(ultrahdr_enc_fuzzer libjpeg-turbo)
 
   libultrahdr_add_fuzzer(ultrahdr_dec_fuzzer ultrahdr
     SOURCES
-      ${SRC_DIR}/fuzzer/ultrahdr_dec_fuzzer.cpp
+      ${PROJ_DIR}/fuzzer/ultrahdr_dec_fuzzer.cpp
     INCLUDES
       ${JPEG_INCLUDE_DIRS}
-      "${SRC_DIR}/include"
+      "${PROJ_DIR}/lib"
   )
   add_dependencies(ultrahdr_dec_fuzzer libjpeg-turbo)
 endif()
@@ -179,23 +179,23 @@ if(${ENABLE_TESTS})
   libultrahdr_add_executable(ultrahdr_unit_test
     ultrahdr
     SOURCES
-      "${SRC_DIR}/tests/jpegr_test.cpp"
-      "${SRC_DIR}/tests/gainmapmath_test.cpp"
-      "${SRC_DIR}/tests/icchelper_test.cpp"
-      "${SRC_DIR}/tests/jpegencoderhelper_test.cpp"
-      "${SRC_DIR}/tests/jpegdecoderhelper_test.cpp"
-      "${SRC_DIR}/tests/icchelper_test.cpp"
+      "${PROJ_DIR}/tests/jpegr_test.cpp"
+      "${PROJ_DIR}/tests/gainmapmath_test.cpp"
+      "${PROJ_DIR}/tests/icchelper_test.cpp"
+      "${PROJ_DIR}/tests/jpegencoderhelper_test.cpp"
+      "${PROJ_DIR}/tests/jpegdecoderhelper_test.cpp"
+      "${PROJ_DIR}/tests/icchelper_test.cpp"
     INCLUDES
       ${JPEG_INCLUDE_DIRS}
       ${GTEST_INCLUDE_DIRS}
-      "${SRC_DIR}/include"
+      "${PROJ_DIR}/lib"
   )
   add_dependencies(ultrahdr_unit_test googletest libjpeg-turbo)
 
   target_link_libraries(ultrahdr_unit_test ${GTEST_BOTH_LIBRARIES})
 
   execute_process(COMMAND cmake -E create_symlink
-    "${SRC_DIR}/tests/data/"
+    "${PROJ_DIR}/tests/data/"
     "${CMAKE_CURRENT_BINARY_DIR}/data"
   )
 

@@ -67,5 +67,5 @@ Using libultrahdr
 libultrahdr includes two classes of APIs, one to compress and the other to
 decompress HDR images:
 
-- Refer to [jpegr.h](include/ultrahdr/jpegr.h) for detailed description of various encode and decode api.
-- Refer to [ultrahdr_app.cpp](tests/ultrahdr_app.cpp) for examples of its usage.
+- Refer to [jpegr.h](lib/jpegr.h) for detailed description of various encode and decode api.
+- Refer to [ultrahdr_app.cpp](examples/ultrahdr_app.cpp) for examples of its usage.

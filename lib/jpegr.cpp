@@ -22,10 +22,10 @@
 #include <mutex>
 #include <thread>
 
-#include "ultrahdr/ultrahdrcommon.h"
-#include "ultrahdr/jpegr.h"
-#include "ultrahdr/icc.h"
-#include "ultrahdr/multipictureformat.h"
+#include "ultrahdrcommon.h"
+#include "jpegr.h"
+#include "icc.h"
+#include "multipictureformat.h"
 
 #include "image_io/base/data_segment_data_source.h"
 #include "image_io/jpeg/jpeg_info.h"

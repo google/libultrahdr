@@ -19,9 +19,9 @@
 
 #include <cstring>
 
-#include "ultrahdr/ultrahdrcommon.h"
-#include "ultrahdr/ultrahdr.h"
-#include "ultrahdr/jpegdecoderhelper.h"
+#include "ultrahdrcommon.h"
+#include "ultrahdr.h"
+#include "jpegdecoderhelper.h"
 
 using namespace std;
 

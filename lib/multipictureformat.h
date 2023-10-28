@@ -31,10 +31,10 @@
     #define Endian_SwapBE16(n) (n)
 #endif
 
-#include "ultrahdr/ultrahdr.h"
-#include "ultrahdr/jpegr.h"
-#include "ultrahdr/gainmapmath.h"
-#include "ultrahdr/jpegrutils.h"
+#include "ultrahdr.h"
+#include "jpegr.h"
+#include "gainmapmath.h"
+#include "jpegrutils.h"
 
 namespace ultrahdr {
 
