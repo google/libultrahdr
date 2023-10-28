@@ -19,9 +19,9 @@
 
 #include <cfloat>
 
-#include "ultrahdr/ultrahdr.h"
-#include "ultrahdr/jpegdecoderhelper.h"
-#include "ultrahdr/jpegencoderhelper.h"
+#include "ultrahdr.h"
+#include "jpegdecoderhelper.h"
+#include "jpegencoderhelper.h"
 
 namespace ultrahdr {
 

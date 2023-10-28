@@ -17,8 +17,8 @@
 #ifndef ULTRAHDR_JPEGRUTILS_H
 #define ULTRAHDR_JPEGRUTILS_H
 
-#include "ultrahdr/ultrahdr.h"
-#include "ultrahdr/jpegr.h"
+#include "ultrahdr.h"
+#include "jpegr.h"
 
 namespace ultrahdr {
 

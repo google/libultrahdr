@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-#include "ultrahdr/multipictureformat.h"
+#include "multipictureformat.h"
 
 namespace ultrahdr {
 size_t calculateMpfSize() {

@@ -22,9 +22,9 @@
 #include <fstream>
 #include <iostream>
 
-#include "ultrahdr/ultrahdrcommon.h"
-#include "ultrahdr/gainmapmath.h"
-#include "ultrahdr/jpegr.h"
+#include "ultrahdrcommon.h"
+#include "gainmapmath.h"
+#include "jpegr.h"
 
 using namespace ultrahdr;
 

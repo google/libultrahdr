@@ -17,7 +17,7 @@
 #include <gtest/gtest.h>
 #include <gmock/gmock.h>
 
-#include "ultrahdr/gainmapmath.h"
+#include "gainmapmath.h"
 
 namespace ultrahdr {
 
