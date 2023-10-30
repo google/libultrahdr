@@ -842,8 +842,10 @@ TEST_F(GainMapMathTest, srgbInvOetfLUT) {
 
 TEST_F(GainMapMathTest, applyGainLUT) {
   for (int boost = 1; boost <= 10; boost++) {
-    ultrahdr_metadata_struct metadata = {.maxContentBoost = static_cast<float>(boost),
-                                         .minContentBoost = 1.0f / static_cast<float>(boost)};
+    ultrahdr_metadata_struct metadata;
+
+    metadata.minContentBoost = 1.0f / static_cast<float>(boost);
+    metadata.maxContentBoost = static_cast<float>(boost);
     GainLUT gainLUT(&metadata);
     GainLUT gainLUTWithBoost(&metadata, metadata.maxContentBoost);
     for (size_t idx = 0; idx < kGainFactorNumEntries; idx++) {
@@ -872,8 +874,10 @@ TEST_F(GainMapMathTest, applyGainLUT) {
   }
 
   for (int boost = 1; boost <= 10; boost++) {
-    ultrahdr_metadata_struct metadata = {.maxContentBoost = static_cast<float>(boost),
-                                         .minContentBoost = 1.0f};
+    ultrahdr_metadata_struct metadata;
+
+    metadata.minContentBoost = 1.0f;
+    metadata.maxContentBoost = static_cast<float>(boost);
     GainLUT gainLUT(&metadata);
     GainLUT gainLUTWithBoost(&metadata, metadata.maxContentBoost);
     for (size_t idx = 0; idx < kGainFactorNumEntries; idx++) {
@@ -902,9 +906,10 @@ TEST_F(GainMapMathTest, applyGainLUT) {
   }
 
   for (int boost = 1; boost <= 10; boost++) {
-    ultrahdr_metadata_struct metadata = {
-        .maxContentBoost = static_cast<float>(boost),
-        .minContentBoost = 1.0f / powf(static_cast<float>(boost), 1.0f / 3.0f)};
+    ultrahdr_metadata_struct metadata;
+
+    metadata.minContentBoost = 1.0f / powf(static_cast<float>(boost), 1.0f / 3.0f);
+    metadata.maxContentBoost = static_cast<float>(boost);
     GainLUT gainLUT(&metadata);
     GainLUT gainLUTWithBoost(&metadata, metadata.maxContentBoost);
     for (size_t idx = 0; idx < kGainFactorNumEntries; idx++) {
@@ -973,7 +978,10 @@ TEST_F(GainMapMathTest, ColorConversionLookup) {
 }
 
 TEST_F(GainMapMathTest, EncodeGain) {
-  ultrahdr_metadata_struct metadata = {.maxContentBoost = 4.0f, .minContentBoost = 1.0f / 4.0f};
+  ultrahdr_metadata_struct metadata;
+
+  metadata.minContentBoost = 1.0f / 4.0f;
+  metadata.maxContentBoost = 4.0f;
 
   EXPECT_EQ(encodeGain(0.0f, 0.0f, &metadata), 127);
   EXPECT_EQ(encodeGain(0.0f, 1.0f, &metadata), 127);
@@ -1030,7 +1038,10 @@ TEST_F(GainMapMathTest, EncodeGain) {
 }
 
 TEST_F(GainMapMathTest, ApplyGain) {
-  ultrahdr_metadata_struct metadata = {.maxContentBoost = 4.0f, .minContentBoost = 1.0f / 4.0f};
+  ultrahdr_metadata_struct metadata;
+
+  metadata.minContentBoost = 1.0f / 4.0f;
+  metadata.maxContentBoost = 4.0f;
   float displayBoost = metadata.maxContentBoost;
 
   EXPECT_RGB_NEAR(applyGain(RgbBlack(), 0.0f, &metadata), RgbBlack());
@@ -1320,7 +1331,10 @@ TEST_F(GainMapMathTest, GenerateMapLuminancePq) {
 }
 
 TEST_F(GainMapMathTest, ApplyMap) {
-  ultrahdr_metadata_struct metadata = {.maxContentBoost = 8.0f, .minContentBoost = 1.0f / 8.0f};
+  ultrahdr_metadata_struct metadata;
+
+  metadata.minContentBoost = 1.0f / 8.0f;
+  metadata.maxContentBoost = 8.0f;
 
   EXPECT_RGB_EQ(Recover(YuvWhite(), 1.0f, &metadata), RgbWhite() * 8.0f);
   EXPECT_RGB_EQ(Recover(YuvBlack(), 1.0f, &metadata), RgbBlack());
