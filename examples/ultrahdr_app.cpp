@@ -14,8 +14,13 @@
  * limitations under the License.
  */
 
+#ifdef _WIN32
+#include <Windows.h>
+#else
 #include <sys/time.h>
-#include <unistd.h>
+#endif
+
+#include <string.h>
 
 #include <algorithm>
 #include <cmath>
@@ -57,7 +62,60 @@ const float BT2020RGBtoYUVMatrix[9] = {0.2627,
                                        (-0.6780 / 1.4746),
                                        (-0.0593 / 1.4746)};
 
-//#define PROFILE_ENABLE 1
+int optind_s = 1;
+int optopt_s = 0;
+char* optarg_s = nullptr;
+
+int getopt_s(int argc, char* const argv[], char* ostr) {
+  if (optind_s >= argc) return -1;
+
+  const char* arg = argv[optind_s];
+  if (arg[0] != '-' || !arg[1]) {
+    std::cerr << "invalid option " << arg << std::endl;
+    return '?';
+  }
+  optopt_s = arg[1];
+  char* oindex = strchr(ostr, optopt_s);
+  if (!oindex) {
+    std::cerr << "unsupported option " << arg << std::endl;
+    return '?';
+  }
+  if (oindex[1] != ':') {
+    optarg_s = nullptr;
+    return optopt_s;
+  }
+
+  if (argc > ++optind_s) {
+    optarg_s = (char*)argv[optind_s++];
+  } else {
+    std::cerr << "option " << arg << " requires an argument" << std::endl;
+    optarg_s = nullptr;
+    return '?';
+  }
+  return optopt_s;
+}
+
+// #define PROFILE_ENABLE 1
+#ifdef _WIN32
+class Profiler {
+ public:
+  void timerStart() { QueryPerformanceCounter(&mStartingTime); }
+
+  void timerStop() { QueryPerformanceCounter(&mEndingTime); }
+
+  int64_t elapsedTime() {
+    LARGE_INTEGER frequency;
+    LARGE_INTEGER elapsedMicroseconds;
+    QueryPerformanceFrequency(&frequency);
+    elapsedMicroseconds.QuadPart = mEndingTime.QuadPart - mStartingTime.QuadPart;
+    return (double)elapsedMicroseconds.QuadPart / (double)frequency.QuadPart * 1000000;
+  }
+
+ private:
+  LARGE_INTEGER mStartingTime;
+  LARGE_INTEGER mEndingTime;
+};
+#else
 class Profiler {
  public:
   void timerStart() { gettimeofday(&mStartingTime, nullptr); }
@@ -75,6 +133,7 @@ class Profiler {
   struct timeval mStartingTime;
   struct timeval mEndingTime;
 };
+#endif
 
 static bool loadFile(const char* filename, void*& result, int length) {
   std::ifstream ifd(filename, std::ios::binary | std::ios::ate);
@@ -247,8 +306,8 @@ bool UltraHdrAppInput::encode() {
   if (mYuv420File != nullptr && !fillYuv420ImageHandle()) return false;
   if (mYuv420JpegFile != nullptr && !fillYuv420JpegImageHandle()) return false;
 
-  mJpegImgR.maxLength = std::max(static_cast<size_t>(8 * 1024) /* min size 8kb */,
-                                 mRawP010Image.width * mRawP010Image.height * 3 * 2);
+  mJpegImgR.maxLength = (std::max)(static_cast<size_t>(8 * 1024) /* min size 8kb */,
+                                   mRawP010Image.width * mRawP010Image.height * 3 * 2);
   mJpegImgR.data = malloc(mJpegImgR.maxLength);
   if (mJpegImgR.data == nullptr) {
     std::cerr << "unable to allocate memory to store compressed image" << std::endl;
@@ -835,6 +894,7 @@ static void usage(const char* name) {
 }
 
 int main(int argc, char* argv[]) {
+  char opt_string[] = "p:y:i:w:h:C:c:t:q:o:m:j:e:";
   char *p010_file = nullptr, *yuv420_file = nullptr, *jpegr_file = nullptr,
        *yuv420_jpeg_file = nullptr;
   int width = 0, height = 0;
@@ -846,46 +906,46 @@ int main(int argc, char* argv[]) {
   int mode = 0;
   int compute_psnr = 0;
   int ch;
-  while ((ch = getopt(argc, argv, "p:y:i:w:h:C:c:t:q:o:m:j:e:")) != -1) {
+  while ((ch = getopt_s(argc, argv, opt_string)) != -1) {
     switch (ch) {
       case 'p':
-        p010_file = optarg;
+        p010_file = optarg_s;
         break;
       case 'y':
-        yuv420_file = optarg;
+        yuv420_file = optarg_s;
         break;
       case 'i':
-        yuv420_jpeg_file = optarg;
+        yuv420_jpeg_file = optarg_s;
         break;
       case 'w':
-        width = atoi(optarg);
+        width = atoi(optarg_s);
         break;
       case 'h':
-        height = atoi(optarg);
+        height = atoi(optarg_s);
         break;
       case 'C':
-        p010Cg = static_cast<ultrahdr_color_gamut>(atoi(optarg));
+        p010Cg = static_cast<ultrahdr_color_gamut>(atoi(optarg_s));
         break;
       case 'c':
-        yuv420Cg = static_cast<ultrahdr_color_gamut>(atoi(optarg));
+        yuv420Cg = static_cast<ultrahdr_color_gamut>(atoi(optarg_s));
         break;
       case 't':
-        tf = static_cast<ultrahdr_transfer_function>(atoi(optarg));
+        tf = static_cast<ultrahdr_transfer_function>(atoi(optarg_s));
         break;
       case 'q':
-        quality = atoi(optarg);
+        quality = atoi(optarg_s);
         break;
       case 'o':
-        of = static_cast<ultrahdr_output_format>(atoi(optarg));
+        of = static_cast<ultrahdr_output_format>(atoi(optarg_s));
         break;
       case 'm':
-        mode = atoi(optarg);
+        mode = atoi(optarg_s);
         break;
       case 'j':
-        jpegr_file = optarg;
+        jpegr_file = optarg_s;
         break;
       case 'e':
-        compute_psnr = atoi(optarg);
+        compute_psnr = atoi(optarg_s);
         break;
       default:
         usage(argv[0]);

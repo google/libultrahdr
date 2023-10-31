@@ -14,8 +14,10 @@
  * limitations under the License.
  */
 
-#include <fcntl.h>
 #include <gtest/gtest.h>
+
+#include <fstream>
+#include <iostream>
 
 #include "ultrahdrcommon.h"
 #include "jpegdecoderhelper.h"
@@ -60,32 +62,17 @@ JpegDecoderHelperTest::JpegDecoderHelperTest() {}
 
 JpegDecoderHelperTest::~JpegDecoderHelperTest() {}
 
-static size_t getFileSize(int fd) {
-  struct stat st;
-  if (fstat(fd, &st) < 0) {
-    ALOGW("%s : fstat failed", __func__);
-    return 0;
-  }
-  return st.st_size;  // bytes
-}
-
 static bool loadFile(const char filename[], JpegDecoderHelperTest::Image* result) {
-  int fd = open(filename, O_CLOEXEC);
-  if (fd < 0) {
-    return false;
+  std::ifstream ifd(filename, std::ios::binary | std::ios::ate);
+  if (ifd.good()) {
+    int size = ifd.tellg();
+    ifd.seekg(0, std::ios::beg);
+    result->buffer.reset(new uint8_t[size]);
+    ifd.read(reinterpret_cast<char*>(result->buffer.get()), size);
+    ifd.close();
+    return true;
   }
-  int length = getFileSize(fd);
-  if (length == 0) {
-    close(fd);
-    return false;
-  }
-  result->buffer.reset(new uint8_t[length]);
-  if (read(fd, result->buffer.get(), length) != static_cast<ssize_t>(length)) {
-    close(fd);
-    return false;
-  }
-  close(fd);
-  return true;
+  return false;
 }
 
 void JpegDecoderHelperTest::SetUp() {

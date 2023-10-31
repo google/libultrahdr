@@ -59,8 +59,8 @@ class DataRange {
   /// @return The DataRange that represents the intersection, or one that is
   ///     is invalid if the ranges do not overlap at all.
   DataRange GetIntersection(const DataRange& data_range) const {
-    return DataRange(std::max(data_range.begin_, begin_),
-                     std::min(data_range.end_, end_));
+    return DataRange((std::max)(data_range.begin_, begin_),
+                     (std::min)(data_range.end_, end_));
   }
 
   /// @param rhs A DataRange to compare with this one.

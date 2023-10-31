@@ -3,9 +3,9 @@ Building fuzzers for libultrahdr
 
 ### Requirements
 
-- [CMake](http://www.cmake.org) v3.13 or later
+- Refer [Requirements](../README.md#Requirements)
 
-- Compilers with support for options *-fsanitize=fuzzer, -fsanitize=fuzzer-no-link*.
+- Additionally compilers are required to support options *-fsanitize=fuzzer, -fsanitize=fuzzer-no-link*.
   For instance, clang 12 (or later)
 
 ### Building Commands

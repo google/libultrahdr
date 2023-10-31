@@ -14,7 +14,11 @@
  * limitations under the License.
  */
 
+#ifdef _WIN32
+#include <windows.h>
+#else
 #include <sys/time.h>
+#endif
 #include <gtest/gtest.h>
 
 #include <fstream>
@@ -259,7 +263,7 @@ bool UhdrCompressedStructWrapper::allocateMemory() {
     std::cerr << "Object in bad state, mem alloc failed" << std::endl;
     return false;
   }
-  int maxLength = std::max(8 * 1024 /* min size 8kb */, (int)(mWidth * mHeight * 3 * 2));
+  int maxLength = (std::max)(8 * 1024 /* min size 8kb */, (int)(mWidth * mHeight * 3 * 2));
   mData = std::make_unique<uint8_t[]>(maxLength);
   mImg.data = mData.get();
   mImg.length = 0;
@@ -1916,7 +1920,26 @@ INSTANTIATE_TEST_SUITE_P(
 // ============================================================================
 // Profiling
 // ============================================================================
+#ifdef _WIN32
+class Profiler {
+ public:
+  void timerStart() { QueryPerformanceCounter(&mStartingTime); }
 
+  void timerStop() { QueryPerformanceCounter(&mEndingTime); }
+
+  int64_t elapsedTime() {
+    LARGE_INTEGER frequency;
+    LARGE_INTEGER elapsedMicroseconds;
+    QueryPerformanceFrequency(&frequency);
+    elapsedMicroseconds.QuadPart = mEndingTime.QuadPart - mStartingTime.QuadPart;
+    return (double)elapsedMicroseconds.QuadPart / (double)frequency.QuadPart * 1000000;
+  }
+
+ private:
+  LARGE_INTEGER mStartingTime;
+  LARGE_INTEGER mEndingTime;
+};
+#else
 class Profiler {
  public:
   void timerStart() { gettimeofday(&mStartingTime, nullptr); }
@@ -1934,6 +1957,7 @@ class Profiler {
   struct timeval mStartingTime;
   struct timeval mEndingTime;
 };
+#endif
 
 class JpegRBenchmark : public JpegR {
  public:
@@ -1991,9 +2015,13 @@ TEST(JpegRTest, ProfileGainMapFuncs) {
   ASSERT_TRUE(rawImg420.setImageColorGamut(ultrahdr_color_gamut::ULTRAHDR_COLORGAMUT_BT709));
   ASSERT_TRUE(rawImg420.allocateMemory());
   ASSERT_TRUE(rawImg420.loadRawResource(kYCbCr420FileName));
-  ultrahdr_metadata_struct metadata = {.version = "1.0"};
-  jpegr_uncompressed_struct map = {
-      .data = NULL, .width = 0, .height = 0, .colorGamut = ULTRAHDR_COLORGAMUT_UNSPECIFIED};
+  ultrahdr_metadata_struct metadata;
+  metadata.version = kJpegrVersion;
+  jpegr_uncompressed_struct map;
+  map.data = NULL;
+  map.width = 0;
+  map.height = 0;
+  map.colorGamut = ULTRAHDR_COLORGAMUT_UNSPECIFIED;
   {
     auto rawImg = rawImgP010.getImageHandle();
     if (rawImg->luma_stride == 0) rawImg->luma_stride = rawImg->width;
@@ -2019,10 +2047,11 @@ TEST(JpegRTest, ProfileGainMapFuncs) {
 
   const int dstSize = kImageWidth * kImageWidth * 4;
   auto bufferDst = std::make_unique<uint8_t[]>(dstSize);
-  jpegr_uncompressed_struct dest = {.data = bufferDst.get(),
-                                    .width = 0,
-                                    .height = 0,
-                                    .colorGamut = ULTRAHDR_COLORGAMUT_UNSPECIFIED};
+  jpegr_uncompressed_struct dest;
+  dest.data = bufferDst.get();
+  dest.width = 0;
+  dest.height = 0;
+  dest.colorGamut = ULTRAHDR_COLORGAMUT_UNSPECIFIED;
 
   ASSERT_NO_FATAL_FAILURE(
       benchmark.BenchmarkApplyGainMap(rawImg420.getImageHandle(), &map, &metadata, &dest));

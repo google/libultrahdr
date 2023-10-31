@@ -22,6 +22,7 @@ project(UltraHdr C CXX)
 # Detect system
 ###########################################################
 if(${CMAKE_SYSTEM_NAME} MATCHES "Linux")
+elseif(WIN32)
 elseif(APPLE)
 else()
   message(FATAL_ERROR "Platform not supported")
@@ -61,9 +62,12 @@ endif()
 ###########################################################
 # Options
 ###########################################################
-if(NOT CMAKE_BUILD_TYPE)
-  message(STATUS "No build type chosen, selecting Release")
-  set(CMAKE_BUILD_TYPE "Release" CACHE STRING "The type of build: Debug Release MinSizeRel RelWithDebInfo." FORCE)
+get_cmake_property(IS_MULTI GENERATOR_IS_MULTI_CONFIG)
+if (NOT IS_MULTI)
+  if (NOT CMAKE_BUILD_TYPE)
+    message(STATUS "No build type chosen, selecting Release")
+    set(CMAKE_BUILD_TYPE "Release" CACHE STRING "The type of build: Debug Release MinSizeRel RelWithDebInfo." FORCE)
+  endif()
 endif()
 
 function(option_if_not_defined name description default)
@@ -84,39 +88,61 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-add_compile_options(-ffunction-sections)
-add_compile_options(-fdata-sections)
-add_compile_options(-fomit-frame-pointer)
-if(ARCH STREQUAL "x86")
-  add_compile_options(-m32)
-  add_compile_options(-march=pentium4)
-  add_compile_options(-mtune=generic)
-endif()
-if(ARCH STREQUAL "x86_64")
-  add_compile_options(-m64)
-  add_compile_options(-march=x86-64)
-  add_compile_options(-mtune=generic)
-endif()
-
-include(CheckCXXCompilerFlag)
-function(CheckCompilerOption opt res)
-  set(CMAKE_REQUIRED_FLAGS ${opt})
-  check_cxx_compiler_flag(${opt} ${res})
-  unset(CMAKE_REQUIRED_FLAGS)
-  if(NOT ${res})
-    message(FATAL_ERROR "Unsupported compiler option(s) ${opt}")
+if(MSVC)
+  if(DEFINED UHDR_SANITIZE_OPTIONS)
+    message(FATAL_ERROR "Building with Sanitizer options not supported in MSVC path")
   endif()
-endfunction(CheckCompilerOption)
+  if(UHDR_BUILD_FUZZERS)
+    message(FATAL_ERROR "Building fuzzers not supported in MSVC path")
+  endif()
+  add_compile_options($<$<CONFIG:>:/MT>
+    $<$<CONFIG:Debug>:/MTd>
+    $<$<CONFIG:MinSizeRel>:/MT>
+    $<$<CONFIG:Release>:/MT>
+    $<$<CONFIG:RelWithDebInfo>:/MT>)
+  add_definitions(-D_CRT_SECURE_NO_WARNINGS)
+  # Disable specific warnings
+  # TODO: None of these should be disabled, but for now,for a warning-free msvc build these are
+  # added. fix the warnings and remove these filters
+  add_compile_options(/wd4244) # conversion from 'type1' to 'type2', possible loss of data
+  add_compile_options(/wd4267) # conversion from 'size_t' to 'type' possible loss of data
+  add_compile_options(/wd4305) # truncation from 'double' to 'float'
+  add_compile_options(/wd4838) # conversion from 'type1' to 'type2' requires a narrowing conversion
+else()
+  add_compile_options(-ffunction-sections)
+  add_compile_options(-fdata-sections)
+  add_compile_options(-fomit-frame-pointer)
+  if(ARCH STREQUAL "x86")
+    add_compile_options(-m32)
+    add_compile_options(-march=pentium4)
+    add_compile_options(-mtune=generic)
+  endif()
+  if(ARCH STREQUAL "x86_64")
+    add_compile_options(-m64)
+    add_compile_options(-march=x86-64)
+    add_compile_options(-mtune=generic)
+  endif()
 
-if(DEFINED UHDR_SANITIZE_OPTIONS)
-  CheckCompilerOption("-fsanitize=${UHDR_SANITIZE_OPTIONS}" SUPPORTS_SAN_OPTIONS)
-  add_compile_options(-fsanitize=${UHDR_SANITIZE_OPTIONS})
-  add_link_options(-fsanitize=${UHDR_SANITIZE_OPTIONS})
-endif()
+  include(CheckCXXCompilerFlag)
+  function(CheckCompilerOption opt res)
+    set(CMAKE_REQUIRED_FLAGS ${opt})
+    check_cxx_compiler_flag(${opt} ${res})
+    unset(CMAKE_REQUIRED_FLAGS)
+    if(NOT ${res})
+      message(FATAL_ERROR "Unsupported compiler option(s) ${opt}")
+    endif()
+  endfunction(CheckCompilerOption)
 
-if(UHDR_BUILD_FUZZERS)
-  CheckCompilerOption("-fsanitize=fuzzer-no-link" fuzz)
-  add_compile_options(-fsanitize=fuzzer-no-link)
+  if(DEFINED UHDR_SANITIZE_OPTIONS)
+    CheckCompilerOption("-fsanitize=${UHDR_SANITIZE_OPTIONS}" SUPPORTS_SAN_OPTIONS)
+    add_compile_options(-fsanitize=${UHDR_SANITIZE_OPTIONS})
+    add_link_options(-fsanitize=${UHDR_SANITIZE_OPTIONS})
+  endif()
+
+  if(UHDR_BUILD_FUZZERS)
+    CheckCompilerOption("-fsanitize=fuzzer-no-link" fuzz)
+    add_compile_options(-fsanitize=fuzzer-no-link)
+  endif()
 endif()
 
 if(UHDR_ENABLE_LOGS)
@@ -148,7 +174,7 @@ ExternalProject_Add(libjpeg-turbo
     GIT_TAG 3.0.1
     PREFIX ${CMAKE_CURRENT_BINARY_DIR}/libjpeg-turbo
     SOURCE_DIR ${THIRD_PARTY_DIR}/libjpeg-turbo
-    BUILD_COMMAND ${CMAKE_COMMAND} --build <BINARY_DIR> --target jpeg-static
+    BUILD_COMMAND ${CMAKE_COMMAND} --build <BINARY_DIR> --config $<CONFIG> --target jpeg-static
     CMAKE_ARGS -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
                -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
                -DCMAKE_C_FLAGS=${UHDR_CMAKE_C_FLAGS}
@@ -157,8 +183,14 @@ ExternalProject_Add(libjpeg-turbo
 set(JPEG_INCLUDE_DIRS
     ${THIRD_PARTY_DIR}/libjpeg-turbo/
     ${CMAKE_CURRENT_BINARY_DIR}/libjpeg-turbo/src/libjpeg-turbo-build)
-set(JPEG_LIBRARIES
-    ${CMAKE_CURRENT_BINARY_DIR}/libjpeg-turbo/src/libjpeg-turbo-build/libjpeg.a)
+
+if(IS_MULTI)
+  set(JPEG_LIBRARIES
+      ${CMAKE_CURRENT_BINARY_DIR}/libjpeg-turbo/src/libjpeg-turbo-build/$<CONFIG>/jpeg-static.lib)
+else()
+  set(JPEG_LIBRARIES
+      ${CMAKE_CURRENT_BINARY_DIR}/libjpeg-turbo/src/libjpeg-turbo-build/libjpeg.a)
+endif()
 
 if(UHDR_BUILD_TESTS)
   # gtest and gmock
@@ -177,9 +209,15 @@ if(UHDR_BUILD_TESTS)
   set(GTEST_INCLUDE_DIRS
       ${THIRD_PARTY_DIR}/googletest/googletest/include
       ${THIRD_PARTY_DIR}/googletest/googlemock/include)
-  set(GTEST_BOTH_LIBRARIES
-      ${CMAKE_CURRENT_BINARY_DIR}/googletest/src/googletest-build/lib/libgtest.a
-      ${CMAKE_CURRENT_BINARY_DIR}/googletest/src/googletest-build/lib/libgtest_main.a)
+  if(IS_MULTI)
+    set(GTEST_BOTH_LIBRARIES
+        ${CMAKE_CURRENT_BINARY_DIR}/googletest/src/googletest-build/lib/$<CONFIG>/gtest.lib
+        ${CMAKE_CURRENT_BINARY_DIR}/googletest/src/googletest-build/lib/$<CONFIG>/gtest_main.lib)
+  else()
+    set(GTEST_BOTH_LIBRARIES
+        ${CMAKE_CURRENT_BINARY_DIR}/googletest/src/googletest-build/lib/libgtest.a
+        ${CMAKE_CURRENT_BINARY_DIR}/googletest/src/googletest-build/lib/libgtest_main.a)
+  endif()
 endif()
 
 set_property(DIRECTORY PROPERTY ADDITIONAL_MAKE_CLEAN_FILES
@@ -228,10 +266,14 @@ if(UHDR_BUILD_TESTS)
     target_link_options(ultrahdr_unit_test PRIVATE -fsanitize=fuzzer-no-link)
   endif()
   target_link_libraries(ultrahdr_unit_test ultrahdr ${GTEST_BOTH_LIBRARIES})
-  execute_process(COMMAND cmake -E create_symlink
-    "${TESTS_DIR}/data/"
-    "${CMAKE_CURRENT_BINARY_DIR}/data"
-  )
+  if(WIN32)
+    file(COPY "${TESTS_DIR}/data/" DESTINATION "${CMAKE_CURRENT_BINARY_DIR}/data")
+  else()
+    execute_process(COMMAND cmake -E create_symlink
+      "${TESTS_DIR}/data/"
+      "${CMAKE_CURRENT_BINARY_DIR}/data"
+    )
+  endif()
   add_test(NAME UHDRUnitTests, COMMAND ultrahdr_unit_test)
 endif()
 
