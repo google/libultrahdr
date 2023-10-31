@@ -1,73 +1,72 @@
-# Fuzzer for ultrahdr decoder and encoder
+Building fuzzers for libultrahdr
+================================
 
-This describes steps to build ultrahdr_dec_fuzzer and ultrahdr_enc_fuzzer.
+### Requirements
 
-## Linux x86/x64
+- [CMake](http://www.cmake.org) v3.13 or later
 
-###  Requirements
-- cmake (3.5 or above)
-- make
-- clang (12.0 or above)
-  needs to support -fsanitize=fuzzer, -fsanitize=fuzzer-no-link
+- Compilers with support for options *-fsanitize=fuzzer, -fsanitize=fuzzer-no-link*.
+  For instance, clang 12 (or later)
 
-### Steps to build
-Create a directory inside libultrahdr and change directory
-```
- $ cd libultrahdr
- $ mkdir build
- $ cd build
-```
-Build fuzzer with required sanitizers
-Note: Using clang and setting -DENABLE_FUZZERS=ON is mandatory to enable fuzzers.
-```
- $ cmake .. -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
-   -DCMAKE_BUILD_TYPE=Debug -DENABLE_FUZZERS=ON -DSANITIZE=address,\
-   signed-integer-overflow,unsigned-integer-overflow
- $ make
- ```
+### Building Commands
 
-### Steps to run
-Create a directory CORPUS_DIR and copy some elementary ultrahdr files
-(for ultrahdr_dec_fuzzer) or yuv files (for ultrahdr_enc_fuzzer) to that directory
+    mkdir {build_directory}
+    cd {build_directory}
+    cmake ../ -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DUHDR_BUILD_FUZZERS=1
+    make
 
-To run the fuzzers
-```
-$ ./ultrahdr_dec_fuzzer CORPUS_DIR
-$ ./ultrahdr_enc_fuzzer CORPUS_DIR
-```
+This will generate the following files under *{build_directory}*:
 
-## Android
+**libultrahdr.a**<br> Instrumented ultrahdr library
 
-### Steps to build
-Build the fuzzers
-```
-  $ mm -j$(nproc) ultrahdr_dec_fuzzer
-  $ mm -j$(nproc) ultrahdr_enc_fuzzer
-```
+**ultrahdr_enc_fuzzer**<br> ultrahdr encoder fuzzer
 
-### Steps to run
-Create a directory CORPUS_DIR and copy some elementary ultrahdr files
-(for ultrahdr_dec_fuzzer) or yuv files (for ultrahdr_enc_fuzzer) to that folder
-Push this directory to device
+**ultrahdr_dec_fuzzer**<br> ultrahdr decoder fuzzer
 
-To run ultrahdr_dec_fuzzer on device
-```
-  $ adb sync data
-  $ adb shell /data/fuzz/arm64/ultrahdr_dec_fuzzer/ultrahdr_dec_fuzzer CORPUS_DIR
-```
+Additionally, while building fuzzers, user can enable sanitizers by providing desired
+sanitizer option(s) through UHDR_SANITIZE_OPTIONS.
 
-To run ultrahdr_enc_fuzzer on device
-```
-  $ adb sync data
-  $ adb shell /data/fuzz/arm64/ultrahdr_enc_fuzzer/ultrahdr_enc_fuzzer CORPUS_DIR
-```
+To enable ASan,
 
-To run ultrahdr_dec_fuzzer on host
-```
-  $ $ANDROID_HOST_OUT/fuzz/x86_64/ultrahdr_dec_fuzzer/ultrahdr_dec_fuzzer CORPUS_DIR
-```
+    cmake ../ -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
+    -DUHDR_BUILD_FUZZERS=1 -DUHDR_SANITIZE_OPTIONS=address
+    make
 
-To run ultrahdr_enc_fuzzer on host
-```
-  $ $ANDROID_HOST_OUT/fuzz/x86_64/ultrahdr_enc_fuzzer/ultrahdr_enc_fuzzer CORPUS_DIR
-```
+To enable MSan,
+
+    cmake ../ -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
+    -DUHDR_BUILD_FUZZERS=1 -DUHDR_SANITIZE_OPTIONS=memory
+    make
+
+To enable TSan,
+
+    cmake ../ -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
+    -DUHDR_BUILD_FUZZERS=1 -DUHDR_SANITIZE_OPTIONS=thread
+    make
+
+To enable UBSan,
+
+    cmake ../ -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
+    -DUHDR_BUILD_FUZZERS=1 -DUHDR_SANITIZE_OPTIONS=undefined
+    make
+
+UBSan can be grouped with ASan, MSan or TSan.
+
+For example, to enable ASan and UBSan,
+
+    cmake ../ -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
+    -DUHDR_BUILD_FUZZERS=1 -DUHDR_SANITIZE_OPTIONS=address,undefined
+    make
+
+### Running
+
+To run the fuzzer(s), first create a corpus directory that holds the initial
+"seed" sample inputs. For decoder fuzzer, ultrahdr jpeg images can be used and
+for encoder fuzzer, sample yuv files can be used.
+
+Then run the fuzzers on the corpus directory.
+
+    mkdir CORPUS_DIR
+    cp seeds/* CORPUS_DIR
+    ./ultrahdr_dec_fuzzer CORPUS_DIR
+    ./ultrahdr_enc_fuzzer CORPUS_DIR

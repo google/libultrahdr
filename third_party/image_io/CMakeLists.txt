@@ -16,21 +16,19 @@
 
 cmake_minimum_required(VERSION 3.5)
 
-project(IMAGE_IO VERSION 1.0.0)
+project(ImageIO CXX)
 
 set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
 
-set(IMAGE_IO_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../image_io")
+set(SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 
-file(GLOB IMAGE_IO_SRC "${IMAGE_IO_DIR}/src/**/*.cc")
+file(GLOB IMAGE_IO_LIST "${SOURCE_DIR}/src/**/*.cc")
 
-add_library(image_io STATIC
-    ${IMAGE_IO_SRC}
-)
+add_library(image_io STATIC ${IMAGE_IO_LIST})
 
-# Set include directories for the target
 target_include_directories(image_io PRIVATE
-    "${IMAGE_IO_DIR}/includes"
-    "${IMAGE_IO_DIR}/src/modp_b64"
-    "${IMAGE_IO_DIR}/src/modp_b64/modp_b64"
-)
+  "${SOURCE_DIR}/includes"
+  "${SOURCE_DIR}/src/modp_b64"
+  "${SOURCE_DIR}/src/modp_b64/modp_b64")

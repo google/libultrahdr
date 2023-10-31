@@ -25,7 +25,7 @@ build process.
 
 ### Requirements
 
-- [CMake](http://www.cmake.org) v3.5 or later
+- [CMake](http://www.cmake.org) v3.13 or later
 
 - [NASM](http://www.nasm.us) or [Yasm](http://yasm.tortall.net)
   (If libjpeg-turbo is building on x86 or x86-64 with SIMD extensions)
@@ -34,9 +34,9 @@ build process.
   * If building on macOS, NASM or Yasm can be obtained from
     [MacPorts](http://www.macports.org/) or [Homebrew](http://brew.sh/).
 
-Tested with GCC v11.4 and Clang 14.0.0 on Linux and Mac Platforms.
+Should work with GCC v7 (or later) and Clang 5 (or later) on Linux and Mac Platforms.
 
-### Building Commands
+### Building Lib and Samples
 
 To build libultrahdr and sample application:
 
@@ -49,7 +49,7 @@ To build unit tests:
 
     mkdir {build_directory}
     cd {build_directory}
-    cmake ../ -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DENABLE_TESTS=1
+    cmake ../ -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DUHDR_BUILD_TESTS=1
     make
     ctest
 
@@ -60,6 +60,10 @@ This will generate the following files under *{build_directory}*:
 **ultrahdr_app**<br> Sample application demonstrating ultrahdr API
 
 **ultrahdr_unit_test**<br> Unit tests
+
+### Building Fuzzers
+
+Refer to [README.md](fuzzer/README.md) for complete instructions.
 
 Using libultrahdr
 ===================

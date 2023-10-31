@@ -17,21 +17,21 @@ jobs:
             cc: gcc
             cxx: g++
             build-system: cmake
-            cmake-opts: '-DENABLE_FUZZERS=OFF'
+            cmake-opts: '-DUHDR_BUILD_TESTS=1 -DUHDR_BUILD_FUZZERS=0'
 
           - name: ubuntu-latest-clang-cmake
             os: ubuntu-latest
             cc: clang
             cxx: clang++
             build-system: cmake
-            cmake-opts: '-DENABLE_FUZZERS=ON'
+            cmake-opts: '-DUHDR_BUILD_TESTS=1 -DUHDR_BUILD_FUZZERS=1'
 
           - name: macos-latest-clang-cmake
             os: macos-latest
             cc: clang
             cxx: clang++
             build-system: cmake
-            cmake-opts: '-DENABLE_FUZZERS=OFF'
+            cmake-opts: '-DUHDR_BUILD_TESTS=1 -DUHDR_BUILD_FUZZERS=0'
 
     runs-on: ${{ matrix.os }}
 
