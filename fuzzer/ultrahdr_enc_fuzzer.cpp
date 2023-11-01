@@ -224,7 +224,7 @@ void UltraHdrEncFuzzer::process() {
 #endif
 
     JpegR jpegHdr;
-    status_t status = UNKNOWN_ERROR;
+    status_t status = JPEGR_UNKNOWN_ERROR;
     if (muxSwitch == 0) {  // api 0
       jpegImgR.length = 0;
       status = jpegHdr.encodeJPEGR(&p010Img, tf, &jpegImgR, quality, nullptr);
@@ -288,12 +288,12 @@ void UltraHdrEncFuzzer::process() {
         }
       }
     }
-    if (status == OK) {
+    if (status == JPEGR_NO_ERROR) {
       std::vector<uint8_t> iccData(0);
       std::vector<uint8_t> exifData(0);
       jpegr_info_struct info{0, 0, &iccData, &exifData};
       status = jpegHdr.getJPEGRInfo(&jpegImgR, &info);
-      if (status == OK) {
+      if (status == JPEGR_NO_ERROR) {
         size_t outSize = info.width * info.height * ((of == ULTRAHDR_OUTPUT_HDR_LINEAR) ? 8 : 4);
         jpegr_uncompressed_struct decodedJpegR;
         auto decodedRaw = std::make_unique<uint8_t[]>(outSize);
@@ -303,7 +303,7 @@ void UltraHdrEncFuzzer::process() {
         status = jpegHdr.decodeJPEGR(&jpegImgR, &decodedJpegR,
                                      mFdp.ConsumeFloatingPointInRange<float>(1.0, FLT_MAX), nullptr,
                                      of, &decodedGainMap, &metadata);
-        if (status != OK) {
+        if (status != JPEGR_NO_ERROR) {
           ALOGE("encountered error during decoding %d", status);
         }
         if (decodedGainMap.data) free(decodedGainMap.data);

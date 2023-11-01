@@ -256,7 +256,7 @@ bool UltraHdrAppInput::encode() {
   }
 
   JpegR jpegHdr;
-  status_t status = UNKNOWN_ERROR;
+  status_t status = JPEGR_UNKNOWN_ERROR;
 #ifdef PROFILE_ENABLE
   const int profileCount = 10;
   Profiler profileEncode;
@@ -265,7 +265,7 @@ bool UltraHdrAppInput::encode() {
 #endif
     if (mYuv420File == nullptr && mYuv420JpegFile == nullptr) {  // api-0
       status = jpegHdr.encodeJPEGR(&mRawP010Image, mTf, &mJpegImgR, mQuality, nullptr);
-      if (OK != status) {
+      if (JPEGR_NO_ERROR != status) {
         std::cerr << "Encountered error during encodeJPEGR call, error code " << status
                   << std::endl;
         return false;
@@ -273,7 +273,7 @@ bool UltraHdrAppInput::encode() {
     } else if (mYuv420File != nullptr && mYuv420JpegFile == nullptr) {  // api-1
       status =
           jpegHdr.encodeJPEGR(&mRawP010Image, &mRawYuv420Image, mTf, &mJpegImgR, mQuality, nullptr);
-      if (OK != status) {
+      if (JPEGR_NO_ERROR != status) {
         std::cerr << "Encountered error during encodeJPEGR call, error code " << status
                   << std::endl;
         return false;
@@ -281,14 +281,14 @@ bool UltraHdrAppInput::encode() {
     } else if (mYuv420File != nullptr && mYuv420JpegFile != nullptr) {  // api-2
       status =
           jpegHdr.encodeJPEGR(&mRawP010Image, &mRawYuv420Image, &mYuv420JpegImage, mTf, &mJpegImgR);
-      if (OK != status) {
+      if (JPEGR_NO_ERROR != status) {
         std::cerr << "Encountered error during encodeJPEGR call, error code " << status
                   << std::endl;
         return false;
       }
     } else if (mYuv420File == nullptr && mYuv420JpegFile != nullptr) {  // api-3
       status = jpegHdr.encodeJPEGR(&mRawP010Image, &mYuv420JpegImage, mTf, &mJpegImgR);
-      if (OK != status) {
+      if (JPEGR_NO_ERROR != status) {
         std::cerr << "Encountered error during encodeJPEGR call, error code " << status
                   << std::endl;
         return false;
@@ -311,7 +311,7 @@ bool UltraHdrAppInput::decode() {
   jpegr_info_struct info{0, 0, &iccData, &exifData};
   JpegR jpegHdr;
   status_t status = jpegHdr.getJPEGRInfo(&mJpegImgR, &info);
-  if (OK == status) {
+  if (JPEGR_NO_ERROR == status) {
     size_t outSize = info.width * info.height * ((mOf == ULTRAHDR_OUTPUT_HDR_LINEAR) ? 8 : 4);
     mDestImage.data = malloc(outSize);
     if (mDestImage.data == nullptr) {
@@ -326,7 +326,7 @@ bool UltraHdrAppInput::decode() {
 #endif
       status =
           jpegHdr.decodeJPEGR(&mJpegImgR, &mDestImage, FLT_MAX, nullptr, mOf, nullptr, nullptr);
-      if (OK != status) {
+      if (JPEGR_NO_ERROR != status) {
         std::cerr << "Encountered error during decodeJPEGR call, error code " << status
                   << std::endl;
         return false;
@@ -927,5 +927,5 @@ int main(int argc, char* argv[]) {
     return -1;
   }
 
-    return 0;
+  return 0;
 }

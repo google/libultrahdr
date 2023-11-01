@@ -99,7 +99,7 @@ status_t Write(jr_compressed_ptr destination, const void* source, size_t length,
 
   memcpy((uint8_t*)destination->data + sizeof(uint8_t) * position, source, length);
   position += length;
-  return NO_ERROR;
+  return JPEGR_NO_ERROR;
 }
 
 // Extremely simple XML Handler - just searches for interesting elements
