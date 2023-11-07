@@ -95,11 +95,18 @@ if(MSVC)
   if(UHDR_BUILD_FUZZERS)
     message(FATAL_ERROR "Building fuzzers not supported in MSVC path")
   endif()
-  add_compile_options($<$<CONFIG:>:/MT>
-    $<$<CONFIG:Debug>:/MTd>
-    $<$<CONFIG:MinSizeRel>:/MT>
-    $<$<CONFIG:Release>:/MT>
-    $<$<CONFIG:RelWithDebInfo>:/MT>)
+  foreach(flag_var
+          CMAKE_C_FLAGS CMAKE_C_FLAGS_DEBUG CMAKE_C_FLAGS_RELEASE
+          CMAKE_C_FLAGS_MINSIZEREL CMAKE_C_FLAGS_RELWITHDEBINFO
+          CMAKE_CXX_FLAGS CMAKE_CXX_FLAGS_DEBUG CMAKE_CXX_FLAGS_RELEASE
+          CMAKE_CXX_FLAGS_MINSIZEREL CMAKE_CXX_FLAGS_RELWITHDEBINFO)
+    if(${flag_var} MATCHES "/MD")
+      string(REGEX REPLACE "/MD" "/MT" ${flag_var} "${${flag_var}}")
+    endif()
+    if (${flag_var} MATCHES "/MDd")
+      string(REGEX REPLACE "/MDd" "/MTd" ${flag_var} "${${flag_var}}")
+    endif()
+  endforeach()
   add_definitions(-D_CRT_SECURE_NO_WARNINGS)
   # Disable specific warnings
   # TODO: None of these should be disabled, but for now,for a warning-free msvc build these are
@@ -158,9 +165,6 @@ set(CMAKE_THREAD_PREFER_PTHREAD ON)
 set(THREADS_PREFER_PTHREAD_FLAG ON)
 find_package(Threads REQUIRED)
 
-# ImageIO
-add_subdirectory("${THIRD_PARTY_DIR}/image_io")
-
 include(ExternalProject)
 
 get_directory_property(UHDR_COMPILE_FLAGS COMPILE_OPTIONS)
@@ -177,8 +181,13 @@ if(IS_MULTI)
   set(JPEG_LIBRARIES
       ${CMAKE_CURRENT_BINARY_DIR}/libjpeg-turbo/src/libjpeg-turbo-build/$<CONFIG>/jpeg-static.lib)
 else()
-  set(JPEG_LIBRARIES
-      ${CMAKE_CURRENT_BINARY_DIR}/libjpeg-turbo/src/libjpeg-turbo-build/libjpeg.a)
+  if(MSVC)
+    set(JPEG_LIBRARIES
+        ${CMAKE_CURRENT_BINARY_DIR}/libjpeg-turbo/src/libjpeg-turbo-build/jpeg-static.lib)
+  else()
+    set(JPEG_LIBRARIES
+        ${CMAKE_CURRENT_BINARY_DIR}/libjpeg-turbo/src/libjpeg-turbo-build/libjpeg.a)
+  endif()
 endif()
 
 ExternalProject_Add(libjpeg-turbo
@@ -190,6 +199,10 @@ ExternalProject_Add(libjpeg-turbo
     CMAKE_ARGS -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
                -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
                -DCMAKE_C_FLAGS=${UHDR_CMAKE_C_FLAGS}
+               -DCMAKE_C_FLAGS_DEBUG=${CMAKE_C_FLAGS_DEBUG}
+               -DCMAKE_C_FLAGS_RELEASE=${CMAKE_C_FLAGS_RELEASE}
+               -DCMAKE_C_FLAGS_MINSIZEREL=${CMAKE_C_FLAGS_MINSIZEREL}
+               -DCMAKE_C_FLAGS_RELWITHDEBINFO=${CMAKE_C_FLAGS_RELWITHDEBINFO}
     BUILD_BYPRODUCTS ${JPEG_LIBRARIES}
     INSTALL_COMMAND ""
 )
@@ -204,20 +217,28 @@ if(UHDR_BUILD_TESTS)
         ${CMAKE_CURRENT_BINARY_DIR}/googletest/src/googletest-build/lib/$<CONFIG>/gtest.lib
         ${CMAKE_CURRENT_BINARY_DIR}/googletest/src/googletest-build/lib/$<CONFIG>/gtest_main.lib)
   else()
-    set(GTEST_BOTH_LIBRARIES
-        ${CMAKE_CURRENT_BINARY_DIR}/googletest/src/googletest-build/lib/libgtest.a
-        ${CMAKE_CURRENT_BINARY_DIR}/googletest/src/googletest-build/lib/libgtest_main.a)
+    if(MSVC)
+      set(GTEST_BOTH_LIBRARIES
+          ${CMAKE_CURRENT_BINARY_DIR}/googletest/src/googletest-build/lib/gtest.lib
+          ${CMAKE_CURRENT_BINARY_DIR}/googletest/src/googletest-build/lib/gtest_main.lib)
+    else()
+      set(GTEST_BOTH_LIBRARIES
+          ${CMAKE_CURRENT_BINARY_DIR}/googletest/src/googletest-build/lib/libgtest.a
+          ${CMAKE_CURRENT_BINARY_DIR}/googletest/src/googletest-build/lib/libgtest_main.a)
+    endif()
   endif()
   ExternalProject_Add(googletest
       GIT_REPOSITORY https://github.com/google/googletest
       GIT_TAG v1.14.0
       PREFIX ${CMAKE_CURRENT_BINARY_DIR}/googletest
       SOURCE_DIR ${THIRD_PARTY_DIR}/googletest
-      CMAKE_ARGS -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
-                 -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
+      CMAKE_ARGS -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
                  -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
-                 -DCMAKE_C_FLAGS=${UHDR_CMAKE_C_FLAGS}
                  -DCMAKE_CXX_FLAGS=${UHDR_CMAKE_CXX_FLAGS}
+                 -DCMAKE_CXX_FLAGS_DEBUG=${CMAKE_CXX_FLAGS_DEBUG}
+                 -DCMAKE_CXX_FLAGS_RELEASE=${CMAKE_CXX_FLAGS_RELEASE}
+                 -DCMAKE_CXX_FLAGS_MINSIZEREL=${CMAKE_CXX_FLAGS_MINSIZEREL}
+                 -DCMAKE_CXX_FLAGS_RELWITHDEBINFO=${CMAKE_CXX_FLAGS_RELWITHDEBINFO}
       BUILD_BYPRODUCTS ${GTEST_BOTH_LIBRARIES}
       INSTALL_COMMAND ""
   )
@@ -232,12 +253,20 @@ set_property(DIRECTORY PROPERTY ADDITIONAL_MAKE_CLEAN_FILES
 ###########################################################
 file(GLOB UHDR_LIB_LIST "${SOURCE_DIR}/*.cpp")
 file(GLOB UHDR_TEST_LIST "${TESTS_DIR}/*.cpp")
+file(GLOB IMAGE_IO_LIST "${THIRD_PARTY_DIR}/image_io/src/**/*.cc")
+
 set(COMMON_INCLUDE_LIST ${SOURCE_DIR} ${JPEG_INCLUDE_DIRS})
 set(COMMON_LIBS_LIST ${JPEG_LIBRARIES} Threads::Threads)
 
 ###########################################################
 # Targets
 ###########################################################
+add_library(image_io STATIC ${IMAGE_IO_LIST})
+target_include_directories(image_io PRIVATE
+  "${THIRD_PARTY_DIR}/image_io/includes"
+  "${THIRD_PARTY_DIR}/image_io/src/modp_b64"
+  "${THIRD_PARTY_DIR}/image_io/src/modp_b64/modp_b64")
+
 add_library(ultrahdr STATIC ${UHDR_LIB_LIST})
 add_dependencies(ultrahdr libjpeg-turbo)
 #target_compile_options(ultrahdr PRIVATE -Wall -Wextra -Wpedantic)
