@@ -14,12 +14,14 @@
  * limitations under the License.
  */
 
-#include <fcntl.h>
 #include <gtest/gtest.h>
 
-#include "ultrahdr/ultrahdrcommon.h"
-#include "ultrahdr/jpegdecoderhelper.h"
-#include "ultrahdr/icc.h"
+#include <fstream>
+#include <iostream>
+
+#include "ultrahdrcommon.h"
+#include "jpegdecoderhelper.h"
+#include "icc.h"
 
 namespace ultrahdr {
 
@@ -41,120 +43,105 @@ namespace ultrahdr {
 #define IMAGE_HEIGHT 240
 
 class JpegDecoderHelperTest : public testing::Test {
-public:
-    struct Image {
-        std::unique_ptr<uint8_t[]> buffer;
-        size_t size;
-    };
-    JpegDecoderHelperTest();
-    ~JpegDecoderHelperTest();
+ public:
+  struct Image {
+    std::unique_ptr<uint8_t[]> buffer;
+    size_t size;
+  };
+  JpegDecoderHelperTest();
+  ~JpegDecoderHelperTest();
 
-protected:
-    virtual void SetUp();
-    virtual void TearDown();
+ protected:
+  virtual void SetUp();
+  virtual void TearDown();
 
-    Image mYuvImage, mYuvIccImage, mGreyImage;
+  Image mYuvImage, mYuvIccImage, mGreyImage;
 };
 
 JpegDecoderHelperTest::JpegDecoderHelperTest() {}
 
 JpegDecoderHelperTest::~JpegDecoderHelperTest() {}
 
-static size_t getFileSize(int fd) {
-    struct stat st;
-    if (fstat(fd, &st) < 0) {
-        ALOGW("%s : fstat failed", __func__);
-        return 0;
-    }
-    return st.st_size; // bytes
-}
-
 static bool loadFile(const char filename[], JpegDecoderHelperTest::Image* result) {
-    int fd = open(filename, O_CLOEXEC);
-    if (fd < 0) {
-        return false;
-    }
-    int length = getFileSize(fd);
-    if (length == 0) {
-        close(fd);
-        return false;
-    }
-    result->buffer.reset(new uint8_t[length]);
-    if (read(fd, result->buffer.get(), length) != static_cast<ssize_t>(length)) {
-        close(fd);
-        return false;
-    }
-    close(fd);
+  std::ifstream ifd(filename, std::ios::binary | std::ios::ate);
+  if (ifd.good()) {
+    int size = ifd.tellg();
+    ifd.seekg(0, std::ios::beg);
+    result->buffer.reset(new uint8_t[size]);
+    ifd.read(reinterpret_cast<char*>(result->buffer.get()), size);
+    ifd.close();
     return true;
+  }
+  return false;
 }
 
 void JpegDecoderHelperTest::SetUp() {
-    if (!loadFile(YUV_IMAGE, &mYuvImage)) {
-        FAIL() << "Load file " << YUV_IMAGE << " failed";
-    }
-    mYuvImage.size = YUV_IMAGE_SIZE;
-    if (!loadFile(YUV_ICC_IMAGE, &mYuvIccImage)) {
-        FAIL() << "Load file " << YUV_ICC_IMAGE << " failed";
-    }
-    mYuvIccImage.size = YUV_ICC_IMAGE_SIZE;
-    if (!loadFile(GREY_IMAGE, &mGreyImage)) {
-        FAIL() << "Load file " << GREY_IMAGE << " failed";
-    }
-    mGreyImage.size = GREY_IMAGE_SIZE;
+  if (!loadFile(YUV_IMAGE, &mYuvImage)) {
+    FAIL() << "Load file " << YUV_IMAGE << " failed";
+  }
+  mYuvImage.size = YUV_IMAGE_SIZE;
+  if (!loadFile(YUV_ICC_IMAGE, &mYuvIccImage)) {
+    FAIL() << "Load file " << YUV_ICC_IMAGE << " failed";
+  }
+  mYuvIccImage.size = YUV_ICC_IMAGE_SIZE;
+  if (!loadFile(GREY_IMAGE, &mGreyImage)) {
+    FAIL() << "Load file " << GREY_IMAGE << " failed";
+  }
+  mGreyImage.size = GREY_IMAGE_SIZE;
 }
 
 void JpegDecoderHelperTest::TearDown() {}
 
 TEST_F(JpegDecoderHelperTest, decodeYuvImage) {
-    JpegDecoderHelper decoder;
-    EXPECT_TRUE(decoder.decompressImage(mYuvImage.buffer.get(), mYuvImage.size));
-    ASSERT_GT(decoder.getDecompressedImageSize(), static_cast<uint32_t>(0));
-    EXPECT_EQ(IccHelper::readIccColorGamut(decoder.getICCPtr(), decoder.getICCSize()),
-              ULTRAHDR_COLORGAMUT_UNSPECIFIED);
+  JpegDecoderHelper decoder;
+  EXPECT_TRUE(decoder.decompressImage(mYuvImage.buffer.get(), mYuvImage.size));
+  ASSERT_GT(decoder.getDecompressedImageSize(), static_cast<uint32_t>(0));
+  EXPECT_EQ(IccHelper::readIccColorGamut(decoder.getICCPtr(), decoder.getICCSize()),
+            ULTRAHDR_COLORGAMUT_UNSPECIFIED);
 }
 
 TEST_F(JpegDecoderHelperTest, decodeYuvIccImage) {
-    JpegDecoderHelper decoder;
-    EXPECT_TRUE(decoder.decompressImage(mYuvIccImage.buffer.get(), mYuvIccImage.size));
-    ASSERT_GT(decoder.getDecompressedImageSize(), static_cast<uint32_t>(0));
-    EXPECT_EQ(IccHelper::readIccColorGamut(decoder.getICCPtr(), decoder.getICCSize()),
-              ULTRAHDR_COLORGAMUT_BT709);
+  JpegDecoderHelper decoder;
+  EXPECT_TRUE(decoder.decompressImage(mYuvIccImage.buffer.get(), mYuvIccImage.size));
+  ASSERT_GT(decoder.getDecompressedImageSize(), static_cast<uint32_t>(0));
+  EXPECT_EQ(IccHelper::readIccColorGamut(decoder.getICCPtr(), decoder.getICCSize()),
+            ULTRAHDR_COLORGAMUT_BT709);
 }
 
 TEST_F(JpegDecoderHelperTest, decodeGreyImage) {
-    JpegDecoderHelper decoder;
-    EXPECT_TRUE(decoder.decompressImage(mGreyImage.buffer.get(), mGreyImage.size));
-    ASSERT_GT(decoder.getDecompressedImageSize(), static_cast<uint32_t>(0));
+  JpegDecoderHelper decoder;
+  EXPECT_TRUE(decoder.decompressImage(mGreyImage.buffer.get(), mGreyImage.size));
+  ASSERT_GT(decoder.getDecompressedImageSize(), static_cast<uint32_t>(0));
 }
 
 TEST_F(JpegDecoderHelperTest, getCompressedImageParameters) {
-    size_t width = 0, height = 0;
-    std::vector<uint8_t> icc, exif;
+  size_t width = 0, height = 0;
+  std::vector<uint8_t> icc, exif;
 
-    JpegDecoderHelper decoder;
-    EXPECT_TRUE(decoder.getCompressedImageParameters(mYuvImage.buffer.get(), mYuvImage.size, &width,
-                                                     &height, &icc, &exif));
+  JpegDecoderHelper decoder;
+  EXPECT_TRUE(decoder.getCompressedImageParameters(mYuvImage.buffer.get(), mYuvImage.size, &width,
+                                                   &height, &icc, &exif));
 
-    EXPECT_EQ(width, IMAGE_WIDTH);
-    EXPECT_EQ(height, IMAGE_HEIGHT);
-    EXPECT_EQ(icc.size(), 0);
-    EXPECT_EQ(exif.size(), 0);
+  EXPECT_EQ(width, IMAGE_WIDTH);
+  EXPECT_EQ(height, IMAGE_HEIGHT);
+  EXPECT_EQ(icc.size(), 0);
+  EXPECT_EQ(exif.size(), 0);
 }
 
 TEST_F(JpegDecoderHelperTest, getCompressedImageParametersIcc) {
-    size_t width = 0, height = 0;
-    std::vector<uint8_t> icc, exif;
+  size_t width = 0, height = 0;
+  std::vector<uint8_t> icc, exif;
 
-    JpegDecoderHelper decoder;
-    EXPECT_TRUE(decoder.getCompressedImageParameters(mYuvIccImage.buffer.get(), mYuvIccImage.size,
-                                                     &width, &height, &icc, &exif));
+  JpegDecoderHelper decoder;
+  EXPECT_TRUE(decoder.getCompressedImageParameters(mYuvIccImage.buffer.get(), mYuvIccImage.size,
+                                                   &width, &height, &icc, &exif));
 
-    EXPECT_EQ(width, IMAGE_WIDTH);
-    EXPECT_EQ(height, IMAGE_HEIGHT);
-    EXPECT_GT(icc.size(), 0);
-    EXPECT_GT(exif.size(), 0);
+  EXPECT_EQ(width, IMAGE_WIDTH);
+  EXPECT_EQ(height, IMAGE_HEIGHT);
+  EXPECT_GT(icc.size(), 0);
+  EXPECT_GT(exif.size(), 0);
 
-    EXPECT_EQ(IccHelper::readIccColorGamut(icc.data(), icc.size()), ULTRAHDR_COLORGAMUT_BT709);
+  EXPECT_EQ(IccHelper::readIccColorGamut(icc.data(), icc.size()), ULTRAHDR_COLORGAMUT_BT709);
 }
 
-} // namespace ultrahdr
+}  // namespace ultrahdr

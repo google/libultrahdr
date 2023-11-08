@@ -19,8 +19,8 @@
 
 #include <cmath>
 
-#include "ultrahdr/ultrahdr.h"
-#include "ultrahdr/jpegr.h"
+#include "ultrahdr.h"
+#include "jpegr.h"
 
 #define CLIP3(x, min, max) ((x) < (min)) ? (min) : ((x) > (max)) ? (max) : (x)
 
@@ -59,14 +59,13 @@ typedef float (*ColorCalculationFn)(Color);
 //
 // (A simple gamma transfer function sets g to gamma and a to 1.)
 typedef struct TransferFunction {
-    float g, a,b,c,d,e,f;
+  float g, a, b, c, d, e, f;
 } TransferFunction;
 
-static constexpr TransferFunction kSRGB_TransFun =
-    { 2.4f, (float)(1/1.055), (float)(0.055/1.055), (float)(1/12.92), 0.04045f, 0.0f, 0.0f };
+static constexpr TransferFunction kSRGB_TransFun = {
+    2.4f, (float)(1 / 1.055), (float)(0.055 / 1.055), (float)(1 / 12.92), 0.04045f, 0.0f, 0.0f};
 
-static constexpr TransferFunction kLinear_TransFun =
-    { 1.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f };
+static constexpr TransferFunction kLinear_TransFun = {1.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
 
 inline Color operator+=(Color& lhs, const Color& rhs) {
   lhs.r += rhs.r;
@@ -136,14 +135,13 @@ inline uint16_t floatToHalf(float f) {
   // round-to-nearest-even: add last bit after truncated mantissa
   const uint32_t b = *((uint32_t*)&f) + 0x00001000;
 
-  const int32_t e = (b & 0x7F800000) >> 23; // exponent
-  const uint32_t m = b & 0x007FFFFF; // mantissa
+  const int32_t e = (b & 0x7F800000) >> 23;  // exponent
+  const uint32_t m = b & 0x007FFFFF;         // mantissa
 
   // sign : normalized : denormalized : saturate
-  return (b & 0x80000000) >> 16
-            | (e > 112) * ((((e - 112) << 10) & 0x7C00) | m >> 13)
-            | ((e < 113) & (e > 101)) * ((((0x007FF000 + m) >> (125 - e)) + 1) >> 1)
-            | (e > 143) * 0x7FFF;
+  return (b & 0x80000000) >> 16 | (e > 112) * ((((e - 112) << 10) & 0x7C00) | m >> 13) |
+         ((e < 113) & (e > 101)) * ((((0x007FF000 + m) >> (125 - e)) + 1) >> 1) |
+         (e > 143) * 0x7FFF;
 }
 
 constexpr size_t kGainFactorPrecision = 10;
@@ -152,8 +150,8 @@ struct GainLUT {
   GainLUT(ultrahdr_metadata_ptr metadata) {
     for (size_t idx = 0; idx < kGainFactorNumEntries; idx++) {
       float value = static_cast<float>(idx) / static_cast<float>(kGainFactorNumEntries - 1);
-      float logBoost = log2(metadata->minContentBoost) * (1.0f - value)
-                     + log2(metadata->maxContentBoost) * value;
+      float logBoost = log2(metadata->minContentBoost) * (1.0f - value) +
+                       log2(metadata->maxContentBoost) * value;
       mGainTable[idx] = exp2(logBoost);
     }
   }
@@ -162,23 +160,22 @@ struct GainLUT {
     float boostFactor = displayBoost > 0 ? displayBoost / metadata->maxContentBoost : 1.0f;
     for (size_t idx = 0; idx < kGainFactorNumEntries; idx++) {
       float value = static_cast<float>(idx) / static_cast<float>(kGainFactorNumEntries - 1);
-      float logBoost = log2(metadata->minContentBoost) * (1.0f - value)
-                     + log2(metadata->maxContentBoost) * value;
+      float logBoost = log2(metadata->minContentBoost) * (1.0f - value) +
+                       log2(metadata->maxContentBoost) * value;
       mGainTable[idx] = exp2(logBoost * boostFactor);
     }
   }
 
-  ~GainLUT() {
-  }
+  ~GainLUT() {}
 
   float getGainFactor(float gain) {
     uint32_t idx = static_cast<uint32_t>(gain * (kGainFactorNumEntries - 1) + 0.5);
-    //TODO() : Remove once conversion modules have appropriate clamping in place
+    // TODO() : Remove once conversion modules have appropriate clamping in place
     idx = CLIP3(idx, 0, kGainFactorNumEntries - 1);
     return mGainTable[idx];
   }
 
-private:
+ private:
   float mGainTable[kGainFactorNumEntries];
 };
 
@@ -222,10 +219,10 @@ struct ShepardsIDW {
   // TODO: check if its ok to mWeights at places
   float* mWeightsNR;  // no right
   float* mWeightsNB;  // no bottom
-  float* mWeightsC;  // no right & bottom
+  float* mWeightsC;   // no right & bottom
 
   float euclideanDistance(float x1, float x2, float y1, float y2);
-  void fillShepardsIDW(float *weights, int incR, int incB);
+  void fillShepardsIDW(float* weights, int incR, int incB);
 };
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -248,7 +245,6 @@ float srgbLuminance(Color e);
  * BT.709 YUV<->RGB matrix is used to match expectations for DataSpace.
  */
 Color srgbRgbToYuv(Color e_gamma);
-
 
 /*
  * Convert from OETF'd srgb YUV to RGB, according to ITU-R BT.709-6.
@@ -293,7 +289,6 @@ Color p3RgbToYuv(Color e_gamma);
  * BT.601 YUV<->RGB matrix is used to match expectations for DataSpace.
  */
 Color p3YuvToRgb(Color e_gamma);
-
 
 ////////////////////////////////////////////////////////////////////////////////
 // BT.2100 transformations - according to ITU-R BT.2100-2
@@ -371,7 +366,6 @@ Color pqInvOetfLUT(Color e_gamma);
 constexpr size_t kPqInvOETFPrecision = 12;
 constexpr size_t kPqInvOETFNumEntries = 1 << kPqInvOETFPrecision;
 
-
 ////////////////////////////////////////////////////////////////////////////////
 // Color space conversions
 
@@ -423,7 +417,6 @@ Color yuv2100To601(Color e_gamma);
  */
 void transformYuv420(jr_uncompressed_ptr image, size_t x_chroma, size_t y_chroma,
                      ColorTransformFn fn);
-
 
 ////////////////////////////////////////////////////////////////////////////////
 // Gain map calculations
@@ -500,6 +493,6 @@ uint32_t colorToRgba1010102(Color e_gamma);
  */
 uint64_t colorToRgbaF16(Color e_gamma);
 
-} // namespace ultrahdr
+}  // namespace ultrahdr
 
-#endif // ULTRAHDR_GAINMAPMATH_H
+#endif  // ULTRAHDR_GAINMAPMATH_H

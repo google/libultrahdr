@@ -35,15 +35,15 @@ cc_library {
     name: "libultrahdr",
     host_supported: true,
     vendor_available: true,
-    export_include_dirs: ["include"],
-    local_include_dirs: ["include"],
+    export_include_dirs: ["lib"],
+    local_include_dirs: ["lib"],
 
     srcs: [
-        "icc.cpp",
-        "jpegr.cpp",
-        "gainmapmath.cpp",
-        "jpegrutils.cpp",
-        "multipictureformat.cpp",
+        "lib/icc.cpp",
+        "lib/jpegr.cpp",
+        "lib/gainmapmath.cpp",
+        "lib/jpegrutils.cpp",
+        "lib/multipictureformat.cpp",
     ],
 
     shared_libs: [
@@ -65,10 +65,10 @@ cc_library {
         "liblog",
     ],
 
-    export_include_dirs: ["include"],
+    export_include_dirs: ["lib"],
 
     srcs: [
-        "jpegencoderhelper.cpp",
+        "lib/jpegencoderhelper.cpp",
     ],
 }
 
@@ -82,9 +82,9 @@ cc_library {
         "liblog",
     ],
 
-    export_include_dirs: ["include"],
+    export_include_dirs: ["lib"],
 
     srcs: [
-        "jpegdecoderhelper.cpp",
+        "lib/jpegdecoderhelper.cpp",
     ],
 }

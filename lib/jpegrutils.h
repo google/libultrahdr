@@ -17,19 +17,17 @@
 #ifndef ULTRAHDR_JPEGRUTILS_H
 #define ULTRAHDR_JPEGRUTILS_H
 
-#include "ultrahdr/ultrahdr.h"
-#include "ultrahdr/jpegr.h"
+#include "ultrahdr.h"
+#include "jpegr.h"
 
 namespace ultrahdr {
 
 static constexpr uint32_t EndianSwap32(uint32_t value) {
-    return ((value & 0xFF) << 24) |
-           ((value & 0xFF00) << 8) |
-           ((value & 0xFF0000) >> 8) |
-           (value >> 24);
+  return ((value & 0xFF) << 24) | ((value & 0xFF00) << 8) | ((value & 0xFF0000) >> 8) |
+         (value >> 24);
 }
 static inline uint16_t EndianSwap16(uint16_t value) {
-    return static_cast<uint16_t>((value >> 8) | ((value & 0xFF) << 8));
+  return static_cast<uint16_t>((value >> 8) | ((value & 0xFF) << 8));
 }
 
 struct ultrahdr_metadata_struct;
@@ -37,22 +35,22 @@ struct ultrahdr_metadata_struct;
  * Mutable data structure. Holds information for metadata.
  */
 class DataStruct {
-private:
-    void* data;
-    int writePos;
-    int length;
+ private:
+  void* data;
+  int writePos;
+  int length;
 
-public:
-    DataStruct(int s);
-    ~DataStruct();
+ public:
+  DataStruct(int s);
+  ~DataStruct();
 
-    void* getData();
-    int getLength();
-    int getBytesWritten();
-    bool write8(uint8_t value);
-    bool write16(uint16_t value);
-    bool write32(uint32_t value);
-    bool write(const void* src, int size);
+  void* getData();
+  int getLength();
+  int getBytesWritten();
+  bool write8(uint8_t value);
+  bool write16(uint16_t value);
+  bool write32(uint32_t value);
+  bool write(const void* src, int size);
 };
 
 /*
@@ -64,8 +62,7 @@ public:
  * @param position cursor in desitination where the data is to be written.
  * @return status of succeed or error code.
  */
-status_t Write(jr_compressed_ptr destination, const void* source, size_t length, int &position);
-
+status_t Write(jr_compressed_ptr destination, const void* source, size_t length, int& position);
 
 /*
  * Parses XMP packet and fills metadata with data from XMP
@@ -74,7 +71,7 @@ status_t Write(jr_compressed_ptr destination, const void* source, size_t length,
  * @param xmp_size size of XMP packet
  * @param metadata place to store HDR metadata values
  * @return true if metadata is successfully retrieved, false otherwise
-*/
+ */
 bool getMetadataFromXMP(uint8_t* xmp_data, size_t xmp_size, ultrahdr_metadata_struct* metadata);
 
 /*
@@ -149,7 +146,7 @@ std::string generateXmpForPrimaryImage(int secondary_image_length,
  * @param metadata JPEG/R metadata to encode as XMP
  * @return XMP metadata in type of string
  */
- std::string generateXmpForSecondaryImage(ultrahdr_metadata_struct& metadata);
+std::string generateXmpForSecondaryImage(ultrahdr_metadata_struct& metadata);
 }  // namespace ultrahdr
 
-#endif //ULTRAHDR_JPEGRUTILS_H
+#endif  // ULTRAHDR_JPEGRUTILS_H

@@ -24,17 +24,17 @@
 #endif
 
 #if USE_BIG_ENDIAN_IN_MPF
-    #define Endian_SwapBE32(n) EndianSwap32(n)
-    #define Endian_SwapBE16(n) EndianSwap16(n)
+#define Endian_SwapBE32(n) EndianSwap32(n)
+#define Endian_SwapBE16(n) EndianSwap16(n)
 #else
-    #define Endian_SwapBE32(n) (n)
-    #define Endian_SwapBE16(n) (n)
+#define Endian_SwapBE32(n) (n)
+#define Endian_SwapBE16(n) (n)
 #endif
 
-#include "ultrahdr/ultrahdr.h"
-#include "ultrahdr/jpegr.h"
-#include "ultrahdr/gainmapmath.h"
-#include "ultrahdr/jpegrutils.h"
+#include "ultrahdr.h"
+#include "jpegr.h"
+#include "gainmapmath.h"
+#include "jpegrutils.h"
 
 namespace ultrahdr {
 
@@ -73,4 +73,4 @@ std::shared_ptr<DataStruct> generateMpf(int primary_image_size, int primary_imag
 
 }  // namespace ultrahdr
 
-#endif //ULTRAHDR_MULTIPICTUREFORMAT_H
+#endif  // ULTRAHDR_MULTIPICTUREFORMAT_H
