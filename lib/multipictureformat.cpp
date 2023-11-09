@@ -33,7 +33,7 @@ std::shared_ptr<DataStruct> generateMpf(int primary_image_size, int primary_imag
   std::shared_ptr<DataStruct> dataStruct = std::make_shared<DataStruct>(mpf_size);
 
   dataStruct->write(static_cast<const void*>(kMpfSig), sizeof(kMpfSig));
-#if USE_BIG_ENDIAN
+#if USE_BIG_ENDIAN_IN_MPF
   dataStruct->write(static_cast<const void*>(kMpBigEndian), kMpEndianSize);
 #else
   dataStruct->write(static_cast<const void*>(kMpLittleEndian), kMpEndianSize);
