@@ -23,6 +23,8 @@
 #define USE_BIG_ENDIAN_IN_MPF true
 #endif
 
+#undef Endian_SwapBE32
+#undef Endian_SwapBE16
 #if USE_BIG_ENDIAN_IN_MPF
 #define Endian_SwapBE32(n) EndianSwap32(n)
 #define Endian_SwapBE16(n) EndianSwap16(n)
