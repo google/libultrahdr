@@ -78,6 +78,22 @@ This will generate the following files under *{build_directory/Release}*:
 
 **ultrahdr_unit_test.exe**<br> Unit tests
 
+### Visual C++ (Command line)
+
+    mkdir {build_directory}
+    cd {build_directory}
+    cmake -G "NMake Makefiles" -DUHDR_BUILD_TESTS=1 ../
+    cmake --build ./ --config=Release
+    ctest
+
+This will generate the following files under *{build_directory}*:
+
+**ultrahdr.lib**<br> Static link library for the ultrahdr API
+
+**ultrahdr_app.exe**<br> Sample application demonstrating ultrahdr API
+
+**ultrahdr_unit_test.exe**<br> Unit tests
+
 ### MinGW
 
 NOTE: This assumes that you are building on a Windows machine using the MSYS
