@@ -169,17 +169,6 @@ set(UHDR_CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${UHDR_COMPILE_FLAGS_STR}")
 set(UHDR_CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${UHDR_COMPILE_FLAGS_STR}")
 
 # libjpeg-turbo
-ExternalProject_Add(libjpeg-turbo
-    GIT_REPOSITORY https://github.com/libjpeg-turbo/libjpeg-turbo.git
-    GIT_TAG 3.0.1
-    PREFIX ${CMAKE_CURRENT_BINARY_DIR}/libjpeg-turbo
-    SOURCE_DIR ${THIRD_PARTY_DIR}/libjpeg-turbo
-    BUILD_COMMAND ${CMAKE_COMMAND} --build <BINARY_DIR> --config $<CONFIG> --target jpeg-static
-    CMAKE_ARGS -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
-               -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
-               -DCMAKE_C_FLAGS=${UHDR_CMAKE_C_FLAGS}
-    INSTALL_COMMAND ""
-)
 set(JPEG_INCLUDE_DIRS
     ${THIRD_PARTY_DIR}/libjpeg-turbo/
     ${CMAKE_CURRENT_BINARY_DIR}/libjpeg-turbo/src/libjpeg-turbo-build)
@@ -192,20 +181,21 @@ else()
       ${CMAKE_CURRENT_BINARY_DIR}/libjpeg-turbo/src/libjpeg-turbo-build/libjpeg.a)
 endif()
 
+ExternalProject_Add(libjpeg-turbo
+    GIT_REPOSITORY https://github.com/libjpeg-turbo/libjpeg-turbo.git
+    GIT_TAG 3.0.1
+    PREFIX ${CMAKE_CURRENT_BINARY_DIR}/libjpeg-turbo
+    SOURCE_DIR ${THIRD_PARTY_DIR}/libjpeg-turbo
+    BUILD_COMMAND ${CMAKE_COMMAND} --build <BINARY_DIR> --config $<CONFIG> --target jpeg-static
+    CMAKE_ARGS -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
+               -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
+               -DCMAKE_C_FLAGS=${UHDR_CMAKE_C_FLAGS}
+    BUILD_BYPRODUCTS ${JPEG_LIBRARIES}
+    INSTALL_COMMAND ""
+)
+
 if(UHDR_BUILD_TESTS)
   # gtest and gmock
-  ExternalProject_Add(googletest
-      GIT_REPOSITORY https://github.com/google/googletest
-      GIT_TAG v1.14.0
-      PREFIX ${CMAKE_CURRENT_BINARY_DIR}/googletest
-      SOURCE_DIR ${THIRD_PARTY_DIR}/googletest
-      CMAKE_ARGS -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
-                 -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
-                 -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
-                 -DCMAKE_C_FLAGS=${UHDR_CMAKE_C_FLAGS}
-                 -DCMAKE_CXX_FLAGS=${UHDR_CMAKE_CXX_FLAGS}
-      INSTALL_COMMAND ""
-  )
   set(GTEST_INCLUDE_DIRS
       ${THIRD_PARTY_DIR}/googletest/googletest/include
       ${THIRD_PARTY_DIR}/googletest/googlemock/include)
@@ -218,6 +208,19 @@ if(UHDR_BUILD_TESTS)
         ${CMAKE_CURRENT_BINARY_DIR}/googletest/src/googletest-build/lib/libgtest.a
         ${CMAKE_CURRENT_BINARY_DIR}/googletest/src/googletest-build/lib/libgtest_main.a)
   endif()
+  ExternalProject_Add(googletest
+      GIT_REPOSITORY https://github.com/google/googletest
+      GIT_TAG v1.14.0
+      PREFIX ${CMAKE_CURRENT_BINARY_DIR}/googletest
+      SOURCE_DIR ${THIRD_PARTY_DIR}/googletest
+      CMAKE_ARGS -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
+                 -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
+                 -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
+                 -DCMAKE_C_FLAGS=${UHDR_CMAKE_C_FLAGS}
+                 -DCMAKE_CXX_FLAGS=${UHDR_CMAKE_CXX_FLAGS}
+      BUILD_BYPRODUCTS ${GTEST_BOTH_LIBRARIES}
+      INSTALL_COMMAND ""
+  )
 endif()
 
 set_property(DIRECTORY PROPERTY ADDITIONAL_MAKE_CLEAN_FILES
