@@ -33,6 +33,13 @@ jobs:
             build-system: cmake
             cmake-opts: '-DUHDR_BUILD_TESTS=1 -DUHDR_BUILD_FUZZERS=0'
 
+          - name: windows-latest-vs-cmake
+            os: windows-latest
+            cc: clang
+            cxx: clang++
+            build-system: cmake
+            cmake-opts: '-G "Visual Studio 17 2022" -DUHDR_BUILD_TESTS=1 -DUHDR_BUILD_FUZZERS=0'
+
     runs-on: ${{ matrix.os }}
 
     steps:
