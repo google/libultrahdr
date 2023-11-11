@@ -52,6 +52,7 @@ endif()
 set(SOURCE_DIR ${CMAKE_SOURCE_DIR}/lib)
 set(THIRD_PARTY_DIR ${CMAKE_SOURCE_DIR}/third_party)
 set(TESTS_DIR ${CMAKE_SOURCE_DIR}/tests)
+set(BENCHMARK_DIR ${CMAKE_SOURCE_DIR}/benchmark)
 set(FUZZERS_DIR ${CMAKE_SOURCE_DIR}/fuzzer)
 set(EXAMPLES_DIR ${CMAKE_SOURCE_DIR}/examples)
 
@@ -78,8 +79,13 @@ endfunction()
 
 option_if_not_defined(UHDR_BUILD_EXAMPLES "Build examples " TRUE)
 option_if_not_defined(UHDR_BUILD_TESTS "Build unit tests " FALSE)
+option_if_not_defined(UHDR_BUILD_BENCHMARK "Build benchmark " FALSE)
 option_if_not_defined(UHDR_BUILD_FUZZERS "Build fuzzers " FALSE)
 option_if_not_defined(UHDR_ENABLE_LOGS "Build with verbose logging " FALSE)
+
+if(UHDR_BUILD_BENCHMARK AND NOT (${CMAKE_SYSTEM_NAME} MATCHES "Linux"))
+  message(FATAL_ERROR "Building benchmarks on current platform not supported")
+endif()
 
 ###########################################################
 # Compile flags
@@ -207,7 +213,7 @@ ExternalProject_Add(libjpeg-turbo
     INSTALL_COMMAND ""
 )
 
-if(UHDR_BUILD_TESTS)
+if(UHDR_BUILD_TESTS OR UHDR_BUILD_BENCHMARK)
   # gtest and gmock
   set(GTEST_INCLUDE_DIRS
       ${THIRD_PARTY_DIR}/googletest/googletest/include
@@ -244,15 +250,54 @@ if(UHDR_BUILD_TESTS)
   )
 endif()
 
+if(UHDR_BUILD_BENCHMARK)
+  # benchmark
+  set(BENCHMARK_INCLUDE_DIR ${THIRD_PARTY_DIR}/benchmark/include)
+  if(IS_MULTI)
+    set(BENCHMARK_LIBRARIES
+        ${CMAKE_CURRENT_BINARY_DIR}/benchmark/src/benchmark-build/src/$<CONFIG>/benchmark.lib
+        ${CMAKE_CURRENT_BINARY_DIR}/benchmark/src/benchmark-build/src/$<CONFIG>/benchmark_main.lib)
+  else()
+    if(MSVC)
+      set(BENCHMARK_LIBRARIES
+          ${CMAKE_CURRENT_BINARY_DIR}/benchmark/src/benchmark-build/src/benchmark.lib
+          ${CMAKE_CURRENT_BINARY_DIR}/benchmark/src/benchmark-build/src/benchmark_main.lib)
+    else()
+      set(BENCHMARK_LIBRARIES
+          ${CMAKE_CURRENT_BINARY_DIR}/benchmark/src/benchmark-build/src/libbenchmark.a
+          ${CMAKE_CURRENT_BINARY_DIR}/benchmark/src/benchmark-build/src/libbenchmark_main.a)
+    endif()
+  endif()
+  ExternalProject_Add(benchmark
+      GIT_REPOSITORY https://github.com/google/benchmark.git
+      GIT_TAG v1.8.3
+      PREFIX ${CMAKE_CURRENT_BINARY_DIR}/benchmark
+      SOURCE_DIR ${THIRD_PARTY_DIR}/benchmark
+      CMAKE_ARGS -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
+                 -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
+                 -DCMAKE_CXX_FLAGS=${UHDR_CMAKE_CXX_FLAGS}
+                 -DCMAKE_CXX_FLAGS_DEBUG=${CMAKE_CXX_FLAGS_DEBUG}
+                 -DCMAKE_CXX_FLAGS_RELEASE=${CMAKE_CXX_FLAGS_RELEASE}
+                 -DCMAKE_CXX_FLAGS_MINSIZEREL=${CMAKE_CXX_FLAGS_MINSIZEREL}
+                 -DCMAKE_CXX_FLAGS_RELWITHDEBINFO=${CMAKE_CXX_FLAGS_RELWITHDEBINFO}
+                 -DBENCHMARK_ENABLE_TESTING=OFF
+                 -DBENCHMARK_DOWNLOAD_DEPENDENCIES=OFF
+      BUILD_BYPRODUCTS ${BENCHMARK_LIBRARIES}
+      INSTALL_COMMAND ""
+  )
+endif()
+
 set_property(DIRECTORY PROPERTY ADDITIONAL_MAKE_CLEAN_FILES
     ${CMAKE_CURRENT_BINARY_DIR}/libjpeg-turbo/src/libjpeg-turbo-build
-    ${CMAKE_CURRENT_BINARY_DIR}/googletest/src/googletest-build)
+    ${CMAKE_CURRENT_BINARY_DIR}/googletest/src/googletest-build
+    ${CMAKE_CURRENT_BINARY_DIR}/benchmark/src/benchmark-build)
 
 ###########################################################
 # File Lists
 ###########################################################
 file(GLOB UHDR_LIB_LIST "${SOURCE_DIR}/*.cpp")
 file(GLOB UHDR_TEST_LIST "${TESTS_DIR}/*.cpp")
+file(GLOB UHDR_BM_LIST "${BENCHMARK_DIR}/*.cpp")
 file(GLOB IMAGE_IO_LIST "${THIRD_PARTY_DIR}/image_io/src/**/*.cc")
 
 set(COMMON_INCLUDE_LIST ${SOURCE_DIR} ${JPEG_INCLUDE_DIRS})
@@ -286,8 +331,19 @@ if(UHDR_BUILD_EXAMPLES)
   target_link_libraries(ultrahdr_app PRIVATE ultrahdr)
 endif()
 
-if(UHDR_BUILD_TESTS)
+if(UHDR_BUILD_TESTS OR UHDR_BUILD_BENCHMARK)
   include(CTest)
+  if(WIN32)
+    file(COPY "${TESTS_DIR}/data/" DESTINATION "${CMAKE_CURRENT_BINARY_DIR}/data")
+  else()
+    execute_process(COMMAND cmake -E create_symlink
+      "${TESTS_DIR}/data/"
+      "${CMAKE_CURRENT_BINARY_DIR}/data"
+    )
+  endif()
+endif()
+
+if(UHDR_BUILD_TESTS)
   add_executable(ultrahdr_unit_test ${UHDR_TEST_LIST})
   add_dependencies(ultrahdr_unit_test googletest ultrahdr)
   target_include_directories(ultrahdr_unit_test PRIVATE
@@ -298,15 +354,21 @@ if(UHDR_BUILD_TESTS)
     target_link_options(ultrahdr_unit_test PRIVATE -fsanitize=fuzzer-no-link)
   endif()
   target_link_libraries(ultrahdr_unit_test ultrahdr ${GTEST_BOTH_LIBRARIES})
-  if(WIN32)
-    file(COPY "${TESTS_DIR}/data/" DESTINATION "${CMAKE_CURRENT_BINARY_DIR}/data")
-  else()
-    execute_process(COMMAND cmake -E create_symlink
-      "${TESTS_DIR}/data/"
-      "${CMAKE_CURRENT_BINARY_DIR}/data"
-    )
-  endif()
   add_test(NAME UHDRUnitTests, COMMAND ultrahdr_unit_test)
+endif()
+
+if(UHDR_BUILD_BENCHMARK)
+  add_executable(ultrahdr_bm ${UHDR_BM_LIST})
+  add_dependencies(ultrahdr_bm benchmark googletest ultrahdr)
+  target_include_directories(ultrahdr_bm PRIVATE
+    ${COMMON_INCLUDE_LIST}
+    ${BENCHMARK_INCLUDE_DIR}
+    ${GTEST_INCLUDE_DIRS}
+  )
+  if(UHDR_BUILD_FUZZERS)
+    target_link_options(ultrahdr_bm PRIVATE -fsanitize=fuzzer-no-link)
+  endif()
+  target_link_libraries(ultrahdr_bm ultrahdr ${BENCHMARK_LIBRARIES} ${GTEST_BOTH_LIBRARIES})
 endif()
 
 if(UHDR_BUILD_FUZZERS)
