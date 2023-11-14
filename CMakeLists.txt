@@ -83,7 +83,7 @@ option_if_not_defined(UHDR_BUILD_BENCHMARK "Build benchmark " FALSE)
 option_if_not_defined(UHDR_BUILD_FUZZERS "Build fuzzers " FALSE)
 option_if_not_defined(UHDR_ENABLE_LOGS "Build with verbose logging " FALSE)
 
-if(UHDR_BUILD_BENCHMARK AND NOT (${CMAKE_SYSTEM_NAME} MATCHES "Linux"))
+if(UHDR_BUILD_BENCHMARK AND WIN32)
   message(FATAL_ERROR "Building benchmarks on current platform not supported")
 endif()
 
@@ -213,7 +213,7 @@ ExternalProject_Add(libjpeg-turbo
     INSTALL_COMMAND ""
 )
 
-if(UHDR_BUILD_TESTS OR UHDR_BUILD_BENCHMARK)
+if(UHDR_BUILD_TESTS)
   # gtest and gmock
   set(GTEST_INCLUDE_DIRS
       ${THIRD_PARTY_DIR}/googletest/googletest/include
@@ -359,16 +359,15 @@ endif()
 
 if(UHDR_BUILD_BENCHMARK)
   add_executable(ultrahdr_bm ${UHDR_BM_LIST})
-  add_dependencies(ultrahdr_bm benchmark googletest ultrahdr)
+  add_dependencies(ultrahdr_bm benchmark ultrahdr)
   target_include_directories(ultrahdr_bm PRIVATE
     ${COMMON_INCLUDE_LIST}
     ${BENCHMARK_INCLUDE_DIR}
-    ${GTEST_INCLUDE_DIRS}
   )
   if(UHDR_BUILD_FUZZERS)
     target_link_options(ultrahdr_bm PRIVATE -fsanitize=fuzzer-no-link)
   endif()
-  target_link_libraries(ultrahdr_bm ultrahdr ${BENCHMARK_LIBRARIES} ${GTEST_BOTH_LIBRARIES})
+  target_link_libraries(ultrahdr_bm ultrahdr ${BENCHMARK_LIBRARIES})
 endif()
 
 if(UHDR_BUILD_FUZZERS)
