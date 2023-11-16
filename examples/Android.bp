@@ -22,7 +22,7 @@ package {
 }
 
 cc_binary {
-    name: "ultrahdr_sample_app",
+    name: "ultrahdr_app",
     host_supported: true,
     srcs: [
         "ultrahdr_app.cpp",

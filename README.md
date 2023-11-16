@@ -122,6 +122,10 @@ This will generate the following files under *{build_directory}*:
 
 NOTE: To not build unit tests, skip passing -DUHDR_BUILD_TESTS=1
 
+### Building Benchmark
+
+    cmake {cmake_options} -DUHDR_BUILD_BENCHMARK=1
+
 ### Building Fuzzers
 
 Refer to [README.md](fuzzer/README.md) for complete instructions.
