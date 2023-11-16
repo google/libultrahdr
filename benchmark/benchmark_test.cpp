@@ -18,7 +18,6 @@
 #include <iostream>
 
 #include <benchmark/benchmark.h>
-#include <gtest/gtest.h>
 
 #include "jpegr.h"
 
@@ -57,7 +56,7 @@ static bool loadFile(const char* filename, void*& result, int length) {
       return false;
     }
     ifd.seekg(0, std::ios::beg);
-    result = malloc(length);
+    result = new uint8_t[length];
     if (result == nullptr) {
       std::cerr << "failed to allocate memory to store contents of file : " << filename
                 << std::endl;
@@ -75,7 +74,10 @@ static void BM_Decode(benchmark::State& s) {
   ultrahdr_output_format of = static_cast<ultrahdr_output_format>(s.range(1));
 
   std::ifstream ifd(srcFileName.c_str(), std::ios::binary | std::ios::ate);
-  ASSERT_TRUE(ifd.good()) << "unable to open file " << srcFileName;
+  if (!ifd.good()) {
+    s.SkipWithError("unable to open file " + srcFileName);
+    return;
+  }
   int size = ifd.tellg();
 
   jpegr_compressed_struct jpegImgR{};
@@ -84,8 +86,10 @@ static void BM_Decode(benchmark::State& s) {
   jpegImgR.data = nullptr;
   jpegImgR.colorGamut = ULTRAHDR_COLORGAMUT_UNSPECIFIED;
   ifd.close();
-  ASSERT_TRUE(loadFile(srcFileName.c_str(), jpegImgR.data, size))
-      << "unable to load file " << srcFileName;
+  if (!loadFile(srcFileName.c_str(), jpegImgR.data, size)) {
+    s.SkipWithError("unable to load file " + srcFileName);
+    return;
+  }
 
   std::unique_ptr<uint8_t[]> compData;
   compData.reset(reinterpret_cast<uint8_t*>(jpegImgR.data));
@@ -94,17 +98,25 @@ static void BM_Decode(benchmark::State& s) {
   std::vector<uint8_t> iccData(0);
   std::vector<uint8_t> exifData(0);
   jpegr_info_struct info{0, 0, &iccData, &exifData};
-  ASSERT_EQ(JPEGR_NO_ERROR, jpegHdr.getJPEGRInfo(&jpegImgR, &info));
+  if (JPEGR_NO_ERROR != jpegHdr.getJPEGRInfo(&jpegImgR, &info)) {
+    s.SkipWithError("getJPEGRInfo returned with error ");
+    return;
+  }
 
   size_t outSize = info.width * info.height * ((of == ULTRAHDR_OUTPUT_HDR_LINEAR) ? 8 : 4);
   std::unique_ptr<uint8_t[]> data = std::make_unique<uint8_t[]>(outSize);
   jpegr_uncompressed_struct destImage{};
   destImage.data = data.get();
   for (auto _ : s) {
-    ASSERT_EQ(JPEGR_NO_ERROR, jpegHdr.decodeJPEGR(&jpegImgR, &destImage, FLT_MAX, nullptr, of));
+    if (JPEGR_NO_ERROR != jpegHdr.decodeJPEGR(&jpegImgR, &destImage, FLT_MAX, nullptr, of)) {
+      s.SkipWithError("decodeJPEGR returned with error ");
+      return;
+    }
   }
-  ASSERT_EQ(info.width, destImage.width);
-  ASSERT_EQ(info.height, destImage.height);
+  if (info.width != destImage.width || info.height != destImage.height) {
+    s.SkipWithError("received unexpected width/height");
+    return;
+  }
 
   s.SetLabel(srcFileName + ", " + ofToString(of) + ", " + std::to_string(info.width) + "x" +
              std::to_string(info.height));
