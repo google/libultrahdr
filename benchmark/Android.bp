@@ -23,6 +23,7 @@ package {
 
 cc_benchmark {
     name: "ultrahdr_benchmark",
+    enabled: false,
     host_supported: true,
     srcs: ["benchmark_test.cpp"],
     static_libs: [

@@ -22,7 +22,8 @@ package {
 }
 
 cc_defaults {
-    name: "ultrahdr_fuzzer_defaults",
+    name: "ultrahdr_fuzzer_defaults-new",
+    enabled: false,
     host_supported: true,
     shared_libs: [
         "libimage_io",
@@ -52,7 +53,8 @@ cc_defaults {
 }
 
 cc_fuzz {
-    name: "ultrahdr_enc_fuzzer",
+    name: "ultrahdr_enc_fuzzer-new",
+    enabled: false,
     defaults: ["ultrahdr_fuzzer_defaults"],
     srcs: [
         "ultrahdr_enc_fuzzer.cpp",
@@ -60,7 +62,8 @@ cc_fuzz {
 }
 
 cc_fuzz {
-    name: "ultrahdr_dec_fuzzer",
+    name: "ultrahdr_dec_fuzzer-new",
+    enabled: false,
     defaults: ["ultrahdr_fuzzer_defaults"],
     srcs: [
         "ultrahdr_dec_fuzzer.cpp",

@@ -38,4 +38,5 @@ cc_binary {
         "libjpegencoder",
         "libultrahdr",
     ],
+    enabled: false,
 }
