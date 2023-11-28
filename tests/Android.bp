@@ -22,7 +22,7 @@ package {
 }
 
 cc_test {
-    name: "ultrahdr_unit_test",
+    name: "ultrahdr_unit_test-new",
     enabled: false,
     test_suites: ["device-tests"],
     srcs: [
