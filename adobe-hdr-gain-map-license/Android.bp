@@ -13,7 +13,7 @@
 // limitations under the License.
 
 license {
-    name: "adobe_hdr_gain_map_license",
+    name: "adobe_hdr_gain_map_license-new",
     license_kinds: ["legacy_by_exception_only"],
     license_text: ["NOTICE"],
 }
