@@ -16,7 +16,7 @@
 
 #include <gtest/gtest.h>
 
-#include "icc.h"
+#include "ultrahdr/icc.h"
 
 namespace ultrahdr {
 

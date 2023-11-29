@@ -18,7 +18,7 @@
 #include <iostream>
 #include <memory>
 
-#include "jpegr.h"
+#include "ultrahdr/jpegr.h"
 
 using namespace ultrahdr;
 
