@@ -97,7 +97,7 @@ std::string ofToString(const ultrahdr_output_format of) {
   }
 }
 
-std::string cgToString(const ultrahdr_color_gamut cg) {
+std::string colorGamutToString(const ultrahdr_color_gamut cg) {
   switch (cg) {
     case ULTRAHDR_COLORGAMUT_BT709:
       return "bt709";
@@ -234,8 +234,8 @@ static void BM_Encode_Api0(benchmark::State& s, std::vector<std::string> testVec
   ultrahdr_color_gamut p010Cg = static_cast<ultrahdr_color_gamut>(s.range(3));
   ultrahdr_transfer_function tf = static_cast<ultrahdr_transfer_function>(s.range(4));
 
-  s.SetLabel(testVectors[s.range(0)] + ", " + cgToString(p010Cg) + ", " + tfToString(tf) + ", " +
-             std::to_string(width) + "x" + std::to_string(height));
+  s.SetLabel(testVectors[s.range(0)] + ", " + colorGamutToString(p010Cg) + ", " + tfToString(tf) +
+             ", " + std::to_string(width) + "x" + std::to_string(height));
 
   std::string p010File{"./data/benchmark/p010/" + testVectors[s.range(0)]};
 
@@ -277,8 +277,9 @@ static void BM_Encode_Api1(benchmark::State& s,
   ultrahdr_transfer_function tf = static_cast<ultrahdr_transfer_function>(s.range(5));
 
   s.SetLabel(testVectors[s.range(0)].first + ", " + testVectors[s.range(0)].second + ", " +
-             "p010_" + cgToString(p010Cg) + ", " + "yuv420_" + cgToString(yuv420Cg) + ", " +
-             tfToString(tf) + ", " + std::to_string(width) + "x" + std::to_string(height));
+             "p010_" + colorGamutToString(p010Cg) + ", " + "yuv420_" +
+             colorGamutToString(yuv420Cg) + ", " + tfToString(tf) + ", " + std::to_string(width) +
+             "x" + std::to_string(height));
 
   std::string p010File{"./data/benchmark/p010/" + testVectors[s.range(0)].first};
 
@@ -328,8 +329,8 @@ static void BM_Encode_Api2(
   ultrahdr_transfer_function tf = static_cast<ultrahdr_transfer_function>(s.range(4));
 
   s.SetLabel(std::get<0>(testVectors[s.range(0)]) + ", " + std::get<1>(testVectors[s.range(0)]) +
-             ", " + std::get<2>(testVectors[s.range(0)]) + ", " + cgToString(p010Cg) + ", " +
-             tfToString(tf) + ", " + std::to_string(width) + "x" + std::to_string(height));
+             ", " + std::get<2>(testVectors[s.range(0)]) + ", " + colorGamutToString(p010Cg) +
+             ", " + tfToString(tf) + ", " + std::to_string(width) + "x" + std::to_string(height));
 
   std::string p010File{"./data/benchmark/p010/" + std::get<0>(testVectors[s.range(0)])};
 
@@ -393,8 +394,8 @@ static void BM_Encode_Api3(benchmark::State& s,
   ultrahdr_transfer_function tf = static_cast<ultrahdr_transfer_function>(s.range(4));
 
   s.SetLabel(testVectors[s.range(0)].first + ", " + testVectors[s.range(0)].second + ", " +
-             cgToString(p010Cg) + ", " + tfToString(tf) + ", " + std::to_string(width) + "x" +
-             std::to_string(height));
+             colorGamutToString(p010Cg) + ", " + tfToString(tf) + ", " + std::to_string(width) +
+             "x" + std::to_string(height));
 
   std::string p010File{"./data/benchmark/p010/" + testVectors[s.range(0)].first};
 
