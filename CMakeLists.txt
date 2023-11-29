@@ -336,10 +336,14 @@ if(UHDR_BUILD_TESTS OR UHDR_BUILD_BENCHMARK)
   if(WIN32)
     file(COPY "${TESTS_DIR}/data/" DESTINATION "${CMAKE_CURRENT_BINARY_DIR}/data")
   else()
-    execute_process(COMMAND cmake -E create_symlink
-      "${TESTS_DIR}/data/"
-      "${CMAKE_CURRENT_BINARY_DIR}/data"
-    )
+    execute_process(COMMAND "${CMAKE_COMMAND}" -E create_symlink
+      "${TESTS_DIR}/data/" "${CMAKE_CURRENT_BINARY_DIR}/data"
+      RESULT_VARIABLE result
+      ERROR_VARIABLE errorinfo)
+    string(FIND "${errorinfo}" "error" errorstatus)
+    if(result GREATER 0 OR errorstatus GREATER -1)
+      message(FATAL_ERROR "Creating sym link failed with info ${errorinfo}")
+    endif()
   endif()
 endif()
 
@@ -368,6 +372,41 @@ if(UHDR_BUILD_BENCHMARK)
     target_link_options(ultrahdr_bm PRIVATE -fsanitize=fuzzer-no-link)
   endif()
   target_link_libraries(ultrahdr_bm ultrahdr ${BENCHMARK_LIBRARIES})
+
+  set(RES_FILE "${TESTS_DIR}/data/UltrahdrBenchmarkTestRes-1.0.zip")
+  set(RES_FILE_MD5SUM "96651c5c07505c37aa017c57f480e6c1")
+  set(GET_RES_FILE TRUE)
+  if(EXISTS ${RES_FILE})
+    file(MD5 ${RES_FILE} CURR_MD5_SUM)
+    if(CURR_MD5_SUM STREQUAL RES_FILE_MD5SUM)
+      message("Zip File already exists: " ${RES_FILE})
+      set(GET_RES_FILE FALSE)
+    else()
+      file(REMOVE "${RES_FILE}")
+    endif()
+  endif()
+
+  if(GET_RES_FILE)
+    message("-- Downloading benchmark test resources")
+    set(RES_URL "https://storage.googleapis.com/android_media/external/libultrahdr/benchmark/UltrahdrBenchmarkTestRes-1.0.zip")
+    file(DOWNLOAD ${RES_URL} ${RES_FILE} STATUS result EXPECTED_MD5 ${RES_FILE_MD5SUM})
+    list(GET result 0 retval)
+    if(retval)
+      file(REMOVE "${RES_FILE}")
+      list(GET result 0 errcode)
+      list(GET result 1 info)
+      message(FATAL_ERROR "Error downloading ${RES_URL}: ${info} (${errcode})")
+    endif()
+  endif()
+  message("-- Extracting benchmark test resources")
+  execute_process(COMMAND "${CMAKE_COMMAND}" -E tar xf "${RES_FILE}"
+      WORKING_DIRECTORY "${TESTS_DIR}/data/"
+      RESULT_VARIABLE result
+      ERROR_VARIABLE errorinfo)
+  string(FIND "${errorinfo}" "error" errorstatus)
+  if(result GREATER 0 OR errorstatus GREATER -1)
+    message(FATAL_ERROR "Extracting benchmark test resources failed with info ${errorinfo}")
+  endif()
 endif()
 
 if(UHDR_BUILD_FUZZERS)

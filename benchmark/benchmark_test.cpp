@@ -23,6 +23,8 @@
 
 using namespace ultrahdr;
 
+std::string kTestImagesPath = "./data/UltrahdrBenchmarkTestRes-1.0/";
+
 std::vector<std::string> kDecodeAPITestImages{
     // 12mp test vectors
     "mountains.jpg",
@@ -60,26 +62,26 @@ std::vector<std::pair<std::string, std::string>> kEncodeApi1TestImages3MpName{
 
 std::vector<std::tuple<std::string, std::string, std::string>> kEncodeApi2TestImages12MpName{
     // 12mp test vectors
-    {"mountains.p010", "mountains.yuv", "mountains_8bit.jpg"},
-    {"mountain_lake.p010", "mountain_lake.yuv", "mountain_lake_8bit.jpg"},
+    {"mountains.p010", "mountains.yuv", "mountains.jpg"},
+    {"mountain_lake.p010", "mountain_lake.yuv", "mountain_lake.jpg"},
 };
 
 std::vector<std::tuple<std::string, std::string, std::string>> kEncodeApi2TestImages3MpName{
     // 3mp test vectors
-    {"mountains_3mp.p010", "mountains_3mp.yuv", "mountains_3mp_8bit.jpg"},
-    {"mountain_lake_3mp.p010", "mountain_lake_3mp.yuv", "mountain_lake_3mp_8bit.jpg"},
+    {"mountains_3mp.p010", "mountains_3mp.yuv", "mountains_3mp.jpg"},
+    {"mountain_lake_3mp.p010", "mountain_lake_3mp.yuv", "mountain_lake_3mp.jpg"},
 };
 
 std::vector<std::pair<std::string, std::string>> kEncodeApi3TestImages12MpName{
     // 12mp test vectors
-    {"mountains.p010", "mountains_8bit.jpg"},
-    {"mountain_lake.p010", "mountain_lake_8bit.jpg"},
+    {"mountains.p010", "mountains.jpg"},
+    {"mountain_lake.p010", "mountain_lake.jpg"},
 };
 
 std::vector<std::pair<std::string, std::string>> kEncodeApi3TestImages3MpName{
     // 3mp test vectors
-    {"mountains_3mp.p010", "mountains_3mp_8bit.jpg"},
-    {"mountain_lake_3mp.p010", "mountain_lake_3mp_8bit.jpg"},
+    {"mountains_3mp.p010", "mountains_3mp.jpg"},
+    {"mountain_lake_3mp.p010", "mountain_lake_3mp.jpg"},
 };
 
 std::string ofToString(const ultrahdr_output_format of) {
@@ -174,7 +176,7 @@ bool fillJpgImageHandle(jpegr_compressed_struct* jpgImg, std::string file,
 }
 
 static void BM_Decode(benchmark::State& s) {
-  std::string srcFileName = "./data/benchmark/test_images/" + kDecodeAPITestImages[s.range(0)];
+  std::string srcFileName = kTestImagesPath + "jpegr/" + kDecodeAPITestImages[s.range(0)];
   ultrahdr_output_format of = static_cast<ultrahdr_output_format>(s.range(1));
 
   std::ifstream ifd(srcFileName.c_str(), std::ios::binary | std::ios::ate);
@@ -237,7 +239,7 @@ static void BM_Encode_Api0(benchmark::State& s, std::vector<std::string> testVec
   s.SetLabel(testVectors[s.range(0)] + ", " + colorGamutToString(p010Cg) + ", " + tfToString(tf) +
              ", " + std::to_string(width) + "x" + std::to_string(height));
 
-  std::string p010File{"./data/benchmark/p010/" + testVectors[s.range(0)]};
+  std::string p010File{kTestImagesPath + "p010/" + testVectors[s.range(0)]};
 
   jpegr_uncompressed_struct rawP010Image{};
   if (!fillRawImageHandle(&rawP010Image, width, height, p010File, p010Cg, true)) {
@@ -281,7 +283,7 @@ static void BM_Encode_Api1(benchmark::State& s,
              colorGamutToString(yuv420Cg) + ", " + tfToString(tf) + ", " + std::to_string(width) +
              "x" + std::to_string(height));
 
-  std::string p010File{"./data/benchmark/p010/" + testVectors[s.range(0)].first};
+  std::string p010File{kTestImagesPath + "p010/" + testVectors[s.range(0)].first};
 
   jpegr_uncompressed_struct rawP010Image{};
   if (!fillRawImageHandle(&rawP010Image, width, height, p010File, p010Cg, true)) {
@@ -291,7 +293,7 @@ static void BM_Encode_Api1(benchmark::State& s,
   std::unique_ptr<uint8_t[]> rawP010ImgData;
   rawP010ImgData.reset(reinterpret_cast<uint8_t*>(rawP010Image.data));
 
-  std::string yuv420File{"./data/benchmark/yuv420/" + testVectors[s.range(0)].second};
+  std::string yuv420File{kTestImagesPath + "yuv420/" + testVectors[s.range(0)].second};
 
   jpegr_uncompressed_struct rawYuv420Image{};
   if (!fillRawImageHandle(&rawYuv420Image, width, height, yuv420File, yuv420Cg, false)) {
@@ -332,7 +334,7 @@ static void BM_Encode_Api2(
              ", " + std::get<2>(testVectors[s.range(0)]) + ", " + colorGamutToString(p010Cg) +
              ", " + tfToString(tf) + ", " + std::to_string(width) + "x" + std::to_string(height));
 
-  std::string p010File{"./data/benchmark/p010/" + std::get<0>(testVectors[s.range(0)])};
+  std::string p010File{kTestImagesPath + "p010/" + std::get<0>(testVectors[s.range(0)])};
 
   jpegr_uncompressed_struct rawP010Image{};
   if (!fillRawImageHandle(&rawP010Image, width, height, p010File, p010Cg, true)) {
@@ -342,7 +344,7 @@ static void BM_Encode_Api2(
   std::unique_ptr<uint8_t[]> rawP010ImgData;
   rawP010ImgData.reset(reinterpret_cast<uint8_t*>(rawP010Image.data));
 
-  std::string yuv420File{"./data/benchmark/yuv420/" + std::get<1>(testVectors[s.range(0)])};
+  std::string yuv420File{kTestImagesPath + "yuv420/" + std::get<1>(testVectors[s.range(0)])};
 
   jpegr_uncompressed_struct rawYuv420Image{};
   if (!fillRawImageHandle(&rawYuv420Image, width, height, yuv420File, ULTRAHDR_COLORGAMUT_P3,
@@ -354,7 +356,7 @@ static void BM_Encode_Api2(
   rawYuv420ImgData.reset(reinterpret_cast<uint8_t*>(rawYuv420Image.data));
 
   std::string yuv420JpegFile{
-      ("./data/benchmark/yuv420jpeg/" + std::get<2>(testVectors[s.range(0)]))};
+      (kTestImagesPath + "yuv420jpeg/" + std::get<2>(testVectors[s.range(0)]))};
 
   jpegr_compressed_struct yuv420JpegImage{};
   if (!fillJpgImageHandle(&yuv420JpegImage, yuv420JpegFile, ULTRAHDR_COLORGAMUT_P3)) {
@@ -397,7 +399,7 @@ static void BM_Encode_Api3(benchmark::State& s,
              colorGamutToString(p010Cg) + ", " + tfToString(tf) + ", " + std::to_string(width) +
              "x" + std::to_string(height));
 
-  std::string p010File{"./data/benchmark/p010/" + testVectors[s.range(0)].first};
+  std::string p010File{kTestImagesPath + "p010/" + testVectors[s.range(0)].first};
 
   jpegr_uncompressed_struct rawP010Image{};
   if (!fillRawImageHandle(&rawP010Image, width, height, p010File, p010Cg, true)) {
@@ -407,7 +409,7 @@ static void BM_Encode_Api3(benchmark::State& s,
   std::unique_ptr<uint8_t[]> rawP010ImgData;
   rawP010ImgData.reset(reinterpret_cast<uint8_t*>(rawP010Image.data));
 
-  std::string yuv420JpegFile{("./data/benchmark/yuv420jpeg/" + testVectors[s.range(0)].second)};
+  std::string yuv420JpegFile{(kTestImagesPath + "yuv420jpeg/" + testVectors[s.range(0)].second)};
 
   jpegr_compressed_struct yuv420JpegImage{};
   if (!fillJpgImageHandle(&yuv420JpegImage, yuv420JpegFile, ULTRAHDR_COLORGAMUT_P3)) {
