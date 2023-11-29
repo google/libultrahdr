@@ -20,9 +20,9 @@
 #include <memory>
 #include <random>
 
-#include "ultrahdrcommon.h"
-#include "gainmapmath.h"
-#include "jpegr.h"
+#include "ultrahdr/ultrahdrcommon.h"
+#include "ultrahdr/gainmapmath.h"
+#include "ultrahdr/jpegr.h"
 
 using namespace ultrahdr;
 

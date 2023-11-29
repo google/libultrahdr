@@ -19,9 +19,9 @@
 #include <fstream>
 #include <iostream>
 
-#include "ultrahdrcommon.h"
-#include "ultrahdr.h"
-#include "jpegencoderhelper.h"
+#include "ultrahdr/ultrahdrcommon.h"
+#include "ultrahdr/ultrahdr.h"
+#include "ultrahdr/jpegencoderhelper.h"
 
 namespace ultrahdr {
 

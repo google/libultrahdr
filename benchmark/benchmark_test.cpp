@@ -19,7 +19,7 @@
 
 #include <benchmark/benchmark.h>
 
-#include "jpegr.h"
+#include "ultrahdr/jpegr.h"
 
 using namespace ultrahdr;
 

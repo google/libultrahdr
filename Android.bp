@@ -36,15 +36,15 @@ cc_library {
     enabled: false,
     host_supported: true,
     vendor_available: true,
-    export_include_dirs: ["lib"],
-    local_include_dirs: ["lib"],
+    export_include_dirs: ["lib/include"],
+    local_include_dirs: ["lib/include"],
 
     srcs: [
-        "lib/icc.cpp",
-        "lib/jpegr.cpp",
-        "lib/gainmapmath.cpp",
-        "lib/jpegrutils.cpp",
-        "lib/multipictureformat.cpp",
+        "lib/src/icc.cpp",
+        "lib/src/jpegr.cpp",
+        "lib/src/gainmapmath.cpp",
+        "lib/src/jpegrutils.cpp",
+        "lib/src/multipictureformat.cpp",
     ],
 
     shared_libs: [
@@ -67,10 +67,10 @@ cc_library {
         "liblog",
     ],
 
-    export_include_dirs: ["lib"],
+    export_include_dirs: ["lib/include"],
 
     srcs: [
-        "lib/jpegencoderhelper.cpp",
+        "lib/src/jpegencoderhelper.cpp",
     ],
 }
 
@@ -85,9 +85,9 @@ cc_library {
         "liblog",
     ],
 
-    export_include_dirs: ["lib"],
+    export_include_dirs: ["lib/include"],
 
     srcs: [
-        "lib/jpegdecoderhelper.cpp",
+        "lib/src/jpegdecoderhelper.cpp",
     ],
 }

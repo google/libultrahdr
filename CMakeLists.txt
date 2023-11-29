@@ -295,12 +295,12 @@ set_property(DIRECTORY PROPERTY ADDITIONAL_MAKE_CLEAN_FILES
 ###########################################################
 # File Lists
 ###########################################################
-file(GLOB UHDR_LIB_LIST "${SOURCE_DIR}/*.cpp")
+file(GLOB UHDR_LIB_LIST "${SOURCE_DIR}/src/*.cpp")
 file(GLOB UHDR_TEST_LIST "${TESTS_DIR}/*.cpp")
 file(GLOB UHDR_BM_LIST "${BENCHMARK_DIR}/*.cpp")
 file(GLOB IMAGE_IO_LIST "${THIRD_PARTY_DIR}/image_io/src/**/*.cc")
 
-set(COMMON_INCLUDE_LIST ${SOURCE_DIR} ${JPEG_INCLUDE_DIRS})
+set(COMMON_INCLUDE_LIST ${SOURCE_DIR}/include/ ${JPEG_INCLUDE_DIRS})
 set(COMMON_LIBS_LIST ${JPEG_LIBRARIES} Threads::Threads)
 
 ###########################################################

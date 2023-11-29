@@ -17,9 +17,9 @@
 #include <algorithm>
 #include <cmath>
 
-#include "ultrahdrcommon.h"
-#include "jpegr.h"
-#include "jpegrutils.h"
+#include "ultrahdr/ultrahdrcommon.h"
+#include "ultrahdr/jpegr.h"
+#include "ultrahdr/jpegrutils.h"
 
 #include "image_io/xml/xml_reader.h"
 #include "image_io/xml/xml_writer.h"

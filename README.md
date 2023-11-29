@@ -83,7 +83,7 @@ This will generate the following files under *{build_directory/Release}*:
     mkdir {build_directory}
     cd {build_directory}
     cmake -G "NMake Makefiles" -DUHDR_BUILD_TESTS=1 ../
-    cmake --build ./ --config=Release
+    cmake --build ./
     ctest
 
 This will generate the following files under *{build_directory}*:
@@ -132,5 +132,5 @@ Using libultrahdr
 libultrahdr includes two classes of APIs, one to compress and the other to
 decompress HDR images:
 
-- Refer to [jpegr.h](lib/jpegr.h) for detailed description of various encode and decode api.
+- Refer to [jpegr.h](lib/include/ultrahdr/jpegr.h) for detailed description of various encode and decode api.
 - Refer to [ultrahdr_app.cpp](examples/ultrahdr_app.cpp) for examples of its usage.
