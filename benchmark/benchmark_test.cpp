@@ -23,7 +23,11 @@
 
 using namespace ultrahdr;
 
+#ifdef __ANDROID__
+std::string kTestImagesPath = "/sdcard/test/UltrahdrBenchmarkTestRes-1.0/";
+#else
 std::string kTestImagesPath = "./data/UltrahdrBenchmarkTestRes-1.0/";
+#endif
 
 std::vector<std::string> kDecodeAPITestImages{
     // 12mp test vectors
