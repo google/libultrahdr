@@ -136,5 +136,26 @@ Using libultrahdr
 libultrahdr includes two classes of APIs, one to compress and the other to
 decompress HDR images:
 
+List of encode APIs:
+| Input  | HDR YUV | SDR YUV | JPEG | Encoded gainmap | Quality (0 ~ 100) | EXIF | Use case |
+| ------------- | ------------- | ------------- | ------------- | ------------- | ------------- | ------------- | ------------- |
+| API-0  | P010  | No | No | No | Required | Optional | Experimental only. |
+| API-1  | P010  | YUV_420 | No | No | Required | Optional | Raw SDR input. Primary image will be encoded from the raw SDR input in the library. |
+| API-2  | P010  | YUV_420 | Yes | No | No | No | Both JPEG and raw SDR inputs. Gainmap will be caululated from raw HDR and raw SDR inputs, the JPEG input will be preserved (including metadata) as the primary image. |
+| API-3  | P010  | No | Yes | No | No | No | SDR JPEG input. Gainmap will be calculated from raw HDR and the decoding result of the JPEG input, the JPEG input will be preserved (including metadata) as the primary image.  |
+| API-4  | No  | No | Yes | Yes | No | No | SDR JPEG and gainmap inputs. The library will only generate the Ultra HDR related metadata and write everything into the Ultra HDR format, all other metadata from the JPEG input will be preserved. |
+
+List of decode API:
+| Input  | Usage |
+| ------------- | ------------- |
+| compressed_jpegr_image  | The input data. Pointer to JPEG/R stream. |
+| dest  | The output data. Destination that decoded data to be written. |
+| max_display_boost  | (optional, >= 1.0) the maximum available boost supported by a display. |
+| exif  | (optional, default to NULL) Destination that exif data to be written. |
+| recovery_map  | (optional, default to NULL) Destination that decoded recovery map data to be written. |
+| output_format  | <table><thead><tr><th>Value</th><th>Color format to be written</th></tr></thead><tbody><tr><td>SDR</td><td>RGBA_8888</td></tr><tr><td>HDR_LINEAR</td><td>(default) RGBA_F16 linear</td></tr><tr><td>HDR_PQ</td><td>RGBA_1010102 PQ</td></tr><tr><td>HDR_HLG</td><td>RGBA_1010102 HLG</td></tr></tbody></table> |
+| metadata  | (optional, default to NULL) Destination of metadata (recovery map version, min/max content boost). |
+
+For more info:
 - Refer to [jpegr.h](lib/include/ultrahdr/jpegr.h) for detailed description of various encode and decode api.
 - Refer to [ultrahdr_app.cpp](examples/ultrahdr_app.cpp) for examples of its usage.
