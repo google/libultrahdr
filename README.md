@@ -124,7 +124,12 @@ NOTE: To not build unit tests, skip passing -DUHDR_BUILD_TESTS=1
 
 ### Building Benchmark
 
-    cmake {cmake_options} -DUHDR_BUILD_BENCHMARK=1
+To build benchmarks, pass -DUHDR_BUILD_BENCHMARK=1 to cmake configure command and build.
+
+This will additionally generate,
+
+**ultrahdr_bm**<br> Benchmark tests
+
 
 ### Building Fuzzers
 
