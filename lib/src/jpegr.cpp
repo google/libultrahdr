@@ -1010,29 +1010,39 @@ status_t JpegR::applyGainMap(jr_uncompressed_ptr yuv420_image_ptr,
     return ERROR_JPEGR_BAD_METADATA;
   }
 
-  // TODO: remove once map scaling factor is computed based on actual map dims
-  size_t image_width = yuv420_image_ptr->width;
-  size_t image_height = yuv420_image_ptr->height;
-  size_t map_width = image_width / kMapDimensionScaleFactor;
-  size_t map_height = image_height / kMapDimensionScaleFactor;
-  if (map_width != gainmap_image_ptr->width || map_height != gainmap_image_ptr->height) {
+  if (yuv420_image_ptr->width % gainmap_image_ptr->width != 0 ||
+      yuv420_image_ptr->height % gainmap_image_ptr->height != 0) {
     ALOGE(
-        "gain map dimensions and primary image dimensions are not to scale, computed gain map "
-        "resolution is %zux%zu, received gain map resolution is %zux%zu",
-        map_width, map_height, gainmap_image_ptr->width, gainmap_image_ptr->height);
-    return ERROR_JPEGR_RESOLUTION_MISMATCH;
+        "gain map dimensions scale factor value is not an integer, primary image resolution is "
+        "%zux%zu, received gain map resolution is %zux%zu",
+        yuv420_image_ptr->width, yuv420_image_ptr->height, gainmap_image_ptr->width,
+        gainmap_image_ptr->height);
+    return ERROR_JPEGR_UNSUPPORTED_MAP_SCALE_FACTOR;
   }
+
+  if (yuv420_image_ptr->width * gainmap_image_ptr->height !=
+      yuv420_image_ptr->height * gainmap_image_ptr->width) {
+    ALOGE(
+        "gain map dimensions scale factor values for height and width are different, \n primary "
+        "image resolution is %zux%zu, received gain map resolution is %zux%zu",
+        yuv420_image_ptr->width, yuv420_image_ptr->height, gainmap_image_ptr->width,
+        gainmap_image_ptr->height);
+    return ERROR_JPEGR_UNSUPPORTED_MAP_SCALE_FACTOR;
+  }
+  // TODO: Currently map_scale_factor is of type size_t, but it could be changed to a float
+  // later.
+  size_t map_scale_factor = yuv420_image_ptr->width / gainmap_image_ptr->width;
 
   dest->width = yuv420_image_ptr->width;
   dest->height = yuv420_image_ptr->height;
-  ShepardsIDW idwTable(kMapDimensionScaleFactor);
+  ShepardsIDW idwTable(map_scale_factor);
   float display_boost = (std::min)(max_display_boost, metadata->maxContentBoost);
   GainLUT gainLUT(metadata, display_boost);
 
   JobQueue jobQueue;
   std::function<void()> applyRecMap = [yuv420_image_ptr, gainmap_image_ptr, dest, &jobQueue,
-                                       &idwTable, output_format, &gainLUT,
-                                       display_boost]() -> void {
+                                       &idwTable, output_format, &gainLUT, display_boost,
+                                       map_scale_factor]() -> void {
     size_t width = yuv420_image_ptr->width;
 
     size_t rowStart, rowEnd;
@@ -1049,11 +1059,7 @@ status_t JpegR::applyGainMap(jr_uncompressed_ptr yuv420_image_ptr,
           Color rgb_sdr = srgbInvOetf(rgb_gamma_sdr);
 #endif
           float gain;
-          // TODO: determine map scaling factor based on actual map dims
-          size_t map_scale_factor = kMapDimensionScaleFactor;
           // TODO: If map_scale_factor is guaranteed to be an integer, then remove the following.
-          // Currently map_scale_factor is of type size_t, but it could be changed to a float
-          // later.
           if (map_scale_factor != floorf(map_scale_factor)) {
             gain = sampleMap(gainmap_image_ptr, map_scale_factor, x, y);
           } else {
@@ -1110,7 +1116,7 @@ status_t JpegR::applyGainMap(jr_uncompressed_ptr yuv420_image_ptr,
   for (int th = 0; th < threads - 1; th++) {
     workers.push_back(std::thread(applyRecMap));
   }
-  const int rowStep = threads == 1 ? yuv420_image_ptr->height : kJobSzInRows;
+  const int rowStep = threads == 1 ? yuv420_image_ptr->height : map_scale_factor;
   for (size_t rowStart = 0; rowStart < yuv420_image_ptr->height;) {
     int rowEnd = (std::min)(rowStart + rowStep, yuv420_image_ptr->height);
     jobQueue.enqueueJob(rowStart, rowEnd);
