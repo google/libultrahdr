@@ -41,6 +41,13 @@ static const int kMaxWidth = 8192;
 static const int kMaxHeight = 8192;
 
 namespace ultrahdr {
+
+typedef enum {
+  PARSE_ONLY = 0,       // Dont decode. Parse for dimensions, EXIF, ICC, XMP
+  DECODE_TO_RGBA = 1,   // Parse and decode to rgba
+  DECODE_TO_YCBCR = 2,  // Parse and decode to YCBCR or Grayscale
+} decode_mode_t;
+
 /*
  * Encapsulates a converter from JPEG to raw image (YUV420planer or grey-scale) format.
  * This class is not thread-safe.
@@ -54,7 +61,7 @@ class JpegDecoderHelper {
    * calling this method, call getDecompressedImage() to get the image.
    * Returns false if decompressing the image fails.
    */
-  bool decompressImage(const void* image, int length, bool decodeToRGBA = false);
+  bool decompressImage(const void* image, int length, decode_mode_t decodeTo = DECODE_TO_YCBCR);
   /*
    * Returns the decompressed raw image buffer pointer. This method must be called only after
    * calling decompressImage().
@@ -117,11 +124,10 @@ class JpegDecoderHelper {
   /*
    * Decompresses metadata of the image. All vectors are owned by the caller.
    */
-  bool getCompressedImageParameters(const void* image, int length, size_t* pWidth, size_t* pHeight,
-                                    std::vector<uint8_t>* iccData, std::vector<uint8_t>* exifData);
+  bool getCompressedImageParameters(const void* image, int length);
 
  private:
-  bool decode(const void* image, int length, bool decodeToRGBA);
+  bool decode(const void* image, int length, decode_mode_t decodeTo);
   // Returns false if errors occur.
   bool decompress(jpeg_decompress_struct* cinfo, const uint8_t* dest, bool isSingleChannel);
   bool decompressYUV(jpeg_decompress_struct* cinfo, const uint8_t* dest);

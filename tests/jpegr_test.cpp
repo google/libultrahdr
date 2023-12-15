@@ -302,9 +302,7 @@ static bool readFile(const char* fileName, void*& result, int maxLength, int& le
 }
 
 void decodeJpegRImg(jr_compressed_ptr img, [[maybe_unused]] const char* outFileName) {
-  std::vector<uint8_t> iccData(0);
-  std::vector<uint8_t> exifData(0);
-  jpegr_info_struct info{0, 0, &iccData, &exifData};
+  jpegr_info_struct info{};
   JpegR jpegHdr;
   ASSERT_EQ(JPEGR_NO_ERROR, jpegHdr.getJPEGRInfo(img, &info));
   ASSERT_EQ(kImageWidth, info.width);

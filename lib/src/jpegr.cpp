@@ -558,13 +558,13 @@ status_t JpegR::encodeJPEGR(jr_compressed_ptr yuv420jpg_image_ptr,
   // We just want to check if ICC is present, so don't do a full decode. Note,
   // this doesn't verify that the ICC is valid.
   JpegDecoderHelper decoder;
-  std::vector<uint8_t> icc;
-  decoder.getCompressedImageParameters(yuv420jpg_image_ptr->data, yuv420jpg_image_ptr->length,
-                                       /* pWidth */ nullptr, /* pHeight */ nullptr, &icc,
-                                       /* exifData */ nullptr);
+  if (!decoder.getCompressedImageParameters(yuv420jpg_image_ptr->data,
+                                            yuv420jpg_image_ptr->length)) {
+    return ERROR_JPEGR_DECODE_ERROR;
+  }
 
   // Add ICC if not already present.
-  if (icc.size() > 0) {
+  if (decoder.getICCSize() > 0) {
     JPEGR_CHECK(appendGainMap(yuv420jpg_image_ptr, gainmapjpg_image_ptr, /* exif */ nullptr,
                               /* icc */ nullptr, /* icc size */ 0, metadata, dest));
   } else {
@@ -577,12 +577,12 @@ status_t JpegR::encodeJPEGR(jr_compressed_ptr yuv420jpg_image_ptr,
   return JPEGR_NO_ERROR;
 }
 
-status_t JpegR::getJPEGRInfo(jr_compressed_ptr jpegr_image_ptr, jr_info_ptr jpeg_image_info_ptr) {
+status_t JpegR::getJPEGRInfo(jr_compressed_ptr jpegr_image_ptr, jr_info_ptr jpegr_image_info_ptr) {
   if (jpegr_image_ptr == nullptr || jpegr_image_ptr->data == nullptr) {
     ALOGE("received nullptr for compressed jpegr image");
     return ERROR_JPEGR_BAD_PTR;
   }
-  if (jpeg_image_info_ptr == nullptr) {
+  if (jpegr_image_info_ptr == nullptr) {
     ALOGE("received nullptr for compressed jpegr info struct");
     return ERROR_JPEGR_BAD_PTR;
   }
@@ -592,13 +592,16 @@ status_t JpegR::getJPEGRInfo(jr_compressed_ptr jpegr_image_ptr, jr_info_ptr jpeg
   if (status != JPEGR_NO_ERROR && status != ERROR_JPEGR_GAIN_MAP_IMAGE_NOT_FOUND) {
     return status;
   }
-
-  JpegDecoderHelper jpeg_dec_obj_hdr;
-  if (!jpeg_dec_obj_hdr.getCompressedImageParameters(
-          primary_image.data, primary_image.length, &jpeg_image_info_ptr->width,
-          &jpeg_image_info_ptr->height, jpeg_image_info_ptr->iccData,
-          jpeg_image_info_ptr->exifData)) {
-    return ERROR_JPEGR_DECODE_ERROR;
+  status = parseJpegInfo(&primary_image, jpegr_image_info_ptr->primaryImgInfo,
+                         &jpegr_image_info_ptr->width, &jpegr_image_info_ptr->height);
+  if (status != JPEGR_NO_ERROR) {
+    return status;
+  }
+  if (jpegr_image_info_ptr->gainmapImgInfo != nullptr) {
+    status = parseJpegInfo(&gainmap_image, jpegr_image_info_ptr->gainmapImgInfo);
+    if (status != JPEGR_NO_ERROR) {
+      return status;
+    }
   }
 
   return status;
@@ -641,8 +644,9 @@ status_t JpegR::decodeJPEGR(jr_compressed_ptr jpegr_image_ptr, jr_uncompressed_p
   }
 
   JpegDecoderHelper jpeg_dec_obj_yuv420;
-  if (!jpeg_dec_obj_yuv420.decompressImage(primary_jpeg_image.data, primary_jpeg_image.length,
-                                           (output_format == ULTRAHDR_OUTPUT_SDR))) {
+  if (!jpeg_dec_obj_yuv420.decompressImage(
+          primary_jpeg_image.data, primary_jpeg_image.length,
+          (output_format == ULTRAHDR_OUTPUT_SDR) ? DECODE_TO_RGBA : DECODE_TO_YCBCR)) {
     return ERROR_JPEGR_DECODE_ERROR;
   }
 
@@ -1180,6 +1184,45 @@ status_t JpegR::extractPrimaryImageAndGainMap(jr_compressed_ptr jpegr_image_ptr,
           (int)image_ranges.size());
   }
 
+  return JPEGR_NO_ERROR;
+}
+
+status_t JpegR::parseJpegInfo(jr_compressed_ptr jpeg_image_ptr, j_info_ptr jpeg_image_info_ptr,
+                              size_t* img_width, size_t* img_height) {
+  JpegDecoderHelper jpeg_dec_obj;
+  if (!jpeg_dec_obj.getCompressedImageParameters(jpeg_image_ptr->data, jpeg_image_ptr->length)) {
+    return ERROR_JPEGR_DECODE_ERROR;
+  }
+  size_t imgWidth, imgHeight;
+  imgWidth = jpeg_dec_obj.getDecompressedImageWidth();
+  imgHeight = jpeg_dec_obj.getDecompressedImageHeight();
+
+  if (jpeg_image_info_ptr != nullptr) {
+    jpeg_image_info_ptr->width = imgWidth;
+    jpeg_image_info_ptr->height = imgHeight;
+    jpeg_image_info_ptr->imgData.resize(jpeg_image_ptr->length, 0);
+    memcpy(static_cast<void*>(jpeg_image_info_ptr->imgData.data()), jpeg_image_ptr->data,
+           jpeg_image_ptr->length);
+    if (jpeg_dec_obj.getICCSize() != 0) {
+      jpeg_image_info_ptr->iccData.resize(jpeg_dec_obj.getICCSize(), 0);
+      memcpy(static_cast<void*>(jpeg_image_info_ptr->iccData.data()), jpeg_dec_obj.getICCPtr(),
+             jpeg_dec_obj.getICCSize());
+    }
+    if (jpeg_dec_obj.getEXIFSize() != 0) {
+      jpeg_image_info_ptr->exifData.resize(jpeg_dec_obj.getEXIFSize(), 0);
+      memcpy(static_cast<void*>(jpeg_image_info_ptr->exifData.data()), jpeg_dec_obj.getEXIFPtr(),
+             jpeg_dec_obj.getEXIFSize());
+    }
+    if (jpeg_dec_obj.getXMPSize() != 0) {
+      jpeg_image_info_ptr->xmpData.resize(jpeg_dec_obj.getXMPSize(), 0);
+      memcpy(static_cast<void*>(jpeg_image_info_ptr->xmpData.data()), jpeg_dec_obj.getXMPPtr(),
+             jpeg_dec_obj.getXMPSize());
+    }
+  }
+  if (img_width != nullptr && img_height != nullptr) {
+    *img_width = imgWidth;
+    *img_height = imgHeight;
+  }
   return JPEGR_NO_ERROR;
 }
 

@@ -205,9 +205,7 @@ static void BM_Decode(benchmark::State& s) {
   compData.reset(reinterpret_cast<uint8_t*>(jpegImgR.data));
 
   JpegR jpegHdr;
-  std::vector<uint8_t> iccData(0);
-  std::vector<uint8_t> exifData(0);
-  jpegr_info_struct info{0, 0, &iccData, &exifData};
+  jpegr_info_struct info{};
   status_t status = jpegHdr.getJPEGRInfo(&jpegImgR, &info);
   if (JPEGR_NO_ERROR != status) {
     s.SkipWithError("getJPEGRInfo returned with error " + std::to_string(status));

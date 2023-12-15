@@ -67,13 +67,25 @@ typedef enum {
 } status_t;
 
 /*
+ * Holds information of jpeg image
+ */
+struct jpeg_info_struct {
+  std::vector<uint8_t> imgData = std::vector<uint8_t>(0);
+  std::vector<uint8_t> iccData = std::vector<uint8_t>(0);
+  std::vector<uint8_t> exifData = std::vector<uint8_t>(0);
+  std::vector<uint8_t> xmpData = std::vector<uint8_t>(0);
+  size_t width;
+  size_t height;
+};
+
+/*
  * Holds information of jpegr image
  */
 struct jpegr_info_struct {
-  size_t width;
-  size_t height;
-  std::vector<uint8_t>* iccData;
-  std::vector<uint8_t>* exifData;
+  size_t width;   // copy of primary image width (for easier access)
+  size_t height;  // copy of primary image height (for easier access)
+  jpeg_info_struct* primaryImgInfo = nullptr;
+  jpeg_info_struct* gainmapImgInfo = nullptr;
 };
 
 /*
@@ -134,6 +146,7 @@ struct jpegr_exif_struct {
 typedef struct jpegr_uncompressed_struct* jr_uncompressed_ptr;
 typedef struct jpegr_compressed_struct* jr_compressed_ptr;
 typedef struct jpegr_exif_struct* jr_exif_ptr;
+typedef struct jpeg_info_struct* j_info_ptr;
 typedef struct jpegr_info_struct* jr_info_ptr;
 
 class JpegR {
@@ -373,6 +386,20 @@ class JpegR {
   status_t extractPrimaryImageAndGainMap(jr_compressed_ptr jpegr_image_ptr,
                                          jr_compressed_ptr primary_jpg_image_ptr,
                                          jr_compressed_ptr gainmap_jpg_image_ptr);
+
+  /*
+   * Gets Info from JPEG image without decoding it.
+   *
+   * The output is filled jpeg_info structure
+   * @param jpegr_image_ptr compressed JPEG image
+   * @param jpeg_image_info_ptr pointer to jpeg info struct. Members of jpeg_info_struct
+   *                            are owned by the caller
+   * @param img_width (optional) pointer to store width of jpeg image
+   * @param img_height (optional) pointer to store height of jpeg image
+   * @return NO_ERROR if JPEGR parsing succeeds, error code otherwise
+   */
+  status_t parseJpegInfo(jr_compressed_ptr jpeg_image_ptr, j_info_ptr jpeg_image_info_ptr,
+                         size_t* img_width = nullptr, size_t* img_height = nullptr);
 
   /*
    * This method is called in the encoding pipeline. It will take the standard 8-bit JPEG image,

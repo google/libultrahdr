@@ -367,7 +367,7 @@ bool UltraHdrAppInput::decode() {
   if (mMode == 1 && !fillJpegRImageHandle()) return false;
   std::vector<uint8_t> iccData(0);
   std::vector<uint8_t> exifData(0);
-  jpegr_info_struct info{0, 0, &iccData, &exifData};
+  jpegr_info_struct info{};
   JpegR jpegHdr;
   status_t status = jpegHdr.getJPEGRInfo(&mJpegImgR, &info);
   if (JPEGR_NO_ERROR == status) {
