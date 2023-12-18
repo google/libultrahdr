@@ -146,7 +146,7 @@ List of encode APIs:
 | ------------- | ------------- | ------------- | ------------- | ------------- | ------------- | ------------- | ------------- |
 | API-0  | P010  | No | No | No | Required | Optional | Experimental only. |
 | API-1  | P010  | YUV_420 | No | No | Required | Optional | Raw SDR input. Primary image will be encoded from the raw SDR input in the library. |
-| API-2  | P010  | YUV_420 | Yes | No | No | No | Both JPEG and raw SDR inputs. Gainmap will be caululated from raw HDR and raw SDR inputs, the JPEG input will be preserved (including metadata) as the primary image. |
+| API-2  | P010  | YUV_420 | Yes | No | No | No | Both JPEG and raw SDR inputs. Gainmap will be calculated from raw HDR and raw SDR inputs, the JPEG input will be preserved (including metadata) as the primary image. |
 | API-3  | P010  | No | Yes | No | No | No | SDR JPEG input. Gainmap will be calculated from raw HDR and the decoding result of the JPEG input, the JPEG input will be preserved (including metadata) as the primary image.  |
 | API-4  | No  | No | Yes | Yes | No | No | SDR JPEG and gainmap inputs. The library will only generate the Ultra HDR related metadata and write everything into the Ultra HDR format, all other metadata from the JPEG input will be preserved. |
 
