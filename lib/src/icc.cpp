@@ -633,6 +633,13 @@ ultrahdr_color_gamut IccHelper::readIccColorGamut(void* icc_data, size_t icc_siz
   size_t red_primary_offset = 0, green_primary_offset = 0, blue_primary_offset = 0;
   size_t red_primary_size = 0, green_primary_size = 0, blue_primary_size = 0;
   for (size_t tag_idx = 0; tag_idx < Endian_SwapBE32(header->tag_count); ++tag_idx) {
+    if (icc_size < kICCIdentifierSize + sizeof(ICCHeader) + ((tag_idx + 1) * kTagTableEntrySize)) {
+      ALOGE(
+          "Insufficient buffer size during icc parsing. tag index %zu, header %zu, tag size %zu, "
+          "icc size %zu",
+          tag_idx, kICCIdentifierSize + sizeof(ICCHeader), kTagTableEntrySize, icc_size);
+      return ULTRAHDR_COLORGAMUT_UNSPECIFIED;
+    }
     uint32_t* tag_entry_start =
         reinterpret_cast<uint32_t*>(icc_bytes + sizeof(ICCHeader) + tag_idx * kTagTableEntrySize);
     // first 4 bytes are the tag signature, next 4 bytes are the tag offset,
