@@ -451,7 +451,35 @@ bool getMetadataFromXMP(uint8_t* xmp_data, size_t xmp_size, ultrahdr_metadata_st
   xmp_size -= nameSpace.size() + 1;
   XMPXmlHandler handler;
 
-  // We need to remove tail data until the closing tag. Otherwise parser will throw an error.
+  // xml parser fails to parse packet header, wrapper. remove them before handing the data to
+  // parser. if there is no packet header, do nothing otherwise go to the position of '<' without
+  // '?' after it.
+  int offset = 0;
+  for (int i = 0; i < xmp_size; ++i) {
+    if (xmp_data[i] == '<') {
+      if (xmp_data[i + 1] != '?') {
+        offset = i;
+        break;
+      }
+    }
+  }
+  xmp_data += offset;
+  xmp_size -= offset;
+
+  // If there is no packet wrapper, do nothing other wise go to the position of last '>' without '?'
+  // before it.
+  offset = 0;
+  for (int i = xmp_size - 1; i >= 1; --i) {
+    if (xmp_data[i] == '>') {
+      if (xmp_data[i - 1] != '?') {
+        offset = xmp_size - (i + 1);
+        break;
+      }
+    }
+  }
+  xmp_size -= offset;
+
+  // remove padding
   while (xmp_data[xmp_size - 1] != '>' && xmp_size > 1) {
     xmp_size--;
   }
