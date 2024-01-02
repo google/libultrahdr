@@ -108,14 +108,14 @@ JpegDecoderHelper::JpegDecoderHelper() {}
 
 JpegDecoderHelper::~JpegDecoderHelper() {}
 
-bool JpegDecoderHelper::decompressImage(const void* image, int length, bool decodeToRGBA) {
+bool JpegDecoderHelper::decompressImage(const void* image, int length, decode_mode_t decodeTo) {
   if (image == nullptr || length <= 0) {
     ALOGE("Image size can not be handled: %d", length);
     return false;
   }
   mResultBuffer.clear();
   mXMPBuffer.clear();
-  return decode(image, length, decodeToRGBA);
+  return decode(image, length, decodeTo);
 }
 
 void* JpegDecoderHelper::getDecompressedImagePtr() { return mResultBuffer.data(); }
@@ -187,7 +187,7 @@ bool JpegDecoderHelper::extractEXIF(const void* image, int length) {
   return true;
 }
 
-bool JpegDecoderHelper::decode(const void* image, int length, bool decodeToRGBA) {
+bool JpegDecoderHelper::decode(const void* image, int length, decode_mode_t decodeTo) {
   bool status = true;
   jpeg_decompress_struct cinfo;
   jpegrerror_mgr myerr;
@@ -256,7 +256,7 @@ bool JpegDecoderHelper::decode(const void* image, int length, bool decodeToRGBA)
     goto CleanUp;
   }
 
-  if (decodeToRGBA) {
+  if (decodeTo == DECODE_TO_RGBA) {
     // The primary image is expected to be yuv420 sampling
     if (cinfo.jpeg_color_space != JCS_YCbCr) {
       status = false;
@@ -273,7 +273,7 @@ bool JpegDecoderHelper::decode(const void* image, int length, bool decodeToRGBA)
     // 4 bytes per pixel
     mResultBuffer.resize(cinfo.image_width * cinfo.image_height * 4);
     cinfo.out_color_space = JCS_EXT_RGBA;
-  } else {
+  } else if (decodeTo == DECODE_TO_YCBCR) {
     if (cinfo.jpeg_color_space == JCS_YCbCr) {
       if (cinfo.comp_info[0].h_samp_factor != 2 || cinfo.comp_info[0].v_samp_factor != 2 ||
           cinfo.comp_info[1].h_samp_factor != 1 || cinfo.comp_info[1].v_samp_factor != 1 ||
@@ -292,6 +292,10 @@ bool JpegDecoderHelper::decode(const void* image, int length, bool decodeToRGBA)
     }
     cinfo.out_color_space = cinfo.jpeg_color_space;
     cinfo.raw_data_out = TRUE;
+  } else {
+    status = decodeTo == PARSE_ONLY;
+    jpeg_destroy_decompress(&cinfo);
+    return status;
   }
 
   cinfo.dct_method = JDCT_ISLOW;
@@ -316,71 +320,8 @@ bool JpegDecoderHelper::decompress(jpeg_decompress_struct* cinfo, const uint8_t*
                                                                      : decompressYUV(cinfo, dest));
 }
 
-bool JpegDecoderHelper::getCompressedImageParameters(const void* image, int length, size_t* pWidth,
-                                                     size_t* pHeight, std::vector<uint8_t>* iccData,
-                                                     std::vector<uint8_t>* exifData) {
-  jpeg_decompress_struct cinfo;
-  jpegrerror_mgr myerr;
-  cinfo.err = jpeg_std_error(&myerr.pub);
-  myerr.pub.error_exit = jpegrerror_exit;
-  myerr.pub.output_message = output_message;
-
-  if (setjmp(myerr.setjmp_buffer)) {
-    jpeg_destroy_decompress(&cinfo);
-    return false;
-  }
-  jpeg_create_decompress(&cinfo);
-
-  jpeg_save_markers(&cinfo, kAPP1Marker, 0xFFFF);
-  jpeg_save_markers(&cinfo, kAPP2Marker, 0xFFFF);
-
-  jpegr_source_mgr mgr(static_cast<const uint8_t*>(image), length);
-  cinfo.src = &mgr;
-  if (jpeg_read_header(&cinfo, TRUE) != JPEG_HEADER_OK) {
-    jpeg_destroy_decompress(&cinfo);
-    return false;
-  }
-
-  if (pWidth != nullptr) {
-    *pWidth = cinfo.image_width;
-  }
-  if (pHeight != nullptr) {
-    *pHeight = cinfo.image_height;
-  }
-
-  if (iccData != nullptr) {
-    for (jpeg_marker_struct* marker = cinfo.marker_list; marker; marker = marker->next) {
-      if (marker->marker != kAPP2Marker) {
-        continue;
-      }
-      if (marker->data_length <= kICCMarkerHeaderSize ||
-          memcmp(marker->data, kICCSig, sizeof(kICCSig)) != 0) {
-        continue;
-      }
-
-      iccData->insert(iccData->end(), marker->data, marker->data + marker->data_length);
-    }
-  }
-
-  if (exifData != nullptr) {
-    bool exifAppears = false;
-    for (jpeg_marker_struct* marker = cinfo.marker_list; marker && !exifAppears;
-         marker = marker->next) {
-      if (marker->marker != kAPP1Marker) {
-        continue;
-      }
-
-      const unsigned int len = marker->data_length;
-      if (len >= sizeof(kExifIdCode) && !memcmp(marker->data, kExifIdCode, sizeof(kExifIdCode))) {
-        exifData->resize(len, 0);
-        memcpy(static_cast<void*>(exifData->data()), marker->data, len);
-        exifAppears = true;
-      }
-    }
-  }
-
-  jpeg_destroy_decompress(&cinfo);
-  return true;
+bool JpegDecoderHelper::getCompressedImageParameters(const void* image, int length) {
+  return decode(image, length, PARSE_ONLY);
 }
 
 bool JpegDecoderHelper::decompressRGBA(jpeg_decompress_struct* cinfo, const uint8_t* dest) {

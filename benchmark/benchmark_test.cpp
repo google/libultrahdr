@@ -19,7 +19,7 @@
 
 #include <benchmark/benchmark.h>
 
-#include "ultrahdr/jpegr.h"
+#include "ultrahdr/jpegrutils.h"
 
 using namespace ultrahdr;
 
@@ -86,6 +86,20 @@ std::vector<std::pair<std::string, std::string>> kEncodeApi3TestImages3MpName{
     // 3mp test vectors
     {"mountains_3mp.p010", "mountains_3mp.jpg"},
     {"mountain_lake_3mp.p010", "mountain_lake_3mp.jpg"},
+};
+
+std::vector<std::string> kEncodeApi4TestImages12MpName{
+    // 12mp test vectors
+    "mountains.jpg",
+    "mountain_lake.jpg",
+    "desert_wanda.jpg",
+};
+
+std::vector<std::string> kEncodeApi4TestImages3MpName{
+    // 3mp test vectors
+    "mountains_3mp.jpg",
+    "mountain_lake_3mp.jpg",
+    "desert_wanda_3mp.jpg",
 };
 
 std::string ofToString(const ultrahdr_output_format of) {
@@ -205,9 +219,7 @@ static void BM_Decode(benchmark::State& s) {
   compData.reset(reinterpret_cast<uint8_t*>(jpegImgR.data));
 
   JpegR jpegHdr;
-  std::vector<uint8_t> iccData(0);
-  std::vector<uint8_t> exifData(0);
-  jpegr_info_struct info{0, 0, &iccData, &exifData};
+  jpegr_info_struct info{};
   status_t status = jpegHdr.getJPEGRInfo(&jpegImgR, &info);
   if (JPEGR_NO_ERROR != status) {
     s.SkipWithError("getJPEGRInfo returned with error " + std::to_string(status));
@@ -444,6 +456,77 @@ static void BM_Encode_Api3(benchmark::State& s,
   }
 }
 
+static void BM_Encode_Api4(benchmark::State& s) {
+  std::string srcFileName = kTestImagesPath + "jpegr/" + kDecodeAPITestImages[s.range(0)];
+
+  std::ifstream ifd(srcFileName.c_str(), std::ios::binary | std::ios::ate);
+  if (!ifd.good()) {
+    s.SkipWithError("unable to open file " + srcFileName);
+    return;
+  }
+  int size = ifd.tellg();
+
+  jpegr_compressed_struct inpJpegImgR{};
+  inpJpegImgR.length = size;
+  inpJpegImgR.maxLength = size;
+  inpJpegImgR.data = nullptr;
+  inpJpegImgR.colorGamut = ULTRAHDR_COLORGAMUT_UNSPECIFIED;
+  ifd.close();
+  if (!loadFile(srcFileName.c_str(), inpJpegImgR.data, size)) {
+    s.SkipWithError("unable to load file " + srcFileName);
+    return;
+  }
+  std::unique_ptr<uint8_t[]> inpJpegImgRData;
+  inpJpegImgRData.reset(reinterpret_cast<uint8_t*>(inpJpegImgR.data));
+
+  JpegR jpegHdr;
+  jpeg_info_struct primaryImgInfo;
+  jpeg_info_struct gainmapImgInfo;
+  jpegr_info_struct info{};
+  info.primaryImgInfo = &primaryImgInfo;
+  info.gainmapImgInfo = &gainmapImgInfo;
+  status_t status = jpegHdr.getJPEGRInfo(&inpJpegImgR, &info);
+  if (JPEGR_NO_ERROR != status) {
+    s.SkipWithError("getJPEGRInfo returned with error " + std::to_string(status));
+    return;
+  }
+
+  jpegr_compressed_struct jpegImgR{};
+  jpegImgR.maxLength = (std::max)(static_cast<size_t>(8 * 1024) /* min size 8kb */,
+                                  info.width * info.height * 3 * 2);
+  jpegImgR.data = new uint8_t[jpegImgR.maxLength];
+  if (jpegImgR.data == nullptr) {
+    s.SkipWithError("unable to allocate memory to store compressed image");
+    return;
+  }
+  std::unique_ptr<uint8_t[]> jpegImgRData;
+  jpegImgRData.reset(reinterpret_cast<uint8_t*>(jpegImgR.data));
+
+  jpegr_compressed_struct primaryImg;
+  primaryImg.data = primaryImgInfo.imgData.data();
+  primaryImg.maxLength = primaryImg.length = primaryImgInfo.imgData.size();
+  primaryImg.colorGamut = static_cast<ultrahdr_color_gamut>(s.range(1));
+  jpegr_compressed_struct gainmapImg;
+  gainmapImg.data = gainmapImgInfo.imgData.data();
+  gainmapImg.maxLength = gainmapImg.length = gainmapImgInfo.imgData.size();
+  gainmapImg.colorGamut = ULTRAHDR_COLORGAMUT_UNSPECIFIED;
+  ultrahdr_metadata_struct uhdr_metadata;
+  if (!getMetadataFromXMP(gainmapImgInfo.xmpData.data(), gainmapImgInfo.xmpData.size(),
+                          &uhdr_metadata)) {
+    s.SkipWithError("getMetadataFromXMP returned with error");
+    return;
+  }
+  for (auto _ : s) {
+    status = jpegHdr.encodeJPEGR(&primaryImg, &gainmapImg, &uhdr_metadata, &jpegImgR);
+    if (JPEGR_NO_ERROR != status) {
+      s.SkipWithError("encodeJPEGR returned with error " + std::to_string(status));
+      return;
+    }
+  }
+
+  s.SetLabel(srcFileName + ", " + std::to_string(info.width) + "x" + std::to_string(info.height));
+}
+
 BENCHMARK(BM_Decode)
     ->ArgsProduct({{benchmark::CreateDenseRange(0, kDecodeAPITestImages.size() - 1, 1)},
                    {ULTRAHDR_OUTPUT_HDR_HLG, ULTRAHDR_OUTPUT_HDR_PQ, ULTRAHDR_OUTPUT_SDR}})
@@ -537,6 +620,20 @@ BENCHMARK_CAPTURE(BM_Encode_Api3, TestVectorName, kEncodeApi3TestImages3MpName)
                        ULTRAHDR_TF_HLG,
                        ULTRAHDR_TF_PQ,
                    }})
+    ->Unit(benchmark::kMillisecond);
+
+BENCHMARK(BM_Encode_Api4)
+    ->ArgsProduct({
+        {benchmark::CreateDenseRange(0, kEncodeApi4TestImages12MpName.size() - 1, 1)},
+        {ULTRAHDR_COLORGAMUT_BT709, ULTRAHDR_COLORGAMUT_P3, ULTRAHDR_COLORGAMUT_BT2100},
+    })
+    ->Unit(benchmark::kMillisecond);
+
+BENCHMARK(BM_Encode_Api4)
+    ->ArgsProduct({
+        {benchmark::CreateDenseRange(0, kEncodeApi4TestImages3MpName.size() - 1, 1)},
+        {ULTRAHDR_COLORGAMUT_BT709, ULTRAHDR_COLORGAMUT_P3, ULTRAHDR_COLORGAMUT_BT2100},
+    })
     ->Unit(benchmark::kMillisecond);
 
 BENCHMARK_MAIN();

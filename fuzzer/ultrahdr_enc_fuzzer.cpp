@@ -289,9 +289,7 @@ void UltraHdrEncFuzzer::process() {
       }
     }
     if (status == JPEGR_NO_ERROR) {
-      std::vector<uint8_t> iccData(0);
-      std::vector<uint8_t> exifData(0);
-      jpegr_info_struct info{0, 0, &iccData, &exifData};
+      jpegr_info_struct info{};
       status = jpegHdr.getJPEGRInfo(&jpegImgR, &info);
       if (status == JPEGR_NO_ERROR) {
         size_t outSize = info.width * info.height * ((of == ULTRAHDR_OUTPUT_HDR_LINEAR) ? 8 : 4);

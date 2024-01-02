@@ -42,9 +42,7 @@ void UltraHdrDecFuzzer::process() {
   jpegr_compressed_struct jpegImgR{buffer.data(), (int)buffer.size(), (int)buffer.size(),
                                    ULTRAHDR_COLORGAMUT_UNSPECIFIED};
 
-  std::vector<uint8_t> iccData(0);
-  std::vector<uint8_t> exifData(0);
-  jpegr_info_struct info{0, 0, &iccData, &exifData};
+  jpegr_info_struct info{};
   JpegR jpegHdr;
   (void)jpegHdr.getJPEGRInfo(&jpegImgR, &info);
 //#define DUMP_PARAM
