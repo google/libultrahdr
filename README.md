@@ -157,9 +157,9 @@ List of decode API:
 | dest  | The output data. Destination that decoded data to be written. |
 | max_display_boost  | (optional, >= 1.0) the maximum available boost supported by a display. |
 | exif  | (optional, default to NULL) Destination that exif data to be written. |
-| recovery_map  | (optional, default to NULL) Destination that decoded recovery map data to be written. |
+| gain_map  | (optional, default to NULL) Destination that decoded gain map data to be written. |
 | output_format  | <table><thead><tr><th>Value</th><th>Color format to be written</th></tr></thead><tbody><tr><td>SDR</td><td>RGBA_8888</td></tr><tr><td>HDR_LINEAR</td><td>(default) RGBA_F16 linear</td></tr><tr><td>HDR_PQ</td><td>RGBA_1010102 PQ</td></tr><tr><td>HDR_HLG</td><td>RGBA_1010102 HLG</td></tr></tbody></table> |
-| metadata  | (optional, default to NULL) Destination of metadata (recovery map version, min/max content boost). |
+| metadata  | (optional, default to NULL) Destination of metadata (gain map version, min/max content boost). |
 
 For more info:
 - Refer to [jpegr.h](lib/include/ultrahdr/jpegr.h) for detailed description of various encode and decode api.
