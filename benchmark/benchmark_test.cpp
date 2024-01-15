@@ -221,7 +221,7 @@ static void BM_Decode(benchmark::State& s) {
   JpegR jpegHdr;
   jpegr_info_struct info{};
   status_t status = jpegHdr.getJPEGRInfo(&jpegImgR, &info);
-  if (JPEGR_NO_ERROR != status) {
+  if (UHDR_NO_ERROR != status) {
     s.SkipWithError("getJPEGRInfo returned with error " + std::to_string(status));
     return;
   }
@@ -232,7 +232,7 @@ static void BM_Decode(benchmark::State& s) {
   destImage.data = data.get();
   for (auto _ : s) {
     status = jpegHdr.decodeJPEGR(&jpegImgR, &destImage, FLT_MAX, nullptr, of);
-    if (JPEGR_NO_ERROR != status) {
+    if (UHDR_NO_ERROR != status) {
       s.SkipWithError("decodeJPEGR returned with error " + std::to_string(status));
       return;
     }
@@ -279,7 +279,7 @@ static void BM_Encode_Api0(benchmark::State& s, std::vector<std::string> testVec
   JpegR jpegHdr;
   for (auto _ : s) {
     status_t status = jpegHdr.encodeJPEGR(&rawP010Image, tf, &jpegImgR, 95, nullptr);
-    if (JPEGR_NO_ERROR != status) {
+    if (UHDR_NO_ERROR != status) {
       s.SkipWithError("encodeJPEGR returned with error : " + std::to_string(status));
       return;
     }
@@ -331,7 +331,7 @@ static void BM_Encode_Api1(benchmark::State& s,
   for (auto _ : s) {
     status_t status =
         jpegHdr.encodeJPEGR(&rawP010Image, &rawYuv420Image, tf, &jpegImgR, 95, nullptr);
-    if (JPEGR_NO_ERROR != status) {
+    if (UHDR_NO_ERROR != status) {
       s.SkipWithError("encodeJPEGR returned with error : " + std::to_string(status));
       return;
     }
@@ -397,7 +397,7 @@ static void BM_Encode_Api2(
   for (auto _ : s) {
     status_t status =
         jpegHdr.encodeJPEGR(&rawP010Image, &rawYuv420Image, &yuv420JpegImage, tf, &jpegImgR);
-    if (JPEGR_NO_ERROR != status) {
+    if (UHDR_NO_ERROR != status) {
       s.SkipWithError("encodeJPEGR returned with error : " + std::to_string(status));
       return;
     }
@@ -449,7 +449,7 @@ static void BM_Encode_Api3(benchmark::State& s,
   JpegR jpegHdr;
   for (auto _ : s) {
     status_t status = jpegHdr.encodeJPEGR(&rawP010Image, &yuv420JpegImage, tf, &jpegImgR);
-    if (JPEGR_NO_ERROR != status) {
+    if (UHDR_NO_ERROR != status) {
       s.SkipWithError("encodeJPEGR returned with error : " + std::to_string(status));
       return;
     }
@@ -486,7 +486,7 @@ static void BM_Encode_Api4(benchmark::State& s) {
   info.primaryImgInfo = &primaryImgInfo;
   info.gainmapImgInfo = &gainmapImgInfo;
   status_t status = jpegHdr.getJPEGRInfo(&inpJpegImgR, &info);
-  if (JPEGR_NO_ERROR != status) {
+  if (UHDR_NO_ERROR != status) {
     s.SkipWithError("getJPEGRInfo returned with error " + std::to_string(status));
     return;
   }
@@ -518,7 +518,7 @@ static void BM_Encode_Api4(benchmark::State& s) {
   }
   for (auto _ : s) {
     status = jpegHdr.encodeJPEGR(&primaryImg, &gainmapImg, &uhdr_metadata, &jpegImgR);
-    if (JPEGR_NO_ERROR != status) {
+    if (UHDR_NO_ERROR != status) {
       s.SkipWithError("encodeJPEGR returned with error " + std::to_string(status));
       return;
     }

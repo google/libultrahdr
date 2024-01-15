@@ -37,36 +37,6 @@ static const size_t kMapDimensionScaleFactor = 4;
 static const int kMinWidth = 2 * kMapDimensionScaleFactor;
 static const int kMinHeight = 2 * kMapDimensionScaleFactor;
 
-typedef enum {
-  JPEGR_NO_ERROR = 0,
-  JPEGR_UNKNOWN_ERROR = -1,
-
-  JPEGR_IO_ERROR_BASE = -10000,
-  ERROR_JPEGR_BAD_PTR = JPEGR_IO_ERROR_BASE - 1,
-  ERROR_JPEGR_UNSUPPORTED_WIDTH_HEIGHT = JPEGR_IO_ERROR_BASE - 2,
-  ERROR_JPEGR_INVALID_COLORGAMUT = JPEGR_IO_ERROR_BASE - 3,
-  ERROR_JPEGR_INVALID_STRIDE = JPEGR_IO_ERROR_BASE - 4,
-  ERROR_JPEGR_INVALID_TRANS_FUNC = JPEGR_IO_ERROR_BASE - 5,
-  ERROR_JPEGR_RESOLUTION_MISMATCH = JPEGR_IO_ERROR_BASE - 6,
-  ERROR_JPEGR_INVALID_QUALITY_FACTOR = JPEGR_IO_ERROR_BASE - 7,
-  ERROR_JPEGR_INVALID_DISPLAY_BOOST = JPEGR_IO_ERROR_BASE - 8,
-  ERROR_JPEGR_INVALID_OUTPUT_FORMAT = JPEGR_IO_ERROR_BASE - 9,
-  ERROR_JPEGR_BAD_METADATA = JPEGR_IO_ERROR_BASE - 10,
-  ERROR_JPEGR_INVALID_CROPPING_PARAMETERS = JPEGR_IO_ERROR_BASE - 11,
-
-  JPEGR_RUNTIME_ERROR_BASE = -20000,
-  ERROR_JPEGR_ENCODE_ERROR = JPEGR_RUNTIME_ERROR_BASE - 1,
-  ERROR_JPEGR_DECODE_ERROR = JPEGR_RUNTIME_ERROR_BASE - 2,
-  ERROR_JPEGR_GAIN_MAP_IMAGE_NOT_FOUND = JPEGR_RUNTIME_ERROR_BASE - 3,
-  ERROR_JPEGR_BUFFER_TOO_SMALL = JPEGR_RUNTIME_ERROR_BASE - 4,
-  ERROR_JPEGR_METADATA_ERROR = JPEGR_RUNTIME_ERROR_BASE - 5,
-  ERROR_JPEGR_NO_IMAGES_FOUND = JPEGR_RUNTIME_ERROR_BASE - 6,
-  ERROR_JPEGR_MULTIPLE_EXIFS_RECEIVED = JPEGR_RUNTIME_ERROR_BASE - 7,
-  ERROR_JPEGR_UNSUPPORTED_MAP_SCALE_FACTOR = JPEGR_RUNTIME_ERROR_BASE - 8,
-
-  ERROR_JPEGR_UNSUPPORTED_FEATURE = -30000,
-} status_t;
-
 /*
  * Holds information of jpeg image
  */
@@ -168,7 +138,7 @@ class JpegR {
    * @param dest destination of the compressed JPEGR image. Please note that {@code maxLength}
    *             represents the maximum available size of the destination buffer, and it must be
    *             set before calling this method. If the encoded JPEGR size exceeds
-   *             {@code maxLength}, this method will return {@code ERROR_JPEGR_BUFFER_TOO_SMALL}.
+   *             {@code maxLength}, this method will return {@code ERROR_UHDR_BUFFER_TOO_SMALL}.
    * @param quality target quality of the JPEG encoding, must be in range of 0-100 where 100 is
    *                the highest quality
    * @param exif pointer to the exif metadata.
@@ -190,7 +160,7 @@ class JpegR {
    * @param dest destination of the compressed JPEGR image. Please note that {@code maxLength}
    *             represents the maximum available size of the desitination buffer, and it must be
    *             set before calling this method. If the encoded JPEGR size exceeds
-   *             {@code maxLength}, this method will return {@code ERROR_JPEGR_BUFFER_TOO_SMALL}.
+   *             {@code maxLength}, this method will return {@code ERROR_UHDR_BUFFER_TOO_SMALL}.
    * @param quality target quality of the JPEG encoding, must be in range of 0-100 where 100 is
    *                the highest quality
    * @param exif pointer to the exif metadata.
@@ -217,7 +187,7 @@ class JpegR {
    * @param dest destination of the compressed JPEGR image. Please note that {@code maxLength}
    *             represents the maximum available size of the desitination buffer, and it must be
    *             set before calling this method. If the encoded JPEGR size exceeds
-   *             {@code maxLength}, this method will return {@code ERROR_JPEGR_BUFFER_TOO_SMALL}.
+   *             {@code maxLength}, this method will return {@code ERROR_UHDR_BUFFER_TOO_SMALL}.
    * @return NO_ERROR if encoding succeeds, error code if error occurs.
    */
   status_t encodeJPEGR(jr_uncompressed_ptr p010_image_ptr, jr_uncompressed_ptr yuv420_image_ptr,
@@ -240,7 +210,7 @@ class JpegR {
    * @param dest destination of the compressed JPEGR image. Please note that {@code maxLength}
    *             represents the maximum available size of the desitination buffer, and it must be
    *             set before calling this method. If the encoded JPEGR size exceeds
-   *             {@code maxLength}, this method will return {@code ERROR_JPEGR_BUFFER_TOO_SMALL}.
+   *             {@code maxLength}, this method will return {@code ERROR_UHDR_BUFFER_TOO_SMALL}.
    * @return NO_ERROR if encoding succeeds, error code if error occurs.
    */
   status_t encodeJPEGR(jr_uncompressed_ptr p010_image_ptr, jr_compressed_ptr yuv420jpg_image_ptr,
@@ -258,7 +228,7 @@ class JpegR {
    * @param dest destination of the compressed JPEGR image. Please note that {@code maxLength}
    *             represents the maximum available size of the desitination buffer, and it must be
    *             set before calling this method. If the encoded JPEGR size exceeds
-   *             {@code maxLength}, this method will return {@code ERROR_JPEGR_BUFFER_TOO_SMALL}.
+   *             {@code maxLength}, this method will return {@code ERROR_UHDR_BUFFER_TOO_SMALL}.
    * @return NO_ERROR if encoding succeeds, error code if error occurs.
    */
   status_t encodeJPEGR(jr_compressed_ptr yuv420jpg_image_ptr,
@@ -414,7 +384,7 @@ class JpegR {
    * conditions is fulfilled:
    *  (1) EXIF package is available from outside input. I.e. pExif != nullptr.
    *  (2) Input JPEG has EXIF.
-   * If both conditions are fulfilled, this method will return ERROR_JPEGR_INVALID_INPUT_TYPE
+   * If both conditions are fulfilled, this method will return ERROR_UHDR_INVALID_INPUT_TYPE
    *
    * @param primary_jpg_image_ptr destination of primary image
    * @param gainmap_jpg_image_ptr destination of compressed gain map image
@@ -463,7 +433,7 @@ class JpegR {
    * @param dest destination of the compressed JPEGR image. Please note that {@code maxLength}
    *             represents the maximum available size of the desitination buffer, and it must be
    *             set before calling this method. If the encoded JPEGR size exceeds
-   *             {@code maxLength}, this method will return {@code ERROR_JPEGR_BUFFER_TOO_SMALL}.
+   *             {@code maxLength}, this method will return {@code ERROR_UHDR_BUFFER_TOO_SMALL}.
    * @return NO_ERROR if the input args are valid, error code is not valid.
    */
   status_t areInputArgumentsValid(jr_uncompressed_ptr p010_image_ptr,
@@ -480,7 +450,7 @@ class JpegR {
    * @param dest destination of the compressed JPEGR image. Please note that {@code maxLength}
    *             represents the maximum available size of the destination buffer, and it must be
    *             set before calling this method. If the encoded JPEGR size exceeds
-   *             {@code maxLength}, this method will return {@code ERROR_JPEGR_BUFFER_TOO_SMALL}.
+   *             {@code maxLength}, this method will return {@code ERROR_UHDR_BUFFER_TOO_SMALL}.
    * @param quality target quality of the JPEG encoding, must be in range of 0-100 where 100 is
    *                the highest quality
    * @return NO_ERROR if the input args are valid, error code is not valid.

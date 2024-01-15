@@ -304,14 +304,14 @@ static bool readFile(const char* fileName, void*& result, int maxLength, int& le
 void decodeJpegRImg(jr_compressed_ptr img, [[maybe_unused]] const char* outFileName) {
   jpegr_info_struct info{};
   JpegR jpegHdr;
-  ASSERT_EQ(JPEGR_NO_ERROR, jpegHdr.getJPEGRInfo(img, &info));
+  ASSERT_EQ(UHDR_NO_ERROR, jpegHdr.getJPEGRInfo(img, &info));
   ASSERT_EQ(kImageWidth, info.width);
   ASSERT_EQ(kImageHeight, info.height);
   size_t outSize = info.width * info.height * 8;
   std::unique_ptr<uint8_t[]> data = std::make_unique<uint8_t[]>(outSize);
   jpegr_uncompressed_struct destImage{};
   destImage.data = data.get();
-  ASSERT_EQ(JPEGR_NO_ERROR, jpegHdr.decodeJPEGR(img, &destImage));
+  ASSERT_EQ(UHDR_NO_ERROR, jpegHdr.decodeJPEGR(img, &destImage));
   ASSERT_EQ(kImageWidth, destImage.width);
   ASSERT_EQ(kImageHeight, destImage.height);
 #ifdef DUMP_OUTPUT
@@ -341,29 +341,29 @@ TEST(JpegRTest, EncodeAPI0WithInvalidArgs) {
     ASSERT_NE(
         uHdrLib.encodeJPEGR(rawImg.getImageHandle(), ultrahdr_transfer_function::ULTRAHDR_TF_HLG,
                             jpgImg.getImageHandle(), -1, nullptr),
-        JPEGR_NO_ERROR)
+        UHDR_NO_ERROR)
         << "fail, API allows bad jpeg quality factor";
     ASSERT_NE(
         uHdrLib.encodeJPEGR(rawImg.getImageHandle(), ultrahdr_transfer_function::ULTRAHDR_TF_HLG,
                             jpgImg.getImageHandle(), 101, nullptr),
-        JPEGR_NO_ERROR)
+        UHDR_NO_ERROR)
         << "fail, API allows bad jpeg quality factor";
 
     ASSERT_NE(uHdrLib.encodeJPEGR(rawImg.getImageHandle(),
                                   ultrahdr_transfer_function::ULTRAHDR_TF_UNSPECIFIED,
                                   jpgImg.getImageHandle(), kQuality, nullptr),
-              JPEGR_NO_ERROR)
+              UHDR_NO_ERROR)
         << "fail, API allows bad hdr transfer function";
     ASSERT_NE(uHdrLib.encodeJPEGR(rawImg.getImageHandle(),
                                   static_cast<ultrahdr_transfer_function>(
                                       ultrahdr_transfer_function::ULTRAHDR_TF_MAX + 1),
                                   jpgImg.getImageHandle(), kQuality, nullptr),
-              JPEGR_NO_ERROR)
+              UHDR_NO_ERROR)
         << "fail, API allows bad hdr transfer function";
     ASSERT_NE(
         uHdrLib.encodeJPEGR(rawImg.getImageHandle(), static_cast<ultrahdr_transfer_function>(-10),
                             jpgImg.getImageHandle(), kQuality, nullptr),
-        JPEGR_NO_ERROR)
+        UHDR_NO_ERROR)
         << "fail, API allows bad hdr transfer function";
   }
 
@@ -376,13 +376,13 @@ TEST(JpegRTest, EncodeAPI0WithInvalidArgs) {
     ASSERT_NE(
         uHdrLib.encodeJPEGR(rawImg.getImageHandle(), ultrahdr_transfer_function::ULTRAHDR_TF_HLG,
                             nullptr, kQuality, nullptr),
-        JPEGR_NO_ERROR)
+        UHDR_NO_ERROR)
         << "fail, API allows nullptr dest";
     UhdrCompressedStructWrapper jpgImg2(16, 16);
     ASSERT_NE(
         uHdrLib.encodeJPEGR(rawImg.getImageHandle(), ultrahdr_transfer_function::ULTRAHDR_TF_HLG,
                             jpgImg2.getImageHandle(), kQuality, nullptr),
-        JPEGR_NO_ERROR)
+        UHDR_NO_ERROR)
         << "fail, API allows nullptr dest";
   }
 
@@ -390,7 +390,7 @@ TEST(JpegRTest, EncodeAPI0WithInvalidArgs) {
   {
     ASSERT_NE(uHdrLib.encodeJPEGR(nullptr, ultrahdr_transfer_function::ULTRAHDR_TF_HLG,
                                   jpgImg.getImageHandle(), kQuality, nullptr),
-              JPEGR_NO_ERROR)
+              UHDR_NO_ERROR)
         << "fail, API allows nullptr p010 image";
 
     UhdrUnCompressedStructWrapper rawImg(16, 16, YCbCr_p010);
@@ -398,7 +398,7 @@ TEST(JpegRTest, EncodeAPI0WithInvalidArgs) {
     ASSERT_NE(
         uHdrLib.encodeJPEGR(rawImg.getImageHandle(), ultrahdr_transfer_function::ULTRAHDR_TF_HLG,
                             jpgImg.getImageHandle(), kQuality, nullptr),
-        JPEGR_NO_ERROR)
+        UHDR_NO_ERROR)
         << "fail, API allows nullptr p010 image";
   }
 
@@ -409,7 +409,7 @@ TEST(JpegRTest, EncodeAPI0WithInvalidArgs) {
     ASSERT_NE(
         uHdrLib.encodeJPEGR(rawImg.getImageHandle(), ultrahdr_transfer_function::ULTRAHDR_TF_HLG,
                             jpgImg.getImageHandle(), kQuality, nullptr),
-        JPEGR_NO_ERROR)
+        UHDR_NO_ERROR)
         << "fail, API allows bad p010 color gamut";
 
     UhdrUnCompressedStructWrapper rawImg2(16, 16, YCbCr_p010);
@@ -419,7 +419,7 @@ TEST(JpegRTest, EncodeAPI0WithInvalidArgs) {
     ASSERT_NE(
         uHdrLib.encodeJPEGR(rawImg2.getImageHandle(), ultrahdr_transfer_function::ULTRAHDR_TF_HLG,
                             jpgImg.getImageHandle(), kQuality, nullptr),
-        JPEGR_NO_ERROR)
+        UHDR_NO_ERROR)
         << "fail, API allows bad p010 color gamut";
   }
 
@@ -434,28 +434,28 @@ TEST(JpegRTest, EncodeAPI0WithInvalidArgs) {
     rawImgP010->height = kHeight;
     ASSERT_NE(uHdrLib.encodeJPEGR(rawImgP010, ultrahdr_transfer_function::ULTRAHDR_TF_HLG,
                                   jpgImg.getImageHandle(), kQuality, nullptr),
-              JPEGR_NO_ERROR)
+              UHDR_NO_ERROR)
         << "fail, API allows bad image width";
 
     rawImgP010->width = kWidth;
     rawImgP010->height = kHeight - 1;
     ASSERT_NE(uHdrLib.encodeJPEGR(rawImgP010, ultrahdr_transfer_function::ULTRAHDR_TF_HLG,
                                   jpgImg.getImageHandle(), kQuality, nullptr),
-              JPEGR_NO_ERROR)
+              UHDR_NO_ERROR)
         << "fail, API allows bad image height";
 
     rawImgP010->width = 0;
     rawImgP010->height = kHeight;
     ASSERT_NE(uHdrLib.encodeJPEGR(rawImgP010, ultrahdr_transfer_function::ULTRAHDR_TF_HLG,
                                   jpgImg.getImageHandle(), kQuality, nullptr),
-              JPEGR_NO_ERROR)
+              UHDR_NO_ERROR)
         << "fail, API allows bad image width";
 
     rawImgP010->width = kWidth;
     rawImgP010->height = 0;
     ASSERT_NE(uHdrLib.encodeJPEGR(rawImgP010, ultrahdr_transfer_function::ULTRAHDR_TF_HLG,
                                   jpgImg.getImageHandle(), kQuality, nullptr),
-              JPEGR_NO_ERROR)
+              UHDR_NO_ERROR)
         << "fail, API allows bad image height";
 
     rawImgP010->width = kWidth;
@@ -463,7 +463,7 @@ TEST(JpegRTest, EncodeAPI0WithInvalidArgs) {
     rawImgP010->luma_stride = kWidth - 2;
     ASSERT_NE(uHdrLib.encodeJPEGR(rawImgP010, ultrahdr_transfer_function::ULTRAHDR_TF_HLG,
                                   jpgImg.getImageHandle(), kQuality, nullptr),
-              JPEGR_NO_ERROR)
+              UHDR_NO_ERROR)
         << "fail, API allows bad luma stride";
 
     rawImgP010->width = kWidth;
@@ -473,7 +473,7 @@ TEST(JpegRTest, EncodeAPI0WithInvalidArgs) {
     rawImgP010->chroma_stride = kWidth - 2;
     ASSERT_NE(uHdrLib.encodeJPEGR(rawImgP010, ultrahdr_transfer_function::ULTRAHDR_TF_HLG,
                                   jpgImg.getImageHandle(), kQuality, nullptr),
-              JPEGR_NO_ERROR)
+              UHDR_NO_ERROR)
         << "fail, API allows bad chroma stride";
   }
 }
@@ -497,29 +497,29 @@ TEST(JpegRTest, EncodeAPI1WithInvalidArgs) {
     ASSERT_NE(uHdrLib.encodeJPEGR(rawImg.getImageHandle(), rawImg2.getImageHandle(),
                                   ultrahdr_transfer_function::ULTRAHDR_TF_HLG,
                                   jpgImg.getImageHandle(), -1, nullptr),
-              JPEGR_NO_ERROR)
+              UHDR_NO_ERROR)
         << "fail, API allows bad jpeg quality factor";
     ASSERT_NE(uHdrLib.encodeJPEGR(rawImg.getImageHandle(), rawImg2.getImageHandle(),
                                   ultrahdr_transfer_function::ULTRAHDR_TF_HLG,
                                   jpgImg.getImageHandle(), 101, nullptr),
-              JPEGR_NO_ERROR)
+              UHDR_NO_ERROR)
         << "fail, API allows bad jpeg quality factor";
 
     ASSERT_NE(uHdrLib.encodeJPEGR(rawImg.getImageHandle(), rawImg2.getImageHandle(),
                                   ultrahdr_transfer_function::ULTRAHDR_TF_UNSPECIFIED,
                                   jpgImg.getImageHandle(), kQuality, nullptr),
-              JPEGR_NO_ERROR)
+              UHDR_NO_ERROR)
         << "fail, API allows bad hdr transfer function";
     ASSERT_NE(uHdrLib.encodeJPEGR(rawImg.getImageHandle(), rawImg2.getImageHandle(),
                                   static_cast<ultrahdr_transfer_function>(
                                       ultrahdr_transfer_function::ULTRAHDR_TF_MAX + 1),
                                   jpgImg.getImageHandle(), kQuality, nullptr),
-              JPEGR_NO_ERROR)
+              UHDR_NO_ERROR)
         << "fail, API allows bad hdr transfer function";
     ASSERT_NE(uHdrLib.encodeJPEGR(rawImg.getImageHandle(), rawImg2.getImageHandle(),
                                   static_cast<ultrahdr_transfer_function>(-10),
                                   jpgImg.getImageHandle(), kQuality, nullptr),
-              JPEGR_NO_ERROR)
+              UHDR_NO_ERROR)
         << "fail, API allows bad hdr transfer function";
   }
 
@@ -535,13 +535,13 @@ TEST(JpegRTest, EncodeAPI1WithInvalidArgs) {
     ASSERT_NE(uHdrLib.encodeJPEGR(rawImg.getImageHandle(), rawImg2.getImageHandle(),
                                   ultrahdr_transfer_function::ULTRAHDR_TF_HLG, nullptr, kQuality,
                                   nullptr),
-              JPEGR_NO_ERROR)
+              UHDR_NO_ERROR)
         << "fail, API allows nullptr dest";
     UhdrCompressedStructWrapper jpgImg2(16, 16);
     ASSERT_NE(uHdrLib.encodeJPEGR(rawImg.getImageHandle(), rawImg2.getImageHandle(),
                                   ultrahdr_transfer_function::ULTRAHDR_TF_HLG,
                                   jpgImg2.getImageHandle(), kQuality, nullptr),
-              JPEGR_NO_ERROR)
+              UHDR_NO_ERROR)
         << "fail, API allows nullptr dest";
   }
 
@@ -553,7 +553,7 @@ TEST(JpegRTest, EncodeAPI1WithInvalidArgs) {
     ASSERT_NE(uHdrLib.encodeJPEGR(nullptr, rawImg2.getImageHandle(),
                                   ultrahdr_transfer_function::ULTRAHDR_TF_HLG,
                                   jpgImg.getImageHandle(), kQuality, nullptr),
-              JPEGR_NO_ERROR)
+              UHDR_NO_ERROR)
         << "fail, API allows nullptr p010 image";
 
     UhdrUnCompressedStructWrapper rawImg(16, 16, YCbCr_p010);
@@ -561,7 +561,7 @@ TEST(JpegRTest, EncodeAPI1WithInvalidArgs) {
     ASSERT_NE(uHdrLib.encodeJPEGR(rawImg.getImageHandle(), rawImg2.getImageHandle(),
                                   ultrahdr_transfer_function::ULTRAHDR_TF_HLG,
                                   jpgImg.getImageHandle(), kQuality, nullptr),
-              JPEGR_NO_ERROR)
+              UHDR_NO_ERROR)
         << "fail, API allows nullptr p010 image";
   }
 
@@ -582,7 +582,7 @@ TEST(JpegRTest, EncodeAPI1WithInvalidArgs) {
     ASSERT_NE(
         uHdrLib.encodeJPEGR(rawImgP010, rawImg420, ultrahdr_transfer_function::ULTRAHDR_TF_HLG,
                             jpgImg.getImageHandle(), kQuality, nullptr),
-        JPEGR_NO_ERROR)
+        UHDR_NO_ERROR)
         << "fail, API allows bad p010 color gamut";
 
     rawImgP010->width = kWidth;
@@ -592,7 +592,7 @@ TEST(JpegRTest, EncodeAPI1WithInvalidArgs) {
     ASSERT_NE(
         uHdrLib.encodeJPEGR(rawImgP010, rawImg420, ultrahdr_transfer_function::ULTRAHDR_TF_HLG,
                             jpgImg.getImageHandle(), kQuality, nullptr),
-        JPEGR_NO_ERROR)
+        UHDR_NO_ERROR)
         << "fail, API allows bad p010 color gamut";
 
     rawImgP010->width = kWidth - 1;
@@ -601,7 +601,7 @@ TEST(JpegRTest, EncodeAPI1WithInvalidArgs) {
     ASSERT_NE(
         uHdrLib.encodeJPEGR(rawImgP010, rawImg420, ultrahdr_transfer_function::ULTRAHDR_TF_HLG,
                             jpgImg.getImageHandle(), kQuality, nullptr),
-        JPEGR_NO_ERROR)
+        UHDR_NO_ERROR)
         << "fail, API allows bad image width";
 
     rawImgP010->width = kWidth;
@@ -609,7 +609,7 @@ TEST(JpegRTest, EncodeAPI1WithInvalidArgs) {
     ASSERT_NE(
         uHdrLib.encodeJPEGR(rawImgP010, rawImg420, ultrahdr_transfer_function::ULTRAHDR_TF_HLG,
                             jpgImg.getImageHandle(), kQuality, nullptr),
-        JPEGR_NO_ERROR)
+        UHDR_NO_ERROR)
         << "fail, API allows bad image height";
 
     rawImgP010->width = 0;
@@ -617,7 +617,7 @@ TEST(JpegRTest, EncodeAPI1WithInvalidArgs) {
     ASSERT_NE(
         uHdrLib.encodeJPEGR(rawImgP010, rawImg420, ultrahdr_transfer_function::ULTRAHDR_TF_HLG,
                             jpgImg.getImageHandle(), kQuality, nullptr),
-        JPEGR_NO_ERROR)
+        UHDR_NO_ERROR)
         << "fail, API allows bad image width";
 
     rawImgP010->width = kWidth;
@@ -625,7 +625,7 @@ TEST(JpegRTest, EncodeAPI1WithInvalidArgs) {
     ASSERT_NE(
         uHdrLib.encodeJPEGR(rawImgP010, rawImg420, ultrahdr_transfer_function::ULTRAHDR_TF_HLG,
                             jpgImg.getImageHandle(), kQuality, nullptr),
-        JPEGR_NO_ERROR)
+        UHDR_NO_ERROR)
         << "fail, API allows bad image height";
 
     rawImgP010->width = kWidth;
@@ -634,7 +634,7 @@ TEST(JpegRTest, EncodeAPI1WithInvalidArgs) {
     ASSERT_NE(
         uHdrLib.encodeJPEGR(rawImgP010, rawImg420, ultrahdr_transfer_function::ULTRAHDR_TF_HLG,
                             jpgImg.getImageHandle(), kQuality, nullptr),
-        JPEGR_NO_ERROR)
+        UHDR_NO_ERROR)
         << "fail, API allows bad luma stride";
 
     rawImgP010->width = kWidth;
@@ -645,7 +645,7 @@ TEST(JpegRTest, EncodeAPI1WithInvalidArgs) {
     ASSERT_NE(
         uHdrLib.encodeJPEGR(rawImgP010, rawImg420, ultrahdr_transfer_function::ULTRAHDR_TF_HLG,
                             jpgImg.getImageHandle(), kQuality, nullptr),
-        JPEGR_NO_ERROR)
+        UHDR_NO_ERROR)
         << "fail, API allows bad chroma stride";
   }
 
@@ -657,7 +657,7 @@ TEST(JpegRTest, EncodeAPI1WithInvalidArgs) {
     ASSERT_NE(uHdrLib.encodeJPEGR(rawImg.getImageHandle(), nullptr,
                                   ultrahdr_transfer_function::ULTRAHDR_TF_HLG,
                                   jpgImg.getImageHandle(), kQuality, nullptr),
-              JPEGR_NO_ERROR)
+              UHDR_NO_ERROR)
         << "fail, API allows nullptr 420 image";
 
     UhdrUnCompressedStructWrapper rawImg2(16, 16, YCbCr_420);
@@ -665,7 +665,7 @@ TEST(JpegRTest, EncodeAPI1WithInvalidArgs) {
     ASSERT_NE(uHdrLib.encodeJPEGR(rawImg.getImageHandle(), rawImg2.getImageHandle(),
                                   ultrahdr_transfer_function::ULTRAHDR_TF_HLG,
                                   jpgImg.getImageHandle(), kQuality, nullptr),
-              JPEGR_NO_ERROR)
+              UHDR_NO_ERROR)
         << "fail, API allows nullptr 420 image";
   }
   {
@@ -685,7 +685,7 @@ TEST(JpegRTest, EncodeAPI1WithInvalidArgs) {
     ASSERT_NE(
         uHdrLib.encodeJPEGR(rawImgP010, rawImg420, ultrahdr_transfer_function::ULTRAHDR_TF_HLG,
                             jpgImg.getImageHandle(), kQuality, nullptr),
-        JPEGR_NO_ERROR)
+        UHDR_NO_ERROR)
         << "fail, API allows bad 420 color gamut";
 
     rawImg420->width = kWidth;
@@ -695,7 +695,7 @@ TEST(JpegRTest, EncodeAPI1WithInvalidArgs) {
     ASSERT_NE(
         uHdrLib.encodeJPEGR(rawImgP010, rawImg420, ultrahdr_transfer_function::ULTRAHDR_TF_HLG,
                             jpgImg.getImageHandle(), kQuality, nullptr),
-        JPEGR_NO_ERROR)
+        UHDR_NO_ERROR)
         << "fail, API allows bad 420 color gamut";
 
     rawImg420->width = kWidth - 1;
@@ -704,7 +704,7 @@ TEST(JpegRTest, EncodeAPI1WithInvalidArgs) {
     ASSERT_NE(
         uHdrLib.encodeJPEGR(rawImgP010, rawImg420, ultrahdr_transfer_function::ULTRAHDR_TF_HLG,
                             jpgImg.getImageHandle(), kQuality, nullptr),
-        JPEGR_NO_ERROR)
+        UHDR_NO_ERROR)
         << "fail, API allows bad image width for 420";
 
     rawImg420->width = kWidth;
@@ -712,7 +712,7 @@ TEST(JpegRTest, EncodeAPI1WithInvalidArgs) {
     ASSERT_NE(
         uHdrLib.encodeJPEGR(rawImgP010, rawImg420, ultrahdr_transfer_function::ULTRAHDR_TF_HLG,
                             jpgImg.getImageHandle(), kQuality, nullptr),
-        JPEGR_NO_ERROR)
+        UHDR_NO_ERROR)
         << "fail, API allows bad image height for 420";
 
     rawImg420->width = 0;
@@ -720,7 +720,7 @@ TEST(JpegRTest, EncodeAPI1WithInvalidArgs) {
     ASSERT_NE(
         uHdrLib.encodeJPEGR(rawImgP010, rawImg420, ultrahdr_transfer_function::ULTRAHDR_TF_HLG,
                             jpgImg.getImageHandle(), kQuality, nullptr),
-        JPEGR_NO_ERROR)
+        UHDR_NO_ERROR)
         << "fail, API allows bad image width for 420";
 
     rawImg420->width = kWidth;
@@ -728,7 +728,7 @@ TEST(JpegRTest, EncodeAPI1WithInvalidArgs) {
     ASSERT_NE(
         uHdrLib.encodeJPEGR(rawImgP010, rawImg420, ultrahdr_transfer_function::ULTRAHDR_TF_HLG,
                             jpgImg.getImageHandle(), kQuality, nullptr),
-        JPEGR_NO_ERROR)
+        UHDR_NO_ERROR)
         << "fail, API allows bad image height for 420";
 
     rawImg420->width = kWidth;
@@ -737,7 +737,7 @@ TEST(JpegRTest, EncodeAPI1WithInvalidArgs) {
     ASSERT_NE(
         uHdrLib.encodeJPEGR(rawImgP010, rawImg420, ultrahdr_transfer_function::ULTRAHDR_TF_HLG,
                             jpgImg.getImageHandle(), kQuality, nullptr),
-        JPEGR_NO_ERROR)
+        UHDR_NO_ERROR)
         << "fail, API allows bad luma stride for 420";
 
     rawImg420->width = kWidth;
@@ -748,7 +748,7 @@ TEST(JpegRTest, EncodeAPI1WithInvalidArgs) {
     ASSERT_NE(
         uHdrLib.encodeJPEGR(rawImgP010, rawImg420, ultrahdr_transfer_function::ULTRAHDR_TF_HLG,
                             jpgImg.getImageHandle(), kQuality, nullptr),
-        JPEGR_NO_ERROR)
+        UHDR_NO_ERROR)
         << "fail, API allows bad chroma stride for 420";
   }
 }
@@ -772,19 +772,19 @@ TEST(JpegRTest, EncodeAPI2WithInvalidArgs) {
     ASSERT_NE(uHdrLib.encodeJPEGR(
                   rawImg.getImageHandle(), rawImg2.getImageHandle(), jpgImg.getImageHandle(),
                   ultrahdr_transfer_function::ULTRAHDR_TF_UNSPECIFIED, jpgImg.getImageHandle()),
-              JPEGR_NO_ERROR)
+              UHDR_NO_ERROR)
         << "fail, API allows bad hdr transfer function";
     ASSERT_NE(uHdrLib.encodeJPEGR(rawImg.getImageHandle(), rawImg2.getImageHandle(),
                                   jpgImg.getImageHandle(),
                                   static_cast<ultrahdr_transfer_function>(
                                       ultrahdr_transfer_function::ULTRAHDR_TF_MAX + 1),
                                   jpgImg.getImageHandle()),
-              JPEGR_NO_ERROR)
+              UHDR_NO_ERROR)
         << "fail, API allows bad hdr transfer function";
     ASSERT_NE(uHdrLib.encodeJPEGR(
                   rawImg.getImageHandle(), rawImg2.getImageHandle(), jpgImg.getImageHandle(),
                   static_cast<ultrahdr_transfer_function>(-10), jpgImg.getImageHandle()),
-              JPEGR_NO_ERROR)
+              UHDR_NO_ERROR)
         << "fail, API allows bad hdr transfer function";
   }
 
@@ -800,13 +800,13 @@ TEST(JpegRTest, EncodeAPI2WithInvalidArgs) {
     ASSERT_NE(uHdrLib.encodeJPEGR(rawImg.getImageHandle(), rawImg2.getImageHandle(),
                                   jpgImg.getImageHandle(),
                                   ultrahdr_transfer_function::ULTRAHDR_TF_HLG, nullptr),
-              JPEGR_NO_ERROR)
+              UHDR_NO_ERROR)
         << "fail, API allows nullptr dest";
     UhdrCompressedStructWrapper jpgImg2(16, 16);
     ASSERT_NE(uHdrLib.encodeJPEGR(
                   rawImg.getImageHandle(), rawImg2.getImageHandle(), jpgImg.getImageHandle(),
                   ultrahdr_transfer_function::ULTRAHDR_TF_HLG, jpgImg2.getImageHandle()),
-              JPEGR_NO_ERROR)
+              UHDR_NO_ERROR)
         << "fail, API allows nullptr dest";
   }
 
@@ -822,13 +822,13 @@ TEST(JpegRTest, EncodeAPI2WithInvalidArgs) {
     ASSERT_NE(
         uHdrLib.encodeJPEGR(rawImg.getImageHandle(), rawImg2.getImageHandle(), nullptr,
                             ultrahdr_transfer_function::ULTRAHDR_TF_HLG, jpgImg.getImageHandle()),
-        JPEGR_NO_ERROR)
+        UHDR_NO_ERROR)
         << "fail, API allows nullptr for compressed image";
     UhdrCompressedStructWrapper jpgImg2(16, 16);
     ASSERT_NE(uHdrLib.encodeJPEGR(
                   rawImg.getImageHandle(), rawImg2.getImageHandle(), jpgImg2.getImageHandle(),
                   ultrahdr_transfer_function::ULTRAHDR_TF_HLG, jpgImg.getImageHandle()),
-              JPEGR_NO_ERROR)
+              UHDR_NO_ERROR)
         << "fail, API allows nullptr for compressed image";
   }
 
@@ -840,7 +840,7 @@ TEST(JpegRTest, EncodeAPI2WithInvalidArgs) {
     ASSERT_NE(
         uHdrLib.encodeJPEGR(nullptr, rawImg2.getImageHandle(), jpgImg.getImageHandle(),
                             ultrahdr_transfer_function::ULTRAHDR_TF_HLG, jpgImg.getImageHandle()),
-        JPEGR_NO_ERROR)
+        UHDR_NO_ERROR)
         << "fail, API allows nullptr p010 image";
 
     UhdrUnCompressedStructWrapper rawImg(16, 16, YCbCr_p010);
@@ -848,7 +848,7 @@ TEST(JpegRTest, EncodeAPI2WithInvalidArgs) {
     ASSERT_NE(uHdrLib.encodeJPEGR(
                   rawImg.getImageHandle(), rawImg2.getImageHandle(), jpgImg.getImageHandle(),
                   ultrahdr_transfer_function::ULTRAHDR_TF_HLG, jpgImg.getImageHandle()),
-              JPEGR_NO_ERROR)
+              UHDR_NO_ERROR)
         << "fail, API allows nullptr p010 image";
   }
 
@@ -869,7 +869,7 @@ TEST(JpegRTest, EncodeAPI2WithInvalidArgs) {
     ASSERT_NE(
         uHdrLib.encodeJPEGR(rawImgP010, rawImg420, jpgImg.getImageHandle(),
                             ultrahdr_transfer_function::ULTRAHDR_TF_HLG, jpgImg.getImageHandle()),
-        JPEGR_NO_ERROR)
+        UHDR_NO_ERROR)
         << "fail, API allows bad p010 color gamut";
 
     rawImgP010->width = kWidth;
@@ -879,7 +879,7 @@ TEST(JpegRTest, EncodeAPI2WithInvalidArgs) {
     ASSERT_NE(
         uHdrLib.encodeJPEGR(rawImgP010, rawImg420, jpgImg.getImageHandle(),
                             ultrahdr_transfer_function::ULTRAHDR_TF_HLG, jpgImg.getImageHandle()),
-        JPEGR_NO_ERROR)
+        UHDR_NO_ERROR)
         << "fail, API allows bad p010 color gamut";
 
     rawImgP010->width = kWidth - 1;
@@ -888,7 +888,7 @@ TEST(JpegRTest, EncodeAPI2WithInvalidArgs) {
     ASSERT_NE(
         uHdrLib.encodeJPEGR(rawImgP010, rawImg420, jpgImg.getImageHandle(),
                             ultrahdr_transfer_function::ULTRAHDR_TF_HLG, jpgImg.getImageHandle()),
-        JPEGR_NO_ERROR)
+        UHDR_NO_ERROR)
         << "fail, API allows bad image width";
 
     rawImgP010->width = kWidth;
@@ -896,7 +896,7 @@ TEST(JpegRTest, EncodeAPI2WithInvalidArgs) {
     ASSERT_NE(
         uHdrLib.encodeJPEGR(rawImgP010, rawImg420, jpgImg.getImageHandle(),
                             ultrahdr_transfer_function::ULTRAHDR_TF_HLG, jpgImg.getImageHandle()),
-        JPEGR_NO_ERROR)
+        UHDR_NO_ERROR)
         << "fail, API allows bad image height";
 
     rawImgP010->width = 0;
@@ -904,7 +904,7 @@ TEST(JpegRTest, EncodeAPI2WithInvalidArgs) {
     ASSERT_NE(
         uHdrLib.encodeJPEGR(rawImgP010, rawImg420, jpgImg.getImageHandle(),
                             ultrahdr_transfer_function::ULTRAHDR_TF_HLG, jpgImg.getImageHandle()),
-        JPEGR_NO_ERROR)
+        UHDR_NO_ERROR)
         << "fail, API allows bad image width";
 
     rawImgP010->width = kWidth;
@@ -912,7 +912,7 @@ TEST(JpegRTest, EncodeAPI2WithInvalidArgs) {
     ASSERT_NE(
         uHdrLib.encodeJPEGR(rawImgP010, rawImg420, jpgImg.getImageHandle(),
                             ultrahdr_transfer_function::ULTRAHDR_TF_HLG, jpgImg.getImageHandle()),
-        JPEGR_NO_ERROR)
+        UHDR_NO_ERROR)
         << "fail, API allows bad image height";
 
     rawImgP010->width = kWidth;
@@ -921,7 +921,7 @@ TEST(JpegRTest, EncodeAPI2WithInvalidArgs) {
     ASSERT_NE(
         uHdrLib.encodeJPEGR(rawImgP010, rawImg420, jpgImg.getImageHandle(),
                             ultrahdr_transfer_function::ULTRAHDR_TF_HLG, jpgImg.getImageHandle()),
-        JPEGR_NO_ERROR)
+        UHDR_NO_ERROR)
         << "fail, API allows bad luma stride";
 
     rawImgP010->width = kWidth;
@@ -932,7 +932,7 @@ TEST(JpegRTest, EncodeAPI2WithInvalidArgs) {
     ASSERT_NE(
         uHdrLib.encodeJPEGR(rawImgP010, rawImg420, jpgImg.getImageHandle(),
                             ultrahdr_transfer_function::ULTRAHDR_TF_HLG, jpgImg.getImageHandle()),
-        JPEGR_NO_ERROR)
+        UHDR_NO_ERROR)
         << "fail, API allows bad chroma stride";
   }
 
@@ -944,7 +944,7 @@ TEST(JpegRTest, EncodeAPI2WithInvalidArgs) {
     ASSERT_NE(
         uHdrLib.encodeJPEGR(rawImg.getImageHandle(), nullptr, jpgImg.getImageHandle(),
                             ultrahdr_transfer_function::ULTRAHDR_TF_HLG, jpgImg.getImageHandle()),
-        JPEGR_NO_ERROR)
+        UHDR_NO_ERROR)
         << "fail, API allows nullptr 420 image";
 
     UhdrUnCompressedStructWrapper rawImg2(16, 16, YCbCr_420);
@@ -952,7 +952,7 @@ TEST(JpegRTest, EncodeAPI2WithInvalidArgs) {
     ASSERT_NE(uHdrLib.encodeJPEGR(
                   rawImg.getImageHandle(), rawImg2.getImageHandle(), jpgImg.getImageHandle(),
                   ultrahdr_transfer_function::ULTRAHDR_TF_HLG, jpgImg.getImageHandle()),
-              JPEGR_NO_ERROR)
+              UHDR_NO_ERROR)
         << "fail, API allows nullptr 420 image";
   }
   {
@@ -972,7 +972,7 @@ TEST(JpegRTest, EncodeAPI2WithInvalidArgs) {
     ASSERT_NE(
         uHdrLib.encodeJPEGR(rawImgP010, rawImg420, jpgImg.getImageHandle(),
                             ultrahdr_transfer_function::ULTRAHDR_TF_HLG, jpgImg.getImageHandle()),
-        JPEGR_NO_ERROR)
+        UHDR_NO_ERROR)
         << "fail, API allows bad 420 color gamut";
 
     rawImg420->width = kWidth;
@@ -982,7 +982,7 @@ TEST(JpegRTest, EncodeAPI2WithInvalidArgs) {
     ASSERT_NE(
         uHdrLib.encodeJPEGR(rawImgP010, rawImg420, jpgImg.getImageHandle(),
                             ultrahdr_transfer_function::ULTRAHDR_TF_HLG, jpgImg.getImageHandle()),
-        JPEGR_NO_ERROR)
+        UHDR_NO_ERROR)
         << "fail, API allows bad 420 color gamut";
 
     rawImg420->width = kWidth - 1;
@@ -991,7 +991,7 @@ TEST(JpegRTest, EncodeAPI2WithInvalidArgs) {
     ASSERT_NE(
         uHdrLib.encodeJPEGR(rawImgP010, rawImg420, jpgImg.getImageHandle(),
                             ultrahdr_transfer_function::ULTRAHDR_TF_HLG, jpgImg.getImageHandle()),
-        JPEGR_NO_ERROR)
+        UHDR_NO_ERROR)
         << "fail, API allows bad image width for 420";
 
     rawImg420->width = kWidth;
@@ -999,7 +999,7 @@ TEST(JpegRTest, EncodeAPI2WithInvalidArgs) {
     ASSERT_NE(
         uHdrLib.encodeJPEGR(rawImgP010, rawImg420, jpgImg.getImageHandle(),
                             ultrahdr_transfer_function::ULTRAHDR_TF_HLG, jpgImg.getImageHandle()),
-        JPEGR_NO_ERROR)
+        UHDR_NO_ERROR)
         << "fail, API allows bad image height for 420";
 
     rawImg420->width = 0;
@@ -1007,7 +1007,7 @@ TEST(JpegRTest, EncodeAPI2WithInvalidArgs) {
     ASSERT_NE(
         uHdrLib.encodeJPEGR(rawImgP010, rawImg420, jpgImg.getImageHandle(),
                             ultrahdr_transfer_function::ULTRAHDR_TF_HLG, jpgImg.getImageHandle()),
-        JPEGR_NO_ERROR)
+        UHDR_NO_ERROR)
         << "fail, API allows bad image width for 420";
 
     rawImg420->width = kWidth;
@@ -1015,7 +1015,7 @@ TEST(JpegRTest, EncodeAPI2WithInvalidArgs) {
     ASSERT_NE(
         uHdrLib.encodeJPEGR(rawImgP010, rawImg420, jpgImg.getImageHandle(),
                             ultrahdr_transfer_function::ULTRAHDR_TF_HLG, jpgImg.getImageHandle()),
-        JPEGR_NO_ERROR)
+        UHDR_NO_ERROR)
         << "fail, API allows bad image height for 420";
 
     rawImg420->width = kWidth;
@@ -1024,7 +1024,7 @@ TEST(JpegRTest, EncodeAPI2WithInvalidArgs) {
     ASSERT_NE(
         uHdrLib.encodeJPEGR(rawImgP010, rawImg420, jpgImg.getImageHandle(),
                             ultrahdr_transfer_function::ULTRAHDR_TF_HLG, jpgImg.getImageHandle()),
-        JPEGR_NO_ERROR)
+        UHDR_NO_ERROR)
         << "fail, API allows bad luma stride for 420";
 
     rawImg420->width = kWidth;
@@ -1035,7 +1035,7 @@ TEST(JpegRTest, EncodeAPI2WithInvalidArgs) {
     ASSERT_NE(
         uHdrLib.encodeJPEGR(rawImgP010, rawImg420, jpgImg.getImageHandle(),
                             ultrahdr_transfer_function::ULTRAHDR_TF_HLG, jpgImg.getImageHandle()),
-        JPEGR_NO_ERROR)
+        UHDR_NO_ERROR)
         << "fail, API allows bad chroma stride for 420";
   }
 }
@@ -1056,18 +1056,18 @@ TEST(JpegRTest, EncodeAPI3WithInvalidArgs) {
     ASSERT_NE(uHdrLib.encodeJPEGR(rawImg.getImageHandle(), jpgImg.getImageHandle(),
                                   ultrahdr_transfer_function::ULTRAHDR_TF_UNSPECIFIED,
                                   jpgImg.getImageHandle()),
-              JPEGR_NO_ERROR)
+              UHDR_NO_ERROR)
         << "fail, API allows bad hdr transfer function";
     ASSERT_NE(uHdrLib.encodeJPEGR(rawImg.getImageHandle(), jpgImg.getImageHandle(),
                                   static_cast<ultrahdr_transfer_function>(
                                       ultrahdr_transfer_function::ULTRAHDR_TF_MAX + 1),
                                   jpgImg.getImageHandle()),
-              JPEGR_NO_ERROR)
+              UHDR_NO_ERROR)
         << "fail, API allows bad hdr transfer function";
     ASSERT_NE(
         uHdrLib.encodeJPEGR(rawImg.getImageHandle(), jpgImg.getImageHandle(),
                             static_cast<ultrahdr_transfer_function>(-10), jpgImg.getImageHandle()),
-        JPEGR_NO_ERROR)
+        UHDR_NO_ERROR)
         << "fail, API allows bad hdr transfer function";
   }
 
@@ -1079,13 +1079,13 @@ TEST(JpegRTest, EncodeAPI3WithInvalidArgs) {
 
     ASSERT_NE(uHdrLib.encodeJPEGR(rawImg.getImageHandle(), jpgImg.getImageHandle(),
                                   ultrahdr_transfer_function::ULTRAHDR_TF_HLG, nullptr),
-              JPEGR_NO_ERROR)
+              UHDR_NO_ERROR)
         << "fail, API allows nullptr dest";
     UhdrCompressedStructWrapper jpgImg2(16, 16);
     ASSERT_NE(
         uHdrLib.encodeJPEGR(rawImg.getImageHandle(), jpgImg.getImageHandle(),
                             ultrahdr_transfer_function::ULTRAHDR_TF_HLG, jpgImg2.getImageHandle()),
-        JPEGR_NO_ERROR)
+        UHDR_NO_ERROR)
         << "fail, API allows nullptr dest";
   }
 
@@ -1098,13 +1098,13 @@ TEST(JpegRTest, EncodeAPI3WithInvalidArgs) {
     ASSERT_NE(
         uHdrLib.encodeJPEGR(rawImg.getImageHandle(), nullptr,
                             ultrahdr_transfer_function::ULTRAHDR_TF_HLG, jpgImg.getImageHandle()),
-        JPEGR_NO_ERROR)
+        UHDR_NO_ERROR)
         << "fail, API allows nullptr for compressed image";
     UhdrCompressedStructWrapper jpgImg2(16, 16);
     ASSERT_NE(
         uHdrLib.encodeJPEGR(rawImg.getImageHandle(), jpgImg2.getImageHandle(),
                             ultrahdr_transfer_function::ULTRAHDR_TF_HLG, jpgImg.getImageHandle()),
-        JPEGR_NO_ERROR)
+        UHDR_NO_ERROR)
         << "fail, API allows nullptr for compressed image";
   }
 
@@ -1113,7 +1113,7 @@ TEST(JpegRTest, EncodeAPI3WithInvalidArgs) {
     ASSERT_NE(
         uHdrLib.encodeJPEGR(nullptr, jpgImg.getImageHandle(),
                             ultrahdr_transfer_function::ULTRAHDR_TF_HLG, jpgImg.getImageHandle()),
-        JPEGR_NO_ERROR)
+        UHDR_NO_ERROR)
         << "fail, API allows nullptr p010 image";
 
     UhdrUnCompressedStructWrapper rawImg(16, 16, YCbCr_p010);
@@ -1121,7 +1121,7 @@ TEST(JpegRTest, EncodeAPI3WithInvalidArgs) {
     ASSERT_NE(
         uHdrLib.encodeJPEGR(rawImg.getImageHandle(), jpgImg.getImageHandle(),
                             ultrahdr_transfer_function::ULTRAHDR_TF_HLG, jpgImg.getImageHandle()),
-        JPEGR_NO_ERROR)
+        UHDR_NO_ERROR)
         << "fail, API allows nullptr p010 image";
   }
 
@@ -1138,7 +1138,7 @@ TEST(JpegRTest, EncodeAPI3WithInvalidArgs) {
     ASSERT_NE(
         uHdrLib.encodeJPEGR(rawImgP010, jpgImg.getImageHandle(),
                             ultrahdr_transfer_function::ULTRAHDR_TF_HLG, jpgImg.getImageHandle()),
-        JPEGR_NO_ERROR)
+        UHDR_NO_ERROR)
         << "fail, API allows bad p010 color gamut";
 
     rawImgP010->width = kWidth;
@@ -1148,7 +1148,7 @@ TEST(JpegRTest, EncodeAPI3WithInvalidArgs) {
     ASSERT_NE(
         uHdrLib.encodeJPEGR(rawImgP010, jpgImg.getImageHandle(),
                             ultrahdr_transfer_function::ULTRAHDR_TF_HLG, jpgImg.getImageHandle()),
-        JPEGR_NO_ERROR)
+        UHDR_NO_ERROR)
         << "fail, API allows bad p010 color gamut";
 
     rawImgP010->width = kWidth - 1;
@@ -1157,7 +1157,7 @@ TEST(JpegRTest, EncodeAPI3WithInvalidArgs) {
     ASSERT_NE(
         uHdrLib.encodeJPEGR(rawImgP010, jpgImg.getImageHandle(),
                             ultrahdr_transfer_function::ULTRAHDR_TF_HLG, jpgImg.getImageHandle()),
-        JPEGR_NO_ERROR)
+        UHDR_NO_ERROR)
         << "fail, API allows bad image width";
 
     rawImgP010->width = kWidth;
@@ -1165,7 +1165,7 @@ TEST(JpegRTest, EncodeAPI3WithInvalidArgs) {
     ASSERT_NE(
         uHdrLib.encodeJPEGR(rawImgP010, jpgImg.getImageHandle(),
                             ultrahdr_transfer_function::ULTRAHDR_TF_HLG, jpgImg.getImageHandle()),
-        JPEGR_NO_ERROR)
+        UHDR_NO_ERROR)
         << "fail, API allows bad image height";
 
     rawImgP010->width = 0;
@@ -1173,7 +1173,7 @@ TEST(JpegRTest, EncodeAPI3WithInvalidArgs) {
     ASSERT_NE(
         uHdrLib.encodeJPEGR(rawImgP010, jpgImg.getImageHandle(),
                             ultrahdr_transfer_function::ULTRAHDR_TF_HLG, jpgImg.getImageHandle()),
-        JPEGR_NO_ERROR)
+        UHDR_NO_ERROR)
         << "fail, API allows bad image width";
 
     rawImgP010->width = kWidth;
@@ -1181,7 +1181,7 @@ TEST(JpegRTest, EncodeAPI3WithInvalidArgs) {
     ASSERT_NE(
         uHdrLib.encodeJPEGR(rawImgP010, jpgImg.getImageHandle(),
                             ultrahdr_transfer_function::ULTRAHDR_TF_HLG, jpgImg.getImageHandle()),
-        JPEGR_NO_ERROR)
+        UHDR_NO_ERROR)
         << "fail, API allows bad image height";
 
     rawImgP010->width = kWidth;
@@ -1190,7 +1190,7 @@ TEST(JpegRTest, EncodeAPI3WithInvalidArgs) {
     ASSERT_NE(
         uHdrLib.encodeJPEGR(rawImgP010, jpgImg.getImageHandle(),
                             ultrahdr_transfer_function::ULTRAHDR_TF_HLG, jpgImg.getImageHandle()),
-        JPEGR_NO_ERROR)
+        UHDR_NO_ERROR)
         << "fail, API allows bad luma stride";
 
     rawImgP010->width = kWidth;
@@ -1201,7 +1201,7 @@ TEST(JpegRTest, EncodeAPI3WithInvalidArgs) {
     ASSERT_NE(
         uHdrLib.encodeJPEGR(rawImgP010, jpgImg.getImageHandle(),
                             ultrahdr_transfer_function::ULTRAHDR_TF_HLG, jpgImg.getImageHandle()),
-        JPEGR_NO_ERROR)
+        UHDR_NO_ERROR)
         << "fail, API allows bad chroma stride";
   }
 }
@@ -1215,29 +1215,29 @@ TEST(JpegRTest, EncodeAPI4WithInvalidArgs) {
 
   // test dest
   ASSERT_NE(uHdrLib.encodeJPEGR(jpgImg.getImageHandle(), jpgImg.getImageHandle(), nullptr, nullptr),
-            JPEGR_NO_ERROR)
+            UHDR_NO_ERROR)
       << "fail, API allows nullptr dest";
   ASSERT_NE(uHdrLib.encodeJPEGR(jpgImg.getImageHandle(), jpgImg.getImageHandle(), nullptr,
                                 jpgImg2.getImageHandle()),
-            JPEGR_NO_ERROR)
+            UHDR_NO_ERROR)
       << "fail, API allows nullptr dest";
 
   // test primary image
   ASSERT_NE(uHdrLib.encodeJPEGR(nullptr, jpgImg.getImageHandle(), nullptr, jpgImg.getImageHandle()),
-            JPEGR_NO_ERROR)
+            UHDR_NO_ERROR)
       << "fail, API allows nullptr primary image";
   ASSERT_NE(uHdrLib.encodeJPEGR(jpgImg2.getImageHandle(), jpgImg.getImageHandle(), nullptr,
                                 jpgImg.getImageHandle()),
-            JPEGR_NO_ERROR)
+            UHDR_NO_ERROR)
       << "fail, API allows nullptr primary image";
 
   // test gain map
   ASSERT_NE(uHdrLib.encodeJPEGR(jpgImg.getImageHandle(), nullptr, nullptr, jpgImg.getImageHandle()),
-            JPEGR_NO_ERROR)
+            UHDR_NO_ERROR)
       << "fail, API allows nullptr gain map image";
   ASSERT_NE(uHdrLib.encodeJPEGR(jpgImg.getImageHandle(), jpgImg2.getImageHandle(), nullptr,
                                 jpgImg.getImageHandle()),
-            JPEGR_NO_ERROR)
+            UHDR_NO_ERROR)
       << "fail, API allows nullptr gain map image";
 
   // test metadata
@@ -1255,49 +1255,49 @@ TEST(JpegRTest, EncodeAPI4WithInvalidArgs) {
   metadata.version = "1.1";
   ASSERT_NE(uHdrLib.encodeJPEGR(jpgImg.getImageHandle(), jpgImg.getImageHandle(), &metadata,
                                 jpgImg.getImageHandle()),
-            JPEGR_NO_ERROR)
+            UHDR_NO_ERROR)
       << "fail, API allows bad metadata version";
 
   metadata = good_metadata;
   metadata.minContentBoost = 3.0f;
   ASSERT_NE(uHdrLib.encodeJPEGR(jpgImg.getImageHandle(), jpgImg.getImageHandle(), &metadata,
                                 jpgImg.getImageHandle()),
-            JPEGR_NO_ERROR)
+            UHDR_NO_ERROR)
       << "fail, API allows bad metadata content boost";
 
   metadata = good_metadata;
   metadata.gamma = -0.1f;
   ASSERT_NE(uHdrLib.encodeJPEGR(jpgImg.getImageHandle(), jpgImg.getImageHandle(), &metadata,
                                 jpgImg.getImageHandle()),
-            JPEGR_NO_ERROR)
+            UHDR_NO_ERROR)
       << "fail, API allows bad metadata gamma";
 
   metadata = good_metadata;
   metadata.offsetSdr = -0.1f;
   ASSERT_NE(uHdrLib.encodeJPEGR(jpgImg.getImageHandle(), jpgImg.getImageHandle(), &metadata,
                                 jpgImg.getImageHandle()),
-            JPEGR_NO_ERROR)
+            UHDR_NO_ERROR)
       << "fail, API allows bad metadata offset sdr";
 
   metadata = good_metadata;
   metadata.offsetHdr = -0.1f;
   ASSERT_NE(uHdrLib.encodeJPEGR(jpgImg.getImageHandle(), jpgImg.getImageHandle(), &metadata,
                                 jpgImg.getImageHandle()),
-            JPEGR_NO_ERROR)
+            UHDR_NO_ERROR)
       << "fail, API allows bad metadata offset hdr";
 
   metadata = good_metadata;
   metadata.hdrCapacityMax = 0.5f;
   ASSERT_NE(uHdrLib.encodeJPEGR(jpgImg.getImageHandle(), jpgImg.getImageHandle(), &metadata,
                                 jpgImg.getImageHandle()),
-            JPEGR_NO_ERROR)
+            UHDR_NO_ERROR)
       << "fail, API allows bad metadata hdr capacity max";
 
   metadata = good_metadata;
   metadata.hdrCapacityMin = 0.5f;
   ASSERT_NE(uHdrLib.encodeJPEGR(jpgImg.getImageHandle(), jpgImg.getImageHandle(), &metadata,
                                 jpgImg.getImageHandle()),
-            JPEGR_NO_ERROR)
+            UHDR_NO_ERROR)
       << "fail, API allows bad metadata hdr capacity min";
 }
 
@@ -1312,32 +1312,32 @@ TEST(JpegRTest, DecodeAPIWithInvalidArgs) {
   destImage.data = data.get();
 
   // test jpegr image
-  ASSERT_NE(uHdrLib.decodeJPEGR(nullptr, &destImage), JPEGR_NO_ERROR)
+  ASSERT_NE(uHdrLib.decodeJPEGR(nullptr, &destImage), UHDR_NO_ERROR)
       << "fail, API allows nullptr for jpegr img";
-  ASSERT_NE(uHdrLib.decodeJPEGR(jpgImg.getImageHandle(), &destImage), JPEGR_NO_ERROR)
+  ASSERT_NE(uHdrLib.decodeJPEGR(jpgImg.getImageHandle(), &destImage), UHDR_NO_ERROR)
       << "fail, API allows nullptr for jpegr img";
   ASSERT_TRUE(jpgImg.allocateMemory());
 
   // test dest image
-  ASSERT_NE(uHdrLib.decodeJPEGR(jpgImg.getImageHandle(), nullptr), JPEGR_NO_ERROR)
+  ASSERT_NE(uHdrLib.decodeJPEGR(jpgImg.getImageHandle(), nullptr), UHDR_NO_ERROR)
       << "fail, API allows nullptr for dest";
   destImage.data = nullptr;
-  ASSERT_NE(uHdrLib.decodeJPEGR(jpgImg.getImageHandle(), &destImage), JPEGR_NO_ERROR)
+  ASSERT_NE(uHdrLib.decodeJPEGR(jpgImg.getImageHandle(), &destImage), UHDR_NO_ERROR)
       << "fail, API allows nullptr for dest";
   destImage.data = data.get();
 
   // test max display boost
-  ASSERT_NE(uHdrLib.decodeJPEGR(jpgImg.getImageHandle(), &destImage, 0.5), JPEGR_NO_ERROR)
+  ASSERT_NE(uHdrLib.decodeJPEGR(jpgImg.getImageHandle(), &destImage, 0.5), UHDR_NO_ERROR)
       << "fail, API allows invalid max display boost";
 
   // test output format
   ASSERT_NE(uHdrLib.decodeJPEGR(jpgImg.getImageHandle(), &destImage, FLT_MAX, nullptr,
                                 static_cast<ultrahdr_output_format>(-1)),
-            JPEGR_NO_ERROR)
+            UHDR_NO_ERROR)
       << "fail, API allows invalid output format";
   ASSERT_NE(uHdrLib.decodeJPEGR(jpgImg.getImageHandle(), &destImage, FLT_MAX, nullptr,
                                 static_cast<ultrahdr_output_format>(ULTRAHDR_OUTPUT_MAX + 1)),
-            JPEGR_NO_ERROR)
+            UHDR_NO_ERROR)
       << "fail, API allows invalid output format";
 }
 
@@ -1397,7 +1397,7 @@ TEST_P(JpegRAPIEncodeAndDecodeTest, EncodeAPI0AndDecodeTest) {
   ASSERT_EQ(
       uHdrLib.encodeJPEGR(rawImg.getImageHandle(), ultrahdr_transfer_function::ULTRAHDR_TF_HLG,
                           jpgImg.getImageHandle(), kQuality, nullptr),
-      JPEGR_NO_ERROR);
+      UHDR_NO_ERROR);
   // encode with luma stride set
   {
     UhdrUnCompressedStructWrapper rawImg2(kImageWidth, kImageHeight, YCbCr_p010);
@@ -1410,7 +1410,7 @@ TEST_P(JpegRAPIEncodeAndDecodeTest, EncodeAPI0AndDecodeTest) {
     ASSERT_EQ(
         uHdrLib.encodeJPEGR(rawImg2.getImageHandle(), ultrahdr_transfer_function::ULTRAHDR_TF_HLG,
                             jpgImg2.getImageHandle(), kQuality, nullptr),
-        JPEGR_NO_ERROR);
+        UHDR_NO_ERROR);
     auto jpg1 = jpgImg.getImageHandle();
     auto jpg2 = jpgImg2.getImageHandle();
     ASSERT_EQ(jpg1->length, jpg2->length);
@@ -1429,7 +1429,7 @@ TEST_P(JpegRAPIEncodeAndDecodeTest, EncodeAPI0AndDecodeTest) {
     ASSERT_EQ(
         uHdrLib.encodeJPEGR(rawImg2.getImageHandle(), ultrahdr_transfer_function::ULTRAHDR_TF_HLG,
                             jpgImg2.getImageHandle(), kQuality, nullptr),
-        JPEGR_NO_ERROR);
+        UHDR_NO_ERROR);
     auto jpg1 = jpgImg.getImageHandle();
     auto jpg2 = jpgImg2.getImageHandle();
     ASSERT_EQ(jpg1->length, jpg2->length);
@@ -1448,7 +1448,7 @@ TEST_P(JpegRAPIEncodeAndDecodeTest, EncodeAPI0AndDecodeTest) {
     ASSERT_EQ(
         uHdrLib.encodeJPEGR(rawImg2.getImageHandle(), ultrahdr_transfer_function::ULTRAHDR_TF_HLG,
                             jpgImg2.getImageHandle(), kQuality, nullptr),
-        JPEGR_NO_ERROR);
+        UHDR_NO_ERROR);
     auto jpg1 = jpgImg.getImageHandle();
     auto jpg2 = jpgImg2.getImageHandle();
     ASSERT_EQ(jpg1->length, jpg2->length);
@@ -1466,7 +1466,7 @@ TEST_P(JpegRAPIEncodeAndDecodeTest, EncodeAPI0AndDecodeTest) {
     ASSERT_EQ(
         uHdrLib.encodeJPEGR(rawImg2.getImageHandle(), ultrahdr_transfer_function::ULTRAHDR_TF_HLG,
                             jpgImg2.getImageHandle(), kQuality, nullptr),
-        JPEGR_NO_ERROR);
+        UHDR_NO_ERROR);
     auto jpg1 = jpgImg.getImageHandle();
     auto jpg2 = jpgImg2.getImageHandle();
     ASSERT_EQ(jpg1->length, jpg2->length);
@@ -1499,7 +1499,7 @@ TEST_P(JpegRAPIEncodeAndDecodeTest, EncodeAPI1AndDecodeTest) {
   ASSERT_EQ(uHdrLib.encodeJPEGR(rawImgP010.getImageHandle(), rawImg420.getImageHandle(),
                                 ultrahdr_transfer_function::ULTRAHDR_TF_HLG,
                                 jpgImg.getImageHandle(), kQuality, nullptr),
-            JPEGR_NO_ERROR);
+            UHDR_NO_ERROR);
   // encode with luma stride set p010
   {
     UhdrUnCompressedStructWrapper rawImg2P010(kImageWidth, kImageHeight, YCbCr_p010);
@@ -1512,7 +1512,7 @@ TEST_P(JpegRAPIEncodeAndDecodeTest, EncodeAPI1AndDecodeTest) {
     ASSERT_EQ(uHdrLib.encodeJPEGR(rawImg2P010.getImageHandle(), rawImg420.getImageHandle(),
                                   ultrahdr_transfer_function::ULTRAHDR_TF_HLG,
                                   jpgImg2.getImageHandle(), kQuality, nullptr),
-              JPEGR_NO_ERROR);
+              UHDR_NO_ERROR);
     auto jpg1 = jpgImg.getImageHandle();
     auto jpg2 = jpgImg2.getImageHandle();
     ASSERT_EQ(jpg1->length, jpg2->length);
@@ -1531,7 +1531,7 @@ TEST_P(JpegRAPIEncodeAndDecodeTest, EncodeAPI1AndDecodeTest) {
     ASSERT_EQ(uHdrLib.encodeJPEGR(rawImg2P010.getImageHandle(), rawImg420.getImageHandle(),
                                   ultrahdr_transfer_function::ULTRAHDR_TF_HLG,
                                   jpgImg2.getImageHandle(), kQuality, nullptr),
-              JPEGR_NO_ERROR);
+              UHDR_NO_ERROR);
     auto jpg1 = jpgImg.getImageHandle();
     auto jpg2 = jpgImg2.getImageHandle();
     ASSERT_EQ(jpg1->length, jpg2->length);
@@ -1550,7 +1550,7 @@ TEST_P(JpegRAPIEncodeAndDecodeTest, EncodeAPI1AndDecodeTest) {
     ASSERT_EQ(uHdrLib.encodeJPEGR(rawImg2P010.getImageHandle(), rawImg420.getImageHandle(),
                                   ultrahdr_transfer_function::ULTRAHDR_TF_HLG,
                                   jpgImg2.getImageHandle(), kQuality, nullptr),
-              JPEGR_NO_ERROR);
+              UHDR_NO_ERROR);
     auto jpg1 = jpgImg.getImageHandle();
     auto jpg2 = jpgImg2.getImageHandle();
     ASSERT_EQ(jpg1->length, jpg2->length);
@@ -1568,7 +1568,7 @@ TEST_P(JpegRAPIEncodeAndDecodeTest, EncodeAPI1AndDecodeTest) {
     ASSERT_EQ(uHdrLib.encodeJPEGR(rawImg2P010.getImageHandle(), rawImg420.getImageHandle(),
                                   ultrahdr_transfer_function::ULTRAHDR_TF_HLG,
                                   jpgImg2.getImageHandle(), kQuality, nullptr),
-              JPEGR_NO_ERROR);
+              UHDR_NO_ERROR);
     auto jpg1 = jpgImg.getImageHandle();
     auto jpg2 = jpgImg2.getImageHandle();
     ASSERT_EQ(jpg1->length, jpg2->length);
@@ -1586,7 +1586,7 @@ TEST_P(JpegRAPIEncodeAndDecodeTest, EncodeAPI1AndDecodeTest) {
     ASSERT_EQ(uHdrLib.encodeJPEGR(rawImgP010.getImageHandle(), rawImg2420.getImageHandle(),
                                   ultrahdr_transfer_function::ULTRAHDR_TF_HLG,
                                   jpgImg2.getImageHandle(), kQuality, nullptr),
-              JPEGR_NO_ERROR);
+              UHDR_NO_ERROR);
     auto jpg1 = jpgImg.getImageHandle();
     auto jpg2 = jpgImg2.getImageHandle();
     ASSERT_EQ(jpg1->length, jpg2->length);
@@ -1605,7 +1605,7 @@ TEST_P(JpegRAPIEncodeAndDecodeTest, EncodeAPI1AndDecodeTest) {
     ASSERT_EQ(uHdrLib.encodeJPEGR(rawImgP010.getImageHandle(), rawImg2420.getImageHandle(),
                                   ultrahdr_transfer_function::ULTRAHDR_TF_HLG,
                                   jpgImg2.getImageHandle(), kQuality, nullptr),
-              JPEGR_NO_ERROR);
+              UHDR_NO_ERROR);
     auto jpg1 = jpgImg.getImageHandle();
     auto jpg2 = jpgImg2.getImageHandle();
     ASSERT_EQ(jpg1->length, jpg2->length);
@@ -1624,7 +1624,7 @@ TEST_P(JpegRAPIEncodeAndDecodeTest, EncodeAPI1AndDecodeTest) {
     ASSERT_EQ(uHdrLib.encodeJPEGR(rawImgP010.getImageHandle(), rawImg2420.getImageHandle(),
                                   ultrahdr_transfer_function::ULTRAHDR_TF_HLG,
                                   jpgImg2.getImageHandle(), kQuality, nullptr),
-              JPEGR_NO_ERROR);
+              UHDR_NO_ERROR);
     auto jpg1 = jpgImg.getImageHandle();
     auto jpg2 = jpgImg2.getImageHandle();
     ASSERT_EQ(jpg1->length, jpg2->length);
@@ -1642,7 +1642,7 @@ TEST_P(JpegRAPIEncodeAndDecodeTest, EncodeAPI1AndDecodeTest) {
     ASSERT_EQ(uHdrLib.encodeJPEGR(rawImgP010.getImageHandle(), rawImg2420.getImageHandle(),
                                   ultrahdr_transfer_function::ULTRAHDR_TF_HLG,
                                   jpgImg2.getImageHandle(), kQuality, nullptr),
-              JPEGR_NO_ERROR);
+              UHDR_NO_ERROR);
     auto jpg1 = jpgImg.getImageHandle();
     auto jpg2 = jpgImg2.getImageHandle();
     ASSERT_EQ(jpg1->length, jpg2->length);
@@ -1680,7 +1680,7 @@ TEST_P(JpegRAPIEncodeAndDecodeTest, EncodeAPI2AndDecodeTest) {
   ASSERT_EQ(
       uHdrLib.encodeJPEGR(rawImgP010.getImageHandle(), rawImg420.getImageHandle(), sdr,
                           ultrahdr_transfer_function::ULTRAHDR_TF_HLG, jpgImg.getImageHandle()),
-      JPEGR_NO_ERROR);
+      UHDR_NO_ERROR);
   // encode with luma stride set
   {
     UhdrUnCompressedStructWrapper rawImg2P010(kImageWidth, kImageHeight, YCbCr_p010);
@@ -1693,7 +1693,7 @@ TEST_P(JpegRAPIEncodeAndDecodeTest, EncodeAPI2AndDecodeTest) {
     ASSERT_EQ(
         uHdrLib.encodeJPEGR(rawImg2P010.getImageHandle(), rawImg420.getImageHandle(), sdr,
                             ultrahdr_transfer_function::ULTRAHDR_TF_HLG, jpgImg2.getImageHandle()),
-        JPEGR_NO_ERROR);
+        UHDR_NO_ERROR);
     auto jpg1 = jpgImg.getImageHandle();
     auto jpg2 = jpgImg2.getImageHandle();
     ASSERT_EQ(jpg1->length, jpg2->length);
@@ -1712,7 +1712,7 @@ TEST_P(JpegRAPIEncodeAndDecodeTest, EncodeAPI2AndDecodeTest) {
     ASSERT_EQ(
         uHdrLib.encodeJPEGR(rawImg2P010.getImageHandle(), rawImg420.getImageHandle(), sdr,
                             ultrahdr_transfer_function::ULTRAHDR_TF_HLG, jpgImg2.getImageHandle()),
-        JPEGR_NO_ERROR);
+        UHDR_NO_ERROR);
     auto jpg1 = jpgImg.getImageHandle();
     auto jpg2 = jpgImg2.getImageHandle();
     ASSERT_EQ(jpg1->length, jpg2->length);
@@ -1731,7 +1731,7 @@ TEST_P(JpegRAPIEncodeAndDecodeTest, EncodeAPI2AndDecodeTest) {
     ASSERT_EQ(
         uHdrLib.encodeJPEGR(rawImg2P010.getImageHandle(), rawImg420.getImageHandle(), sdr,
                             ultrahdr_transfer_function::ULTRAHDR_TF_HLG, jpgImg2.getImageHandle()),
-        JPEGR_NO_ERROR);
+        UHDR_NO_ERROR);
     auto jpg1 = jpgImg.getImageHandle();
     auto jpg2 = jpgImg2.getImageHandle();
     ASSERT_EQ(jpg1->length, jpg2->length);
@@ -1749,7 +1749,7 @@ TEST_P(JpegRAPIEncodeAndDecodeTest, EncodeAPI2AndDecodeTest) {
     ASSERT_EQ(
         uHdrLib.encodeJPEGR(rawImgP010.getImageHandle(), rawImg2420.getImageHandle(), sdr,
                             ultrahdr_transfer_function::ULTRAHDR_TF_HLG, jpgImg2.getImageHandle()),
-        JPEGR_NO_ERROR);
+        UHDR_NO_ERROR);
     auto jpg1 = jpgImg.getImageHandle();
     auto jpg2 = jpgImg2.getImageHandle();
     ASSERT_EQ(jpg1->length, jpg2->length);
@@ -1768,7 +1768,7 @@ TEST_P(JpegRAPIEncodeAndDecodeTest, EncodeAPI2AndDecodeTest) {
     ASSERT_EQ(
         uHdrLib.encodeJPEGR(rawImgP010.getImageHandle(), rawImg2420.getImageHandle(), sdr,
                             ultrahdr_transfer_function::ULTRAHDR_TF_HLG, jpgImg2.getImageHandle()),
-        JPEGR_NO_ERROR);
+        UHDR_NO_ERROR);
     auto jpg1 = jpgImg.getImageHandle();
     auto jpg2 = jpgImg2.getImageHandle();
     ASSERT_EQ(jpg1->length, jpg2->length);
@@ -1787,7 +1787,7 @@ TEST_P(JpegRAPIEncodeAndDecodeTest, EncodeAPI2AndDecodeTest) {
     ASSERT_EQ(
         uHdrLib.encodeJPEGR(rawImgP010.getImageHandle(), rawImg2420.getImageHandle(), sdr,
                             ultrahdr_transfer_function::ULTRAHDR_TF_HLG, jpgImg2.getImageHandle()),
-        JPEGR_NO_ERROR);
+        UHDR_NO_ERROR);
     auto jpg1 = jpgImg.getImageHandle();
     auto jpg2 = jpgImg2.getImageHandle();
     ASSERT_EQ(jpg1->length, jpg2->length);
@@ -1821,7 +1821,7 @@ TEST_P(JpegRAPIEncodeAndDecodeTest, EncodeAPI3AndDecodeTest) {
   ASSERT_EQ(
       uHdrLib.encodeJPEGR(rawImgP010.getImageHandle(), sdr,
                           ultrahdr_transfer_function::ULTRAHDR_TF_HLG, jpgImg.getImageHandle()),
-      JPEGR_NO_ERROR);
+      UHDR_NO_ERROR);
   // encode with luma stride set
   {
     UhdrUnCompressedStructWrapper rawImg2P010(kImageWidth, kImageHeight, YCbCr_p010);
@@ -1834,7 +1834,7 @@ TEST_P(JpegRAPIEncodeAndDecodeTest, EncodeAPI3AndDecodeTest) {
     ASSERT_EQ(
         uHdrLib.encodeJPEGR(rawImg2P010.getImageHandle(), sdr,
                             ultrahdr_transfer_function::ULTRAHDR_TF_HLG, jpgImg2.getImageHandle()),
-        JPEGR_NO_ERROR);
+        UHDR_NO_ERROR);
     auto jpg1 = jpgImg.getImageHandle();
     auto jpg2 = jpgImg2.getImageHandle();
     ASSERT_EQ(jpg1->length, jpg2->length);
@@ -1853,7 +1853,7 @@ TEST_P(JpegRAPIEncodeAndDecodeTest, EncodeAPI3AndDecodeTest) {
     ASSERT_EQ(
         uHdrLib.encodeJPEGR(rawImg2P010.getImageHandle(), sdr,
                             ultrahdr_transfer_function::ULTRAHDR_TF_HLG, jpgImg2.getImageHandle()),
-        JPEGR_NO_ERROR);
+        UHDR_NO_ERROR);
     auto jpg1 = jpgImg.getImageHandle();
     auto jpg2 = jpgImg2.getImageHandle();
     ASSERT_EQ(jpg1->length, jpg2->length);
@@ -1872,7 +1872,7 @@ TEST_P(JpegRAPIEncodeAndDecodeTest, EncodeAPI3AndDecodeTest) {
     ASSERT_EQ(
         uHdrLib.encodeJPEGR(rawImg2P010.getImageHandle(), sdr,
                             ultrahdr_transfer_function::ULTRAHDR_TF_HLG, jpgImg2.getImageHandle()),
-        JPEGR_NO_ERROR);
+        UHDR_NO_ERROR);
     auto jpg1 = jpgImg.getImageHandle();
     auto jpg2 = jpgImg2.getImageHandle();
     ASSERT_EQ(jpg1->length, jpg2->length);
@@ -1890,7 +1890,7 @@ TEST_P(JpegRAPIEncodeAndDecodeTest, EncodeAPI3AndDecodeTest) {
     ASSERT_EQ(
         uHdrLib.encodeJPEGR(rawImg2P010.getImageHandle(), sdr,
                             ultrahdr_transfer_function::ULTRAHDR_TF_HLG, jpgImg2.getImageHandle()),
-        JPEGR_NO_ERROR);
+        UHDR_NO_ERROR);
     auto jpg1 = jpgImg.getImageHandle();
     auto jpg2 = jpgImg2.getImageHandle();
     ASSERT_EQ(jpg1->length, jpg2->length);
@@ -1977,7 +1977,7 @@ void JpegRBenchmark::BenchmarkGenerateGainMap(jr_uncompressed_ptr yuv420Image,
   Profiler profileGenerateMap;
   profileGenerateMap.timerStart();
   for (auto i = 0; i < kProfileCount; i++) {
-    ASSERT_EQ(JPEGR_NO_ERROR,
+    ASSERT_EQ(UHDR_NO_ERROR,
               generateGainMap(yuv420Image, p010Image, ultrahdr_transfer_function::ULTRAHDR_TF_HLG,
                               metadata, map));
     if (i != kProfileCount - 1) {
@@ -1996,8 +1996,8 @@ void JpegRBenchmark::BenchmarkApplyGainMap(jr_uncompressed_ptr yuv420Image, jr_u
   Profiler profileRecMap;
   profileRecMap.timerStart();
   for (auto i = 0; i < kProfileCount; i++) {
-    ASSERT_EQ(JPEGR_NO_ERROR, applyGainMap(yuv420Image, map, metadata, ULTRAHDR_OUTPUT_HDR_HLG,
-                                           metadata->maxContentBoost /* displayBoost */, dest));
+    ASSERT_EQ(UHDR_NO_ERROR, applyGainMap(yuv420Image, map, metadata, ULTRAHDR_OUTPUT_HDR_HLG,
+                                          metadata->maxContentBoost /* displayBoost */, dest));
   }
   profileRecMap.timerStop();
   ALOGE("Apply Gain Map:- Res = %zu x %zu, time = %f ms", yuv420Image->width, yuv420Image->height,
