@@ -19,8 +19,8 @@
 
 #include <cmath>
 
-#include "ultrahdr.h"
-#include "jpegr.h"
+#include "ultrahdr/ultrahdr.h"
+#include "ultrahdr/jpegr.h"
 
 #define CLIP3(x, min, max) ((x) < (min)) ? (min) : ((x) > (max)) ? (max) : (x)
 
