@@ -35,12 +35,10 @@ extern "C" {
 #include <memory>
 #include <vector>
 
-// constraint on max width and max height is only due to device alloc constraints
-// Can tune these values basing on the target device
-static const int kMaxWidth = 8192;
-static const int kMaxHeight = 8192;
-
 namespace ultrahdr {
+
+extern const int kMaxWidth;
+extern const int kMaxHeight;
 
 typedef enum {
   PARSE_ONLY = 0,       // Dont decode. Parse for dimensions, EXIF, ICC, XMP

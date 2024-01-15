@@ -1241,59 +1241,60 @@ TEST(JpegRTest, EncodeAPI4WithInvalidArgs) {
       << "fail, API allows nullptr gain map image";
 
   // test metadata
-  ultrahdr_metadata_struct good_metadata;
-  good_metadata.version = "1.0";
-  good_metadata.minContentBoost = 1.0f;
-  good_metadata.maxContentBoost = 2.0f;
-  good_metadata.gamma = 1.0f;
-  good_metadata.offsetSdr = 0.0f;
-  good_metadata.offsetHdr = 0.0f;
-  good_metadata.hdrCapacityMin = 1.0f;
-  good_metadata.hdrCapacityMax = 2.0f;
+#define INIT_GOOD_METADATA(x)       \
+  strcpy(x.version, kJpegrVersion); \
+  x.minContentBoost = 1.0f;         \
+  x.maxContentBoost = 2.0f;         \
+  x.gamma = 1.0f;                   \
+  x.offsetSdr = 0.0f;               \
+  x.offsetHdr = 0.0f;               \
+  x.hdrCapacityMin = 1.0f;          \
+  x.hdrCapacityMax = 2.0f;
 
-  ultrahdr_metadata_struct metadata = good_metadata;
-  metadata.version = "1.1";
+  ultrahdr_metadata_struct metadata;
+  INIT_GOOD_METADATA(metadata);
+  strcpy(metadata.version, "1.1");
   ASSERT_NE(uHdrLib.encodeJPEGR(jpgImg.getImageHandle(), jpgImg.getImageHandle(), &metadata,
                                 jpgImg.getImageHandle()),
             UHDR_NO_ERROR)
       << "fail, API allows bad metadata version";
 
-  metadata = good_metadata;
+  INIT_GOOD_METADATA(metadata);
   metadata.minContentBoost = 3.0f;
   ASSERT_NE(uHdrLib.encodeJPEGR(jpgImg.getImageHandle(), jpgImg.getImageHandle(), &metadata,
                                 jpgImg.getImageHandle()),
             UHDR_NO_ERROR)
       << "fail, API allows bad metadata content boost";
 
-  metadata = good_metadata;
+  INIT_GOOD_METADATA(metadata);
   metadata.gamma = -0.1f;
   ASSERT_NE(uHdrLib.encodeJPEGR(jpgImg.getImageHandle(), jpgImg.getImageHandle(), &metadata,
                                 jpgImg.getImageHandle()),
             UHDR_NO_ERROR)
       << "fail, API allows bad metadata gamma";
 
-  metadata = good_metadata;
+  INIT_GOOD_METADATA(metadata);
   metadata.offsetSdr = -0.1f;
   ASSERT_NE(uHdrLib.encodeJPEGR(jpgImg.getImageHandle(), jpgImg.getImageHandle(), &metadata,
                                 jpgImg.getImageHandle()),
             UHDR_NO_ERROR)
       << "fail, API allows bad metadata offset sdr";
 
-  metadata = good_metadata;
+  INIT_GOOD_METADATA(metadata);
   metadata.offsetHdr = -0.1f;
   ASSERT_NE(uHdrLib.encodeJPEGR(jpgImg.getImageHandle(), jpgImg.getImageHandle(), &metadata,
                                 jpgImg.getImageHandle()),
             UHDR_NO_ERROR)
       << "fail, API allows bad metadata offset hdr";
 
-  metadata = good_metadata;
+  INIT_GOOD_METADATA(metadata);
   metadata.hdrCapacityMax = 0.5f;
   ASSERT_NE(uHdrLib.encodeJPEGR(jpgImg.getImageHandle(), jpgImg.getImageHandle(), &metadata,
                                 jpgImg.getImageHandle()),
             UHDR_NO_ERROR)
       << "fail, API allows bad metadata hdr capacity max";
 
-  metadata = good_metadata;
+  INIT_GOOD_METADATA(metadata);
   metadata.hdrCapacityMin = 0.5f;
   ASSERT_NE(uHdrLib.encodeJPEGR(jpgImg.getImageHandle(), jpgImg.getImageHandle(), &metadata,
                                 jpgImg.getImageHandle()),
@@ -1343,7 +1344,7 @@ TEST(JpegRTest, DecodeAPIWithInvalidArgs) {
 
 TEST(JpegRTest, writeXmpThenRead) {
   ultrahdr_metadata_struct metadata_expected;
-  metadata_expected.version = "1.0";
+  strcpy(metadata_expected.version, kJpegrVersion);
   metadata_expected.maxContentBoost = 1.25f;
   metadata_expected.minContentBoost = 0.75f;
   metadata_expected.gamma = 1.0f;
@@ -2014,7 +2015,7 @@ TEST(JpegRTest, ProfileGainMapFuncs) {
   ASSERT_TRUE(rawImg420.allocateMemory());
   ASSERT_TRUE(rawImg420.loadRawResource(kYCbCr420FileName));
   ultrahdr_metadata_struct metadata;
-  metadata.version = kJpegrVersion;
+  strcpy(metadata.version, kJpegrVersion);
   jpegr_uncompressed_struct map;
   map.data = NULL;
   map.width = 0;

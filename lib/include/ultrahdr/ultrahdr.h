@@ -17,10 +17,6 @@
 #ifndef ULTRAHDR_ULTRAHDR_H
 #define ULTRAHDR_ULTRAHDR_H
 
-#include <string>
-
-namespace ultrahdr {
-
 // Color gamuts for image data
 typedef enum {
   ULTRAHDR_COLORGAMUT_UNSPECIFIED = -1,
@@ -102,7 +98,7 @@ typedef enum {
  */
 struct ultrahdr_metadata_struct {
   // Ultra HDR format version
-  std::string version;
+  char version[8];
   // Max Content Boost for the map
   float maxContentBoost;
   // Min Content Boost for the map
@@ -118,8 +114,7 @@ struct ultrahdr_metadata_struct {
   // HDR capacity to apply the map completely
   float hdrCapacityMax;
 };
-typedef struct ultrahdr_metadata_struct* ultrahdr_metadata_ptr;
 
-}  // namespace ultrahdr
+typedef struct ultrahdr_metadata_struct* ultrahdr_metadata_ptr;
 
 #endif  // ULTRAHDR_ULTRAHDR_H

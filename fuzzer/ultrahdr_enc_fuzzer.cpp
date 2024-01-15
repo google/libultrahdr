@@ -269,7 +269,7 @@ void UltraHdrEncFuzzer::process() {
             jpegGainMap.data = gainMapEncoder.getCompressedImagePtr();
             jpegGainMap.colorGamut = ULTRAHDR_COLORGAMUT_UNSPECIFIED;
             ultrahdr_metadata_struct metadata;
-            metadata.version = kJpegrVersion;
+            strcpy(metadata.version, kJpegrVersion);
             if (tf == ULTRAHDR_TF_HLG) {
               metadata.maxContentBoost = kHlgMaxNits / kSdrWhiteNits;
             } else if (tf == ULTRAHDR_TF_PQ) {

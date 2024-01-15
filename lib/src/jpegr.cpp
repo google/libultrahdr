@@ -61,6 +61,21 @@ namespace ultrahdr {
 // JPEG compress quality (0 ~ 100) for gain map
 static const int kMapCompressQuality = 85;
 
+// The current JPEGR version that we encode to
+const char kJpegrVersion[] = "1.0";
+
+// Map is quarter res / sixteenth size
+const size_t kMapDimensionScaleFactor = 4;
+
+// Gain Map width is (image_width / kMapDimensionScaleFactor). If we were to
+// compress 420 GainMap in jpeg, then we need at least 2 samples. For Grayscale
+// 1 sample is sufficient. We are using 2 here anyways
+const int kMinWidth = 2 * kMapDimensionScaleFactor;
+const int kMinHeight = 2 * kMapDimensionScaleFactor;
+
+static_assert(sizeof kJpegrVersion <= sizeof(((ultrahdr_metadata_ptr)0)->version),
+              "ultrahdr_metadata_struct.version must be at least sizeof kJpegrVersion");
+
 int GetCPUCoreCount() {
   int cpuCoreCount = 1;
 
@@ -241,7 +256,7 @@ status_t JpegR::encodeJPEGR(jr_uncompressed_ptr p010_image_ptr, ultrahdr_transfe
 
   // gain map
   ultrahdr_metadata_struct metadata;
-  metadata.version = kJpegrVersion;
+  strcpy(metadata.version, kJpegrVersion);
   jpegr_uncompressed_struct gainmap_image;
   JPEGR_CHECK(generateGainMap(&yuv420_image, &p010_image, hdr_tf, &metadata, &gainmap_image));
   std::unique_ptr<uint8_t[]> map_data;
@@ -319,7 +334,7 @@ status_t JpegR::encodeJPEGR(jr_uncompressed_ptr p010_image_ptr,
 
   // gain map
   ultrahdr_metadata_struct metadata;
-  metadata.version = kJpegrVersion;
+  strcpy(metadata.version, kJpegrVersion);
   jpegr_uncompressed_struct gainmap_image;
   JPEGR_CHECK(generateGainMap(&yuv420_image, &p010_image, hdr_tf, &metadata, &gainmap_image));
   std::unique_ptr<uint8_t[]> map_data;
@@ -456,7 +471,7 @@ status_t JpegR::encodeJPEGR(jr_uncompressed_ptr p010_image_ptr,
 
   // gain map
   ultrahdr_metadata_struct metadata;
-  metadata.version = kJpegrVersion;
+  strcpy(metadata.version, kJpegrVersion);
   jpegr_uncompressed_struct gainmap_image;
   JPEGR_CHECK(generateGainMap(&yuv420_image, &p010_image, hdr_tf, &metadata, &gainmap_image));
   std::unique_ptr<uint8_t[]> map_data;
@@ -519,7 +534,7 @@ status_t JpegR::encodeJPEGR(jr_uncompressed_ptr p010_image_ptr,
 
   // gain map
   ultrahdr_metadata_struct metadata;
-  metadata.version = kJpegrVersion;
+  strcpy(metadata.version, kJpegrVersion);
   jpegr_uncompressed_struct gainmap_image;
   JPEGR_CHECK(generateGainMap(&yuv420_image, &p010_image, hdr_tf, &metadata, &gainmap_image,
                               true /* sdr_is_601 */));
@@ -712,7 +727,7 @@ status_t JpegR::decodeJPEGR(jr_compressed_ptr jpegr_image_ptr, jr_uncompressed_p
   }
 
   if (metadata != nullptr) {
-    metadata->version = uhdr_metadata.version;
+    strcpy(metadata->version, uhdr_metadata.version);
     metadata->minContentBoost = uhdr_metadata.minContentBoost;
     metadata->maxContentBoost = uhdr_metadata.maxContentBoost;
     metadata->gamma = uhdr_metadata.gamma;
@@ -995,8 +1010,8 @@ status_t JpegR::applyGainMap(jr_uncompressed_ptr yuv420_image_ptr,
       yuv420_image_ptr->chroma_data == nullptr || gainmap_image_ptr->data == nullptr) {
     return ERROR_UHDR_BAD_PTR;
   }
-  if (metadata->version.compare(kJpegrVersion)) {
-    ALOGE("Unsupported metadata version: %s", metadata->version.c_str());
+  if (strcmp(metadata->version, kJpegrVersion)) {
+    ALOGE("Unsupported metadata version, metadata version does not match %s", kJpegrVersion);
     return ERROR_UHDR_BAD_METADATA;
   }
   if (metadata->gamma != 1.0f) {
@@ -1269,8 +1284,8 @@ status_t JpegR::appendGainMap(jr_compressed_ptr primary_jpg_image_ptr,
       dest == nullptr) {
     return ERROR_UHDR_BAD_PTR;
   }
-  if (metadata->version.compare("1.0")) {
-    ALOGE("received bad value for version: %s", metadata->version.c_str());
+  if (strcmp(metadata->version, kJpegrVersion)) {
+    ALOGE("Unsupported metadata version, metadata version does not match %s", kJpegrVersion);
     return ERROR_UHDR_BAD_METADATA;
   }
   if (metadata->maxContentBoost < metadata->minContentBoost) {

@@ -25,17 +25,13 @@
 
 namespace ultrahdr {
 
-// The current JPEGR version that we encode to
-static const char* const kJpegrVersion = "1.0";
-
-// Map is quarter res / sixteenth size
-static const size_t kMapDimensionScaleFactor = 4;
-
-// Gain Map width is (image_width / kMapDimensionScaleFactor). If we were to
-// compress 420 GainMap in jpeg, then we need at least 2 samples. For Grayscale
-// 1 sample is sufficient. We are using 2 here anyways
-static const int kMinWidth = 2 * kMapDimensionScaleFactor;
-static const int kMinHeight = 2 * kMapDimensionScaleFactor;
+/*
+ * jpegr encoder/decoder supported limits
+ */
+extern const char kJpegrVersion[];
+extern const size_t kMapDimensionScaleFactor;
+extern const int kMinWidth;
+extern const int kMinHeight;
 
 /*
  * Holds information of jpeg image

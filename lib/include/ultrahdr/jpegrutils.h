@@ -17,6 +17,8 @@
 #ifndef ULTRAHDR_JPEGRUTILS_H
 #define ULTRAHDR_JPEGRUTILS_H
 
+#include <string>
+
 #include "ultrahdr/ultrahdr.h"
 #include "ultrahdr/jpegr.h"
 
@@ -30,7 +32,6 @@ static inline uint16_t EndianSwap16(uint16_t value) {
   return static_cast<uint16_t>((value >> 8) | ((value & 0xFF) << 8));
 }
 
-struct ultrahdr_metadata_struct;
 /*
  * Mutable data structure. Holds information for metadata.
  */

@@ -501,9 +501,14 @@ bool getMetadataFromXMP(uint8_t* xmp_data, size_t xmp_size, ultrahdr_metadata_st
   // we encounter a present field that couldn't be parsed, since this
   // indicates it is invalid (eg. string where there should be a float).
   bool present = false;
-  if (!handler.getVersion(&metadata->version, &present) || !present) {
+  std::string version;
+  if (!handler.getVersion(&version, &present) || !present) {
     return false;
   }
+  if ((version.length() + 1) > sizeof metadata->version) {
+    return false;
+  }
+  strcpy(metadata->version, version.c_str());
   if (!handler.getMaxContentBoost(&metadata->maxContentBoost, &present) || !present) {
     return false;
   }

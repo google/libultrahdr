@@ -18,6 +18,7 @@
 #define ULTRAHDR_ICC_H
 
 #include <memory>
+#include <string>
 
 #ifndef USE_BIG_ENDIAN_IN_ICC
 #define USE_BIG_ENDIAN_IN_ICC true

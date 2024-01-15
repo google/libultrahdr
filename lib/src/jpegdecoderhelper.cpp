@@ -27,6 +27,11 @@ using namespace std;
 
 namespace ultrahdr {
 
+// constraint on max width and max height is only due to device alloc constraints
+// Can tune these values basing on the target device
+const int kMaxWidth = 8192;
+const int kMaxHeight = 8192;
+
 const uint32_t kAPP0Marker = JPEG_APP0;      // JFIF
 const uint32_t kAPP1Marker = JPEG_APP0 + 1;  // EXIF, XMP
 const uint32_t kAPP2Marker = JPEG_APP0 + 2;  // ICC
