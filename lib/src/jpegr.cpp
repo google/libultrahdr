@@ -50,14 +50,6 @@ namespace ultrahdr {
 #define USE_PQ_INVOETF_LUT 1
 #define USE_APPLY_GAIN_LUT 1
 
-#define JPEGR_CHECK(x)               \
-  {                                  \
-    status_t status = (x);           \
-    if ((status) != UHDR_NO_ERROR) { \
-      return status;                 \
-    }                                \
-  }
-
 // JPEG compress quality (0 ~ 100) for gain map
 static const int kMapCompressQuality = 85;
 
@@ -233,7 +225,7 @@ status_t JpegR::encodeJPEGR(ultrahdr_uncompressed_ptr p010_image_ptr,
                             ultrahdr_transfer_function hdr_tf, ultrahdr_compressed_ptr dest,
                             int quality, ultrahdr_exif_ptr exif) {
   // validate input arguments
-  JPEGR_CHECK(areInputArgumentsValid(p010_image_ptr, nullptr, hdr_tf, dest, quality));
+  ULTRAHDR_CHECK(areInputArgumentsValid(p010_image_ptr, nullptr, hdr_tf, dest, quality));
   if (exif != nullptr && exif->data == nullptr) {
     ALOGE("received nullptr for exif metadata");
     return ERROR_UHDR_BAD_PTR;
@@ -264,19 +256,19 @@ status_t JpegR::encodeJPEGR(ultrahdr_uncompressed_ptr p010_image_ptr,
   yuv420_image.chroma_data = data + yuv420_image.luma_stride * yuv420_image.height;
 
   // tone map
-  JPEGR_CHECK(toneMap(&p010_image, &yuv420_image));
+  ULTRAHDR_CHECK(toneMap(&p010_image, &yuv420_image));
 
   // gain map
   ultrahdr_metadata_struct metadata;
   strcpy(metadata.version, kJpegrVersion);
   ultrahdr_uncompressed_struct gainmap_image;
-  JPEGR_CHECK(generateGainMap(&yuv420_image, &p010_image, hdr_tf, &metadata, &gainmap_image));
+  ULTRAHDR_CHECK(generateGainMap(&yuv420_image, &p010_image, hdr_tf, &metadata, &gainmap_image));
   std::unique_ptr<uint8_t[]> map_data;
   map_data.reset(reinterpret_cast<uint8_t*>(gainmap_image.data));
 
   // compress gain map
   JpegEncoderHelper jpeg_enc_obj_gm;
-  JPEGR_CHECK(compressGainMap(&gainmap_image, &jpeg_enc_obj_gm));
+  ULTRAHDR_CHECK(compressGainMap(&gainmap_image, &jpeg_enc_obj_gm));
   ultrahdr_compressed_struct compressed_map;
   compressed_map.data = jpeg_enc_obj_gm.getCompressedImagePtr();
   compressed_map.length = static_cast<int>(jpeg_enc_obj_gm.getCompressedImageSize());
@@ -288,7 +280,7 @@ status_t JpegR::encodeJPEGR(ultrahdr_uncompressed_ptr p010_image_ptr,
 
   // convert to Bt601 YUV encoding for JPEG encode
   if (yuv420_image.colorGamut != ULTRAHDR_COLORGAMUT_P3) {
-    JPEGR_CHECK(convertYuv(&yuv420_image, yuv420_image.colorGamut, ULTRAHDR_COLORGAMUT_P3));
+    ULTRAHDR_CHECK(convertYuv(&yuv420_image, yuv420_image.colorGamut, ULTRAHDR_COLORGAMUT_P3));
   }
 
   // compress 420 image
@@ -307,8 +299,8 @@ status_t JpegR::encodeJPEGR(ultrahdr_uncompressed_ptr p010_image_ptr,
   jpeg.colorGamut = yuv420_image.colorGamut;
 
   // append gain map, no ICC since JPEG encode already did it
-  JPEGR_CHECK(appendGainMap(&jpeg, &compressed_map, exif, /* icc */ nullptr, /* icc size */ 0,
-                            &metadata, dest));
+  ULTRAHDR_CHECK(appendGainMap(&jpeg, &compressed_map, exif, /* icc */ nullptr, /* icc size */ 0,
+                               &metadata, dest));
 
   return UHDR_NO_ERROR;
 }
@@ -327,7 +319,7 @@ status_t JpegR::encodeJPEGR(ultrahdr_uncompressed_ptr p010_image_ptr,
     ALOGE("received nullptr for exif metadata");
     return ERROR_UHDR_BAD_PTR;
   }
-  JPEGR_CHECK(areInputArgumentsValid(p010_image_ptr, yuv420_image_ptr, hdr_tf, dest, quality))
+  ULTRAHDR_CHECK(areInputArgumentsValid(p010_image_ptr, yuv420_image_ptr, hdr_tf, dest, quality))
 
   // clean up input structure for later usage
   ultrahdr_uncompressed_struct p010_image = *p010_image_ptr;
@@ -349,13 +341,13 @@ status_t JpegR::encodeJPEGR(ultrahdr_uncompressed_ptr p010_image_ptr,
   ultrahdr_metadata_struct metadata;
   strcpy(metadata.version, kJpegrVersion);
   ultrahdr_uncompressed_struct gainmap_image;
-  JPEGR_CHECK(generateGainMap(&yuv420_image, &p010_image, hdr_tf, &metadata, &gainmap_image));
+  ULTRAHDR_CHECK(generateGainMap(&yuv420_image, &p010_image, hdr_tf, &metadata, &gainmap_image));
   std::unique_ptr<uint8_t[]> map_data;
   map_data.reset(reinterpret_cast<uint8_t*>(gainmap_image.data));
 
   // compress gain map
   JpegEncoderHelper jpeg_enc_obj_gm;
-  JPEGR_CHECK(compressGainMap(&gainmap_image, &jpeg_enc_obj_gm));
+  ULTRAHDR_CHECK(compressGainMap(&gainmap_image, &jpeg_enc_obj_gm));
   ultrahdr_compressed_struct compressed_map;
   compressed_map.data = jpeg_enc_obj_gm.getCompressedImagePtr();
   compressed_map.length = static_cast<int>(jpeg_enc_obj_gm.getCompressedImageSize());
@@ -425,7 +417,8 @@ status_t JpegR::encodeJPEGR(ultrahdr_uncompressed_ptr p010_image_ptr,
         cr_src += yuv420_image.chroma_stride;
       }
     }
-    JPEGR_CHECK(convertYuv(&yuv420_bt601_image, yuv420_image.colorGamut, ULTRAHDR_COLORGAMUT_P3));
+    ULTRAHDR_CHECK(
+        convertYuv(&yuv420_bt601_image, yuv420_image.colorGamut, ULTRAHDR_COLORGAMUT_P3));
   }
 
   // compress 420 image
@@ -445,8 +438,8 @@ status_t JpegR::encodeJPEGR(ultrahdr_uncompressed_ptr p010_image_ptr,
   jpeg.colorGamut = yuv420_image.colorGamut;
 
   // append gain map, no ICC since JPEG encode already did it
-  JPEGR_CHECK(appendGainMap(&jpeg, &compressed_map, exif, /* icc */ nullptr, /* icc size */ 0,
-                            &metadata, dest));
+  ULTRAHDR_CHECK(appendGainMap(&jpeg, &compressed_map, exif, /* icc */ nullptr, /* icc size */ 0,
+                               &metadata, dest));
   return UHDR_NO_ERROR;
 }
 
@@ -464,7 +457,7 @@ status_t JpegR::encodeJPEGR(ultrahdr_uncompressed_ptr p010_image_ptr,
     ALOGE("received nullptr for compressed jpeg image");
     return ERROR_UHDR_BAD_PTR;
   }
-  JPEGR_CHECK(areInputArgumentsValid(p010_image_ptr, yuv420_image_ptr, hdr_tf, dest))
+  ULTRAHDR_CHECK(areInputArgumentsValid(p010_image_ptr, yuv420_image_ptr, hdr_tf, dest))
 
   // clean up input structure for later usage
   ultrahdr_uncompressed_struct p010_image = *p010_image_ptr;
@@ -486,13 +479,13 @@ status_t JpegR::encodeJPEGR(ultrahdr_uncompressed_ptr p010_image_ptr,
   ultrahdr_metadata_struct metadata;
   strcpy(metadata.version, kJpegrVersion);
   ultrahdr_uncompressed_struct gainmap_image;
-  JPEGR_CHECK(generateGainMap(&yuv420_image, &p010_image, hdr_tf, &metadata, &gainmap_image));
+  ULTRAHDR_CHECK(generateGainMap(&yuv420_image, &p010_image, hdr_tf, &metadata, &gainmap_image));
   std::unique_ptr<uint8_t[]> map_data;
   map_data.reset(reinterpret_cast<uint8_t*>(gainmap_image.data));
 
   // compress gain map
   JpegEncoderHelper jpeg_enc_obj_gm;
-  JPEGR_CHECK(compressGainMap(&gainmap_image, &jpeg_enc_obj_gm));
+  ULTRAHDR_CHECK(compressGainMap(&gainmap_image, &jpeg_enc_obj_gm));
   ultrahdr_compressed_struct gainmapjpg_image;
   gainmapjpg_image.data = jpeg_enc_obj_gm.getCompressedImagePtr();
   gainmapjpg_image.length = static_cast<int>(jpeg_enc_obj_gm.getCompressedImageSize());
@@ -511,7 +504,7 @@ status_t JpegR::encodeJPEGR(ultrahdr_uncompressed_ptr p010_image_ptr,
     ALOGE("received nullptr for compressed jpeg image");
     return ERROR_UHDR_BAD_PTR;
   }
-  JPEGR_CHECK(areInputArgumentsValid(p010_image_ptr, nullptr, hdr_tf, dest))
+  ULTRAHDR_CHECK(areInputArgumentsValid(p010_image_ptr, nullptr, hdr_tf, dest))
 
   // clean up input structure for later usage
   ultrahdr_uncompressed_struct p010_image = *p010_image_ptr;
@@ -550,14 +543,14 @@ status_t JpegR::encodeJPEGR(ultrahdr_uncompressed_ptr p010_image_ptr,
   ultrahdr_metadata_struct metadata;
   strcpy(metadata.version, kJpegrVersion);
   ultrahdr_uncompressed_struct gainmap_image;
-  JPEGR_CHECK(generateGainMap(&yuv420_image, &p010_image, hdr_tf, &metadata, &gainmap_image,
-                              true /* sdr_is_601 */));
+  ULTRAHDR_CHECK(generateGainMap(&yuv420_image, &p010_image, hdr_tf, &metadata, &gainmap_image,
+                                 true /* sdr_is_601 */));
   std::unique_ptr<uint8_t[]> map_data;
   map_data.reset(reinterpret_cast<uint8_t*>(gainmap_image.data));
 
   // compress gain map
   JpegEncoderHelper jpeg_enc_obj_gm;
-  JPEGR_CHECK(compressGainMap(&gainmap_image, &jpeg_enc_obj_gm));
+  ULTRAHDR_CHECK(compressGainMap(&gainmap_image, &jpeg_enc_obj_gm));
   ultrahdr_compressed_struct gainmapjpg_image;
   gainmapjpg_image.data = jpeg_enc_obj_gm.getCompressedImagePtr();
   gainmapjpg_image.length = static_cast<int>(jpeg_enc_obj_gm.getCompressedImageSize());
@@ -594,13 +587,13 @@ status_t JpegR::encodeJPEGR(ultrahdr_compressed_ptr yuv420jpg_image_ptr,
 
   // Add ICC if not already present.
   if (decoder.getICCSize() > 0) {
-    JPEGR_CHECK(appendGainMap(yuv420jpg_image_ptr, gainmapjpg_image_ptr, /* exif */ nullptr,
-                              /* icc */ nullptr, /* icc size */ 0, metadata, dest));
+    ULTRAHDR_CHECK(appendGainMap(yuv420jpg_image_ptr, gainmapjpg_image_ptr, /* exif */ nullptr,
+                                 /* icc */ nullptr, /* icc size */ 0, metadata, dest));
   } else {
     std::shared_ptr<DataStruct> newIcc =
         IccHelper::writeIccProfile(ULTRAHDR_TF_SRGB, yuv420jpg_image_ptr->colorGamut);
-    JPEGR_CHECK(appendGainMap(yuv420jpg_image_ptr, gainmapjpg_image_ptr, /* exif */ nullptr,
-                              newIcc->getData(), newIcc->getLength(), metadata, dest));
+    ULTRAHDR_CHECK(appendGainMap(yuv420jpg_image_ptr, gainmapjpg_image_ptr, /* exif */ nullptr,
+                                 newIcc->getData(), newIcc->getLength(), metadata, dest));
   }
 
   return UHDR_NO_ERROR;
@@ -776,8 +769,8 @@ status_t JpegR::decodeJPEGR(ultrahdr_compressed_ptr jpegr_image_ptr, ultrahdr_un
   yuv420_image.chroma_data = data + yuv420_image.luma_stride * yuv420_image.height;
   yuv420_image.chroma_stride = yuv420_image.width >> 1;
 
-  JPEGR_CHECK(applyGainMap(&yuv420_image, &gainmap_image, &uhdr_metadata, output_format,
-                           max_display_boost, dest));
+  ULTRAHDR_CHECK(applyGainMap(&yuv420_image, &gainmap_image, &uhdr_metadata, output_format,
+                              max_display_boost, dest));
   return UHDR_NO_ERROR;
 }
 
@@ -1399,19 +1392,19 @@ status_t JpegR::appendGainMap(ultrahdr_compressed_ptr primary_jpg_image_ptr,
   int pos = 0;
   // Begin primary image
   // Write SOI
-  JPEGR_CHECK(Write(dest, &photos_editing_formats::image_io::JpegMarker::kStart, 1, pos));
-  JPEGR_CHECK(Write(dest, &photos_editing_formats::image_io::JpegMarker::kSOI, 1, pos));
+  ULTRAHDR_CHECK(Write(dest, &photos_editing_formats::image_io::JpegMarker::kStart, 1, pos));
+  ULTRAHDR_CHECK(Write(dest, &photos_editing_formats::image_io::JpegMarker::kSOI, 1, pos));
 
   // Write EXIF
   if (pExif != nullptr) {
     const int length = 2 + pExif->length;
     const uint8_t lengthH = ((length >> 8) & 0xff);
     const uint8_t lengthL = (length & 0xff);
-    JPEGR_CHECK(Write(dest, &photos_editing_formats::image_io::JpegMarker::kStart, 1, pos));
-    JPEGR_CHECK(Write(dest, &photos_editing_formats::image_io::JpegMarker::kAPP1, 1, pos));
-    JPEGR_CHECK(Write(dest, &lengthH, 1, pos));
-    JPEGR_CHECK(Write(dest, &lengthL, 1, pos));
-    JPEGR_CHECK(Write(dest, pExif->data, pExif->length, pos));
+    ULTRAHDR_CHECK(Write(dest, &photos_editing_formats::image_io::JpegMarker::kStart, 1, pos));
+    ULTRAHDR_CHECK(Write(dest, &photos_editing_formats::image_io::JpegMarker::kAPP1, 1, pos));
+    ULTRAHDR_CHECK(Write(dest, &lengthH, 1, pos));
+    ULTRAHDR_CHECK(Write(dest, &lengthL, 1, pos));
+    ULTRAHDR_CHECK(Write(dest, pExif->data, pExif->length, pos));
   }
 
   // Prepare and write XMP
@@ -1419,12 +1412,12 @@ status_t JpegR::appendGainMap(ultrahdr_compressed_ptr primary_jpg_image_ptr,
     const int length = xmp_primary_length;
     const uint8_t lengthH = ((length >> 8) & 0xff);
     const uint8_t lengthL = (length & 0xff);
-    JPEGR_CHECK(Write(dest, &photos_editing_formats::image_io::JpegMarker::kStart, 1, pos));
-    JPEGR_CHECK(Write(dest, &photos_editing_formats::image_io::JpegMarker::kAPP1, 1, pos));
-    JPEGR_CHECK(Write(dest, &lengthH, 1, pos));
-    JPEGR_CHECK(Write(dest, &lengthL, 1, pos));
-    JPEGR_CHECK(Write(dest, (void*)nameSpace.c_str(), nameSpaceLength, pos));
-    JPEGR_CHECK(Write(dest, (void*)xmp_primary.c_str(), xmp_primary.size(), pos));
+    ULTRAHDR_CHECK(Write(dest, &photos_editing_formats::image_io::JpegMarker::kStart, 1, pos));
+    ULTRAHDR_CHECK(Write(dest, &photos_editing_formats::image_io::JpegMarker::kAPP1, 1, pos));
+    ULTRAHDR_CHECK(Write(dest, &lengthH, 1, pos));
+    ULTRAHDR_CHECK(Write(dest, &lengthL, 1, pos));
+    ULTRAHDR_CHECK(Write(dest, (void*)nameSpace.c_str(), nameSpaceLength, pos));
+    ULTRAHDR_CHECK(Write(dest, (void*)xmp_primary.c_str(), xmp_primary.size(), pos));
   }
 
   // Write ICC
@@ -1432,11 +1425,11 @@ status_t JpegR::appendGainMap(ultrahdr_compressed_ptr primary_jpg_image_ptr,
     const int length = icc_size + 2;
     const uint8_t lengthH = ((length >> 8) & 0xff);
     const uint8_t lengthL = (length & 0xff);
-    JPEGR_CHECK(Write(dest, &photos_editing_formats::image_io::JpegMarker::kStart, 1, pos));
-    JPEGR_CHECK(Write(dest, &photos_editing_formats::image_io::JpegMarker::kAPP2, 1, pos));
-    JPEGR_CHECK(Write(dest, &lengthH, 1, pos));
-    JPEGR_CHECK(Write(dest, &lengthL, 1, pos));
-    JPEGR_CHECK(Write(dest, pIcc, icc_size, pos));
+    ULTRAHDR_CHECK(Write(dest, &photos_editing_formats::image_io::JpegMarker::kStart, 1, pos));
+    ULTRAHDR_CHECK(Write(dest, &photos_editing_formats::image_io::JpegMarker::kAPP2, 1, pos));
+    ULTRAHDR_CHECK(Write(dest, &lengthH, 1, pos));
+    ULTRAHDR_CHECK(Write(dest, &lengthL, 1, pos));
+    ULTRAHDR_CHECK(Write(dest, pIcc, icc_size, pos));
   }
 
   // Prepare and write MPF
@@ -1452,39 +1445,39 @@ status_t JpegR::appendGainMap(ultrahdr_compressed_ptr primary_jpg_image_ptr,
     int secondary_image_offset = primary_image_size - pos - 8;
     std::shared_ptr<DataStruct> mpf = generateMpf(primary_image_size, 0, /* primary_image_offset */
                                                   secondary_image_size, secondary_image_offset);
-    JPEGR_CHECK(Write(dest, &photos_editing_formats::image_io::JpegMarker::kStart, 1, pos));
-    JPEGR_CHECK(Write(dest, &photos_editing_formats::image_io::JpegMarker::kAPP2, 1, pos));
-    JPEGR_CHECK(Write(dest, &lengthH, 1, pos));
-    JPEGR_CHECK(Write(dest, &lengthL, 1, pos));
-    JPEGR_CHECK(Write(dest, (void*)mpf->getData(), mpf->getLength(), pos));
+    ULTRAHDR_CHECK(Write(dest, &photos_editing_formats::image_io::JpegMarker::kStart, 1, pos));
+    ULTRAHDR_CHECK(Write(dest, &photos_editing_formats::image_io::JpegMarker::kAPP2, 1, pos));
+    ULTRAHDR_CHECK(Write(dest, &lengthH, 1, pos));
+    ULTRAHDR_CHECK(Write(dest, &lengthL, 1, pos));
+    ULTRAHDR_CHECK(Write(dest, (void*)mpf->getData(), mpf->getLength(), pos));
   }
 
   // Write primary image
-  JPEGR_CHECK(Write(dest, (uint8_t*)final_primary_jpg_image_ptr->data + 2,
-                    final_primary_jpg_image_ptr->length - 2, pos));
+  ULTRAHDR_CHECK(Write(dest, (uint8_t*)final_primary_jpg_image_ptr->data + 2,
+                       final_primary_jpg_image_ptr->length - 2, pos));
   // Finish primary image
 
   // Begin secondary image (gain map)
   // Write SOI
-  JPEGR_CHECK(Write(dest, &photos_editing_formats::image_io::JpegMarker::kStart, 1, pos));
-  JPEGR_CHECK(Write(dest, &photos_editing_formats::image_io::JpegMarker::kSOI, 1, pos));
+  ULTRAHDR_CHECK(Write(dest, &photos_editing_formats::image_io::JpegMarker::kStart, 1, pos));
+  ULTRAHDR_CHECK(Write(dest, &photos_editing_formats::image_io::JpegMarker::kSOI, 1, pos));
 
   // Prepare and write XMP
   {
     const int length = xmp_secondary_length;
     const uint8_t lengthH = ((length >> 8) & 0xff);
     const uint8_t lengthL = (length & 0xff);
-    JPEGR_CHECK(Write(dest, &photos_editing_formats::image_io::JpegMarker::kStart, 1, pos));
-    JPEGR_CHECK(Write(dest, &photos_editing_formats::image_io::JpegMarker::kAPP1, 1, pos));
-    JPEGR_CHECK(Write(dest, &lengthH, 1, pos));
-    JPEGR_CHECK(Write(dest, &lengthL, 1, pos));
-    JPEGR_CHECK(Write(dest, (void*)nameSpace.c_str(), nameSpaceLength, pos));
-    JPEGR_CHECK(Write(dest, (void*)xmp_secondary.c_str(), xmp_secondary.size(), pos));
+    ULTRAHDR_CHECK(Write(dest, &photos_editing_formats::image_io::JpegMarker::kStart, 1, pos));
+    ULTRAHDR_CHECK(Write(dest, &photos_editing_formats::image_io::JpegMarker::kAPP1, 1, pos));
+    ULTRAHDR_CHECK(Write(dest, &lengthH, 1, pos));
+    ULTRAHDR_CHECK(Write(dest, &lengthL, 1, pos));
+    ULTRAHDR_CHECK(Write(dest, (void*)nameSpace.c_str(), nameSpaceLength, pos));
+    ULTRAHDR_CHECK(Write(dest, (void*)xmp_secondary.c_str(), xmp_secondary.size(), pos));
   }
 
   // Write secondary image
-  JPEGR_CHECK(Write(dest, (uint8_t*)gainmap_jpg_image_ptr->data + 2,
-                    gainmap_jpg_image_ptr->length - 2, pos));
+  ULTRAHDR_CHECK(Write(dest, (uint8_t*)gainmap_jpg_image_ptr->data + 2,
+                       gainmap_jpg_image_ptr->length - 2, pos));
 
   // Set back length
   dest->length = pos;

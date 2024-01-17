@@ -41,16 +41,16 @@ struct jpeg_info_struct {
   std::vector<uint8_t> iccData = std::vector<uint8_t>(0);
   std::vector<uint8_t> exifData = std::vector<uint8_t>(0);
   std::vector<uint8_t> xmpData = std::vector<uint8_t>(0);
-  size_t width;
-  size_t height;
+  size_t width = 0;
+  size_t height = 0;
 };
 
 /*
  * Holds information of jpegr image
  */
 struct jpegr_info_struct {
-  size_t width;   // copy of primary image width (for easier access)
-  size_t height;  // copy of primary image height (for easier access)
+  size_t width = 0;   // copy of primary image width (for easier access)
+  size_t height = 0;  // copy of primary image height (for easier access)
   jpeg_info_struct* primaryImgInfo = nullptr;
   jpeg_info_struct* gainmapImgInfo = nullptr;
 };
