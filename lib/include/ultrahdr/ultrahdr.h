@@ -17,6 +17,8 @@
 #ifndef ULTRAHDR_ULTRAHDR_H
 #define ULTRAHDR_ULTRAHDR_H
 
+#include <stddef.h>
+
 // Color gamuts for image data
 typedef enum {
   ULTRAHDR_COLORGAMUT_UNSPECIFIED = -1,
@@ -104,6 +106,16 @@ struct ultrahdr_compressed_struct {
 };
 
 /*
+ * ultrahdr buffer handle
+ */
+struct ultrahdr_buffer_wrapper {
+  // Pointer to the data location.
+  void* data;
+  // Data length;
+  size_t length;
+};
+
+/*
  * Holds information for gain map related metadata.
  *
  * Not: all values stored in linear. This differs from the metadata encoding in XMP, where
@@ -130,6 +142,8 @@ struct ultrahdr_metadata_struct {
 };
 
 typedef struct ultrahdr_compressed_struct* ultrahdr_compressed_ptr;
+typedef struct ultrahdr_buffer_wrapper ultrahdr_exif_struct;
+typedef struct ultrahdr_buffer_wrapper* ultrahdr_exif_ptr;
 typedef struct ultrahdr_metadata_struct* ultrahdr_metadata_ptr;
 
 #endif  // ULTRAHDR_ULTRAHDR_H

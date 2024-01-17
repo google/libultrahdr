@@ -88,18 +88,7 @@ struct jpegr_uncompressed_struct {
   ultrahdr_pixel_format pixelFormat = ULTRAHDR_PIX_FMT_UNSPECIFIED;
 };
 
-/*
- * Holds information for EXIF metadata.
- */
-struct jpegr_exif_struct {
-  // Pointer to the data location.
-  void* data;
-  // Data length;
-  size_t length;
-};
-
 typedef struct jpegr_uncompressed_struct* jr_uncompressed_ptr;
-typedef struct jpegr_exif_struct* jr_exif_ptr;
 typedef struct jpeg_info_struct* j_info_ptr;
 typedef struct jpegr_info_struct* jr_info_ptr;
 
@@ -126,7 +115,7 @@ class JpegR {
    * @return NO_ERROR if encoding succeeds, error code if error occurs.
    */
   status_t encodeJPEGR(jr_uncompressed_ptr p010_image_ptr, ultrahdr_transfer_function hdr_tf,
-                       ultrahdr_compressed_ptr dest, int quality, jr_exif_ptr exif);
+                       ultrahdr_compressed_ptr dest, int quality, ultrahdr_exif_ptr exif);
 
   /*
    * Encode API-1
@@ -149,7 +138,7 @@ class JpegR {
    */
   status_t encodeJPEGR(jr_uncompressed_ptr p010_image_ptr, jr_uncompressed_ptr yuv420_image_ptr,
                        ultrahdr_transfer_function hdr_tf, ultrahdr_compressed_ptr dest, int quality,
-                       jr_exif_ptr exif);
+                       ultrahdr_exif_ptr exif);
 
   /*
    * Encode API-2
@@ -233,7 +222,8 @@ class JpegR {
    *                          the value must be greater than or equal to 1.0.
    * @param exif destination of the decoded EXIF metadata. The default value is NULL where the
                  decoder will do nothing about it. If configured not NULL the decoder will write
-                 EXIF data into this structure. The format is defined in {@code jpegr_exif_struct}
+                 EXIF data into this structure. The format is defined in
+                 {@code ultrahdr_exif_struct}
    * @param output_format flag for setting output color format. Its value configures the output
                           color format. The default value is {@code JPEGR_OUTPUT_HDR_LINEAR}.
                           ----------------------------------------------------------------------
@@ -259,7 +249,7 @@ class JpegR {
    * @return NO_ERROR if decoding succeeds, error code if error occurs.
    */
   status_t decodeJPEGR(ultrahdr_compressed_ptr jpegr_image_ptr, jr_uncompressed_ptr dest,
-                       float max_display_boost = FLT_MAX, jr_exif_ptr exif = nullptr,
+                       float max_display_boost = FLT_MAX, ultrahdr_exif_ptr exif = nullptr,
                        ultrahdr_output_format output_format = ULTRAHDR_OUTPUT_HDR_LINEAR,
                        jr_uncompressed_ptr gainmap_image_ptr = nullptr,
                        ultrahdr_metadata_ptr metadata = nullptr);
@@ -378,7 +368,7 @@ class JpegR {
    * @return NO_ERROR if calculation succeeds, error code if error occurs.
    */
   status_t appendGainMap(ultrahdr_compressed_ptr primary_jpg_image_ptr,
-                         ultrahdr_compressed_ptr gainmap_jpg_image_ptr, jr_exif_ptr pExif,
+                         ultrahdr_compressed_ptr gainmap_jpg_image_ptr, ultrahdr_exif_ptr pExif,
                          void* pIcc, size_t icc_size, ultrahdr_metadata_ptr metadata,
                          ultrahdr_compressed_ptr dest);
 
