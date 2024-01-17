@@ -245,14 +245,14 @@ class UltraHdrAppInput {
   const int mQuality;
   const ultrahdr_output_format mOf;
   const int mMode;
-  jpegr_uncompressed_struct mRawP010Image{};
-  jpegr_uncompressed_struct mRawRgba1010102Image{};
-  jpegr_uncompressed_struct mRawYuv420Image{};
+  ultrahdr_uncompressed_struct mRawP010Image{};
+  ultrahdr_uncompressed_struct mRawRgba1010102Image{};
+  ultrahdr_uncompressed_struct mRawYuv420Image{};
   ultrahdr_compressed_struct mYuv420JpegImage{};
-  jpegr_uncompressed_struct mRawRgba8888Image{};
+  ultrahdr_uncompressed_struct mRawRgba8888Image{};
   ultrahdr_compressed_struct mJpegImgR{};
-  jpegr_uncompressed_struct mDestImage{};
-  jpegr_uncompressed_struct mDestYUV444Image{};
+  ultrahdr_uncompressed_struct mDestImage{};
+  ultrahdr_uncompressed_struct mDestYUV444Image{};
   double mPsnr[3]{};
 };
 

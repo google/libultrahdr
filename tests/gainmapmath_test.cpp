@@ -103,7 +103,7 @@ class GainMapMathTest : public testing::Test {
     return applyGain(rgb, gain, metadata);
   }
 
-  jpegr_uncompressed_struct Yuv420Image() {
+  ultrahdr_uncompressed_struct Yuv420Image() {
     static uint8_t pixels[] = {
         // Y
         0x00,
@@ -166,7 +166,7 @@ class GainMapMathTest : public testing::Test {
     return colors;
   }
 
-  jpegr_uncompressed_struct P010Image() {
+  ultrahdr_uncompressed_struct P010Image() {
     static uint16_t pixels[] = {
         // Y
         0x00 << 6,
@@ -228,7 +228,7 @@ class GainMapMathTest : public testing::Test {
     return colors;
   }
 
-  jpegr_uncompressed_struct MapImage() {
+  ultrahdr_uncompressed_struct MapImage() {
     static uint8_t pixels[] = {
         0x00, 0x10, 0x20, 0x30, 0x01, 0x11, 0x21, 0x31,
         0x02, 0x12, 0x22, 0x32, 0x03, 0x13, 0x23, 0x33,
@@ -695,12 +695,12 @@ TEST_F(GainMapMathTest, TransformYuv420) {
   ColorTransformFn transforms[] = {yuv709To601,  yuv709To2100, yuv601To709,
                                    yuv601To2100, yuv2100To709, yuv2100To601};
   for (const ColorTransformFn& transform : transforms) {
-    jpegr_uncompressed_struct input = Yuv420Image();
+    ultrahdr_uncompressed_struct input = Yuv420Image();
 
     size_t out_buf_size = input.width * input.height * 3 / 2;
     std::unique_ptr<uint8_t[]> out_buf = std::make_unique<uint8_t[]>(out_buf_size);
     memcpy(out_buf.get(), input.data, out_buf_size);
-    jpegr_uncompressed_struct output = Yuv420Image();
+    ultrahdr_uncompressed_struct output = Yuv420Image();
     output.data = out_buf.get();
     output.chroma_data = out_buf.get() + input.width * input.height;
     output.luma_stride = input.width;
@@ -1113,7 +1113,7 @@ TEST_F(GainMapMathTest, ApplyGain) {
 }
 
 TEST_F(GainMapMathTest, GetYuv420Pixel) {
-  jpegr_uncompressed_struct image = Yuv420Image();
+  ultrahdr_uncompressed_struct image = Yuv420Image();
   Color(*colors)[4] = Yuv420Colors();
 
   for (size_t y = 0; y < 4; ++y) {
@@ -1124,7 +1124,7 @@ TEST_F(GainMapMathTest, GetYuv420Pixel) {
 }
 
 TEST_F(GainMapMathTest, GetP010Pixel) {
-  jpegr_uncompressed_struct image = P010Image();
+  ultrahdr_uncompressed_struct image = P010Image();
   Color(*colors)[4] = P010Colors();
 
   for (size_t y = 0; y < 4; ++y) {
@@ -1135,7 +1135,7 @@ TEST_F(GainMapMathTest, GetP010Pixel) {
 }
 
 TEST_F(GainMapMathTest, SampleYuv420) {
-  jpegr_uncompressed_struct image = Yuv420Image();
+  ultrahdr_uncompressed_struct image = Yuv420Image();
   Color(*colors)[4] = Yuv420Colors();
 
   static const size_t kMapScaleFactor = 2;
@@ -1161,7 +1161,7 @@ TEST_F(GainMapMathTest, SampleYuv420) {
 }
 
 TEST_F(GainMapMathTest, SampleP010) {
-  jpegr_uncompressed_struct image = P010Image();
+  ultrahdr_uncompressed_struct image = P010Image();
   Color(*colors)[4] = P010Colors();
 
   static const size_t kMapScaleFactor = 2;
@@ -1187,7 +1187,7 @@ TEST_F(GainMapMathTest, SampleP010) {
 }
 
 TEST_F(GainMapMathTest, SampleMap) {
-  jpegr_uncompressed_struct image = MapImage();
+  ultrahdr_uncompressed_struct image = MapImage();
   float(*values)[4] = MapValues();
 
   static const size_t kMapScaleFactor = 2;

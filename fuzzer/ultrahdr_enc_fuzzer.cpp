@@ -85,9 +85,9 @@ void UltraHdrEncFuzzer::fill420Buffer(uint8_t* data, int width, int height, int 
 
 void UltraHdrEncFuzzer::process() {
   while (mFdp.remaining_bytes()) {
-    struct jpegr_uncompressed_struct p010Img {};
-    struct jpegr_uncompressed_struct yuv420Img {};
-    struct jpegr_uncompressed_struct grayImg {};
+    struct ultrahdr_uncompressed_struct p010Img {};
+    struct ultrahdr_uncompressed_struct yuv420Img {};
+    struct ultrahdr_uncompressed_struct grayImg {};
     struct ultrahdr_compressed_struct jpegImgR {};
     struct ultrahdr_compressed_struct jpegImg {};
     struct ultrahdr_compressed_struct jpegGainMap {};
@@ -234,7 +234,7 @@ void UltraHdrEncFuzzer::process() {
     } else {
       // compressed img
       JpegEncoderHelper encoder;
-      struct jpegr_uncompressed_struct yuv420ImgCopy = yuv420Img;
+      struct ultrahdr_uncompressed_struct yuv420ImgCopy = yuv420Img;
       if (yuv420ImgCopy.luma_stride == 0) yuv420ImgCopy.luma_stride = yuv420Img.width;
       if (!yuv420ImgCopy.chroma_data) {
         uint8_t* data = reinterpret_cast<uint8_t*>(yuv420Img.data);
@@ -293,11 +293,11 @@ void UltraHdrEncFuzzer::process() {
       status = jpegHdr.getJPEGRInfo(&jpegImgR, &info);
       if (status == UHDR_NO_ERROR) {
         size_t outSize = info.width * info.height * ((of == ULTRAHDR_OUTPUT_HDR_LINEAR) ? 8 : 4);
-        jpegr_uncompressed_struct decodedJpegR;
+        ultrahdr_uncompressed_struct decodedJpegR;
         auto decodedRaw = std::make_unique<uint8_t[]>(outSize);
         decodedJpegR.data = decodedRaw.get();
         ultrahdr_metadata_struct metadata;
-        jpegr_uncompressed_struct decodedGainMap{};
+        ultrahdr_uncompressed_struct decodedGainMap{};
         status = jpegHdr.decodeJPEGR(&jpegImgR, &decodedJpegR,
                                      mFdp.ConsumeFloatingPointInRange<float>(1.0, FLT_MAX), nullptr,
                                      of, &decodedGainMap, &metadata);

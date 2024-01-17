@@ -127,8 +127,8 @@ static void copyJpegWithoutExif(ultrahdr_compressed_ptr pDest, ultrahdr_compress
          (uint8_t*)pSource->data + exif_pos + exif_size, pSource->length - exif_pos - exif_size);
 }
 
-status_t JpegR::areInputArgumentsValid(jr_uncompressed_ptr p010_image_ptr,
-                                       jr_uncompressed_ptr yuv420_image_ptr,
+status_t JpegR::areInputArgumentsValid(ultrahdr_uncompressed_ptr p010_image_ptr,
+                                       ultrahdr_uncompressed_ptr yuv420_image_ptr,
                                        ultrahdr_transfer_function hdr_tf,
                                        ultrahdr_compressed_ptr dest_ptr) {
   if (p010_image_ptr == nullptr || p010_image_ptr->data == nullptr) {
@@ -207,8 +207,8 @@ status_t JpegR::areInputArgumentsValid(jr_uncompressed_ptr p010_image_ptr,
   return UHDR_NO_ERROR;
 }
 
-status_t JpegR::areInputArgumentsValid(jr_uncompressed_ptr p010_image_ptr,
-                                       jr_uncompressed_ptr yuv420_image_ptr,
+status_t JpegR::areInputArgumentsValid(ultrahdr_uncompressed_ptr p010_image_ptr,
+                                       ultrahdr_uncompressed_ptr yuv420_image_ptr,
                                        ultrahdr_transfer_function hdr_tf,
                                        ultrahdr_compressed_ptr dest_ptr, int quality) {
   if (quality < 0 || quality > 100) {
@@ -219,8 +219,9 @@ status_t JpegR::areInputArgumentsValid(jr_uncompressed_ptr p010_image_ptr,
 }
 
 /* Encode API-0 */
-status_t JpegR::encodeJPEGR(jr_uncompressed_ptr p010_image_ptr, ultrahdr_transfer_function hdr_tf,
-                            ultrahdr_compressed_ptr dest, int quality, ultrahdr_exif_ptr exif) {
+status_t JpegR::encodeJPEGR(ultrahdr_uncompressed_ptr p010_image_ptr,
+                            ultrahdr_transfer_function hdr_tf, ultrahdr_compressed_ptr dest,
+                            int quality, ultrahdr_exif_ptr exif) {
   // validate input arguments
   JPEGR_CHECK(areInputArgumentsValid(p010_image_ptr, nullptr, hdr_tf, dest, quality));
   if (exif != nullptr && exif->data == nullptr) {
@@ -229,7 +230,7 @@ status_t JpegR::encodeJPEGR(jr_uncompressed_ptr p010_image_ptr, ultrahdr_transfe
   }
 
   // clean up input structure for later usage
-  jpegr_uncompressed_struct p010_image = *p010_image_ptr;
+  ultrahdr_uncompressed_struct p010_image = *p010_image_ptr;
   if (p010_image.luma_stride == 0) p010_image.luma_stride = p010_image.width;
   if (!p010_image.chroma_data) {
     uint16_t* data = reinterpret_cast<uint16_t*>(p010_image.data);
@@ -240,7 +241,7 @@ status_t JpegR::encodeJPEGR(jr_uncompressed_ptr p010_image_ptr, ultrahdr_transfe
   const size_t yu420_luma_stride = ALIGNM(p010_image.width, JpegEncoderHelper::kCompressBatchSize);
   unique_ptr<uint8_t[]> yuv420_image_data =
       make_unique<uint8_t[]>(yu420_luma_stride * p010_image.height * 3 / 2);
-  jpegr_uncompressed_struct yuv420_image;
+  ultrahdr_uncompressed_struct yuv420_image;
   yuv420_image.data = yuv420_image_data.get();
   yuv420_image.width = p010_image.width;
   yuv420_image.height = p010_image.height;
@@ -257,7 +258,7 @@ status_t JpegR::encodeJPEGR(jr_uncompressed_ptr p010_image_ptr, ultrahdr_transfe
   // gain map
   ultrahdr_metadata_struct metadata;
   strcpy(metadata.version, kJpegrVersion);
-  jpegr_uncompressed_struct gainmap_image;
+  ultrahdr_uncompressed_struct gainmap_image;
   JPEGR_CHECK(generateGainMap(&yuv420_image, &p010_image, hdr_tf, &metadata, &gainmap_image));
   std::unique_ptr<uint8_t[]> map_data;
   map_data.reset(reinterpret_cast<uint8_t*>(gainmap_image.data));
@@ -302,9 +303,10 @@ status_t JpegR::encodeJPEGR(jr_uncompressed_ptr p010_image_ptr, ultrahdr_transfe
 }
 
 /* Encode API-1 */
-status_t JpegR::encodeJPEGR(jr_uncompressed_ptr p010_image_ptr,
-                            jr_uncompressed_ptr yuv420_image_ptr, ultrahdr_transfer_function hdr_tf,
-                            ultrahdr_compressed_ptr dest, int quality, ultrahdr_exif_ptr exif) {
+status_t JpegR::encodeJPEGR(ultrahdr_uncompressed_ptr p010_image_ptr,
+                            ultrahdr_uncompressed_ptr yuv420_image_ptr,
+                            ultrahdr_transfer_function hdr_tf, ultrahdr_compressed_ptr dest,
+                            int quality, ultrahdr_exif_ptr exif) {
   // validate input arguments
   if (yuv420_image_ptr == nullptr) {
     ALOGE("received nullptr for uncompressed 420 image");
@@ -317,14 +319,14 @@ status_t JpegR::encodeJPEGR(jr_uncompressed_ptr p010_image_ptr,
   JPEGR_CHECK(areInputArgumentsValid(p010_image_ptr, yuv420_image_ptr, hdr_tf, dest, quality))
 
   // clean up input structure for later usage
-  jpegr_uncompressed_struct p010_image = *p010_image_ptr;
+  ultrahdr_uncompressed_struct p010_image = *p010_image_ptr;
   if (p010_image.luma_stride == 0) p010_image.luma_stride = p010_image.width;
   if (!p010_image.chroma_data) {
     uint16_t* data = reinterpret_cast<uint16_t*>(p010_image.data);
     p010_image.chroma_data = data + p010_image.luma_stride * p010_image.height;
     p010_image.chroma_stride = p010_image.luma_stride;
   }
-  jpegr_uncompressed_struct yuv420_image = *yuv420_image_ptr;
+  ultrahdr_uncompressed_struct yuv420_image = *yuv420_image_ptr;
   if (yuv420_image.luma_stride == 0) yuv420_image.luma_stride = yuv420_image.width;
   if (!yuv420_image.chroma_data) {
     uint8_t* data = reinterpret_cast<uint8_t*>(yuv420_image.data);
@@ -335,7 +337,7 @@ status_t JpegR::encodeJPEGR(jr_uncompressed_ptr p010_image_ptr,
   // gain map
   ultrahdr_metadata_struct metadata;
   strcpy(metadata.version, kJpegrVersion);
-  jpegr_uncompressed_struct gainmap_image;
+  ultrahdr_uncompressed_struct gainmap_image;
   JPEGR_CHECK(generateGainMap(&yuv420_image, &p010_image, hdr_tf, &metadata, &gainmap_image));
   std::unique_ptr<uint8_t[]> map_data;
   map_data.reset(reinterpret_cast<uint8_t*>(gainmap_image.data));
@@ -352,7 +354,7 @@ status_t JpegR::encodeJPEGR(jr_uncompressed_ptr p010_image_ptr,
   std::shared_ptr<DataStruct> icc =
       IccHelper::writeIccProfile(ULTRAHDR_TF_SRGB, yuv420_image.colorGamut);
 
-  jpegr_uncompressed_struct yuv420_bt601_image = yuv420_image;
+  ultrahdr_uncompressed_struct yuv420_bt601_image = yuv420_image;
   unique_ptr<uint8_t[]> yuv_420_bt601_data;
   // Convert to bt601 YUV encoding for JPEG encode
   if (yuv420_image.colorGamut != ULTRAHDR_COLORGAMUT_P3) {
@@ -438,8 +440,8 @@ status_t JpegR::encodeJPEGR(jr_uncompressed_ptr p010_image_ptr,
 }
 
 /* Encode API-2 */
-status_t JpegR::encodeJPEGR(jr_uncompressed_ptr p010_image_ptr,
-                            jr_uncompressed_ptr yuv420_image_ptr,
+status_t JpegR::encodeJPEGR(ultrahdr_uncompressed_ptr p010_image_ptr,
+                            ultrahdr_uncompressed_ptr yuv420_image_ptr,
                             ultrahdr_compressed_ptr yuv420jpg_image_ptr,
                             ultrahdr_transfer_function hdr_tf, ultrahdr_compressed_ptr dest) {
   // validate input arguments
@@ -454,14 +456,14 @@ status_t JpegR::encodeJPEGR(jr_uncompressed_ptr p010_image_ptr,
   JPEGR_CHECK(areInputArgumentsValid(p010_image_ptr, yuv420_image_ptr, hdr_tf, dest))
 
   // clean up input structure for later usage
-  jpegr_uncompressed_struct p010_image = *p010_image_ptr;
+  ultrahdr_uncompressed_struct p010_image = *p010_image_ptr;
   if (p010_image.luma_stride == 0) p010_image.luma_stride = p010_image.width;
   if (!p010_image.chroma_data) {
     uint16_t* data = reinterpret_cast<uint16_t*>(p010_image.data);
     p010_image.chroma_data = data + p010_image.luma_stride * p010_image.height;
     p010_image.chroma_stride = p010_image.luma_stride;
   }
-  jpegr_uncompressed_struct yuv420_image = *yuv420_image_ptr;
+  ultrahdr_uncompressed_struct yuv420_image = *yuv420_image_ptr;
   if (yuv420_image.luma_stride == 0) yuv420_image.luma_stride = yuv420_image.width;
   if (!yuv420_image.chroma_data) {
     uint8_t* data = reinterpret_cast<uint8_t*>(yuv420_image.data);
@@ -472,7 +474,7 @@ status_t JpegR::encodeJPEGR(jr_uncompressed_ptr p010_image_ptr,
   // gain map
   ultrahdr_metadata_struct metadata;
   strcpy(metadata.version, kJpegrVersion);
-  jpegr_uncompressed_struct gainmap_image;
+  ultrahdr_uncompressed_struct gainmap_image;
   JPEGR_CHECK(generateGainMap(&yuv420_image, &p010_image, hdr_tf, &metadata, &gainmap_image));
   std::unique_ptr<uint8_t[]> map_data;
   map_data.reset(reinterpret_cast<uint8_t*>(gainmap_image.data));
@@ -490,7 +492,7 @@ status_t JpegR::encodeJPEGR(jr_uncompressed_ptr p010_image_ptr,
 }
 
 /* Encode API-3 */
-status_t JpegR::encodeJPEGR(jr_uncompressed_ptr p010_image_ptr,
+status_t JpegR::encodeJPEGR(ultrahdr_uncompressed_ptr p010_image_ptr,
                             ultrahdr_compressed_ptr yuv420jpg_image_ptr,
                             ultrahdr_transfer_function hdr_tf, ultrahdr_compressed_ptr dest) {
   // validate input arguments
@@ -501,7 +503,7 @@ status_t JpegR::encodeJPEGR(jr_uncompressed_ptr p010_image_ptr,
   JPEGR_CHECK(areInputArgumentsValid(p010_image_ptr, nullptr, hdr_tf, dest))
 
   // clean up input structure for later usage
-  jpegr_uncompressed_struct p010_image = *p010_image_ptr;
+  ultrahdr_uncompressed_struct p010_image = *p010_image_ptr;
   if (p010_image.luma_stride == 0) p010_image.luma_stride = p010_image.width;
   if (!p010_image.chroma_data) {
     uint16_t* data = reinterpret_cast<uint16_t*>(p010_image.data);
@@ -515,7 +517,7 @@ status_t JpegR::encodeJPEGR(jr_uncompressed_ptr p010_image_ptr,
                                            yuv420jpg_image_ptr->length)) {
     return ERROR_UHDR_DECODE_ERROR;
   }
-  jpegr_uncompressed_struct yuv420_image{};
+  ultrahdr_uncompressed_struct yuv420_image{};
   yuv420_image.data = jpeg_dec_obj_yuv420.getDecompressedImagePtr();
   yuv420_image.width = jpeg_dec_obj_yuv420.getDecompressedImageWidth();
   yuv420_image.height = jpeg_dec_obj_yuv420.getDecompressedImageHeight();
@@ -535,7 +537,7 @@ status_t JpegR::encodeJPEGR(jr_uncompressed_ptr p010_image_ptr,
   // gain map
   ultrahdr_metadata_struct metadata;
   strcpy(metadata.version, kJpegrVersion);
-  jpegr_uncompressed_struct gainmap_image;
+  ultrahdr_uncompressed_struct gainmap_image;
   JPEGR_CHECK(generateGainMap(&yuv420_image, &p010_image, hdr_tf, &metadata, &gainmap_image,
                               true /* sdr_is_601 */));
   std::unique_ptr<uint8_t[]> map_data;
@@ -624,10 +626,11 @@ status_t JpegR::getJPEGRInfo(ultrahdr_compressed_ptr jpegr_image_ptr,
 }
 
 /* Decode API */
-status_t JpegR::decodeJPEGR(ultrahdr_compressed_ptr jpegr_image_ptr, jr_uncompressed_ptr dest,
+status_t JpegR::decodeJPEGR(ultrahdr_compressed_ptr jpegr_image_ptr, ultrahdr_uncompressed_ptr dest,
                             float max_display_boost, ultrahdr_exif_ptr exif,
                             ultrahdr_output_format output_format,
-                            jr_uncompressed_ptr gainmap_image_ptr, ultrahdr_metadata_ptr metadata) {
+                            ultrahdr_uncompressed_ptr gainmap_image_ptr,
+                            ultrahdr_metadata_ptr metadata) {
   if (jpegr_image_ptr == nullptr || jpegr_image_ptr->data == nullptr) {
     ALOGE("received nullptr for compressed jpegr image");
     return ERROR_UHDR_BAD_PTR;
@@ -708,7 +711,7 @@ status_t JpegR::decodeJPEGR(ultrahdr_compressed_ptr jpegr_image_ptr, jr_uncompre
     return ERROR_UHDR_DECODE_ERROR;
   }
 
-  jpegr_uncompressed_struct gainmap_image;
+  ultrahdr_uncompressed_struct gainmap_image;
   gainmap_image.data = jpeg_dec_obj_gm.getDecompressedImagePtr();
   gainmap_image.width = jpeg_dec_obj_gm.getDecompressedImageWidth();
   gainmap_image.height = jpeg_dec_obj_gm.getDecompressedImageHeight();
@@ -738,7 +741,7 @@ status_t JpegR::decodeJPEGR(ultrahdr_compressed_ptr jpegr_image_ptr, jr_uncompre
     metadata->hdrCapacityMax = uhdr_metadata.hdrCapacityMax;
   }
 
-  jpegr_uncompressed_struct yuv420_image;
+  ultrahdr_uncompressed_struct yuv420_image;
   yuv420_image.data = jpeg_dec_obj_yuv420.getDecompressedImagePtr();
   yuv420_image.width = jpeg_dec_obj_yuv420.getDecompressedImageWidth();
   yuv420_image.height = jpeg_dec_obj_yuv420.getDecompressedImageHeight();
@@ -754,7 +757,7 @@ status_t JpegR::decodeJPEGR(ultrahdr_compressed_ptr jpegr_image_ptr, jr_uncompre
   return UHDR_NO_ERROR;
 }
 
-status_t JpegR::compressGainMap(jr_uncompressed_ptr gainmap_image_ptr,
+status_t JpegR::compressGainMap(ultrahdr_uncompressed_ptr gainmap_image_ptr,
                                 JpegEncoderHelper* jpeg_enc_obj_ptr) {
   if (gainmap_image_ptr == nullptr || jpeg_enc_obj_ptr == nullptr) {
     return ERROR_UHDR_BAD_PTR;
@@ -829,10 +832,10 @@ void JobQueue::reset() {
   mQueuedAllJobs = false;
 }
 
-status_t JpegR::generateGainMap(jr_uncompressed_ptr yuv420_image_ptr,
-                                jr_uncompressed_ptr p010_image_ptr,
+status_t JpegR::generateGainMap(ultrahdr_uncompressed_ptr yuv420_image_ptr,
+                                ultrahdr_uncompressed_ptr p010_image_ptr,
                                 ultrahdr_transfer_function hdr_tf, ultrahdr_metadata_ptr metadata,
-                                jr_uncompressed_ptr dest, bool sdr_is_601) {
+                                ultrahdr_uncompressed_ptr dest, bool sdr_is_601) {
   if (yuv420_image_ptr == nullptr || p010_image_ptr == nullptr || metadata == nullptr ||
       dest == nullptr || yuv420_image_ptr->data == nullptr ||
       yuv420_image_ptr->chroma_data == nullptr || p010_image_ptr->data == nullptr ||
@@ -1002,10 +1005,10 @@ status_t JpegR::generateGainMap(jr_uncompressed_ptr yuv420_image_ptr,
   return UHDR_NO_ERROR;
 }
 
-status_t JpegR::applyGainMap(jr_uncompressed_ptr yuv420_image_ptr,
-                             jr_uncompressed_ptr gainmap_image_ptr, ultrahdr_metadata_ptr metadata,
-                             ultrahdr_output_format output_format, float max_display_boost,
-                             jr_uncompressed_ptr dest) {
+status_t JpegR::applyGainMap(ultrahdr_uncompressed_ptr yuv420_image_ptr,
+                             ultrahdr_uncompressed_ptr gainmap_image_ptr,
+                             ultrahdr_metadata_ptr metadata, ultrahdr_output_format output_format,
+                             float max_display_boost, ultrahdr_uncompressed_ptr dest) {
   if (yuv420_image_ptr == nullptr || gainmap_image_ptr == nullptr || metadata == nullptr ||
       dest == nullptr || yuv420_image_ptr->data == nullptr ||
       yuv420_image_ptr->chroma_data == nullptr || gainmap_image_ptr->data == nullptr) {
@@ -1454,7 +1457,7 @@ status_t JpegR::appendGainMap(ultrahdr_compressed_ptr primary_jpg_image_ptr,
   return UHDR_NO_ERROR;
 }
 
-status_t JpegR::toneMap(jr_uncompressed_ptr src, jr_uncompressed_ptr dest) {
+status_t JpegR::toneMap(ultrahdr_uncompressed_ptr src, ultrahdr_uncompressed_ptr dest) {
   if (src == nullptr || dest == nullptr) {
     return ERROR_UHDR_BAD_PTR;
   }
@@ -1497,7 +1500,7 @@ status_t JpegR::toneMap(jr_uncompressed_ptr src, jr_uncompressed_ptr dest) {
   return UHDR_NO_ERROR;
 }
 
-status_t JpegR::convertYuv(jr_uncompressed_ptr image, ultrahdr_color_gamut src_encoding,
+status_t JpegR::convertYuv(ultrahdr_uncompressed_ptr image, ultrahdr_color_gamut src_encoding,
                            ultrahdr_color_gamut dest_encoding) {
   if (image == nullptr) {
     return ERROR_UHDR_BAD_PTR;

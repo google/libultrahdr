@@ -72,12 +72,12 @@ class UhdrUnCompressedStructWrapper {
   bool setImageColorGamut(ultrahdr_color_gamut colorGamut);
   bool allocateMemory();
   bool loadRawResource(const char* fileName);
-  jr_uncompressed_ptr getImageHandle();
+  ultrahdr_uncompressed_ptr getImageHandle();
 
  private:
   std::unique_ptr<uint8_t[]> mLumaData;
   std::unique_ptr<uint8_t[]> mChromaData;
-  jpegr_uncompressed_struct mImg;
+  ultrahdr_uncompressed_struct mImg;
   UhdrInputFormat mFormat;
   bool mIsChromaContiguous;
 };
@@ -251,7 +251,7 @@ bool UhdrUnCompressedStructWrapper::loadRawResource(const char* fileName) {
   return false;
 }
 
-jr_uncompressed_ptr UhdrUnCompressedStructWrapper::getImageHandle() { return &mImg; }
+ultrahdr_uncompressed_ptr UhdrUnCompressedStructWrapper::getImageHandle() { return &mImg; }
 
 UhdrCompressedStructWrapper::UhdrCompressedStructWrapper(size_t width, size_t height) {
   mWidth = width;
@@ -309,7 +309,7 @@ void decodeJpegRImg(ultrahdr_compressed_ptr img, [[maybe_unused]] const char* ou
   ASSERT_EQ(kImageHeight, info.height);
   size_t outSize = info.width * info.height * 8;
   std::unique_ptr<uint8_t[]> data = std::make_unique<uint8_t[]>(outSize);
-  jpegr_uncompressed_struct destImage{};
+  ultrahdr_uncompressed_struct destImage{};
   destImage.data = data.get();
   ASSERT_EQ(UHDR_NO_ERROR, jpegHdr.decodeJPEGR(img, &destImage));
   ASSERT_EQ(kImageWidth, destImage.width);
@@ -1307,7 +1307,7 @@ TEST(JpegRTest, DecodeAPIWithInvalidArgs) {
   JpegR uHdrLib;
 
   UhdrCompressedStructWrapper jpgImg(16, 16);
-  jpegr_uncompressed_struct destImage{};
+  ultrahdr_uncompressed_struct destImage{};
   size_t outSize = 16 * 16 * 8;
   std::unique_ptr<uint8_t[]> data = std::make_unique<uint8_t[]>(outSize);
   destImage.data = data.get();
@@ -1960,19 +1960,20 @@ class Profiler {
 
 class JpegRBenchmark : public JpegR {
  public:
-  void BenchmarkGenerateGainMap(jr_uncompressed_ptr yuv420Image, jr_uncompressed_ptr p010Image,
-                                ultrahdr_metadata_ptr metadata, jr_uncompressed_ptr map);
-  void BenchmarkApplyGainMap(jr_uncompressed_ptr yuv420Image, jr_uncompressed_ptr map,
-                             ultrahdr_metadata_ptr metadata, jr_uncompressed_ptr dest);
+  void BenchmarkGenerateGainMap(ultrahdr_uncompressed_ptr yuv420Image,
+                                ultrahdr_uncompressed_ptr p010Image, ultrahdr_metadata_ptr metadata,
+                                ultrahdr_uncompressed_ptr map);
+  void BenchmarkApplyGainMap(ultrahdr_uncompressed_ptr yuv420Image, ultrahdr_uncompressed_ptr map,
+                             ultrahdr_metadata_ptr metadata, ultrahdr_uncompressed_ptr dest);
 
  private:
   const int kProfileCount = 10;
 };
 
-void JpegRBenchmark::BenchmarkGenerateGainMap(jr_uncompressed_ptr yuv420Image,
-                                              jr_uncompressed_ptr p010Image,
+void JpegRBenchmark::BenchmarkGenerateGainMap(ultrahdr_uncompressed_ptr yuv420Image,
+                                              ultrahdr_uncompressed_ptr p010Image,
                                               ultrahdr_metadata_ptr metadata,
-                                              jr_uncompressed_ptr map) {
+                                              ultrahdr_uncompressed_ptr map) {
   ASSERT_EQ(yuv420Image->width, p010Image->width);
   ASSERT_EQ(yuv420Image->height, p010Image->height);
   Profiler profileGenerateMap;
@@ -1991,9 +1992,10 @@ void JpegRBenchmark::BenchmarkGenerateGainMap(jr_uncompressed_ptr yuv420Image,
         yuv420Image->height, profileGenerateMap.elapsedTime() / (kProfileCount * 1000.f));
 }
 
-void JpegRBenchmark::BenchmarkApplyGainMap(jr_uncompressed_ptr yuv420Image, jr_uncompressed_ptr map,
+void JpegRBenchmark::BenchmarkApplyGainMap(ultrahdr_uncompressed_ptr yuv420Image,
+                                           ultrahdr_uncompressed_ptr map,
                                            ultrahdr_metadata_ptr metadata,
-                                           jr_uncompressed_ptr dest) {
+                                           ultrahdr_uncompressed_ptr dest) {
   Profiler profileRecMap;
   profileRecMap.timerStart();
   for (auto i = 0; i < kProfileCount; i++) {
@@ -2016,7 +2018,7 @@ TEST(JpegRTest, ProfileGainMapFuncs) {
   ASSERT_TRUE(rawImg420.loadRawResource(kYCbCr420FileName));
   ultrahdr_metadata_struct metadata;
   strcpy(metadata.version, kJpegrVersion);
-  jpegr_uncompressed_struct map;
+  ultrahdr_uncompressed_struct map;
   map.data = NULL;
   map.width = 0;
   map.height = 0;
@@ -2046,7 +2048,7 @@ TEST(JpegRTest, ProfileGainMapFuncs) {
 
   const int dstSize = kImageWidth * kImageWidth * 4;
   auto bufferDst = std::make_unique<uint8_t[]>(dstSize);
-  jpegr_uncompressed_struct dest;
+  ultrahdr_uncompressed_struct dest;
   dest.data = bufferDst.get();
   dest.width = 0;
   dest.height = 0;

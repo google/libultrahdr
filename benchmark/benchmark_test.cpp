@@ -168,7 +168,7 @@ static bool loadFile(const char* filename, void*& result, int length) {
   return false;
 }
 
-bool fillRawImageHandle(jpegr_uncompressed_struct* rawImage, int width, int height,
+bool fillRawImageHandle(ultrahdr_uncompressed_struct* rawImage, int width, int height,
                         std::string file, ultrahdr_color_gamut cg, bool isP010) {
   const int bpp = isP010 ? 2 : 1;
   int imgSize = width * height * bpp * 1.5;
@@ -228,7 +228,7 @@ static void BM_Decode(benchmark::State& s) {
 
   size_t outSize = info.width * info.height * ((of == ULTRAHDR_OUTPUT_HDR_LINEAR) ? 8 : 4);
   std::unique_ptr<uint8_t[]> data = std::make_unique<uint8_t[]>(outSize);
-  jpegr_uncompressed_struct destImage{};
+  ultrahdr_uncompressed_struct destImage{};
   destImage.data = data.get();
   for (auto _ : s) {
     status = jpegHdr.decodeJPEGR(&jpegImgR, &destImage, FLT_MAX, nullptr, of);
@@ -257,7 +257,7 @@ static void BM_Encode_Api0(benchmark::State& s, std::vector<std::string> testVec
 
   std::string p010File{kTestImagesPath + "p010/" + testVectors[s.range(0)]};
 
-  jpegr_uncompressed_struct rawP010Image{};
+  ultrahdr_uncompressed_struct rawP010Image{};
   if (!fillRawImageHandle(&rawP010Image, width, height, p010File, p010Cg, true)) {
     s.SkipWithError("unable to load file : " + p010File);
     return;
@@ -301,7 +301,7 @@ static void BM_Encode_Api1(benchmark::State& s,
 
   std::string p010File{kTestImagesPath + "p010/" + testVectors[s.range(0)].first};
 
-  jpegr_uncompressed_struct rawP010Image{};
+  ultrahdr_uncompressed_struct rawP010Image{};
   if (!fillRawImageHandle(&rawP010Image, width, height, p010File, p010Cg, true)) {
     s.SkipWithError("unable to load file : " + p010File);
     return;
@@ -311,7 +311,7 @@ static void BM_Encode_Api1(benchmark::State& s,
 
   std::string yuv420File{kTestImagesPath + "yuv420/" + testVectors[s.range(0)].second};
 
-  jpegr_uncompressed_struct rawYuv420Image{};
+  ultrahdr_uncompressed_struct rawYuv420Image{};
   if (!fillRawImageHandle(&rawYuv420Image, width, height, yuv420File, yuv420Cg, false)) {
     s.SkipWithError("unable to load file : " + yuv420File);
     return;
@@ -352,7 +352,7 @@ static void BM_Encode_Api2(
 
   std::string p010File{kTestImagesPath + "p010/" + std::get<0>(testVectors[s.range(0)])};
 
-  jpegr_uncompressed_struct rawP010Image{};
+  ultrahdr_uncompressed_struct rawP010Image{};
   if (!fillRawImageHandle(&rawP010Image, width, height, p010File, p010Cg, true)) {
     s.SkipWithError("unable to load file : " + p010File);
     return;
@@ -362,7 +362,7 @@ static void BM_Encode_Api2(
 
   std::string yuv420File{kTestImagesPath + "yuv420/" + std::get<1>(testVectors[s.range(0)])};
 
-  jpegr_uncompressed_struct rawYuv420Image{};
+  ultrahdr_uncompressed_struct rawYuv420Image{};
   if (!fillRawImageHandle(&rawYuv420Image, width, height, yuv420File, ULTRAHDR_COLORGAMUT_P3,
                           false)) {
     s.SkipWithError("unable to load file : " + yuv420File);
@@ -417,7 +417,7 @@ static void BM_Encode_Api3(benchmark::State& s,
 
   std::string p010File{kTestImagesPath + "p010/" + testVectors[s.range(0)].first};
 
-  jpegr_uncompressed_struct rawP010Image{};
+  ultrahdr_uncompressed_struct rawP010Image{};
   if (!fillRawImageHandle(&rawP010Image, width, height, p010File, p010Cg, true)) {
     s.SkipWithError("unable to load file : " + p010File);
     return;

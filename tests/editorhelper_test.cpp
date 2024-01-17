@@ -94,8 +94,8 @@ void EditorHelperTest::SetUp() {
 void EditorHelperTest::TearDown() {}
 
 TEST_F(EditorHelperTest, croppingYuvImage) {
-  jpegr_uncompressed_struct in_img;
-  jpegr_uncompressed_struct out_img;
+  ultrahdr_uncompressed_struct in_img;
+  ultrahdr_uncompressed_struct out_img;
   const int left = 10;
   const int right = 99;
   const int top = 20;
@@ -126,8 +126,8 @@ TEST_F(EditorHelperTest, croppingYuvImage) {
 }
 
 TEST_F(EditorHelperTest, croppingGreyImage) {
-  jpegr_uncompressed_struct in_img;
-  jpegr_uncompressed_struct out_img;
+  ultrahdr_uncompressed_struct in_img;
+  ultrahdr_uncompressed_struct out_img;
   const int left = 10;
   const int right = 99;
   const int top = 20;
@@ -144,7 +144,7 @@ TEST_F(EditorHelperTest, croppingGreyImage) {
   int outSize = out_width * out_height;
   out_img_data.reset(new uint8_t[outSize]);
   out_img.data = out_img_data.get();
-  EXPECT_TRUE(crop(&in_img, left, right, top, bottom, &out_img)== UHDR_NO_ERROR);
+  EXPECT_TRUE(crop(&in_img, left, right, top, bottom, &out_img) == UHDR_NO_ERROR);
   EXPECT_TRUE(out_img.width = out_width);
   EXPECT_TRUE(out_img.height = out_height);
   EXPECT_TRUE(out_img.pixelFormat == in_img.pixelFormat);
@@ -156,8 +156,8 @@ TEST_F(EditorHelperTest, croppingGreyImage) {
 }
 
 TEST_F(EditorHelperTest, mirroringYuvImageVertical) {
-  jpegr_uncompressed_struct in_img;
-  jpegr_uncompressed_struct out_img;
+  ultrahdr_uncompressed_struct in_img;
+  ultrahdr_uncompressed_struct out_img;
 
   in_img.data = mYuvImage.buffer.get();
   in_img.width = IMAGE_WIDTH;
@@ -169,7 +169,7 @@ TEST_F(EditorHelperTest, mirroringYuvImageVertical) {
   int outSize = IMAGE_WIDTH * IMAGE_HEIGHT * 3 / 2;
   out_img_data.reset(new uint8_t[outSize]);
   out_img.data = out_img_data.get();
-  EXPECT_TRUE(mirror(&in_img, ULTRAHDR_MIRROR_VERTICAL, &out_img)== UHDR_NO_ERROR);
+  EXPECT_TRUE(mirror(&in_img, ULTRAHDR_MIRROR_VERTICAL, &out_img) == UHDR_NO_ERROR);
   EXPECT_TRUE(out_img.width = IMAGE_WIDTH);
   EXPECT_TRUE(out_img.height = IMAGE_HEIGHT);
   EXPECT_TRUE(out_img.colorGamut == in_img.colorGamut);
@@ -182,8 +182,8 @@ TEST_F(EditorHelperTest, mirroringYuvImageVertical) {
 }
 
 TEST_F(EditorHelperTest, mirroringYuvImageHorizontal) {
-  jpegr_uncompressed_struct in_img;
-  jpegr_uncompressed_struct out_img;
+  ultrahdr_uncompressed_struct in_img;
+  ultrahdr_uncompressed_struct out_img;
 
   in_img.data = mYuvImage.buffer.get();
   in_img.width = IMAGE_WIDTH;
@@ -195,7 +195,7 @@ TEST_F(EditorHelperTest, mirroringYuvImageHorizontal) {
   int outSize = IMAGE_WIDTH * IMAGE_HEIGHT * 3 / 2;
   out_img_data.reset(new uint8_t[outSize]);
   out_img.data = out_img_data.get();
-  EXPECT_TRUE(mirror(&in_img, ULTRAHDR_MIRROR_HORIZONTAL, &out_img)== UHDR_NO_ERROR);
+  EXPECT_TRUE(mirror(&in_img, ULTRAHDR_MIRROR_HORIZONTAL, &out_img) == UHDR_NO_ERROR);
   EXPECT_TRUE(out_img.width = IMAGE_WIDTH);
   EXPECT_TRUE(out_img.height = IMAGE_HEIGHT);
   EXPECT_TRUE(out_img.colorGamut == in_img.colorGamut);
@@ -208,8 +208,8 @@ TEST_F(EditorHelperTest, mirroringYuvImageHorizontal) {
 }
 
 TEST_F(EditorHelperTest, mirroringGreyImageVertical) {
-  jpegr_uncompressed_struct in_img;
-  jpegr_uncompressed_struct out_img;
+  ultrahdr_uncompressed_struct in_img;
+  ultrahdr_uncompressed_struct out_img;
 
   in_img.data = mGreyImage.buffer.get();
   in_img.width = IMAGE_WIDTH;
@@ -220,7 +220,7 @@ TEST_F(EditorHelperTest, mirroringGreyImageVertical) {
   int outSize = IMAGE_WIDTH * IMAGE_HEIGHT;
   out_img_data.reset(new uint8_t[outSize]);
   out_img.data = out_img_data.get();
-  EXPECT_TRUE(mirror(&in_img, ULTRAHDR_MIRROR_VERTICAL, &out_img)== UHDR_NO_ERROR);
+  EXPECT_TRUE(mirror(&in_img, ULTRAHDR_MIRROR_VERTICAL, &out_img) == UHDR_NO_ERROR);
   EXPECT_TRUE(out_img.width = IMAGE_WIDTH);
   EXPECT_TRUE(out_img.height = IMAGE_HEIGHT);
   EXPECT_TRUE(out_img.pixelFormat == in_img.pixelFormat);
@@ -232,8 +232,8 @@ TEST_F(EditorHelperTest, mirroringGreyImageVertical) {
 }
 
 TEST_F(EditorHelperTest, mirroringGreyImageHorizontal) {
-  jpegr_uncompressed_struct in_img;
-  jpegr_uncompressed_struct out_img;
+  ultrahdr_uncompressed_struct in_img;
+  ultrahdr_uncompressed_struct out_img;
 
   in_img.data = mGreyImage.buffer.get();
   in_img.width = IMAGE_WIDTH;
@@ -244,7 +244,7 @@ TEST_F(EditorHelperTest, mirroringGreyImageHorizontal) {
   int outSize = IMAGE_WIDTH * IMAGE_HEIGHT;
   out_img_data.reset(new uint8_t[outSize]);
   out_img.data = out_img_data.get();
-  EXPECT_TRUE(mirror(&in_img, ULTRAHDR_MIRROR_HORIZONTAL, &out_img)== UHDR_NO_ERROR);
+  EXPECT_TRUE(mirror(&in_img, ULTRAHDR_MIRROR_HORIZONTAL, &out_img) == UHDR_NO_ERROR);
   EXPECT_TRUE(out_img.width = IMAGE_WIDTH);
   EXPECT_TRUE(out_img.height = IMAGE_HEIGHT);
   EXPECT_TRUE(out_img.pixelFormat == in_img.pixelFormat);
@@ -256,8 +256,8 @@ TEST_F(EditorHelperTest, mirroringGreyImageHorizontal) {
 }
 
 TEST_F(EditorHelperTest, rotatingYuvImage90) {
-  jpegr_uncompressed_struct in_img;
-  jpegr_uncompressed_struct out_img;
+  ultrahdr_uncompressed_struct in_img;
+  ultrahdr_uncompressed_struct out_img;
 
   in_img.data = mYuvImage.buffer.get();
   in_img.width = IMAGE_WIDTH;
@@ -269,7 +269,7 @@ TEST_F(EditorHelperTest, rotatingYuvImage90) {
   int outSize = IMAGE_WIDTH * IMAGE_HEIGHT * 3 / 2;
   out_img_data.reset(new uint8_t[outSize]);
   out_img.data = out_img_data.get();
-  EXPECT_TRUE(rotate(&in_img, 90, &out_img)== UHDR_NO_ERROR);
+  EXPECT_TRUE(rotate(&in_img, 90, &out_img) == UHDR_NO_ERROR);
   EXPECT_TRUE(out_img.width = IMAGE_HEIGHT);
   EXPECT_TRUE(out_img.height = IMAGE_WIDTH);
   EXPECT_TRUE(out_img.colorGamut == in_img.colorGamut);
@@ -282,8 +282,8 @@ TEST_F(EditorHelperTest, rotatingYuvImage90) {
 }
 
 TEST_F(EditorHelperTest, rotatingYuvImage180) {
-  jpegr_uncompressed_struct in_img;
-  jpegr_uncompressed_struct out_img;
+  ultrahdr_uncompressed_struct in_img;
+  ultrahdr_uncompressed_struct out_img;
 
   in_img.data = mYuvImage.buffer.get();
   in_img.width = IMAGE_WIDTH;
@@ -295,7 +295,7 @@ TEST_F(EditorHelperTest, rotatingYuvImage180) {
   int outSize = IMAGE_WIDTH * IMAGE_HEIGHT * 3 / 2;
   out_img_data.reset(new uint8_t[outSize]);
   out_img.data = out_img_data.get();
-  EXPECT_TRUE(rotate(&in_img, 180, &out_img)== UHDR_NO_ERROR);
+  EXPECT_TRUE(rotate(&in_img, 180, &out_img) == UHDR_NO_ERROR);
   EXPECT_TRUE(out_img.width = IMAGE_WIDTH);
   EXPECT_TRUE(out_img.height = IMAGE_HEIGHT);
   EXPECT_TRUE(out_img.colorGamut == in_img.colorGamut);
@@ -308,8 +308,8 @@ TEST_F(EditorHelperTest, rotatingYuvImage180) {
 }
 
 TEST_F(EditorHelperTest, rotatingYuvImage270) {
-  jpegr_uncompressed_struct in_img;
-  jpegr_uncompressed_struct out_img;
+  ultrahdr_uncompressed_struct in_img;
+  ultrahdr_uncompressed_struct out_img;
 
   in_img.data = mYuvImage.buffer.get();
   in_img.width = IMAGE_WIDTH;
@@ -321,7 +321,7 @@ TEST_F(EditorHelperTest, rotatingYuvImage270) {
   int outSize = IMAGE_WIDTH * IMAGE_HEIGHT * 3 / 2;
   out_img_data.reset(new uint8_t[outSize]);
   out_img.data = out_img_data.get();
-  EXPECT_TRUE(rotate(&in_img, 270, &out_img)== UHDR_NO_ERROR);
+  EXPECT_TRUE(rotate(&in_img, 270, &out_img) == UHDR_NO_ERROR);
   EXPECT_TRUE(out_img.width = IMAGE_HEIGHT);
   EXPECT_TRUE(out_img.height = IMAGE_WIDTH);
   EXPECT_TRUE(out_img.colorGamut == in_img.colorGamut);
@@ -334,8 +334,8 @@ TEST_F(EditorHelperTest, rotatingYuvImage270) {
 }
 
 TEST_F(EditorHelperTest, rotatingGreyImage90) {
-  jpegr_uncompressed_struct in_img;
-  jpegr_uncompressed_struct out_img;
+  ultrahdr_uncompressed_struct in_img;
+  ultrahdr_uncompressed_struct out_img;
 
   in_img.data = mGreyImage.buffer.get();
   in_img.width = IMAGE_WIDTH;
@@ -346,7 +346,7 @@ TEST_F(EditorHelperTest, rotatingGreyImage90) {
   int outSize = IMAGE_WIDTH * IMAGE_HEIGHT;
   out_img_data.reset(new uint8_t[outSize]);
   out_img.data = out_img_data.get();
-  EXPECT_TRUE(rotate(&in_img, 90, &out_img)== UHDR_NO_ERROR);
+  EXPECT_TRUE(rotate(&in_img, 90, &out_img) == UHDR_NO_ERROR);
   EXPECT_TRUE(out_img.width = IMAGE_HEIGHT);
   EXPECT_TRUE(out_img.height = IMAGE_WIDTH);
   EXPECT_TRUE(out_img.pixelFormat == in_img.pixelFormat);
@@ -358,8 +358,8 @@ TEST_F(EditorHelperTest, rotatingGreyImage90) {
 }
 
 TEST_F(EditorHelperTest, rotatingGreyImage180) {
-  jpegr_uncompressed_struct in_img;
-  jpegr_uncompressed_struct out_img;
+  ultrahdr_uncompressed_struct in_img;
+  ultrahdr_uncompressed_struct out_img;
 
   in_img.data = mGreyImage.buffer.get();
   in_img.width = IMAGE_WIDTH;
@@ -370,7 +370,7 @@ TEST_F(EditorHelperTest, rotatingGreyImage180) {
   int outSize = IMAGE_WIDTH * IMAGE_HEIGHT;
   out_img_data.reset(new uint8_t[outSize]);
   out_img.data = out_img_data.get();
-  EXPECT_TRUE(rotate(&in_img, 180, &out_img)== UHDR_NO_ERROR);
+  EXPECT_TRUE(rotate(&in_img, 180, &out_img) == UHDR_NO_ERROR);
   EXPECT_TRUE(out_img.width = IMAGE_WIDTH);
   EXPECT_TRUE(out_img.height = IMAGE_HEIGHT);
   EXPECT_TRUE(out_img.pixelFormat == in_img.pixelFormat);
@@ -382,8 +382,8 @@ TEST_F(EditorHelperTest, rotatingGreyImage180) {
 }
 
 TEST_F(EditorHelperTest, rotatingGreyImage270) {
-  jpegr_uncompressed_struct in_img;
-  jpegr_uncompressed_struct out_img;
+  ultrahdr_uncompressed_struct in_img;
+  ultrahdr_uncompressed_struct out_img;
 
   in_img.data = mGreyImage.buffer.get();
   in_img.width = IMAGE_WIDTH;
@@ -394,7 +394,7 @@ TEST_F(EditorHelperTest, rotatingGreyImage270) {
   int outSize = IMAGE_WIDTH * IMAGE_HEIGHT;
   out_img_data.reset(new uint8_t[outSize]);
   out_img.data = out_img_data.get();
-  EXPECT_TRUE(rotate(&in_img, 270, &out_img)== UHDR_NO_ERROR);
+  EXPECT_TRUE(rotate(&in_img, 270, &out_img) == UHDR_NO_ERROR);
   EXPECT_TRUE(out_img.width = IMAGE_HEIGHT);
   EXPECT_TRUE(out_img.height = IMAGE_WIDTH);
   EXPECT_TRUE(out_img.pixelFormat == in_img.pixelFormat);
@@ -406,8 +406,8 @@ TEST_F(EditorHelperTest, rotatingGreyImage270) {
 }
 
 TEST_F(EditorHelperTest, resizeYuvImageUp) {
-  jpegr_uncompressed_struct in_img;
-  jpegr_uncompressed_struct out_img;
+  ultrahdr_uncompressed_struct in_img;
+  ultrahdr_uncompressed_struct out_img;
 
   in_img.data = mYuvImage.buffer.get();
   in_img.width = IMAGE_WIDTH;
@@ -421,7 +421,7 @@ TEST_F(EditorHelperTest, resizeYuvImageUp) {
   int outSize = out_width * out_height * 3 / 2;
   out_img_data.reset(new uint8_t[outSize]);
   out_img.data = out_img_data.get();
-  EXPECT_TRUE(resize(&in_img, out_width, out_height, &out_img)== UHDR_NO_ERROR);
+  EXPECT_TRUE(resize(&in_img, out_width, out_height, &out_img) == UHDR_NO_ERROR);
   EXPECT_TRUE(out_img.width = out_width);
   EXPECT_TRUE(out_img.height = out_height);
   EXPECT_TRUE(out_img.colorGamut == in_img.colorGamut);
@@ -434,8 +434,8 @@ TEST_F(EditorHelperTest, resizeYuvImageUp) {
 }
 
 TEST_F(EditorHelperTest, resizeYuvImageDown) {
-  jpegr_uncompressed_struct in_img;
-  jpegr_uncompressed_struct out_img;
+  ultrahdr_uncompressed_struct in_img;
+  ultrahdr_uncompressed_struct out_img;
 
   in_img.data = mYuvImage.buffer.get();
   in_img.width = IMAGE_WIDTH;
@@ -449,7 +449,7 @@ TEST_F(EditorHelperTest, resizeYuvImageDown) {
   int outSize = out_width * out_height * 3 / 2;
   out_img_data.reset(new uint8_t[outSize]);
   out_img.data = out_img_data.get();
-  EXPECT_TRUE(resize(&in_img, out_width, out_height, &out_img)== UHDR_NO_ERROR);
+  EXPECT_TRUE(resize(&in_img, out_width, out_height, &out_img) == UHDR_NO_ERROR);
   EXPECT_TRUE(out_img.width = out_width);
   EXPECT_TRUE(out_img.height = out_height);
   EXPECT_TRUE(out_img.pixelFormat == in_img.pixelFormat);
@@ -461,8 +461,8 @@ TEST_F(EditorHelperTest, resizeYuvImageDown) {
 }
 
 TEST_F(EditorHelperTest, resizeGreyImageUp) {
-  jpegr_uncompressed_struct in_img;
-  jpegr_uncompressed_struct out_img;
+  ultrahdr_uncompressed_struct in_img;
+  ultrahdr_uncompressed_struct out_img;
 
   in_img.data = mGreyImage.buffer.get();
   in_img.width = IMAGE_WIDTH;
@@ -475,7 +475,7 @@ TEST_F(EditorHelperTest, resizeGreyImageUp) {
   int outSize = out_width * out_height;
   out_img_data.reset(new uint8_t[outSize]);
   out_img.data = out_img_data.get();
-  EXPECT_TRUE(resize(&in_img, out_width, out_height, &out_img)== UHDR_NO_ERROR);
+  EXPECT_TRUE(resize(&in_img, out_width, out_height, &out_img) == UHDR_NO_ERROR);
   EXPECT_TRUE(out_img.width = out_width);
   EXPECT_TRUE(out_img.height = out_height);
   EXPECT_TRUE(out_img.pixelFormat == in_img.pixelFormat);
@@ -487,8 +487,8 @@ TEST_F(EditorHelperTest, resizeGreyImageUp) {
 }
 
 TEST_F(EditorHelperTest, resizeGreyImageDown) {
-  jpegr_uncompressed_struct in_img;
-  jpegr_uncompressed_struct out_img;
+  ultrahdr_uncompressed_struct in_img;
+  ultrahdr_uncompressed_struct out_img;
 
   in_img.data = mGreyImage.buffer.get();
   in_img.width = IMAGE_WIDTH;
@@ -501,7 +501,7 @@ TEST_F(EditorHelperTest, resizeGreyImageDown) {
   int outSize = out_width * out_height;
   out_img_data.reset(new uint8_t[outSize]);
   out_img.data = out_img_data.get();
-  EXPECT_TRUE(resize(&in_img, out_width, out_height, &out_img)== UHDR_NO_ERROR);
+  EXPECT_TRUE(resize(&in_img, out_width, out_height, &out_img) == UHDR_NO_ERROR);
   EXPECT_TRUE(out_img.width = out_width);
   EXPECT_TRUE(out_img.height = out_height);
   EXPECT_TRUE(out_img.pixelFormat == in_img.pixelFormat);

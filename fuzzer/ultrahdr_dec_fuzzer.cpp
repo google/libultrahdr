@@ -52,11 +52,11 @@ void UltraHdrDecFuzzer::process() {
 #endif
   if (info.width > kMaxWidth || info.height > kMaxHeight) return;
   size_t outSize = info.width * info.height * ((of == ULTRAHDR_OUTPUT_HDR_LINEAR) ? 8 : 4);
-  jpegr_uncompressed_struct decodedJpegR;
+  ultrahdr_uncompressed_struct decodedJpegR;
   auto decodedRaw = std::make_unique<uint8_t[]>(outSize);
   decodedJpegR.data = decodedRaw.get();
   ultrahdr_metadata_struct metadata;
-  jpegr_uncompressed_struct decodedGainMap{};
+  ultrahdr_uncompressed_struct decodedGainMap{};
   (void)jpegHdr.decodeJPEGR(&jpegImgR, &decodedJpegR,
                             mFdp.ConsumeFloatingPointInRange<float>(1.0, FLT_MAX), nullptr, of,
                             &decodedGainMap, &metadata);

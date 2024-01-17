@@ -26,18 +26,18 @@
 using namespace std;
 
 namespace ultrahdr {
-status_t crop(jr_uncompressed_ptr const in_img,
-              int left, int right, int top, int bottom,
-              jr_uncompressed_ptr out_img) {
-  if (in_img == nullptr || in_img->data == nullptr ||
-      out_img == nullptr || out_img->data == nullptr) {
+
+status_t crop(ultrahdr_uncompressed_ptr const in_img, int left, int right, int top, int bottom,
+              ultrahdr_uncompressed_ptr out_img) {
+  if (in_img == nullptr || in_img->data == nullptr || out_img == nullptr ||
+      out_img->data == nullptr) {
     return ERROR_UHDR_BAD_PTR;
   }
   if (left < 0 || right >= in_img->width || top < 0 || bottom >= in_img->height) {
     return ERROR_UHDR_INVALID_CROPPING_PARAMETERS;
   }
   if (in_img->pixelFormat != ULTRAHDR_PIX_FMT_YUV420 &&
-          in_img->pixelFormat != ULTRAHDR_PIX_FMT_MONOCHROME) {
+      in_img->pixelFormat != ULTRAHDR_PIX_FMT_MONOCHROME) {
     return ERROR_UHDR_UNSUPPORTED_FEATURE;
   }
 
@@ -60,11 +60,10 @@ status_t crop(jr_uncompressed_ptr const in_img,
   }
 
   // Assume input is YUV 420
-  int in_chroma_stride = in_img->chroma_stride != 0 ?
-          in_img->chroma_stride : (in_luma_stride >> 1);
+  int in_chroma_stride = in_img->chroma_stride != 0 ? in_img->chroma_stride : (in_luma_stride >> 1);
   out_img->chroma_stride = out_img->luma_stride / 2;
-  out_img->chroma_data = reinterpret_cast<uint8_t*>(out_img->data) +
-          out_img->luma_stride * out_img->height;
+  out_img->chroma_data =
+      reinterpret_cast<uint8_t*>(out_img->data) + out_img->luma_stride * out_img->height;
   src = reinterpret_cast<uint8_t*>(in_img->chroma_data);
   if (src == nullptr) {
     src = reinterpret_cast<uint8_t*>(in_img->data) + in_luma_stride * in_img->height;
@@ -78,15 +77,14 @@ status_t crop(jr_uncompressed_ptr const in_img,
   return UHDR_NO_ERROR;
 }
 
-status_t mirror(jr_uncompressed_ptr const in_img,
-                ultrahdr_mirroring_direction mirror_dir,
-                jr_uncompressed_ptr out_img) {
-  if (in_img == nullptr || in_img->data == nullptr ||
-      out_img == nullptr || out_img->data == nullptr) {
+status_t mirror(ultrahdr_uncompressed_ptr const in_img, ultrahdr_mirroring_direction mirror_dir,
+                ultrahdr_uncompressed_ptr out_img) {
+  if (in_img == nullptr || in_img->data == nullptr || out_img == nullptr ||
+      out_img->data == nullptr) {
     return ERROR_UHDR_BAD_PTR;
   }
   if (in_img->pixelFormat != ULTRAHDR_PIX_FMT_YUV420 &&
-          in_img->pixelFormat != ULTRAHDR_PIX_FMT_MONOCHROME) {
+      in_img->pixelFormat != ULTRAHDR_PIX_FMT_MONOCHROME) {
     return ERROR_UHDR_UNSUPPORTED_FEATURE;
   }
 
@@ -109,8 +107,8 @@ status_t mirror(jr_uncompressed_ptr const in_img,
     for (int i = 0; i < out_img->height; i++) {
       for (int j = 0; j < out_img->width; j++) {
         *(reinterpret_cast<uint8_t*>(out_img->data) + i * out_img->luma_stride + j) =
-                *(reinterpret_cast<uint8_t*>(in_img->data) +
-                i * in_luma_stride + (in_img->width - j - 1));
+            *(reinterpret_cast<uint8_t*>(in_img->data) + i * in_luma_stride +
+              (in_img->width - j - 1));
       }
     }
   }
@@ -120,11 +118,10 @@ status_t mirror(jr_uncompressed_ptr const in_img,
   }
 
   // Assume input is YUV 420
-  int in_chroma_stride = in_img->chroma_stride != 0 ?
-          in_img->chroma_stride : (in_luma_stride >> 1);
+  int in_chroma_stride = in_img->chroma_stride != 0 ? in_img->chroma_stride : (in_luma_stride >> 1);
   out_img->chroma_stride = out_img->luma_stride / 2;
-  out_img->chroma_data = reinterpret_cast<uint8_t*>(out_img->data) +
-          out_img->luma_stride * out_img->height;
+  out_img->chroma_data =
+      reinterpret_cast<uint8_t*>(out_img->data) + out_img->luma_stride * out_img->height;
   if (mirror_dir == ULTRAHDR_MIRROR_VERTICAL) {
     // U
     uint8_t* src = reinterpret_cast<uint8_t*>(in_img->chroma_data);
@@ -134,16 +131,14 @@ status_t mirror(jr_uncompressed_ptr const in_img,
     uint8_t* dest = reinterpret_cast<uint8_t*>(out_img->chroma_data);
     for (int i = 0; i < out_img->height / 2; i++) {
       memcpy(dest + (out_img->height / 2 - i - 1) * out_img->chroma_stride,
-             src + i * in_chroma_stride,
-             out_img->width / 2);
+             src + i * in_chroma_stride, out_img->width / 2);
     }
     // V
     src = src + in_chroma_stride * (in_img->height / 2);
     dest = dest + out_img->chroma_stride * (out_img->height / 2);
     for (int i = 0; i < out_img->height / 2; i++) {
       memcpy(dest + (out_img->height / 2 - i - 1) * out_img->chroma_stride,
-             src + i * in_chroma_stride,
-             out_img->width / 2);
+             src + i * in_chroma_stride, out_img->width / 2);
     }
   } else {
     // U
@@ -172,8 +167,8 @@ status_t mirror(jr_uncompressed_ptr const in_img,
   return UHDR_NO_ERROR;
 }
 
-status_t rotate(jr_uncompressed_ptr const in_img, int clockwise_degree,
-                jr_uncompressed_ptr out_img) {
+status_t rotate(ultrahdr_uncompressed_ptr const in_img, int clockwise_degree,
+                ultrahdr_uncompressed_ptr out_img) {
   if (in_img == nullptr || in_img->data == nullptr ||
       out_img == nullptr || out_img->data == nullptr) {
     return ERROR_UHDR_BAD_PTR;
@@ -197,8 +192,8 @@ status_t rotate(jr_uncompressed_ptr const in_img, int clockwise_degree,
     for (int i = 0; i < out_img->height; i++) {
       for (int j = 0; j < out_img->width; j++) {
         *(reinterpret_cast<uint8_t*>(out_img->data) + i * out_img->luma_stride + j) =
-                *(reinterpret_cast<uint8_t*>(in_img->data) +
-                (in_img->height - j - 1) * in_luma_stride + i);
+            *(reinterpret_cast<uint8_t*>(in_img->data) + (in_img->height - j - 1) * in_luma_stride +
+              i);
       }
     }
   } else if (clockwise_degree == 180) {
@@ -208,8 +203,8 @@ status_t rotate(jr_uncompressed_ptr const in_img, int clockwise_degree,
     for (int i = 0; i < out_img->height; i++) {
       for (int j = 0; j < out_img->width; j++) {
         *(reinterpret_cast<uint8_t*>(out_img->data) + i * out_img->luma_stride + j) =
-                *(reinterpret_cast<uint8_t*>(in_img->data) +
-                (in_img->height - i - 1) * in_luma_stride + (in_img->width - j - 1));
+            *(reinterpret_cast<uint8_t*>(in_img->data) + (in_img->height - i - 1) * in_luma_stride +
+              (in_img->width - j - 1));
       }
     }
   } else if (clockwise_degree == 270) {
@@ -230,11 +225,10 @@ status_t rotate(jr_uncompressed_ptr const in_img, int clockwise_degree,
   }
 
   // Assume input is YUV 420
-  int in_chroma_stride = in_img->chroma_stride != 0 ?
-          in_img->chroma_stride : (in_luma_stride >> 1);
+  int in_chroma_stride = in_img->chroma_stride != 0 ? in_img->chroma_stride : (in_luma_stride >> 1);
   out_img->chroma_stride = out_img->luma_stride / 2;
-  out_img->chroma_data = reinterpret_cast<uint8_t*>(out_img->data) +
-          out_img->luma_stride * out_img->height;
+  out_img->chroma_data =
+      reinterpret_cast<uint8_t*>(out_img->data) + out_img->luma_stride * out_img->height;
   if (clockwise_degree == 90) {
     // U
     uint8_t* src = reinterpret_cast<uint8_t*>(in_img->chroma_data);
@@ -245,7 +239,7 @@ status_t rotate(jr_uncompressed_ptr const in_img, int clockwise_degree,
     for (int i = 0; i < out_img->height / 2; i++) {
       for (int j = 0; j < out_img->width / 2; j++) {
         *(dest + i * out_img->chroma_stride + j) =
-                *(src + (in_img->height / 2 - j - 1) * in_chroma_stride + i);
+            *(src + (in_img->height / 2 - j - 1) * in_chroma_stride + i);
       }
     }
     // V
@@ -254,7 +248,7 @@ status_t rotate(jr_uncompressed_ptr const in_img, int clockwise_degree,
     for (int i = 0; i < out_img->height / 2; i++) {
       for (int j = 0; j < out_img->width / 2; j++) {
         *(dest + i * out_img->chroma_stride + j) =
-                *(src + (in_img->height / 2 - j - 1) * in_chroma_stride + i);
+            *(src + (in_img->height / 2 - j - 1) * in_chroma_stride + i);
       }
     }
   } else if (clockwise_degree == 180) {
@@ -267,8 +261,7 @@ status_t rotate(jr_uncompressed_ptr const in_img, int clockwise_degree,
     for (int i = 0; i < out_img->height / 2; i++) {
       for (int j = 0; j < out_img->width / 2; j++) {
         *(dest + i * out_img->chroma_stride + j) =
-                *(src + (in_img->height / 2 - i - 1) * in_chroma_stride +
-                (in_img->width / 2 - j - 1));
+            *(src + (in_img->height / 2 - i - 1) * in_chroma_stride + (in_img->width / 2 - j - 1));
       }
     }
     // V
@@ -277,8 +270,7 @@ status_t rotate(jr_uncompressed_ptr const in_img, int clockwise_degree,
     for (int i = 0; i < out_img->height / 2; i++) {
       for (int j = 0; j < out_img->width / 2; j++) {
         *(dest + i * out_img->chroma_stride + j) =
-                *(src + (in_img->height / 2 - i - 1) * in_chroma_stride +
-                (in_img->width / 2 - j - 1));
+            *(src + (in_img->height / 2 - i - 1) * in_chroma_stride + (in_img->width / 2 - j - 1));
       }
     }
   } else if (clockwise_degree == 270) {
@@ -291,7 +283,7 @@ status_t rotate(jr_uncompressed_ptr const in_img, int clockwise_degree,
     for (int i = 0; i < out_img->height / 2; i++) {
       for (int j = 0; j < out_img->width / 2; j++) {
         *(dest + i * out_img->chroma_stride + j) =
-                *(src + j * in_chroma_stride + (in_img->width / 2 - i - 1));
+            *(src + j * in_chroma_stride + (in_img->width / 2 - i - 1));
       }
     }
     // V
@@ -300,7 +292,7 @@ status_t rotate(jr_uncompressed_ptr const in_img, int clockwise_degree,
     for (int i = 0; i < out_img->height / 2; i++) {
       for (int j = 0; j < out_img->width / 2; j++) {
         *(dest + i * out_img->chroma_stride + j) =
-                *(src + j * in_chroma_stride + (in_img->width / 2 - i - 1));
+            *(src + j * in_chroma_stride + (in_img->width / 2 - i - 1));
       }
     }
   }
@@ -308,14 +300,14 @@ status_t rotate(jr_uncompressed_ptr const in_img, int clockwise_degree,
   return UHDR_NO_ERROR;
 }
 
-status_t resize(jr_uncompressed_ptr const in_img, int out_width, int out_height,
-                jr_uncompressed_ptr out_img) {
-  if (in_img == nullptr || in_img->data == nullptr ||
-      out_img == nullptr || out_img->data == nullptr) {
+status_t resize(ultrahdr_uncompressed_ptr const in_img, int out_width, int out_height,
+                ultrahdr_uncompressed_ptr out_img) {
+  if (in_img == nullptr || in_img->data == nullptr || out_img == nullptr ||
+      out_img->data == nullptr) {
     return ERROR_UHDR_BAD_PTR;
   }
   if (in_img->pixelFormat != ULTRAHDR_PIX_FMT_YUV420 &&
-          in_img->pixelFormat != ULTRAHDR_PIX_FMT_MONOCHROME) {
+      in_img->pixelFormat != ULTRAHDR_PIX_FMT_MONOCHROME) {
     return ERROR_UHDR_UNSUPPORTED_FEATURE;
   }
 
@@ -330,9 +322,9 @@ status_t resize(jr_uncompressed_ptr const in_img, int out_width, int out_height,
   for (int i = 0; i < out_img->height; i++) {
     for (int j = 0; j < out_img->width; j++) {
       *(reinterpret_cast<uint8_t*>(out_img->data) + i * out_img->luma_stride + j) =
-              *(reinterpret_cast<uint8_t*>(in_img->data) +
-              i * in_img->height / out_img->height * in_luma_stride +
-              j * in_img->width / out_img->width );
+          *(reinterpret_cast<uint8_t*>(in_img->data) +
+            i * in_img->height / out_img->height * in_luma_stride +
+            j * in_img->width / out_img->width);
     }
   }
 
@@ -341,11 +333,10 @@ status_t resize(jr_uncompressed_ptr const in_img, int out_width, int out_height,
   }
 
   // Assume input is YUV 420
-  int in_chroma_stride = in_img->chroma_stride != 0 ?
-          in_img->chroma_stride : (in_luma_stride >> 1);
+  int in_chroma_stride = in_img->chroma_stride != 0 ? in_img->chroma_stride : (in_luma_stride >> 1);
   out_img->chroma_stride = out_img->luma_stride / 2;
-  out_img->chroma_data = reinterpret_cast<uint8_t*>(out_img->data) +
-          out_img->luma_stride * out_img->height;
+  out_img->chroma_data =
+      reinterpret_cast<uint8_t*>(out_img->data) + out_img->luma_stride * out_img->height;
   uint8_t* src = reinterpret_cast<uint8_t*>(in_img->chroma_data);
   if (src == nullptr) {
     src = reinterpret_cast<uint8_t*>(in_img->data) + in_luma_stride * in_img->height;
@@ -354,8 +345,8 @@ status_t resize(jr_uncompressed_ptr const in_img, int out_width, int out_height,
   for (int i = 0; i < out_img->height; i++) {
     for (int j = 0; j < out_img->width / 2; j++) {
       *(dest + i * out_img->chroma_stride + j) =
-              *(src + i * in_img->height / out_img->height * in_chroma_stride +
-              j * in_img->width / out_img->width );
+          *(src + i * in_img->height / out_img->height * in_chroma_stride +
+            j * in_img->width / out_img->width);
     }
   }
 

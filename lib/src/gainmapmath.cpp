@@ -480,7 +480,7 @@ Color yuv2100To601(Color e_gamma) {
             0.0f * e_gamma.y + -0.084085f * e_gamma.u + 0.976518f * e_gamma.v}}};
 }
 
-void transformYuv420(jr_uncompressed_ptr image, size_t x_chroma, size_t y_chroma,
+void transformYuv420(ultrahdr_uncompressed_ptr image, size_t x_chroma, size_t y_chroma,
                      ColorTransformFn fn) {
   Color yuv1 = getYuv420Pixel(image, x_chroma * 2, y_chroma * 2);
   Color yuv2 = getYuv420Pixel(image, x_chroma * 2 + 1, y_chroma * 2);
@@ -559,7 +559,7 @@ Color applyGainLUT(Color e, float gain, GainLUT& gainLUT) {
   return e * gainFactor;
 }
 
-Color getYuv420Pixel(jr_uncompressed_ptr image, size_t x, size_t y) {
+Color getYuv420Pixel(ultrahdr_uncompressed_ptr image, size_t x, size_t y) {
   uint8_t* luma_data = reinterpret_cast<uint8_t*>(image->data);
   size_t luma_stride = image->luma_stride;
   uint8_t* chroma_data = reinterpret_cast<uint8_t*>(image->chroma_data);
@@ -579,7 +579,7 @@ Color getYuv420Pixel(jr_uncompressed_ptr image, size_t x, size_t y) {
             (static_cast<float>(v_uint) - 128.0f) / 255.0f}}};
 }
 
-Color getP010Pixel(jr_uncompressed_ptr image, size_t x, size_t y) {
+Color getP010Pixel(ultrahdr_uncompressed_ptr image, size_t x, size_t y) {
   uint16_t* luma_data = reinterpret_cast<uint16_t*>(image->data);
   size_t luma_stride = image->luma_stride == 0 ? image->width : image->luma_stride;
   uint16_t* chroma_data = reinterpret_cast<uint16_t*>(image->chroma_data);
@@ -599,10 +599,10 @@ Color getP010Pixel(jr_uncompressed_ptr image, size_t x, size_t y) {
             (static_cast<float>(v_uint) - 64.0f) / 896.0f - 0.5f}}};
 }
 
-typedef Color (*getPixelFn)(jr_uncompressed_ptr, size_t, size_t);
+typedef Color (*getPixelFn)(ultrahdr_uncompressed_ptr, size_t, size_t);
 
-static Color samplePixels(jr_uncompressed_ptr image, size_t map_scale_factor, size_t x, size_t y,
-                          getPixelFn get_pixel_fn) {
+static Color samplePixels(ultrahdr_uncompressed_ptr image, size_t map_scale_factor, size_t x,
+                          size_t y, getPixelFn get_pixel_fn) {
   Color e = {{{0.0f, 0.0f, 0.0f}}};
   for (size_t dy = 0; dy < map_scale_factor; ++dy) {
     for (size_t dx = 0; dx < map_scale_factor; ++dx) {
@@ -613,11 +613,11 @@ static Color samplePixels(jr_uncompressed_ptr image, size_t map_scale_factor, si
   return e / static_cast<float>(map_scale_factor * map_scale_factor);
 }
 
-Color sampleYuv420(jr_uncompressed_ptr image, size_t map_scale_factor, size_t x, size_t y) {
+Color sampleYuv420(ultrahdr_uncompressed_ptr image, size_t map_scale_factor, size_t x, size_t y) {
   return samplePixels(image, map_scale_factor, x, y, getYuv420Pixel);
 }
 
-Color sampleP010(jr_uncompressed_ptr image, size_t map_scale_factor, size_t x, size_t y) {
+Color sampleP010(ultrahdr_uncompressed_ptr image, size_t map_scale_factor, size_t x, size_t y) {
   return samplePixels(image, map_scale_factor, x, y, getP010Pixel);
 }
 
@@ -635,7 +635,7 @@ static float pythDistance(float x_diff, float y_diff) {
 }
 
 // TODO: If map_scale_factor is guaranteed to be an integer, then remove the following.
-float sampleMap(jr_uncompressed_ptr map, float map_scale_factor, size_t x, size_t y) {
+float sampleMap(ultrahdr_uncompressed_ptr map, float map_scale_factor, size_t x, size_t y) {
   float x_map = static_cast<float>(x) / map_scale_factor;
   float y_map = static_cast<float>(y) / map_scale_factor;
 
@@ -682,7 +682,7 @@ float sampleMap(jr_uncompressed_ptr map, float map_scale_factor, size_t x, size_
          e3 * (e3_weight / total_weight) + e4 * (e4_weight / total_weight);
 }
 
-float sampleMap(jr_uncompressed_ptr map, size_t map_scale_factor, size_t x, size_t y,
+float sampleMap(ultrahdr_uncompressed_ptr map, size_t map_scale_factor, size_t x, size_t y,
                 ShepardsIDW& weightTables) {
   // TODO: If map_scale_factor is guaranteed to be an integer power of 2, then optimize the
   // following by computing log2(map_scale_factor) once and then using >> log2(map_scale_factor)
