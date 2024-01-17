@@ -729,7 +729,7 @@ status_t JpegR::decodeJPEGR(ultrahdr_compressed_ptr jpegr_image_ptr, ultrahdr_un
     return ERROR_UHDR_DECODE_ERROR;
   }
 
-  ultrahdr_uncompressed_struct gainmap_image;
+  ultrahdr_uncompressed_struct gainmap_image{};
   gainmap_image.data = jpeg_dec_obj_gm.getDecompressedImagePtr();
   gainmap_image.width = jpeg_dec_obj_gm.getDecompressedImageWidth();
   gainmap_image.height = jpeg_dec_obj_gm.getDecompressedImageHeight();

@@ -2084,7 +2084,7 @@ TEST(JpegRTest, ProfileGainMapFuncs) {
   ASSERT_TRUE(rawImg420.loadRawResource(kYCbCr420FileName));
   ultrahdr_metadata_struct metadata;
   strcpy(metadata.version, kJpegrVersion);
-  ultrahdr_uncompressed_struct map;
+  ultrahdr_uncompressed_struct map{};
   map.data = NULL;
   map.width = 0;
   map.height = 0;
@@ -2114,7 +2114,7 @@ TEST(JpegRTest, ProfileGainMapFuncs) {
 
   const int dstSize = kImageWidth * kImageWidth * 4;
   auto bufferDst = std::make_unique<uint8_t[]>(dstSize);
-  ultrahdr_uncompressed_struct dest;
+  ultrahdr_uncompressed_struct dest{};
   dest.data = bufferDst.get();
   dest.width = 0;
   dest.height = 0;

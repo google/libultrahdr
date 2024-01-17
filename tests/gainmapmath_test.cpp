@@ -233,7 +233,9 @@ class GainMapMathTest : public testing::Test {
         0x00, 0x10, 0x20, 0x30, 0x01, 0x11, 0x21, 0x31,
         0x02, 0x12, 0x22, 0x32, 0x03, 0x13, 0x23, 0x33,
     };
-    return {pixels, 4, 4, ULTRAHDR_COLORGAMUT_UNSPECIFIED, ULTRAHDR_PIX_FMT_MONOCHROME};
+
+    return {pixels,  4, 4, ULTRAHDR_COLORGAMUT_UNSPECIFIED, ULTRAHDR_PIX_FMT_MONOCHROME,
+            nullptr, 0, 0};
   }
 
   float (*MapValues())[4] {

@@ -107,14 +107,14 @@ struct ultrahdr_uncompressed_struct {
   // Pixel format.
   ultrahdr_pixel_format pixelFormat;
 
-  // Values below are optional
+  // Fields below are useful if data member of this struct points to YUV data.
   // Pointer to chroma data, if it's NULL, chroma plane is considered to be immediately
   // after the luma plane.
-  void* chroma_data = nullptr;
+  void* chroma_data;
   // Stride of Y plane in number of pixels. 0 indicates the member is uninitialized. If
   // non-zero this value must be larger than or equal to luma width. If stride is
   // uninitialized then it is assumed to be equal to luma width.
-  size_t luma_stride = 0;
+  size_t luma_stride;
   // Stride of UV plane in number of pixels.
   // 1. If this handle points to P010 image then this value must be larger than
   //    or equal to luma width.
@@ -122,7 +122,7 @@ struct ultrahdr_uncompressed_struct {
   //    or equal to (luma width / 2).
   // NOTE: if chroma_data is nullptr, chroma_stride is irrelevant. Just as the way,
   // chroma_data is derived from luma ptr, chroma stride is derived from luma stride.
-  size_t chroma_stride = 0;
+  size_t chroma_stride;
 };
 
 /*

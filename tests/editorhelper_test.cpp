@@ -94,8 +94,8 @@ void EditorHelperTest::SetUp() {
 void EditorHelperTest::TearDown() {}
 
 TEST_F(EditorHelperTest, croppingYuvImage) {
-  ultrahdr_uncompressed_struct in_img;
-  ultrahdr_uncompressed_struct out_img;
+  ultrahdr_uncompressed_struct in_img{};
+  ultrahdr_uncompressed_struct out_img{};
   const int left = 10;
   const int right = 99;
   const int top = 20;
@@ -126,8 +126,8 @@ TEST_F(EditorHelperTest, croppingYuvImage) {
 }
 
 TEST_F(EditorHelperTest, croppingGreyImage) {
-  ultrahdr_uncompressed_struct in_img;
-  ultrahdr_uncompressed_struct out_img;
+  ultrahdr_uncompressed_struct in_img{};
+  ultrahdr_uncompressed_struct out_img{};
   const int left = 10;
   const int right = 99;
   const int top = 20;
@@ -156,8 +156,8 @@ TEST_F(EditorHelperTest, croppingGreyImage) {
 }
 
 TEST_F(EditorHelperTest, mirroringYuvImageVertical) {
-  ultrahdr_uncompressed_struct in_img;
-  ultrahdr_uncompressed_struct out_img;
+  ultrahdr_uncompressed_struct in_img{};
+  ultrahdr_uncompressed_struct out_img{};
 
   in_img.data = mYuvImage.buffer.get();
   in_img.width = IMAGE_WIDTH;
@@ -182,8 +182,8 @@ TEST_F(EditorHelperTest, mirroringYuvImageVertical) {
 }
 
 TEST_F(EditorHelperTest, mirroringYuvImageHorizontal) {
-  ultrahdr_uncompressed_struct in_img;
-  ultrahdr_uncompressed_struct out_img;
+  ultrahdr_uncompressed_struct in_img{};
+  ultrahdr_uncompressed_struct out_img{};
 
   in_img.data = mYuvImage.buffer.get();
   in_img.width = IMAGE_WIDTH;
@@ -208,8 +208,8 @@ TEST_F(EditorHelperTest, mirroringYuvImageHorizontal) {
 }
 
 TEST_F(EditorHelperTest, mirroringGreyImageVertical) {
-  ultrahdr_uncompressed_struct in_img;
-  ultrahdr_uncompressed_struct out_img;
+  ultrahdr_uncompressed_struct in_img{};
+  ultrahdr_uncompressed_struct out_img{};
 
   in_img.data = mGreyImage.buffer.get();
   in_img.width = IMAGE_WIDTH;
@@ -232,8 +232,8 @@ TEST_F(EditorHelperTest, mirroringGreyImageVertical) {
 }
 
 TEST_F(EditorHelperTest, mirroringGreyImageHorizontal) {
-  ultrahdr_uncompressed_struct in_img;
-  ultrahdr_uncompressed_struct out_img;
+  ultrahdr_uncompressed_struct in_img{};
+  ultrahdr_uncompressed_struct out_img{};
 
   in_img.data = mGreyImage.buffer.get();
   in_img.width = IMAGE_WIDTH;
@@ -256,8 +256,8 @@ TEST_F(EditorHelperTest, mirroringGreyImageHorizontal) {
 }
 
 TEST_F(EditorHelperTest, rotatingYuvImage90) {
-  ultrahdr_uncompressed_struct in_img;
-  ultrahdr_uncompressed_struct out_img;
+  ultrahdr_uncompressed_struct in_img{};
+  ultrahdr_uncompressed_struct out_img{};
 
   in_img.data = mYuvImage.buffer.get();
   in_img.width = IMAGE_WIDTH;
@@ -282,8 +282,8 @@ TEST_F(EditorHelperTest, rotatingYuvImage90) {
 }
 
 TEST_F(EditorHelperTest, rotatingYuvImage180) {
-  ultrahdr_uncompressed_struct in_img;
-  ultrahdr_uncompressed_struct out_img;
+  ultrahdr_uncompressed_struct in_img{};
+  ultrahdr_uncompressed_struct out_img{};
 
   in_img.data = mYuvImage.buffer.get();
   in_img.width = IMAGE_WIDTH;
@@ -308,8 +308,8 @@ TEST_F(EditorHelperTest, rotatingYuvImage180) {
 }
 
 TEST_F(EditorHelperTest, rotatingYuvImage270) {
-  ultrahdr_uncompressed_struct in_img;
-  ultrahdr_uncompressed_struct out_img;
+  ultrahdr_uncompressed_struct in_img{};
+  ultrahdr_uncompressed_struct out_img{};
 
   in_img.data = mYuvImage.buffer.get();
   in_img.width = IMAGE_WIDTH;
@@ -334,8 +334,8 @@ TEST_F(EditorHelperTest, rotatingYuvImage270) {
 }
 
 TEST_F(EditorHelperTest, rotatingGreyImage90) {
-  ultrahdr_uncompressed_struct in_img;
-  ultrahdr_uncompressed_struct out_img;
+  ultrahdr_uncompressed_struct in_img{};
+  ultrahdr_uncompressed_struct out_img{};
 
   in_img.data = mGreyImage.buffer.get();
   in_img.width = IMAGE_WIDTH;
@@ -358,8 +358,8 @@ TEST_F(EditorHelperTest, rotatingGreyImage90) {
 }
 
 TEST_F(EditorHelperTest, rotatingGreyImage180) {
-  ultrahdr_uncompressed_struct in_img;
-  ultrahdr_uncompressed_struct out_img;
+  ultrahdr_uncompressed_struct in_img{};
+  ultrahdr_uncompressed_struct out_img{};
 
   in_img.data = mGreyImage.buffer.get();
   in_img.width = IMAGE_WIDTH;
@@ -382,8 +382,8 @@ TEST_F(EditorHelperTest, rotatingGreyImage180) {
 }
 
 TEST_F(EditorHelperTest, rotatingGreyImage270) {
-  ultrahdr_uncompressed_struct in_img;
-  ultrahdr_uncompressed_struct out_img;
+  ultrahdr_uncompressed_struct in_img{};
+  ultrahdr_uncompressed_struct out_img{};
 
   in_img.data = mGreyImage.buffer.get();
   in_img.width = IMAGE_WIDTH;
@@ -406,8 +406,8 @@ TEST_F(EditorHelperTest, rotatingGreyImage270) {
 }
 
 TEST_F(EditorHelperTest, resizeYuvImageUp) {
-  ultrahdr_uncompressed_struct in_img;
-  ultrahdr_uncompressed_struct out_img;
+  ultrahdr_uncompressed_struct in_img{};
+  ultrahdr_uncompressed_struct out_img{};
 
   in_img.data = mYuvImage.buffer.get();
   in_img.width = IMAGE_WIDTH;
@@ -434,8 +434,8 @@ TEST_F(EditorHelperTest, resizeYuvImageUp) {
 }
 
 TEST_F(EditorHelperTest, resizeYuvImageDown) {
-  ultrahdr_uncompressed_struct in_img;
-  ultrahdr_uncompressed_struct out_img;
+  ultrahdr_uncompressed_struct in_img{};
+  ultrahdr_uncompressed_struct out_img{};
 
   in_img.data = mYuvImage.buffer.get();
   in_img.width = IMAGE_WIDTH;
@@ -461,8 +461,8 @@ TEST_F(EditorHelperTest, resizeYuvImageDown) {
 }
 
 TEST_F(EditorHelperTest, resizeGreyImageUp) {
-  ultrahdr_uncompressed_struct in_img;
-  ultrahdr_uncompressed_struct out_img;
+  ultrahdr_uncompressed_struct in_img{};
+  ultrahdr_uncompressed_struct out_img{};
 
   in_img.data = mGreyImage.buffer.get();
   in_img.width = IMAGE_WIDTH;
@@ -487,8 +487,8 @@ TEST_F(EditorHelperTest, resizeGreyImageUp) {
 }
 
 TEST_F(EditorHelperTest, resizeGreyImageDown) {
-  ultrahdr_uncompressed_struct in_img;
-  ultrahdr_uncompressed_struct out_img;
+  ultrahdr_uncompressed_struct in_img{};
+  ultrahdr_uncompressed_struct out_img{};
 
   in_img.data = mGreyImage.buffer.get();
   in_img.width = IMAGE_WIDTH;
