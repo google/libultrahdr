@@ -115,8 +115,8 @@ class AlogMessageWriter : public MessageWriter {
  *                 (4 bytes offset to FF sign, the byte after FF E1 XX XX <this byte>).
  * @param exif_size exif size without the initial 4 bytes, aligned with jpegdecoder.getEXIFSize().
  */
-static void copyJpegWithoutExif(jr_compressed_ptr pDest, jr_compressed_ptr pSource, size_t exif_pos,
-                                size_t exif_size) {
+static void copyJpegWithoutExif(ultrahdr_compressed_ptr pDest, ultrahdr_compressed_ptr pSource,
+                                size_t exif_pos, size_t exif_size) {
   const size_t exif_offset = 4;  // exif_pos has 4 bytes offset to the FF sign
   pDest->length = pSource->length - exif_size - exif_offset;
   pDest->data = new uint8_t[pDest->length];
@@ -130,7 +130,7 @@ static void copyJpegWithoutExif(jr_compressed_ptr pDest, jr_compressed_ptr pSour
 status_t JpegR::areInputArgumentsValid(jr_uncompressed_ptr p010_image_ptr,
                                        jr_uncompressed_ptr yuv420_image_ptr,
                                        ultrahdr_transfer_function hdr_tf,
-                                       jr_compressed_ptr dest_ptr) {
+                                       ultrahdr_compressed_ptr dest_ptr) {
   if (p010_image_ptr == nullptr || p010_image_ptr->data == nullptr) {
     ALOGE("Received nullptr for input p010 image");
     return ERROR_UHDR_BAD_PTR;
@@ -210,7 +210,7 @@ status_t JpegR::areInputArgumentsValid(jr_uncompressed_ptr p010_image_ptr,
 status_t JpegR::areInputArgumentsValid(jr_uncompressed_ptr p010_image_ptr,
                                        jr_uncompressed_ptr yuv420_image_ptr,
                                        ultrahdr_transfer_function hdr_tf,
-                                       jr_compressed_ptr dest_ptr, int quality) {
+                                       ultrahdr_compressed_ptr dest_ptr, int quality) {
   if (quality < 0 || quality > 100) {
     ALOGE("quality factor is out side range [0-100], quality factor : %d", quality);
     return ERROR_UHDR_INVALID_QUALITY_FACTOR;
@@ -220,7 +220,7 @@ status_t JpegR::areInputArgumentsValid(jr_uncompressed_ptr p010_image_ptr,
 
 /* Encode API-0 */
 status_t JpegR::encodeJPEGR(jr_uncompressed_ptr p010_image_ptr, ultrahdr_transfer_function hdr_tf,
-                            jr_compressed_ptr dest, int quality, jr_exif_ptr exif) {
+                            ultrahdr_compressed_ptr dest, int quality, jr_exif_ptr exif) {
   // validate input arguments
   JPEGR_CHECK(areInputArgumentsValid(p010_image_ptr, nullptr, hdr_tf, dest, quality));
   if (exif != nullptr && exif->data == nullptr) {
@@ -265,7 +265,7 @@ status_t JpegR::encodeJPEGR(jr_uncompressed_ptr p010_image_ptr, ultrahdr_transfe
   // compress gain map
   JpegEncoderHelper jpeg_enc_obj_gm;
   JPEGR_CHECK(compressGainMap(&gainmap_image, &jpeg_enc_obj_gm));
-  jpegr_compressed_struct compressed_map;
+  ultrahdr_compressed_struct compressed_map;
   compressed_map.data = jpeg_enc_obj_gm.getCompressedImagePtr();
   compressed_map.length = static_cast<int>(jpeg_enc_obj_gm.getCompressedImageSize());
   compressed_map.maxLength = static_cast<int>(jpeg_enc_obj_gm.getCompressedImageSize());
@@ -288,7 +288,7 @@ status_t JpegR::encodeJPEGR(jr_uncompressed_ptr p010_image_ptr, ultrahdr_transfe
                                          quality, icc->getData(), icc->getLength())) {
     return ERROR_UHDR_ENCODE_ERROR;
   }
-  jpegr_compressed_struct jpeg;
+  ultrahdr_compressed_struct jpeg;
   jpeg.data = jpeg_enc_obj_yuv420.getCompressedImagePtr();
   jpeg.length = static_cast<int>(jpeg_enc_obj_yuv420.getCompressedImageSize());
   jpeg.maxLength = static_cast<int>(jpeg_enc_obj_yuv420.getCompressedImageSize());
@@ -304,7 +304,7 @@ status_t JpegR::encodeJPEGR(jr_uncompressed_ptr p010_image_ptr, ultrahdr_transfe
 /* Encode API-1 */
 status_t JpegR::encodeJPEGR(jr_uncompressed_ptr p010_image_ptr,
                             jr_uncompressed_ptr yuv420_image_ptr, ultrahdr_transfer_function hdr_tf,
-                            jr_compressed_ptr dest, int quality, jr_exif_ptr exif) {
+                            ultrahdr_compressed_ptr dest, int quality, jr_exif_ptr exif) {
   // validate input arguments
   if (yuv420_image_ptr == nullptr) {
     ALOGE("received nullptr for uncompressed 420 image");
@@ -343,7 +343,7 @@ status_t JpegR::encodeJPEGR(jr_uncompressed_ptr p010_image_ptr,
   // compress gain map
   JpegEncoderHelper jpeg_enc_obj_gm;
   JPEGR_CHECK(compressGainMap(&gainmap_image, &jpeg_enc_obj_gm));
-  jpegr_compressed_struct compressed_map;
+  ultrahdr_compressed_struct compressed_map;
   compressed_map.data = jpeg_enc_obj_gm.getCompressedImagePtr();
   compressed_map.length = static_cast<int>(jpeg_enc_obj_gm.getCompressedImageSize());
   compressed_map.maxLength = static_cast<int>(jpeg_enc_obj_gm.getCompressedImageSize());
@@ -425,7 +425,7 @@ status_t JpegR::encodeJPEGR(jr_uncompressed_ptr p010_image_ptr,
     return ERROR_UHDR_ENCODE_ERROR;
   }
 
-  jpegr_compressed_struct jpeg;
+  ultrahdr_compressed_struct jpeg;
   jpeg.data = jpeg_enc_obj_yuv420.getCompressedImagePtr();
   jpeg.length = static_cast<int>(jpeg_enc_obj_yuv420.getCompressedImageSize());
   jpeg.maxLength = static_cast<int>(jpeg_enc_obj_yuv420.getCompressedImageSize());
@@ -440,8 +440,8 @@ status_t JpegR::encodeJPEGR(jr_uncompressed_ptr p010_image_ptr,
 /* Encode API-2 */
 status_t JpegR::encodeJPEGR(jr_uncompressed_ptr p010_image_ptr,
                             jr_uncompressed_ptr yuv420_image_ptr,
-                            jr_compressed_ptr yuv420jpg_image_ptr,
-                            ultrahdr_transfer_function hdr_tf, jr_compressed_ptr dest) {
+                            ultrahdr_compressed_ptr yuv420jpg_image_ptr,
+                            ultrahdr_transfer_function hdr_tf, ultrahdr_compressed_ptr dest) {
   // validate input arguments
   if (yuv420_image_ptr == nullptr) {
     ALOGE("received nullptr for uncompressed 420 image");
@@ -480,7 +480,7 @@ status_t JpegR::encodeJPEGR(jr_uncompressed_ptr p010_image_ptr,
   // compress gain map
   JpegEncoderHelper jpeg_enc_obj_gm;
   JPEGR_CHECK(compressGainMap(&gainmap_image, &jpeg_enc_obj_gm));
-  jpegr_compressed_struct gainmapjpg_image;
+  ultrahdr_compressed_struct gainmapjpg_image;
   gainmapjpg_image.data = jpeg_enc_obj_gm.getCompressedImagePtr();
   gainmapjpg_image.length = static_cast<int>(jpeg_enc_obj_gm.getCompressedImageSize());
   gainmapjpg_image.maxLength = static_cast<int>(jpeg_enc_obj_gm.getCompressedImageSize());
@@ -491,8 +491,8 @@ status_t JpegR::encodeJPEGR(jr_uncompressed_ptr p010_image_ptr,
 
 /* Encode API-3 */
 status_t JpegR::encodeJPEGR(jr_uncompressed_ptr p010_image_ptr,
-                            jr_compressed_ptr yuv420jpg_image_ptr,
-                            ultrahdr_transfer_function hdr_tf, jr_compressed_ptr dest) {
+                            ultrahdr_compressed_ptr yuv420jpg_image_ptr,
+                            ultrahdr_transfer_function hdr_tf, ultrahdr_compressed_ptr dest) {
   // validate input arguments
   if (yuv420jpg_image_ptr == nullptr || yuv420jpg_image_ptr->data == nullptr) {
     ALOGE("received nullptr for compressed jpeg image");
@@ -544,7 +544,7 @@ status_t JpegR::encodeJPEGR(jr_uncompressed_ptr p010_image_ptr,
   // compress gain map
   JpegEncoderHelper jpeg_enc_obj_gm;
   JPEGR_CHECK(compressGainMap(&gainmap_image, &jpeg_enc_obj_gm));
-  jpegr_compressed_struct gainmapjpg_image;
+  ultrahdr_compressed_struct gainmapjpg_image;
   gainmapjpg_image.data = jpeg_enc_obj_gm.getCompressedImagePtr();
   gainmapjpg_image.length = static_cast<int>(jpeg_enc_obj_gm.getCompressedImageSize());
   gainmapjpg_image.maxLength = static_cast<int>(jpeg_enc_obj_gm.getCompressedImageSize());
@@ -554,9 +554,9 @@ status_t JpegR::encodeJPEGR(jr_uncompressed_ptr p010_image_ptr,
 }
 
 /* Encode API-4 */
-status_t JpegR::encodeJPEGR(jr_compressed_ptr yuv420jpg_image_ptr,
-                            jr_compressed_ptr gainmapjpg_image_ptr, ultrahdr_metadata_ptr metadata,
-                            jr_compressed_ptr dest) {
+status_t JpegR::encodeJPEGR(ultrahdr_compressed_ptr yuv420jpg_image_ptr,
+                            ultrahdr_compressed_ptr gainmapjpg_image_ptr,
+                            ultrahdr_metadata_ptr metadata, ultrahdr_compressed_ptr dest) {
   if (yuv420jpg_image_ptr == nullptr || yuv420jpg_image_ptr->data == nullptr) {
     ALOGE("received nullptr for compressed jpeg image");
     return ERROR_UHDR_BAD_PTR;
@@ -592,7 +592,8 @@ status_t JpegR::encodeJPEGR(jr_compressed_ptr yuv420jpg_image_ptr,
   return UHDR_NO_ERROR;
 }
 
-status_t JpegR::getJPEGRInfo(jr_compressed_ptr jpegr_image_ptr, jr_info_ptr jpegr_image_info_ptr) {
+status_t JpegR::getJPEGRInfo(ultrahdr_compressed_ptr jpegr_image_ptr,
+                             jr_info_ptr jpegr_image_info_ptr) {
   if (jpegr_image_ptr == nullptr || jpegr_image_ptr->data == nullptr) {
     ALOGE("received nullptr for compressed jpegr image");
     return ERROR_UHDR_BAD_PTR;
@@ -602,7 +603,7 @@ status_t JpegR::getJPEGRInfo(jr_compressed_ptr jpegr_image_ptr, jr_info_ptr jpeg
     return ERROR_UHDR_BAD_PTR;
   }
 
-  jpegr_compressed_struct primary_image, gainmap_image;
+  ultrahdr_compressed_struct primary_image, gainmap_image;
   status_t status = extractPrimaryImageAndGainMap(jpegr_image_ptr, &primary_image, &gainmap_image);
   if (status != UHDR_NO_ERROR && status != ERROR_UHDR_GAIN_MAP_IMAGE_NOT_FOUND) {
     return status;
@@ -623,7 +624,7 @@ status_t JpegR::getJPEGRInfo(jr_compressed_ptr jpegr_image_ptr, jr_info_ptr jpeg
 }
 
 /* Decode API */
-status_t JpegR::decodeJPEGR(jr_compressed_ptr jpegr_image_ptr, jr_uncompressed_ptr dest,
+status_t JpegR::decodeJPEGR(ultrahdr_compressed_ptr jpegr_image_ptr, jr_uncompressed_ptr dest,
                             float max_display_boost, jr_exif_ptr exif,
                             ultrahdr_output_format output_format,
                             jr_uncompressed_ptr gainmap_image_ptr, ultrahdr_metadata_ptr metadata) {
@@ -648,7 +649,7 @@ status_t JpegR::decodeJPEGR(jr_compressed_ptr jpegr_image_ptr, jr_uncompressed_p
     return ERROR_UHDR_INVALID_OUTPUT_FORMAT;
   }
 
-  jpegr_compressed_struct primary_jpeg_image, gainmap_jpeg_image;
+  ultrahdr_compressed_struct primary_jpeg_image, gainmap_jpeg_image;
   status_t status =
       extractPrimaryImageAndGainMap(jpegr_image_ptr, &primary_jpeg_image, &gainmap_jpeg_image);
   if (status != UHDR_NO_ERROR) {
@@ -1148,9 +1149,9 @@ status_t JpegR::applyGainMap(jr_uncompressed_ptr yuv420_image_ptr,
   return UHDR_NO_ERROR;
 }
 
-status_t JpegR::extractPrimaryImageAndGainMap(jr_compressed_ptr jpegr_image_ptr,
-                                              jr_compressed_ptr primary_jpg_image_ptr,
-                                              jr_compressed_ptr gainmap_jpg_image_ptr) {
+status_t JpegR::extractPrimaryImageAndGainMap(ultrahdr_compressed_ptr jpegr_image_ptr,
+                                              ultrahdr_compressed_ptr primary_jpg_image_ptr,
+                                              ultrahdr_compressed_ptr gainmap_jpg_image_ptr) {
   if (jpegr_image_ptr == nullptr) {
     return ERROR_UHDR_BAD_PTR;
   }
@@ -1203,8 +1204,9 @@ status_t JpegR::extractPrimaryImageAndGainMap(jr_compressed_ptr jpegr_image_ptr,
   return UHDR_NO_ERROR;
 }
 
-status_t JpegR::parseJpegInfo(jr_compressed_ptr jpeg_image_ptr, j_info_ptr jpeg_image_info_ptr,
-                              size_t* img_width, size_t* img_height) {
+status_t JpegR::parseJpegInfo(ultrahdr_compressed_ptr jpeg_image_ptr,
+                              j_info_ptr jpeg_image_info_ptr, size_t* img_width,
+                              size_t* img_height) {
   JpegDecoderHelper jpeg_dec_obj;
   if (!jpeg_dec_obj.getCompressedImageParameters(jpeg_image_ptr->data, jpeg_image_ptr->length)) {
     return ERROR_UHDR_DECODE_ERROR;
@@ -1276,10 +1278,10 @@ status_t JpegR::parseJpegInfo(jr_compressed_ptr jpeg_image_ptr, j_info_ptr jpeg_
 // Exif 2.2 spec for EXIF marker
 // Adobe XMP spec part 3 for XMP marker
 // ICC v4.3 spec for ICC
-status_t JpegR::appendGainMap(jr_compressed_ptr primary_jpg_image_ptr,
-                              jr_compressed_ptr gainmap_jpg_image_ptr, jr_exif_ptr pExif,
+status_t JpegR::appendGainMap(ultrahdr_compressed_ptr primary_jpg_image_ptr,
+                              ultrahdr_compressed_ptr gainmap_jpg_image_ptr, jr_exif_ptr pExif,
                               void* pIcc, size_t icc_size, ultrahdr_metadata_ptr metadata,
-                              jr_compressed_ptr dest) {
+                              ultrahdr_compressed_ptr dest) {
   if (primary_jpg_image_ptr == nullptr || gainmap_jpg_image_ptr == nullptr || metadata == nullptr ||
       dest == nullptr) {
     return ERROR_UHDR_BAD_PTR;
@@ -1333,7 +1335,7 @@ status_t JpegR::appendGainMap(jr_compressed_ptr primary_jpg_image_ptr,
   jpegr_exif_struct exif_from_jpg;
   exif_from_jpg.data = nullptr;
   exif_from_jpg.length = 0;
-  jpegr_compressed_struct new_jpg_image;
+  ultrahdr_compressed_struct new_jpg_image;
   new_jpg_image.data = nullptr;
   new_jpg_image.length = 0;
   new_jpg_image.maxLength = 0;
@@ -1352,7 +1354,7 @@ status_t JpegR::appendGainMap(jr_compressed_ptr primary_jpg_image_ptr,
     pExif = &exif_from_jpg;
   }
 
-  jr_compressed_ptr final_primary_jpg_image_ptr =
+  ultrahdr_compressed_ptr final_primary_jpg_image_ptr =
       new_jpg_image.length == 0 ? primary_jpg_image_ptr : &new_jpg_image;
 
   int pos = 0;

@@ -39,8 +39,8 @@ void UltraHdrDecFuzzer::process() {
   // hdr_of
   auto of = static_cast<ultrahdr_output_format>(mFdp.ConsumeIntegralInRange<int>(kOfMin, kOfMax));
   auto buffer = mFdp.ConsumeRemainingBytes<uint8_t>();
-  jpegr_compressed_struct jpegImgR{buffer.data(), (int)buffer.size(), (int)buffer.size(),
-                                   ULTRAHDR_COLORGAMUT_UNSPECIFIED};
+  ultrahdr_compressed_struct jpegImgR{buffer.data(), (int)buffer.size(), (int)buffer.size(),
+                                      ULTRAHDR_COLORGAMUT_UNSPECIFIED};
 
   jpegr_info_struct info{};
   JpegR jpegHdr;

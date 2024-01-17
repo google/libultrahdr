@@ -248,9 +248,9 @@ class UltraHdrAppInput {
   jpegr_uncompressed_struct mRawP010Image{};
   jpegr_uncompressed_struct mRawRgba1010102Image{};
   jpegr_uncompressed_struct mRawYuv420Image{};
-  jpegr_compressed_struct mYuv420JpegImage{};
+  ultrahdr_compressed_struct mYuv420JpegImage{};
   jpegr_uncompressed_struct mRawRgba8888Image{};
-  jpegr_compressed_struct mJpegImgR{};
+  ultrahdr_compressed_struct mJpegImgR{};
   jpegr_uncompressed_struct mDestImage{};
   jpegr_uncompressed_struct mDestYUV444Image{};
   double mPsnr[3]{};

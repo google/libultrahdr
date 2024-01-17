@@ -88,9 +88,9 @@ void UltraHdrEncFuzzer::process() {
     struct jpegr_uncompressed_struct p010Img {};
     struct jpegr_uncompressed_struct yuv420Img {};
     struct jpegr_uncompressed_struct grayImg {};
-    struct jpegr_compressed_struct jpegImgR {};
-    struct jpegr_compressed_struct jpegImg {};
-    struct jpegr_compressed_struct jpegGainMap {};
+    struct ultrahdr_compressed_struct jpegImgR {};
+    struct ultrahdr_compressed_struct jpegImg {};
+    struct ultrahdr_compressed_struct jpegGainMap {};
 
     // which encode api to select
     int muxSwitch = mFdp.ConsumeIntegralInRange<int>(0, 4);

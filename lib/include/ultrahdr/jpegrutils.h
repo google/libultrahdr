@@ -63,7 +63,8 @@ class DataStruct {
  * @param position cursor in desitination where the data is to be written.
  * @return status of succeed or error code.
  */
-status_t Write(jr_compressed_ptr destination, const void* source, size_t length, int& position);
+status_t Write(ultrahdr_compressed_ptr destination, const void* source, size_t length,
+               int& position);
 
 /*
  * Parses XMP packet and fills metadata with data from XMP

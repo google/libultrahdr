@@ -90,6 +90,20 @@ typedef enum {
 } status_t;
 
 /*
+ * Holds information for compressed image.
+ */
+struct ultrahdr_compressed_struct {
+  // Pointer to the data location.
+  void* data;
+  // Used data length in bytes.
+  int length;
+  // Maximum available data length in bytes.
+  int maxLength;
+  // Color gamut.
+  ultrahdr_color_gamut colorGamut;
+};
+
+/*
  * Holds information for gain map related metadata.
  *
  * Not: all values stored in linear. This differs from the metadata encoding in XMP, where
@@ -115,6 +129,7 @@ struct ultrahdr_metadata_struct {
   float hdrCapacityMax;
 };
 
+typedef struct ultrahdr_compressed_struct* ultrahdr_compressed_ptr;
 typedef struct ultrahdr_metadata_struct* ultrahdr_metadata_ptr;
 
 #endif  // ULTRAHDR_ULTRAHDR_H

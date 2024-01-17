@@ -92,7 +92,8 @@ bool DataStruct::write(const void* src, int size) {
 /*
  * Helper function used for writing data to destination.
  */
-status_t Write(jr_compressed_ptr destination, const void* source, size_t length, int& position) {
+status_t Write(ultrahdr_compressed_ptr destination, const void* source, size_t length,
+               int& position) {
   if (position + length > destination->maxLength) {
     return ERROR_UHDR_BUFFER_TOO_SMALL;
   }

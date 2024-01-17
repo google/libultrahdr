@@ -94,11 +94,11 @@ class UhdrCompressedStructWrapper {
   ~UhdrCompressedStructWrapper() = default;
 
   bool allocateMemory();
-  jr_compressed_ptr getImageHandle();
+  ultrahdr_compressed_ptr getImageHandle();
 
  private:
   std::unique_ptr<uint8_t[]> mData;
-  jpegr_compressed_struct mImg{};
+  ultrahdr_compressed_struct mImg{};
   size_t mWidth;
   size_t mHeight;
 };
@@ -271,7 +271,7 @@ bool UhdrCompressedStructWrapper::allocateMemory() {
   return true;
 }
 
-jr_compressed_ptr UhdrCompressedStructWrapper::getImageHandle() { return &mImg; }
+ultrahdr_compressed_ptr UhdrCompressedStructWrapper::getImageHandle() { return &mImg; }
 
 #ifdef DUMP_OUTPUT
 static bool writeFile(const char* filename, void*& result, int length) {
@@ -301,7 +301,7 @@ static bool readFile(const char* fileName, void*& result, int maxLength, int& le
   return false;
 }
 
-void decodeJpegRImg(jr_compressed_ptr img, [[maybe_unused]] const char* outFileName) {
+void decodeJpegRImg(ultrahdr_compressed_ptr img, [[maybe_unused]] const char* outFileName) {
   jpegr_info_struct info{};
   JpegR jpegHdr;
   ASSERT_EQ(UHDR_NO_ERROR, jpegHdr.getJPEGRInfo(img, &info));
