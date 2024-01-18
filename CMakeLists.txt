@@ -179,28 +179,28 @@ set(UHDR_CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${UHDR_COMPILE_FLAGS_STR}")
 set(UHDR_CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${UHDR_COMPILE_FLAGS_STR}")
 
 # libjpeg-turbo
-set(JPEG_INCLUDE_DIRS
-    ${THIRD_PARTY_DIR}/libjpeg-turbo/
-    ${CMAKE_CURRENT_BINARY_DIR}/libjpeg-turbo/src/libjpeg-turbo-build)
-
-if(IS_MULTI)
-  set(JPEG_LIBRARIES
-      ${CMAKE_CURRENT_BINARY_DIR}/libjpeg-turbo/src/libjpeg-turbo-build/$<CONFIG>/jpeg-static.lib)
+set(JPEGTURBO_TARGET_NAME turbojpeg)
+set(JPEGTURBO_PREFIX_DIR ${CMAKE_CURRENT_BINARY_DIR}/${JPEGTURBO_TARGET_NAME})
+set(JPEGTURBO_SOURCE_DIR ${THIRD_PARTY_DIR}/${JPEGTURBO_TARGET_NAME})
+set(JPEGTURBO_BINARY_DIR ${JPEGTURBO_PREFIX_DIR}/src/${JPEGTURBO_TARGET_NAME}-build)
+set(JPEG_INCLUDE_DIRS ${JPEGTURBO_SOURCE_DIR} ${JPEGTURBO_BINARY_DIR})
+if(MSVC)
+  set(JPEG_LIB ${CMAKE_STATIC_LIBRARY_PREFIX}jpeg-static${CMAKE_STATIC_LIBRARY_SUFFIX})
 else()
-  if(MSVC)
-    set(JPEG_LIBRARIES
-        ${CMAKE_CURRENT_BINARY_DIR}/libjpeg-turbo/src/libjpeg-turbo-build/jpeg-static.lib)
-  else()
-    set(JPEG_LIBRARIES
-        ${CMAKE_CURRENT_BINARY_DIR}/libjpeg-turbo/src/libjpeg-turbo-build/libjpeg.a)
-  endif()
+  set(JPEG_LIB ${CMAKE_STATIC_LIBRARY_PREFIX}jpeg${CMAKE_STATIC_LIBRARY_SUFFIX})
 endif()
-
-ExternalProject_Add(libjpeg-turbo
+if(IS_MULTI)
+  set(JPEG_LIB_PREFIX ${JPEGTURBO_BINARY_DIR}/$<CONFIG>/)
+else()
+  set(JPEG_LIB_PREFIX ${JPEGTURBO_BINARY_DIR}/)
+endif()
+set(JPEG_LIBRARIES ${JPEG_LIB_PREFIX}${JPEG_LIB})
+ExternalProject_Add(${JPEGTURBO_TARGET_NAME}
     GIT_REPOSITORY https://github.com/libjpeg-turbo/libjpeg-turbo.git
     GIT_TAG 3.0.1
-    PREFIX ${CMAKE_CURRENT_BINARY_DIR}/libjpeg-turbo
-    SOURCE_DIR ${THIRD_PARTY_DIR}/libjpeg-turbo
+    PREFIX ${JPEGTURBO_PREFIX_DIR}
+    SOURCE_DIR ${JPEGTURBO_SOURCE_DIR}
+    BINARY_DIR ${JPEGTURBO_BINARY_DIR}
     BUILD_COMMAND ${CMAKE_COMMAND} --build <BINARY_DIR> --config $<CONFIG> --target jpeg-static
     CMAKE_ARGS -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
                -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
@@ -209,35 +209,34 @@ ExternalProject_Add(libjpeg-turbo
                -DCMAKE_C_FLAGS_RELEASE=${CMAKE_C_FLAGS_RELEASE}
                -DCMAKE_C_FLAGS_MINSIZEREL=${CMAKE_C_FLAGS_MINSIZEREL}
                -DCMAKE_C_FLAGS_RELWITHDEBINFO=${CMAKE_C_FLAGS_RELWITHDEBINFO}
+               -DENABLE_SHARED=0
     BUILD_BYPRODUCTS ${JPEG_LIBRARIES}
     INSTALL_COMMAND ""
 )
 
 if(UHDR_BUILD_TESTS)
   # gtest and gmock
+  set(GTEST_TARGET_NAME googletest)
+  set(GTEST_PREFIX_DIR ${CMAKE_CURRENT_BINARY_DIR}/${GTEST_TARGET_NAME})
+  set(GTEST_SOURCE_DIR ${THIRD_PARTY_DIR}/${GTEST_TARGET_NAME})
+  set(GTEST_BINARY_DIR ${GTEST_PREFIX_DIR}/src/${GTEST_TARGET_NAME}-build)
   set(GTEST_INCLUDE_DIRS
-      ${THIRD_PARTY_DIR}/googletest/googletest/include
-      ${THIRD_PARTY_DIR}/googletest/googlemock/include)
+      ${GTEST_SOURCE_DIR}/googletest/include
+      ${GTEST_SOURCE_DIR}/googlemock/include)
+  set(GTEST_LIB ${CMAKE_STATIC_LIBRARY_PREFIX}gtest${CMAKE_STATIC_LIBRARY_SUFFIX})
+  set(GTEST_LIB_MAIN ${CMAKE_STATIC_LIBRARY_PREFIX}gtest_main${CMAKE_STATIC_LIBRARY_SUFFIX})
   if(IS_MULTI)
-    set(GTEST_BOTH_LIBRARIES
-        ${CMAKE_CURRENT_BINARY_DIR}/googletest/src/googletest-build/lib/$<CONFIG>/gtest.lib
-        ${CMAKE_CURRENT_BINARY_DIR}/googletest/src/googletest-build/lib/$<CONFIG>/gtest_main.lib)
+    set(GTEST_LIB_PREFIX ${GTEST_BINARY_DIR}/lib/$<CONFIG>/)
   else()
-    if(MSVC)
-      set(GTEST_BOTH_LIBRARIES
-          ${CMAKE_CURRENT_BINARY_DIR}/googletest/src/googletest-build/lib/gtest.lib
-          ${CMAKE_CURRENT_BINARY_DIR}/googletest/src/googletest-build/lib/gtest_main.lib)
-    else()
-      set(GTEST_BOTH_LIBRARIES
-          ${CMAKE_CURRENT_BINARY_DIR}/googletest/src/googletest-build/lib/libgtest.a
-          ${CMAKE_CURRENT_BINARY_DIR}/googletest/src/googletest-build/lib/libgtest_main.a)
-    endif()
+    set(GTEST_LIB_PREFIX ${GTEST_BINARY_DIR}/lib/)
   endif()
-  ExternalProject_Add(googletest
+  set(GTEST_BOTH_LIBRARIES ${GTEST_LIB_PREFIX}${GTEST_LIB} ${GTEST_LIB_PREFIX}${GTEST_LIB_MAIN})
+  ExternalProject_Add(${GTEST_TARGET_NAME}
       GIT_REPOSITORY https://github.com/google/googletest
       GIT_TAG v1.14.0
-      PREFIX ${CMAKE_CURRENT_BINARY_DIR}/googletest
-      SOURCE_DIR ${THIRD_PARTY_DIR}/googletest
+      PREFIX ${GTEST_PREFIX_DIR}
+      SOURCE_DIR ${GTEST_SOURCE_DIR}
+      BINARY_DIR ${GTEST_BINARY_DIR}
       CMAKE_ARGS -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
                  -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
                  -DCMAKE_CXX_FLAGS=${UHDR_CMAKE_CXX_FLAGS}
@@ -252,27 +251,25 @@ endif()
 
 if(UHDR_BUILD_BENCHMARK)
   # benchmark
-  set(BENCHMARK_INCLUDE_DIR ${THIRD_PARTY_DIR}/benchmark/include)
+  set(BM_TARGET_NAME benchmark)
+  set(BM_PREFIX_DIR ${CMAKE_CURRENT_BINARY_DIR}/${BM_TARGET_NAME})
+  set(BM_SOURCE_DIR ${THIRD_PARTY_DIR}/${BM_TARGET_NAME})
+  set(BM_BINARY_DIR ${BM_PREFIX_DIR}/src/${BM_TARGET_NAME}-build)
+  set(BENCHMARK_INCLUDE_DIR ${BM_SOURCE_DIR}/include)
+  set(BM_LIB ${CMAKE_STATIC_LIBRARY_PREFIX}benchmark${CMAKE_STATIC_LIBRARY_SUFFIX})
+  set(BM_LIB_MAIN ${CMAKE_STATIC_LIBRARY_PREFIX}benchmark_main${CMAKE_STATIC_LIBRARY_SUFFIX})
   if(IS_MULTI)
-    set(BENCHMARK_LIBRARIES
-        ${CMAKE_CURRENT_BINARY_DIR}/benchmark/src/benchmark-build/src/$<CONFIG>/benchmark.lib
-        ${CMAKE_CURRENT_BINARY_DIR}/benchmark/src/benchmark-build/src/$<CONFIG>/benchmark_main.lib)
+    set(BM_LIB_PREFIX ${BM_BINARY_DIR}/src/$<CONFIG>/)
   else()
-    if(MSVC)
-      set(BENCHMARK_LIBRARIES
-          ${CMAKE_CURRENT_BINARY_DIR}/benchmark/src/benchmark-build/src/benchmark.lib
-          ${CMAKE_CURRENT_BINARY_DIR}/benchmark/src/benchmark-build/src/benchmark_main.lib)
-    else()
-      set(BENCHMARK_LIBRARIES
-          ${CMAKE_CURRENT_BINARY_DIR}/benchmark/src/benchmark-build/src/libbenchmark.a
-          ${CMAKE_CURRENT_BINARY_DIR}/benchmark/src/benchmark-build/src/libbenchmark_main.a)
-    endif()
+    set(BM_LIB_PREFIX ${BM_BINARY_DIR}/src/)
   endif()
-  ExternalProject_Add(benchmark
+  set(BENCHMARK_LIBRARIES ${BM_LIB_PREFIX}${BM_LIB} ${BM_LIB_PREFIX}${BM_LIB_MAIN})
+  ExternalProject_Add(${BM_TARGET_NAME}
       GIT_REPOSITORY https://github.com/google/benchmark.git
       GIT_TAG v1.8.3
-      PREFIX ${CMAKE_CURRENT_BINARY_DIR}/benchmark
-      SOURCE_DIR ${THIRD_PARTY_DIR}/benchmark
+      PREFIX ${BM_PREFIX_DIR}
+      SOURCE_DIR ${BM_SOURCE_DIR}
+      BINARY_DIR ${BM_BINARY_DIR}
       CMAKE_ARGS -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
                  -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
                  -DCMAKE_CXX_FLAGS=${UHDR_CMAKE_CXX_FLAGS}
@@ -288,9 +285,7 @@ if(UHDR_BUILD_BENCHMARK)
 endif()
 
 set_property(DIRECTORY PROPERTY ADDITIONAL_MAKE_CLEAN_FILES
-    ${CMAKE_CURRENT_BINARY_DIR}/libjpeg-turbo/src/libjpeg-turbo-build
-    ${CMAKE_CURRENT_BINARY_DIR}/googletest/src/googletest-build
-    ${CMAKE_CURRENT_BINARY_DIR}/benchmark/src/benchmark-build)
+    ${JPEGTURBO_BINARY_DIR} ${GTEST_BINARY_DIR} ${BM_BINARY_DIR})
 
 ###########################################################
 # File Lists
@@ -313,7 +308,7 @@ target_include_directories(image_io PRIVATE
   "${THIRD_PARTY_DIR}/image_io/src/modp_b64/modp_b64")
 
 add_library(ultrahdr STATIC ${UHDR_LIB_LIST})
-add_dependencies(ultrahdr libjpeg-turbo)
+add_dependencies(ultrahdr ${JPEGTURBO_TARGET_NAME})
 #target_compile_options(ultrahdr PRIVATE -Wall -Wextra -Wpedantic)
 target_include_directories(ultrahdr PRIVATE
   ${COMMON_INCLUDE_LIST}
@@ -349,7 +344,7 @@ endif()
 
 if(UHDR_BUILD_TESTS)
   add_executable(ultrahdr_unit_test ${UHDR_TEST_LIST})
-  add_dependencies(ultrahdr_unit_test googletest ultrahdr)
+  add_dependencies(ultrahdr_unit_test ${GTEST_TARGET_NAME} ultrahdr)
   target_include_directories(ultrahdr_unit_test PRIVATE
     ${COMMON_INCLUDE_LIST}
     ${GTEST_INCLUDE_DIRS}
@@ -363,7 +358,7 @@ endif()
 
 if(UHDR_BUILD_BENCHMARK)
   add_executable(ultrahdr_bm ${UHDR_BM_LIST})
-  add_dependencies(ultrahdr_bm benchmark ultrahdr)
+  add_dependencies(ultrahdr_bm ${BM_TARGET_NAME} ultrahdr)
   target_include_directories(ultrahdr_bm PRIVATE
     ${COMMON_INCLUDE_LIST}
     ${BENCHMARK_INCLUDE_DIR}
