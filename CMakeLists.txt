@@ -430,3 +430,105 @@ if(UHDR_BUILD_FUZZERS)
   endif()
   target_link_libraries(ultrahdr_dec_fuzzer ultrahdr)
 endif()
+
+###########################################################
+# Utils
+###########################################################
+# combine a list of static libraries in to a single library
+# hassle due to ExternalProject_Add(). Else we could get transitive libs for
+# each target and rely on target_sources(${new_target} PRIVATE $<TARGET_OBJECTS:${lib}>)
+# to combine libraries
+function(combine_static_libs output_lib list_of_targets list_of_addl_libs)
+  set(OUT_LIB ${CMAKE_STATIC_LIBRARY_PREFIX}${output_lib}${CMAKE_STATIC_LIBRARY_SUFFIX})
+  if(IS_MULTI)
+    set(OUTPUT_LIB_PATH ${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>/${OUT_LIB})
+    set(MOCK_FILE ${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>/${output_lib}.dummy.cpp)
+  else()
+    set(OUTPUT_LIB_PATH ${CMAKE_CURRENT_BINARY_DIR}/${OUT_LIB})
+    set(MOCK_FILE ${CMAKE_CURRENT_BINARY_DIR}/${output_lib}.dummy.cpp)
+  endif()
+  if(MSVC OR APPLE)
+    if(MSVC)
+      find_program(lib_tool lib)
+    else()
+      find_program(lib_tool libtool)
+    endif()
+    if(NOT lib_tool)
+      message(WARNING "lib_tool not found! skipping combine archives")
+      return()
+    endif()
+    foreach(tgt ${list_of_targets})
+      get_target_property(target_type ${tgt} TYPE)
+      if(target_type STREQUAL "STATIC_LIBRARY")
+        list(APPEND list_of_static_libs $<TARGET_FILE:${tgt}>)
+      endif()
+    endforeach()
+    foreach(lib ${list_of_addl_libs})
+      list(FIND list_of_static_libs ${lib} res)
+      if(res EQUAL -1)
+        list(APPEND list_of_static_libs ${lib})
+      endif()
+    endforeach()
+
+    # Create a dummy file for the combined library
+    # Have it depend on all input targets so that the combined library is regenerated
+    # if any of them changes.
+    add_custom_command(OUTPUT ${MOCK_FILE}
+      COMMAND echo // Auto Generated, for target ${output_lib} > ${MOCK_FILE}
+      DEPENDS "${list_of_targets}" "${list_of_addl_libs}")
+
+    add_library(${output_lib} STATIC ${MOCK_FILE})
+
+    # Add a custom command to combine the archives after the static library is "built".
+    if(MSVC)
+      add_custom_command(TARGET ${output_lib}
+        POST_BUILD
+        COMMAND ${lib_tool} /NOLOGO /OUT:${OUTPUT_LIB_PATH} ${list_of_static_libs})
+    else()
+      add_custom_command(TARGET ${output_lib}
+        POST_BUILD
+        COMMAND ${lib_tool} -static -o ${OUTPUT_LIB_PATH} ${list_of_static_libs})
+    endif()
+  else()
+    # Generate the MRI file for CMAKE_AR to consume.
+    if(IS_MULTI)
+      set(MRI_FILE ${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>/${output_lib}.mri)
+    else()
+      set(MRI_FILE ${CMAKE_CURRENT_BINARY_DIR}/${output_lib}.mri)
+    endif()
+    set(MRI_CONTENT "CREATE ${OUTPUT_LIB_PATH}\n")
+    foreach(tgt ${list_of_targets})
+      get_target_property(target_type ${tgt} TYPE)
+      if(target_type STREQUAL "STATIC_LIBRARY")
+        string(APPEND MRI_CONTENT "ADDLIB $<TARGET_FILE:${tgt}>\n")
+      endif()
+    endforeach()
+    foreach(lib ${list_of_addl_libs})
+      string(FIND ${MRI_CONTENT} "ADDLIB ${lib}\n" res)
+      if(res EQUAL -1)
+        string(APPEND MRI_CONTENT "ADDLIB ${lib}\n")
+      endif()
+    endforeach()
+    string(APPEND MRI_CONTENT "SAVE\n")
+    string(APPEND MRI_CONTENT "END\n")
+    file(GENERATE OUTPUT ${MRI_FILE} CONTENT ${MRI_CONTENT})
+
+    # Create a dummy file for the combined library
+    # Have it depend on all input targets so that the combined library is regenerated
+    # if any of them changes.
+    add_custom_command(OUTPUT ${MOCK_FILE}
+      COMMAND echo // Auto Generated, for target ${output_lib} > ${MOCK_FILE}
+      DEPENDS "${list_of_targets}" "${list_of_addl_libs}")
+
+    add_library(${output_lib} STATIC ${MOCK_FILE})
+
+    # Add a custom command to combine the archives after the static library is "built".
+    add_custom_command(TARGET ${output_lib}
+      POST_BUILD
+      COMMAND ${CMAKE_AR} -M < ${MRI_FILE})
+  endif()
+endfunction()
+
+set(INPUT_TARGETS ultrahdr image_io ${JPEGTURBO_TARGET_NAME})
+set(ADDL_LIBS ${JPEG_LIBRARIES})
+combine_static_libs(uhdr "${INPUT_TARGETS}" "${ADDL_LIBS}")
