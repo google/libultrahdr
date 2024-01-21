@@ -19,7 +19,7 @@
 
 #include <cfloat>
 
-#include "ultrahdr/ultrahdr.h"
+#include "ultrahdr/ultrahdr_api.h"
 #include "ultrahdr/jpegdecoderhelper.h"
 #include "ultrahdr/jpegencoderhelper.h"
 

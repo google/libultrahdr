@@ -17,7 +17,7 @@
 #include <cstddef>
 #include <cstring>
 
-#include "ultrahdr/ultrahdr.h"
+#include "ultrahdr/ultrahdr_api.h"
 #include "ultrahdr/jpegr.h"
 #include "ultrahdr/jpegrutils.h"
 

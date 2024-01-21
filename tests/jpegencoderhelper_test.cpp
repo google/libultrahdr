@@ -20,7 +20,7 @@
 #include <iostream>
 
 #include "ultrahdr/ultrahdrcommon.h"
-#include "ultrahdr/ultrahdr.h"
+#include "ultrahdr/ultrahdr_api.h"
 #include "ultrahdr/jpegencoderhelper.h"
 
 namespace ultrahdr {

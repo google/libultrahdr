@@ -19,7 +19,7 @@
 
 #include <string>
 
-#include "ultrahdr/ultrahdr.h"
+#include "ultrahdr/ultrahdr_api.h"
 #include "ultrahdr/jpegr.h"
 
 namespace ultrahdr {

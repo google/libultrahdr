@@ -14,8 +14,13 @@
  * limitations under the License.
  */
 
-#ifndef ULTRAHDR_ULTRAHDR_H
-#define ULTRAHDR_ULTRAHDR_H
+/**
+ * @file     ultrahdr_api.h
+ * @brief    libultrahdr API interface declarations / definitions
+ */
+
+#ifndef ULTRAHDR_ULTRAHDR_API_H
+#define ULTRAHDR_ULTRAHDR_API_H
 
 #include <stddef.h>
 
@@ -477,4 +482,4 @@ status_t ultrahdr_decompress(ultrahdr_compressed_ptr ultrahdr_image_ptr,
 }
 #endif
 
-#endif  // ULTRAHDR_ULTRAHDR_H
+#endif  // ULTRAHDR_ULTRAHDR_API_H
