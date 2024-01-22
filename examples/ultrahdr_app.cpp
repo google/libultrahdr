@@ -23,15 +23,13 @@
 #include <string.h>
 
 #include <algorithm>
+#include <cfloat>
 #include <cmath>
+#include <cstdint>
 #include <fstream>
 #include <iostream>
 
-#include "ultrahdr/ultrahdrcommon.h"
-#include "ultrahdr/gainmapmath.h"
-#include "ultrahdr/jpegr.h"
-
-using namespace ultrahdr;
+#include "ultrahdr/ultrahdr_api.h"
 
 const float BT601YUVtoRGBMatrix[9] = {
     1, 0, 1.402, 1, (-0.202008 / 0.587), (-0.419198 / 0.587), 1.0, 1.772, 0.0};
@@ -316,7 +314,6 @@ bool UltraHdrAppInput::encode() {
     return false;
   }
 
-  JpegR jpegHdr;
   status_t status = UHDR_UNKNOWN_ERROR;
 #ifdef PROFILE_ENABLE
   const int profileCount = 10;
@@ -325,30 +322,30 @@ bool UltraHdrAppInput::encode() {
   for (auto i = 0; i < profileCount; i++) {
 #endif
     if (mYuv420File == nullptr && mYuv420JpegFile == nullptr) {  // api-0
-      status = jpegHdr.encodeJPEGR(&mRawP010Image, mTf, &mJpegImgR, mQuality, nullptr);
+      status = ultrahdr_compress_api0(&mRawP010Image, mTf, &mJpegImgR, mQuality, nullptr);
       if (UHDR_NO_ERROR != status) {
         std::cerr << "Encountered error during encodeJPEGR call, error code " << status
                   << std::endl;
         return false;
       }
     } else if (mYuv420File != nullptr && mYuv420JpegFile == nullptr) {  // api-1
-      status =
-          jpegHdr.encodeJPEGR(&mRawP010Image, &mRawYuv420Image, mTf, &mJpegImgR, mQuality, nullptr);
+      status = ultrahdr_compress_api1(&mRawP010Image, &mRawYuv420Image, mTf, &mJpegImgR, mQuality,
+                                      nullptr);
       if (UHDR_NO_ERROR != status) {
         std::cerr << "Encountered error during encodeJPEGR call, error code " << status
                   << std::endl;
         return false;
       }
     } else if (mYuv420File != nullptr && mYuv420JpegFile != nullptr) {  // api-2
-      status =
-          jpegHdr.encodeJPEGR(&mRawP010Image, &mRawYuv420Image, &mYuv420JpegImage, mTf, &mJpegImgR);
+      status = ultrahdr_compress_api2(&mRawP010Image, &mRawYuv420Image, &mYuv420JpegImage, mTf,
+                                      &mJpegImgR);
       if (UHDR_NO_ERROR != status) {
         std::cerr << "Encountered error during encodeJPEGR call, error code " << status
                   << std::endl;
         return false;
       }
     } else if (mYuv420File == nullptr && mYuv420JpegFile != nullptr) {  // api-3
-      status = jpegHdr.encodeJPEGR(&mRawP010Image, &mYuv420JpegImage, mTf, &mJpegImgR);
+      status = ultrahdr_compress_api3(&mRawP010Image, &mYuv420JpegImage, mTf, &mJpegImgR);
       if (UHDR_NO_ERROR != status) {
         std::cerr << "Encountered error during encodeJPEGR call, error code " << status
                   << std::endl;
@@ -367,13 +364,10 @@ bool UltraHdrAppInput::encode() {
 
 bool UltraHdrAppInput::decode() {
   if (mMode == 1 && !fillJpegRImageHandle()) return false;
-  std::vector<uint8_t> iccData(0);
-  std::vector<uint8_t> exifData(0);
-  jpegr_info_struct info{};
-  JpegR jpegHdr;
-  status_t status = jpegHdr.getJPEGRInfo(&mJpegImgR, &info);
+  size_t imgWidth, imgHeight;
+  status_t status = get_image_dimensions(&mJpegImgR, &imgWidth, &imgHeight);
   if (UHDR_NO_ERROR == status) {
-    size_t outSize = info.width * info.height * ((mOf == ULTRAHDR_OUTPUT_HDR_LINEAR) ? 8 : 4);
+    size_t outSize = imgWidth * imgHeight * ((mOf == ULTRAHDR_OUTPUT_HDR_LINEAR) ? 8 : 4);
     mDestImage.data = malloc(outSize);
     if (mDestImage.data == nullptr) {
       std::cerr << "failed to allocate memory to store decoded output" << std::endl;
@@ -385,8 +379,7 @@ bool UltraHdrAppInput::decode() {
     profileDecode.timerStart();
     for (auto i = 0; i < profileCount; i++) {
 #endif
-      status =
-          jpegHdr.decodeJPEGR(&mJpegImgR, &mDestImage, FLT_MAX, nullptr, mOf, nullptr, nullptr);
+      status = ultrahdr_decompress(&mJpegImgR, &mDestImage, FLT_MAX, mOf, nullptr);
       if (UHDR_NO_ERROR != status) {
         std::cerr << "Encountered error during decodeJPEGR call, error code " << status
                   << std::endl;
@@ -401,7 +394,8 @@ bool UltraHdrAppInput::decode() {
 #endif
     writeFile("outrgb.raw", mDestImage.data, outSize);
   } else {
-    std::cerr << "Encountered error during getJPEGRInfo call, error code " << status << std::endl;
+    std::cerr << "Encountered error during getImageDimensions call, error code " << status
+              << std::endl;
     return false;
   }
   return true;
@@ -440,9 +434,9 @@ bool UltraHdrAppInput::convertP010ToRGBImage() {
       float u0 = float(u[mRawP010Image.width * (i / 2) + (j / 2) * 2] >> 6);
       float v0 = float(v[mRawP010Image.width * (i / 2) + (j / 2) * 2] >> 6);
 
-      y0 = CLIP3(y0, 64.0f, 940.0f);
-      u0 = CLIP3(u0, 64.0f, 960.0f);
-      v0 = CLIP3(v0, 64.0f, 960.0f);
+      y0 = std::clamp(y0, 64.0f, 940.0f);
+      u0 = std::clamp(u0, 64.0f, 960.0f);
+      v0 = std::clamp(v0, 64.0f, 960.0f);
 
       y0 = (y0 - 64.0f) / 876.0f;
       u0 = (u0 - 64.0f) / 896.0f - 0.5f;
@@ -452,9 +446,9 @@ bool UltraHdrAppInput::convertP010ToRGBImage() {
       float g = coeffs[3] * y0 + coeffs[4] * u0 + coeffs[5] * v0;
       float b = coeffs[6] * y0 + coeffs[7] * u0 + coeffs[8] * v0;
 
-      r = CLIP3(r * 1023.0f + 0.5f, 0.0f, 1023.0f);
-      g = CLIP3(g * 1023.0f + 0.5f, 0.0f, 1023.0f);
-      b = CLIP3(b * 1023.0f + 0.5f, 0.0f, 1023.0f);
+      r = std::clamp(r * 1023.0f + 0.5f, 0.0f, 1023.0f);
+      g = std::clamp(g * 1023.0f + 0.5f, 0.0f, 1023.0f);
+      b = std::clamp(b * 1023.0f + 0.5f, 0.0f, 1023.0f);
 
       int32_t r0 = int32_t(r);
       int32_t g0 = int32_t(g);
@@ -504,9 +498,9 @@ bool UltraHdrAppInput::convertYuv420ToRGBImage() {
       g = g * 255.0f + 0.5f;
       b = b * 255.0f + 0.5f;
 
-      r = CLIP3(r, 0.0f, 255.0f);
-      g = CLIP3(g, 0.0f, 255.0f);
-      b = CLIP3(b, 0.0f, 255.0f);
+      r = std::clamp(r, 0.0f, 255.0f);
+      g = std::clamp(g, 0.0f, 255.0f);
+      b = std::clamp(b, 0.0f, 255.0f);
 
       int32_t r0 = int32_t(r);
       int32_t g0 = int32_t(g);
@@ -557,9 +551,9 @@ bool UltraHdrAppInput::convertRgba8888ToYUV444Image() {
       u = u * 255.0f + 0.5f + 128.0f;
       v = v * 255.0f + 0.5f + 128.0f;
 
-      y = CLIP3(y, 0.0f, 255.0f);
-      u = CLIP3(u, 0.0f, 255.0f);
-      v = CLIP3(v, 0.0f, 255.0f);
+      y = std::clamp(y, 0.0f, 255.0f);
+      u = std::clamp(u, 0.0f, 255.0f);
+      v = std::clamp(v, 0.0f, 255.0f);
 
       yData[mDestYUV444Image.width * i + j] = uint8_t(y);
       uData[mDestYUV444Image.width * i + j] = uint8_t(u);
@@ -618,9 +612,9 @@ bool UltraHdrAppInput::convertRgba1010102ToYUV444Image() {
       u = (u * 896.0f) + 64.0f + 512.0f + 0.5f;
       v = (v * 896.0f) + 64.0f + 512.0f + 0.5f;
 
-      y = CLIP3(y, 64.0f, 940.0f);
-      u = CLIP3(u, 64.0f, 960.0f);
-      v = CLIP3(v, 64.0f, 960.0f);
+      y = std::clamp(y, 64.0f, 940.0f);
+      u = std::clamp(u, 64.0f, 960.0f);
+      v = std::clamp(v, 64.0f, 960.0f);
 
       yData[mDestYUV444Image.width * i + j] = uint16_t(y);
       uData[mDestYUV444Image.width * i + j] = uint16_t(u);
@@ -751,13 +745,13 @@ void UltraHdrAppInput::computeYUVHdrPSNR() {
   for (size_t i = 0; i < mDestYUV444Image.height; i++) {
     for (size_t j = 0; j < mDestYUV444Image.width; j++) {
       int ySrc = (yDataSrc[mRawP010Image.width * i + j] >> 6) & 0x3ff;
-      ySrc = CLIP3(ySrc, 64, 940);
+      ySrc = std::clamp(ySrc, 64, 940);
       int yDst = yDataDst[mDestYUV444Image.width * i + j] & 0x3ff;
       ySqError += (ySrc - yDst) * (ySrc - yDst);
 
       if (i % 2 == 0 && j % 2 == 0) {
         int uSrc = (uDataSrc[mRawP010Image.width * (i / 2) + (j / 2) * 2] >> 6) & 0x3ff;
-        uSrc = CLIP3(uSrc, 64, 960);
+        uSrc = std::clamp(uSrc, 64, 960);
         int uDst = uDataDst[mDestYUV444Image.width * i + j] & 0x3ff;
         uDst += uDataDst[mDestYUV444Image.width * i + j + 1] & 0x3ff;
         uDst += uDataDst[mDestYUV444Image.width * (i + 1) + j + 1] & 0x3ff;
@@ -766,7 +760,7 @@ void UltraHdrAppInput::computeYUVHdrPSNR() {
         uSqError += (uSrc - uDst) * (uSrc - uDst);
 
         int vSrc = (vDataSrc[mRawP010Image.width * (i / 2) + (j / 2) * 2] >> 6) & 0x3ff;
-        vSrc = CLIP3(vSrc, 64, 960);
+        vSrc = std::clamp(vSrc, 64, 960);
         int vDst = vDataDst[mDestYUV444Image.width * i + j] & 0x3ff;
         vDst += vDataDst[mDestYUV444Image.width * i + j + 1] & 0x3ff;
         vDst += vDataDst[mDestYUV444Image.width * (i + 1) + j + 1] & 0x3ff;

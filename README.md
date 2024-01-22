@@ -56,7 +56,7 @@ To build libultrahdr, examples, unit tests:
 
 This will generate the following files under *{build_directory}*:
 
-**libultrahdr.a**<br> Static link library for the ultrahdr API
+**libuhdr.a**<br> Static link library for the ultrahdr API
 
 **ultrahdr_app**<br> Sample application demonstrating ultrahdr API
 
@@ -72,7 +72,7 @@ This will generate the following files under *{build_directory}*:
 
 This will generate the following files under *{build_directory/Release}*:
 
-**ultrahdr.lib**<br> Static link library for the ultrahdr API
+**uhdr.lib**<br> Static link library for the ultrahdr API
 
 **ultrahdr_app.exe**<br> Sample application demonstrating ultrahdr API
 
@@ -88,7 +88,7 @@ This will generate the following files under *{build_directory/Release}*:
 
 This will generate the following files under *{build_directory}*:
 
-**ultrahdr.lib**<br> Static link library for the ultrahdr API
+**uhdr.lib**<br> Static link library for the ultrahdr API
 
 **ultrahdr_app.exe**<br> Sample application demonstrating ultrahdr API
 
@@ -113,7 +113,7 @@ environment.
 
 This will generate the following files under *{build_directory}*:
 
-**libultrahdr.a**<br> Static link library for the ultrahdr API
+**libuhdr.a**<br> Static link library for the ultrahdr API
 
 **ultrahdr_app.exe**<br> Sample application demonstrating ultrahdr API
 
@@ -162,5 +162,5 @@ List of decode API:
 | metadata  | (optional, default to NULL) Destination of metadata (gain map version, min/max content boost). |
 
 For more info:
-- Refer to [jpegr.h](lib/include/ultrahdr/jpegr.h) for detailed description of various encode and decode api.
+- Refer to [ultrahdr_api.h](lib/include/ultrahdr/ultrahdr_api.h) for detailed description of various encode and decode api.
 - Refer to [ultrahdr_app.cpp](examples/ultrahdr_app.cpp) for examples of its usage.
