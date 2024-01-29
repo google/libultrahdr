@@ -1039,6 +1039,7 @@ status_t JpegR::applyGainMap(jr_uncompressed_ptr yuv420_image_ptr,
 
   dest->width = yuv420_image_ptr->width;
   dest->height = yuv420_image_ptr->height;
+  dest->colorGamut = yuv420_image_ptr->colorGamut;
   ShepardsIDW idwTable(map_scale_factor);
   float display_boost = (std::min)(max_display_boost, metadata->maxContentBoost);
   GainLUT gainLUT(metadata, display_boost);
