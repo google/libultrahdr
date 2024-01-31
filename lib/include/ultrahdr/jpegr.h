@@ -88,64 +88,13 @@ struct jpegr_info_struct {
   jpeg_info_struct* gainmapImgInfo = nullptr;
 };
 
-/*
- * Holds information for uncompressed image or gain map.
- */
-struct jpegr_uncompressed_struct {
-  // Pointer to the data location.
-  void* data;
-  // Width of the gain map or the luma plane of the image in pixels.
-  size_t width;
-  // Height of the gain map or the luma plane of the image in pixels.
-  size_t height;
-  // Color gamut.
-  ultrahdr_color_gamut colorGamut;
+#define jpegr_uncompressed_struct ultrahdr_uncompressed_struct
+#define jpegr_compressed_struct   ultrahdr_compressed_struct
+#define jpegr_exif_struct         ultrahdr_exif_struct
 
-  // Values below are optional
-  // Pointer to chroma data, if it's NULL, chroma plane is considered to be immediately
-  // after the luma plane.
-  void* chroma_data = nullptr;
-  // Stride of Y plane in number of pixels. 0 indicates the member is uninitialized. If
-  // non-zero this value must be larger than or equal to luma width. If stride is
-  // uninitialized then it is assumed to be equal to luma width.
-  size_t luma_stride = 0;
-  // Stride of UV plane in number of pixels.
-  // 1. If this handle points to P010 image then this value must be larger than
-  //    or equal to luma width.
-  // 2. If this handle points to 420 image then this value must be larger than
-  //    or equal to (luma width / 2).
-  // NOTE: if chroma_data is nullptr, chroma_stride is irrelevant. Just as the way,
-  // chroma_data is derived from luma ptr, chroma stride is derived from luma stride.
-  size_t chroma_stride = 0;
-};
-
-/*
- * Holds information for compressed image or gain map.
- */
-struct jpegr_compressed_struct {
-  // Pointer to the data location.
-  void* data;
-  // Used data length in bytes.
-  int length;
-  // Maximum available data length in bytes.
-  int maxLength;
-  // Color gamut.
-  ultrahdr_color_gamut colorGamut;
-};
-
-/*
- * Holds information for EXIF metadata.
- */
-struct jpegr_exif_struct {
-  // Pointer to the data location.
-  void* data;
-  // Data length;
-  size_t length;
-};
-
-typedef struct jpegr_uncompressed_struct* jr_uncompressed_ptr;
-typedef struct jpegr_compressed_struct* jr_compressed_ptr;
-typedef struct jpegr_exif_struct* jr_exif_ptr;
+typedef uncompressed_ptr jr_uncompressed_ptr;
+typedef compressed_ptr jr_compressed_ptr;
+typedef exif_ptr jr_exif_ptr;
 typedef struct jpeg_info_struct* j_info_ptr;
 typedef struct jpegr_info_struct* jr_info_ptr;
 
