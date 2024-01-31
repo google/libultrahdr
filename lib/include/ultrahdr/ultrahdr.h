@@ -77,6 +77,65 @@ struct ultrahdr_metadata_struct {
 };
 typedef struct ultrahdr_metadata_struct* ultrahdr_metadata_ptr;
 
+/*
+ * Holds information for uncompressed image or gain map.
+ */
+struct ultrahdr_uncompressed_struct {
+  // Pointer to the data location.
+  void* data;
+  // Width of the gain map or the luma plane of the image in pixels.
+  size_t width;
+  // Height of the gain map or the luma plane of the image in pixels.
+  size_t height;
+  // Color gamut.
+  ultrahdr_color_gamut colorGamut;
+
+  // Values below are optional
+  // Pointer to chroma data, if it's NULL, chroma plane is considered to be immediately
+  // after the luma plane.
+  void* chroma_data = nullptr;
+  // Stride of Y plane in number of pixels. 0 indicates the member is uninitialized. If
+  // non-zero this value must be larger than or equal to luma width. If stride is
+  // uninitialized then it is assumed to be equal to luma width.
+  size_t luma_stride = 0;
+  // Stride of UV plane in number of pixels.
+  // 1. If this handle points to P010 image then this value must be larger than
+  //    or equal to luma width.
+  // 2. If this handle points to 420 image then this value must be larger than
+  //    or equal to (luma width / 2).
+  // NOTE: if chroma_data is nullptr, chroma_stride is irrelevant. Just as the way,
+  // chroma_data is derived from luma ptr, chroma stride is derived from luma stride.
+  size_t chroma_stride = 0;
+};
+
+/*
+ * Holds information for compressed image or gain map.
+ */
+struct ultrahdr_compressed_struct {
+  // Pointer to the data location.
+  void* data;
+  // Used data length in bytes.
+  int length;
+  // Maximum available data length in bytes.
+  int maxLength;
+  // Color gamut.
+  ultrahdr_color_gamut colorGamut;
+};
+
+/*
+ * Holds information for EXIF metadata.
+ */
+struct ultrahdr_exif_struct {
+  // Pointer to the data location.
+  void* data;
+  // Data length;
+  size_t length;
+};
+
+typedef struct ultrahdr_uncompressed_struct* uncompressed_ptr;
+typedef struct ultrahdr_compressed_struct* compressed_ptr;
+typedef struct ultrahdr_exif_struct* exif_ptr;
+
 }  // namespace ultrahdr
 
 #endif  // ULTRAHDR_ULTRAHDR_H
