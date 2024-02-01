@@ -50,6 +50,17 @@ typedef enum {
   ULTRAHDR_OUTPUT_MAX = ULTRAHDR_OUTPUT_HDR_HLG,
 } ultrahdr_output_format;
 
+// Supported pixel format
+typedef enum {
+  ULTRAHDR_PIX_FMT_UNSPECIFIED = -1,
+  ULTRAHDR_PIX_FMT_P010,
+  ULTRAHDR_PIX_FMT_YUV420,
+  ULTRAHDR_PIX_FMT_MONOCHROME,
+  ULTRAHDR_PIX_FMT_RGBA8888,
+  ULTRAHDR_PIX_FMT_RGBAF16,
+  ULTRAHDR_PIX_FMT_RGBA1010102,
+} ultrahdr_pixel_format;
+
 /*
  * Holds information for gain map related metadata.
  *
