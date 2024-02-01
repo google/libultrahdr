@@ -52,6 +52,7 @@ typedef enum {
   ERROR_JPEGR_INVALID_DISPLAY_BOOST = JPEGR_IO_ERROR_BASE - 8,
   ERROR_JPEGR_INVALID_OUTPUT_FORMAT = JPEGR_IO_ERROR_BASE - 9,
   ERROR_JPEGR_BAD_METADATA = JPEGR_IO_ERROR_BASE - 10,
+  ERROR_JPEGR_INVALID_CROPPING_PARAMETERS = JPEGR_IO_ERROR_BASE - 11,
 
   JPEGR_RUNTIME_ERROR_BASE = -20000,
   ERROR_JPEGR_ENCODE_ERROR = JPEGR_RUNTIME_ERROR_BASE - 1,
@@ -117,6 +118,8 @@ struct jpegr_uncompressed_struct {
   // NOTE: if chroma_data is nullptr, chroma_stride is irrelevant. Just as the way,
   // chroma_data is derived from luma ptr, chroma stride is derived from luma stride.
   size_t chroma_stride = 0;
+  // Pixel format.
+  ultrahdr_pixel_format pixelFormat = ULTRAHDR_PIX_FMT_UNSPECIFIED;
 };
 
 /*
