@@ -28,8 +28,7 @@ using namespace std;
 namespace ultrahdr {
 status_t crop(jr_uncompressed_ptr const in_img,
               int left, int right, int top, int bottom,
-              jr_uncompressed_ptr out_img,
-              ultrahdr_pixel_format pix_fmt) {
+              jr_uncompressed_ptr out_img) {
   if (in_img == nullptr || in_img->data == nullptr ||
       out_img == nullptr || out_img->data == nullptr) {
     return ERROR_JPEGR_BAD_PTR;
@@ -37,11 +36,13 @@ status_t crop(jr_uncompressed_ptr const in_img,
   if (left < 0 || right >= in_img->width || top < 0 || bottom >= in_img->height) {
     return ERROR_JPEGR_INVALID_CROPPING_PARAMETERS;
   }
-  if (pix_fmt != ULTRAHDR_PIX_FMT_YUV420 && pix_fmt != ULTRAHDR_PIX_FMT_MONOCHROME) {
+  if (in_img->pixelFormat != ULTRAHDR_PIX_FMT_YUV420 &&
+          in_img->pixelFormat != ULTRAHDR_PIX_FMT_MONOCHROME) {
     return ERROR_JPEGR_UNSUPPORTED_FEATURE;
   }
 
   out_img->colorGamut = in_img->colorGamut;
+  out_img->pixelFormat = in_img->pixelFormat;
 
   int in_luma_stride = in_img->luma_stride != 0 ? in_img->luma_stride : in_img->width;
   out_img->width = right - left + 1;
@@ -54,7 +55,7 @@ status_t crop(jr_uncompressed_ptr const in_img,
     memcpy(dest + i * out_img->luma_stride, src + i * in_luma_stride, out_img->width);
   }
 
-  if (pix_fmt == ULTRAHDR_PIX_FMT_MONOCHROME) {
+  if (in_img->pixelFormat == ULTRAHDR_PIX_FMT_MONOCHROME) {
     return JPEGR_NO_ERROR;
   }
 
@@ -79,17 +80,18 @@ status_t crop(jr_uncompressed_ptr const in_img,
 
 status_t mirror(jr_uncompressed_ptr const in_img,
                 ultrahdr_mirroring_direction mirror_dir,
-                jr_uncompressed_ptr out_img,
-                ultrahdr_pixel_format pix_fmt) {
+                jr_uncompressed_ptr out_img) {
   if (in_img == nullptr || in_img->data == nullptr ||
       out_img == nullptr || out_img->data == nullptr) {
     return ERROR_JPEGR_BAD_PTR;
   }
-  if (pix_fmt != ULTRAHDR_PIX_FMT_YUV420 && pix_fmt != ULTRAHDR_PIX_FMT_MONOCHROME) {
+  if (in_img->pixelFormat != ULTRAHDR_PIX_FMT_YUV420 &&
+          in_img->pixelFormat != ULTRAHDR_PIX_FMT_MONOCHROME) {
     return ERROR_JPEGR_UNSUPPORTED_FEATURE;
   }
 
   out_img->colorGamut = in_img->colorGamut;
+  out_img->pixelFormat = in_img->pixelFormat;
 
   int in_luma_stride = in_img->luma_stride != 0 ? in_img->luma_stride : in_img->width;
   out_img->width = in_img->width;
@@ -113,7 +115,7 @@ status_t mirror(jr_uncompressed_ptr const in_img,
     }
   }
 
-  if (pix_fmt == ULTRAHDR_PIX_FMT_MONOCHROME) {
+  if (in_img->pixelFormat == ULTRAHDR_PIX_FMT_MONOCHROME) {
     return JPEGR_NO_ERROR;
   }
 
@@ -171,7 +173,7 @@ status_t mirror(jr_uncompressed_ptr const in_img,
 }
 
 status_t rotate(jr_uncompressed_ptr const in_img, int clockwise_degree,
-                jr_uncompressed_ptr out_img, ultrahdr_pixel_format pix_fmt) {
+                jr_uncompressed_ptr out_img) {
   if (in_img == nullptr || in_img->data == nullptr ||
       out_img == nullptr || out_img->data == nullptr) {
     return ERROR_JPEGR_BAD_PTR;
@@ -179,11 +181,13 @@ status_t rotate(jr_uncompressed_ptr const in_img, int clockwise_degree,
   if (clockwise_degree != 90 && clockwise_degree != 180 && clockwise_degree != 270) {
     return ERROR_JPEGR_INVALID_CROPPING_PARAMETERS;
   }
-  if (pix_fmt != ULTRAHDR_PIX_FMT_YUV420 && pix_fmt != ULTRAHDR_PIX_FMT_MONOCHROME) {
+  if (in_img->pixelFormat != ULTRAHDR_PIX_FMT_YUV420 &&
+          in_img->pixelFormat != ULTRAHDR_PIX_FMT_MONOCHROME) {
     return ERROR_JPEGR_UNSUPPORTED_FEATURE;
   }
 
   out_img->colorGamut = in_img->colorGamut;
+  out_img->pixelFormat = in_img->pixelFormat;
 
   int in_luma_stride = in_img->luma_stride != 0 ? in_img->luma_stride : in_img->width;
   if (clockwise_degree == 90) {
@@ -221,7 +225,7 @@ status_t rotate(jr_uncompressed_ptr const in_img, int clockwise_degree,
     }
   }
 
-  if (pix_fmt == ULTRAHDR_PIX_FMT_MONOCHROME) {
+  if (in_img->pixelFormat == ULTRAHDR_PIX_FMT_MONOCHROME) {
     return JPEGR_NO_ERROR;
   }
 
@@ -305,16 +309,18 @@ status_t rotate(jr_uncompressed_ptr const in_img, int clockwise_degree,
 }
 
 status_t resize(jr_uncompressed_ptr const in_img, int out_width, int out_height,
-                jr_uncompressed_ptr out_img, ultrahdr_pixel_format pix_fmt) {
+                jr_uncompressed_ptr out_img) {
   if (in_img == nullptr || in_img->data == nullptr ||
       out_img == nullptr || out_img->data == nullptr) {
     return ERROR_JPEGR_BAD_PTR;
   }
-  if (pix_fmt != ULTRAHDR_PIX_FMT_YUV420 && pix_fmt != ULTRAHDR_PIX_FMT_MONOCHROME) {
+  if (in_img->pixelFormat != ULTRAHDR_PIX_FMT_YUV420 &&
+          in_img->pixelFormat != ULTRAHDR_PIX_FMT_MONOCHROME) {
     return ERROR_JPEGR_UNSUPPORTED_FEATURE;
   }
 
   out_img->colorGamut = in_img->colorGamut;
+  out_img->pixelFormat = in_img->pixelFormat;
 
   int in_luma_stride = in_img->luma_stride != 0 ? in_img->luma_stride : in_img->width;
   out_img->width = out_width;
@@ -330,7 +336,7 @@ status_t resize(jr_uncompressed_ptr const in_img, int out_width, int out_height,
     }
   }
 
-  if (pix_fmt == ULTRAHDR_PIX_FMT_MONOCHROME) {
+  if (in_img->pixelFormat == ULTRAHDR_PIX_FMT_MONOCHROME) {
     return JPEGR_NO_ERROR;
   }
 

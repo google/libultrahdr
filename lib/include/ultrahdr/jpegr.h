@@ -103,6 +103,8 @@ struct jpegr_uncompressed_struct {
   ultrahdr_color_gamut colorGamut;
 
   // Values below are optional
+  // Pixel format.
+  ultrahdr_pixel_format pixelFormat = ULTRAHDR_PIX_FMT_UNSPECIFIED;
   // Pointer to chroma data, if it's NULL, chroma plane is considered to be immediately
   // after the luma plane.
   void* chroma_data = nullptr;

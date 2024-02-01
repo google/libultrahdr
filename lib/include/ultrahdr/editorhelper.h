@@ -27,21 +27,17 @@ typedef enum {
 } ultrahdr_mirroring_direction;
 
 status_t crop(jr_uncompressed_ptr const in_img,
-              int left, int right, int top, int bottom, jr_uncompressed_ptr out_img,
-              ultrahdr_pixel_format pix_fmt = ultrahdr_pixel_format::ULTRAHDR_PIX_FMT_YUV420);
+              int left, int right, int top, int bottom, jr_uncompressed_ptr out_img);
 
 status_t mirror(jr_uncompressed_ptr const in_img,
                 ultrahdr_mirroring_direction mirror_dir,
-                jr_uncompressed_ptr out_img,
-                ultrahdr_pixel_format pix_fmt = ultrahdr_pixel_format::ULTRAHDR_PIX_FMT_YUV420);
+                jr_uncompressed_ptr out_img);
 
 status_t rotate(jr_uncompressed_ptr const in_img, int clockwise_degree,
-                jr_uncompressed_ptr out_img,
-                ultrahdr_pixel_format pix_fmt = ultrahdr_pixel_format::ULTRAHDR_PIX_FMT_YUV420);
+                jr_uncompressed_ptr out_img);
 
 status_t resize(jr_uncompressed_ptr const in_img, int out_width, int out_height,
-                jr_uncompressed_ptr out_img,
-                ultrahdr_pixel_format pix_fmt = ultrahdr_pixel_format::ULTRAHDR_PIX_FMT_YUV420);
+                jr_uncompressed_ptr out_img);
 
 }  // namespace ultrahdr
 

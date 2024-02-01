@@ -107,6 +107,7 @@ TEST_F(EditorHelperTest, croppingYuvImage) {
   in_img.width = IMAGE_WIDTH;
   in_img.height = IMAGE_HEIGHT;
   in_img.colorGamut = ultrahdr_color_gamut::ULTRAHDR_COLORGAMUT_BT709;
+  in_img.pixelFormat = ultrahdr_pixel_format::ULTRAHDR_PIX_FMT_YUV420;
 
   std::unique_ptr<uint8_t[]> out_img_data;
   int outSize = out_width * out_height * 3 / 2;
@@ -116,6 +117,7 @@ TEST_F(EditorHelperTest, croppingYuvImage) {
   EXPECT_TRUE(out_img.width = out_width);
   EXPECT_TRUE(out_img.height = out_height);
   EXPECT_TRUE(out_img.colorGamut == in_img.colorGamut);
+  EXPECT_TRUE(out_img.pixelFormat == in_img.pixelFormat);
 #ifdef DUMP_OUTPUT
   if (!writeFile("cropped.yuv", out_img.data, outSize)) {
     std::cerr << "unable to write output file" << std::endl;
@@ -136,15 +138,16 @@ TEST_F(EditorHelperTest, croppingGreyImage) {
   in_img.data = mGreyImage.buffer.get();
   in_img.width = IMAGE_WIDTH;
   in_img.height = IMAGE_HEIGHT;
+  in_img.pixelFormat = ultrahdr_pixel_format::ULTRAHDR_PIX_FMT_MONOCHROME;
 
   std::unique_ptr<uint8_t[]> out_img_data;
   int outSize = out_width * out_height;
   out_img_data.reset(new uint8_t[outSize]);
   out_img.data = out_img_data.get();
-  EXPECT_TRUE(crop(&in_img, left, right, top, bottom, &out_img,
-          ULTRAHDR_PIX_FMT_MONOCHROME)== JPEGR_NO_ERROR);
+  EXPECT_TRUE(crop(&in_img, left, right, top, bottom, &out_img)== JPEGR_NO_ERROR);
   EXPECT_TRUE(out_img.width = out_width);
   EXPECT_TRUE(out_img.height = out_height);
+  EXPECT_TRUE(out_img.pixelFormat == in_img.pixelFormat);
 #ifdef DUMP_OUTPUT
   if (!writeFile("cropped.y", out_img.data, outSize)) {
     std::cerr << "unable to write output file" << std::endl;
@@ -160,6 +163,7 @@ TEST_F(EditorHelperTest, mirroringYuvImageVertical) {
   in_img.width = IMAGE_WIDTH;
   in_img.height = IMAGE_HEIGHT;
   in_img.colorGamut = ultrahdr_color_gamut::ULTRAHDR_COLORGAMUT_BT709;
+  in_img.pixelFormat = ultrahdr_pixel_format::ULTRAHDR_PIX_FMT_YUV420;
 
   std::unique_ptr<uint8_t[]> out_img_data;
   int outSize = IMAGE_WIDTH * IMAGE_HEIGHT * 3 / 2;
@@ -169,6 +173,7 @@ TEST_F(EditorHelperTest, mirroringYuvImageVertical) {
   EXPECT_TRUE(out_img.width = IMAGE_WIDTH);
   EXPECT_TRUE(out_img.height = IMAGE_HEIGHT);
   EXPECT_TRUE(out_img.colorGamut == in_img.colorGamut);
+  EXPECT_TRUE(out_img.pixelFormat == in_img.pixelFormat);
 #ifdef DUMP_OUTPUT
   if (!writeFile("mirrored_vertical.yuv", out_img.data, outSize)) {
     std::cerr << "unable to write output file" << std::endl;
@@ -184,6 +189,7 @@ TEST_F(EditorHelperTest, mirroringYuvImageHorizontal) {
   in_img.width = IMAGE_WIDTH;
   in_img.height = IMAGE_HEIGHT;
   in_img.colorGamut = ultrahdr_color_gamut::ULTRAHDR_COLORGAMUT_BT709;
+  in_img.pixelFormat = ultrahdr_pixel_format::ULTRAHDR_PIX_FMT_YUV420;
 
   std::unique_ptr<uint8_t[]> out_img_data;
   int outSize = IMAGE_WIDTH * IMAGE_HEIGHT * 3 / 2;
@@ -193,6 +199,7 @@ TEST_F(EditorHelperTest, mirroringYuvImageHorizontal) {
   EXPECT_TRUE(out_img.width = IMAGE_WIDTH);
   EXPECT_TRUE(out_img.height = IMAGE_HEIGHT);
   EXPECT_TRUE(out_img.colorGamut == in_img.colorGamut);
+  EXPECT_TRUE(out_img.pixelFormat == in_img.pixelFormat);
 #ifdef DUMP_OUTPUT
   if (!writeFile("mirrored_horizontal.yuv", out_img.data, outSize)) {
     std::cerr << "unable to write output file" << std::endl;
@@ -207,15 +214,16 @@ TEST_F(EditorHelperTest, mirroringGreyImageVertical) {
   in_img.data = mGreyImage.buffer.get();
   in_img.width = IMAGE_WIDTH;
   in_img.height = IMAGE_HEIGHT;
+  in_img.pixelFormat = ultrahdr_pixel_format::ULTRAHDR_PIX_FMT_MONOCHROME;
 
   std::unique_ptr<uint8_t[]> out_img_data;
   int outSize = IMAGE_WIDTH * IMAGE_HEIGHT;
   out_img_data.reset(new uint8_t[outSize]);
   out_img.data = out_img_data.get();
-  EXPECT_TRUE(mirror(&in_img, ULTRAHDR_MIRROR_VERTICAL, &out_img,
-          ULTRAHDR_PIX_FMT_MONOCHROME)== JPEGR_NO_ERROR);
+  EXPECT_TRUE(mirror(&in_img, ULTRAHDR_MIRROR_VERTICAL, &out_img)== JPEGR_NO_ERROR);
   EXPECT_TRUE(out_img.width = IMAGE_WIDTH);
   EXPECT_TRUE(out_img.height = IMAGE_HEIGHT);
+  EXPECT_TRUE(out_img.pixelFormat == in_img.pixelFormat);
 #ifdef DUMP_OUTPUT
   if (!writeFile("mirrored_vertical.y", out_img.data, outSize)) {
     std::cerr << "unable to write output file" << std::endl;
@@ -230,15 +238,16 @@ TEST_F(EditorHelperTest, mirroringGreyImageHorizontal) {
   in_img.data = mGreyImage.buffer.get();
   in_img.width = IMAGE_WIDTH;
   in_img.height = IMAGE_HEIGHT;
+  in_img.pixelFormat = ultrahdr_pixel_format::ULTRAHDR_PIX_FMT_MONOCHROME;
 
   std::unique_ptr<uint8_t[]> out_img_data;
   int outSize = IMAGE_WIDTH * IMAGE_HEIGHT;
   out_img_data.reset(new uint8_t[outSize]);
   out_img.data = out_img_data.get();
-  EXPECT_TRUE(mirror(&in_img, ULTRAHDR_MIRROR_HORIZONTAL, &out_img,
-          ULTRAHDR_PIX_FMT_MONOCHROME)== JPEGR_NO_ERROR);
+  EXPECT_TRUE(mirror(&in_img, ULTRAHDR_MIRROR_HORIZONTAL, &out_img)== JPEGR_NO_ERROR);
   EXPECT_TRUE(out_img.width = IMAGE_WIDTH);
   EXPECT_TRUE(out_img.height = IMAGE_HEIGHT);
+  EXPECT_TRUE(out_img.pixelFormat == in_img.pixelFormat);
 #ifdef DUMP_OUTPUT
   if (!writeFile("mirrored_horizontal.y", out_img.data, outSize)) {
     std::cerr << "unable to write output file" << std::endl;
@@ -254,6 +263,7 @@ TEST_F(EditorHelperTest, rotatingYuvImage90) {
   in_img.width = IMAGE_WIDTH;
   in_img.height = IMAGE_HEIGHT;
   in_img.colorGamut = ultrahdr_color_gamut::ULTRAHDR_COLORGAMUT_BT709;
+  in_img.pixelFormat = ultrahdr_pixel_format::ULTRAHDR_PIX_FMT_YUV420;
 
   std::unique_ptr<uint8_t[]> out_img_data;
   int outSize = IMAGE_WIDTH * IMAGE_HEIGHT * 3 / 2;
@@ -263,6 +273,7 @@ TEST_F(EditorHelperTest, rotatingYuvImage90) {
   EXPECT_TRUE(out_img.width = IMAGE_HEIGHT);
   EXPECT_TRUE(out_img.height = IMAGE_WIDTH);
   EXPECT_TRUE(out_img.colorGamut == in_img.colorGamut);
+  EXPECT_TRUE(out_img.pixelFormat == in_img.pixelFormat);
 #ifdef DUMP_OUTPUT
   if (!writeFile("rotated_90.yuv", out_img.data, outSize)) {
     std::cerr << "unable to write output file" << std::endl;
@@ -278,6 +289,7 @@ TEST_F(EditorHelperTest, rotatingYuvImage180) {
   in_img.width = IMAGE_WIDTH;
   in_img.height = IMAGE_HEIGHT;
   in_img.colorGamut = ultrahdr_color_gamut::ULTRAHDR_COLORGAMUT_BT709;
+  in_img.pixelFormat = ultrahdr_pixel_format::ULTRAHDR_PIX_FMT_YUV420;
 
   std::unique_ptr<uint8_t[]> out_img_data;
   int outSize = IMAGE_WIDTH * IMAGE_HEIGHT * 3 / 2;
@@ -287,6 +299,7 @@ TEST_F(EditorHelperTest, rotatingYuvImage180) {
   EXPECT_TRUE(out_img.width = IMAGE_WIDTH);
   EXPECT_TRUE(out_img.height = IMAGE_HEIGHT);
   EXPECT_TRUE(out_img.colorGamut == in_img.colorGamut);
+  EXPECT_TRUE(out_img.pixelFormat == in_img.pixelFormat);
 #ifdef DUMP_OUTPUT
   if (!writeFile("rotated_180.yuv", out_img.data, outSize)) {
     std::cerr << "unable to write output file" << std::endl;
@@ -302,6 +315,7 @@ TEST_F(EditorHelperTest, rotatingYuvImage270) {
   in_img.width = IMAGE_WIDTH;
   in_img.height = IMAGE_HEIGHT;
   in_img.colorGamut = ultrahdr_color_gamut::ULTRAHDR_COLORGAMUT_BT709;
+  in_img.pixelFormat = ultrahdr_pixel_format::ULTRAHDR_PIX_FMT_YUV420;
 
   std::unique_ptr<uint8_t[]> out_img_data;
   int outSize = IMAGE_WIDTH * IMAGE_HEIGHT * 3 / 2;
@@ -311,6 +325,7 @@ TEST_F(EditorHelperTest, rotatingYuvImage270) {
   EXPECT_TRUE(out_img.width = IMAGE_HEIGHT);
   EXPECT_TRUE(out_img.height = IMAGE_WIDTH);
   EXPECT_TRUE(out_img.colorGamut == in_img.colorGamut);
+  EXPECT_TRUE(out_img.pixelFormat == in_img.pixelFormat);
 #ifdef DUMP_OUTPUT
   if (!writeFile("rotated_270.yuv", out_img.data, outSize)) {
     std::cerr << "unable to write output file" << std::endl;
@@ -325,14 +340,16 @@ TEST_F(EditorHelperTest, rotatingGreyImage90) {
   in_img.data = mGreyImage.buffer.get();
   in_img.width = IMAGE_WIDTH;
   in_img.height = IMAGE_HEIGHT;
+  in_img.pixelFormat = ultrahdr_pixel_format::ULTRAHDR_PIX_FMT_MONOCHROME;
 
   std::unique_ptr<uint8_t[]> out_img_data;
   int outSize = IMAGE_WIDTH * IMAGE_HEIGHT;
   out_img_data.reset(new uint8_t[outSize]);
   out_img.data = out_img_data.get();
-  EXPECT_TRUE(rotate(&in_img, 90, &out_img, ULTRAHDR_PIX_FMT_MONOCHROME)== JPEGR_NO_ERROR);
+  EXPECT_TRUE(rotate(&in_img, 90, &out_img)== JPEGR_NO_ERROR);
   EXPECT_TRUE(out_img.width = IMAGE_HEIGHT);
   EXPECT_TRUE(out_img.height = IMAGE_WIDTH);
+  EXPECT_TRUE(out_img.pixelFormat == in_img.pixelFormat);
 #ifdef DUMP_OUTPUT
   if (!writeFile("rotated_90.y", out_img.data, outSize)) {
     std::cerr << "unable to write output file" << std::endl;
@@ -347,14 +364,16 @@ TEST_F(EditorHelperTest, rotatingGreyImage180) {
   in_img.data = mGreyImage.buffer.get();
   in_img.width = IMAGE_WIDTH;
   in_img.height = IMAGE_HEIGHT;
+  in_img.pixelFormat = ultrahdr_pixel_format::ULTRAHDR_PIX_FMT_MONOCHROME;
 
   std::unique_ptr<uint8_t[]> out_img_data;
   int outSize = IMAGE_WIDTH * IMAGE_HEIGHT;
   out_img_data.reset(new uint8_t[outSize]);
   out_img.data = out_img_data.get();
-  EXPECT_TRUE(rotate(&in_img, 180, &out_img, ULTRAHDR_PIX_FMT_MONOCHROME)== JPEGR_NO_ERROR);
+  EXPECT_TRUE(rotate(&in_img, 180, &out_img)== JPEGR_NO_ERROR);
   EXPECT_TRUE(out_img.width = IMAGE_WIDTH);
   EXPECT_TRUE(out_img.height = IMAGE_HEIGHT);
+  EXPECT_TRUE(out_img.pixelFormat == in_img.pixelFormat);
 #ifdef DUMP_OUTPUT
   if (!writeFile("rotated_180.y", out_img.data, outSize)) {
     std::cerr << "unable to write output file" << std::endl;
@@ -369,14 +388,16 @@ TEST_F(EditorHelperTest, rotatingGreyImage270) {
   in_img.data = mGreyImage.buffer.get();
   in_img.width = IMAGE_WIDTH;
   in_img.height = IMAGE_HEIGHT;
+  in_img.pixelFormat = ultrahdr_pixel_format::ULTRAHDR_PIX_FMT_MONOCHROME;
 
   std::unique_ptr<uint8_t[]> out_img_data;
   int outSize = IMAGE_WIDTH * IMAGE_HEIGHT;
   out_img_data.reset(new uint8_t[outSize]);
   out_img.data = out_img_data.get();
-  EXPECT_TRUE(rotate(&in_img, 270, &out_img, ULTRAHDR_PIX_FMT_MONOCHROME)== JPEGR_NO_ERROR);
+  EXPECT_TRUE(rotate(&in_img, 270, &out_img)== JPEGR_NO_ERROR);
   EXPECT_TRUE(out_img.width = IMAGE_HEIGHT);
   EXPECT_TRUE(out_img.height = IMAGE_WIDTH);
+  EXPECT_TRUE(out_img.pixelFormat == in_img.pixelFormat);
 #ifdef DUMP_OUTPUT
   if (!writeFile("rotated_270.y", out_img.data, outSize)) {
     std::cerr << "unable to write output file" << std::endl;
@@ -391,6 +412,8 @@ TEST_F(EditorHelperTest, resizeYuvImageUp) {
   in_img.data = mYuvImage.buffer.get();
   in_img.width = IMAGE_WIDTH;
   in_img.height = IMAGE_HEIGHT;
+  in_img.colorGamut = ultrahdr_color_gamut::ULTRAHDR_COLORGAMUT_BT709;
+  in_img.pixelFormat = ultrahdr_pixel_format::ULTRAHDR_PIX_FMT_YUV420;
 
   std::unique_ptr<uint8_t[]> out_img_data;
   int out_width = IMAGE_WIDTH * 3 / 2;
@@ -401,6 +424,8 @@ TEST_F(EditorHelperTest, resizeYuvImageUp) {
   EXPECT_TRUE(resize(&in_img, out_width, out_height, &out_img)== JPEGR_NO_ERROR);
   EXPECT_TRUE(out_img.width = out_width);
   EXPECT_TRUE(out_img.height = out_height);
+  EXPECT_TRUE(out_img.colorGamut == in_img.colorGamut);
+  EXPECT_TRUE(out_img.pixelFormat == in_img.pixelFormat);
 #ifdef DUMP_OUTPUT
   if (!writeFile("resize_up.yuv", out_img.data, outSize)) {
     std::cerr << "unable to write output file" << std::endl;
@@ -415,6 +440,8 @@ TEST_F(EditorHelperTest, resizeYuvImageDown) {
   in_img.data = mYuvImage.buffer.get();
   in_img.width = IMAGE_WIDTH;
   in_img.height = IMAGE_HEIGHT;
+  in_img.colorGamut = ultrahdr_color_gamut::ULTRAHDR_COLORGAMUT_BT709;
+  in_img.pixelFormat = ultrahdr_pixel_format::ULTRAHDR_PIX_FMT_YUV420;
 
   std::unique_ptr<uint8_t[]> out_img_data;
   int out_width = IMAGE_WIDTH * 2 / 3;
@@ -425,6 +452,7 @@ TEST_F(EditorHelperTest, resizeYuvImageDown) {
   EXPECT_TRUE(resize(&in_img, out_width, out_height, &out_img)== JPEGR_NO_ERROR);
   EXPECT_TRUE(out_img.width = out_width);
   EXPECT_TRUE(out_img.height = out_height);
+  EXPECT_TRUE(out_img.pixelFormat == in_img.pixelFormat);
 #ifdef DUMP_OUTPUT
   if (!writeFile("resize_down.yuv", out_img.data, outSize)) {
     std::cerr << "unable to write output file" << std::endl;
@@ -439,6 +467,7 @@ TEST_F(EditorHelperTest, resizeGreyImageUp) {
   in_img.data = mGreyImage.buffer.get();
   in_img.width = IMAGE_WIDTH;
   in_img.height = IMAGE_HEIGHT;
+  in_img.pixelFormat = ultrahdr_pixel_format::ULTRAHDR_PIX_FMT_MONOCHROME;
 
   std::unique_ptr<uint8_t[]> out_img_data;
   int out_width = IMAGE_WIDTH * 3 / 2;
@@ -446,10 +475,10 @@ TEST_F(EditorHelperTest, resizeGreyImageUp) {
   int outSize = out_width * out_height;
   out_img_data.reset(new uint8_t[outSize]);
   out_img.data = out_img_data.get();
-  EXPECT_TRUE(resize(&in_img, out_width, out_height, &out_img,
-          ULTRAHDR_PIX_FMT_MONOCHROME)== JPEGR_NO_ERROR);
+  EXPECT_TRUE(resize(&in_img, out_width, out_height, &out_img)== JPEGR_NO_ERROR);
   EXPECT_TRUE(out_img.width = out_width);
   EXPECT_TRUE(out_img.height = out_height);
+  EXPECT_TRUE(out_img.pixelFormat == in_img.pixelFormat);
 #ifdef DUMP_OUTPUT
   if (!writeFile("resize_up.y", out_img.data, outSize)) {
     std::cerr << "unable to write output file" << std::endl;
@@ -464,6 +493,7 @@ TEST_F(EditorHelperTest, resizeGreyImageDown) {
   in_img.data = mGreyImage.buffer.get();
   in_img.width = IMAGE_WIDTH;
   in_img.height = IMAGE_HEIGHT;
+  in_img.pixelFormat = ultrahdr_pixel_format::ULTRAHDR_PIX_FMT_MONOCHROME;
 
   std::unique_ptr<uint8_t[]> out_img_data;
   int out_width = IMAGE_WIDTH * 2 / 3;
@@ -471,10 +501,10 @@ TEST_F(EditorHelperTest, resizeGreyImageDown) {
   int outSize = out_width * out_height;
   out_img_data.reset(new uint8_t[outSize]);
   out_img.data = out_img_data.get();
-  EXPECT_TRUE(resize(&in_img, out_width, out_height, &out_img,
-          ULTRAHDR_PIX_FMT_MONOCHROME)== JPEGR_NO_ERROR);
+  EXPECT_TRUE(resize(&in_img, out_width, out_height, &out_img)== JPEGR_NO_ERROR);
   EXPECT_TRUE(out_img.width = out_width);
   EXPECT_TRUE(out_img.height = out_height);
+  EXPECT_TRUE(out_img.pixelFormat == in_img.pixelFormat);
 #ifdef DUMP_OUTPUT
   if (!writeFile("resize_down.y", out_img.data, outSize)) {
     std::cerr << "unable to write output file" << std::endl;
