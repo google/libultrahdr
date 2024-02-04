@@ -711,7 +711,12 @@ status_t JpegR::decodeJPEGR(ultrahdr_compressed_ptr jpegr_image_ptr, ultrahdr_un
     dest->height = jpeg_dec_obj_yuv420.getDecompressedImageHeight();
     memcpy(dest->data, jpeg_dec_obj_yuv420.getDecompressedImagePtr(),
            dest->width * dest->height * 4);
+    dest->colorGamut = IccHelper::readIccColorGamut(jpeg_dec_obj_yuv420.getICCPtr(),
+                                                    jpeg_dec_obj_yuv420.getICCSize());
     dest->pixelFormat = ULTRAHDR_PIX_FMT_RGBA8888;
+    dest->chroma_data = nullptr;
+    dest->luma_stride = 0;
+    dest->chroma_stride = 0;
     return UHDR_NO_ERROR;
   }
 
@@ -735,7 +740,11 @@ status_t JpegR::decodeJPEGR(ultrahdr_compressed_ptr jpegr_image_ptr, ultrahdr_un
     int size = gainmap_image_ptr->width * gainmap_image_ptr->height;
     gainmap_image_ptr->data = malloc(size);
     memcpy(gainmap_image_ptr->data, gainmap_image.data, size);
+    gainmap_image_ptr->colorGamut = ULTRAHDR_COLORGAMUT_UNSPECIFIED;
     gainmap_image_ptr->pixelFormat = ULTRAHDR_PIX_FMT_MONOCHROME;
+    gainmap_image_ptr->chroma_data = nullptr;
+    gainmap_image_ptr->luma_stride = 0;
+    gainmap_image_ptr->chroma_stride = 0;
   }
 
   ultrahdr_metadata_struct uhdr_metadata;
@@ -1026,7 +1035,7 @@ status_t JpegR::applyGainMap(ultrahdr_uncompressed_ptr yuv420_image_ptr,
                              ultrahdr_metadata_ptr metadata, ultrahdr_output_format output_format,
                              float max_display_boost, ultrahdr_uncompressed_ptr dest) {
   if (yuv420_image_ptr == nullptr || gainmap_image_ptr == nullptr || metadata == nullptr ||
-      dest == nullptr || yuv420_image_ptr->data == nullptr ||
+      dest == nullptr || dest->data == nullptr || yuv420_image_ptr->data == nullptr ||
       yuv420_image_ptr->chroma_data == nullptr || gainmap_image_ptr->data == nullptr) {
     return ERROR_UHDR_BAD_PTR;
   }
@@ -1082,6 +1091,10 @@ status_t JpegR::applyGainMap(ultrahdr_uncompressed_ptr yuv420_image_ptr,
   } else {
     dest->pixelFormat = ULTRAHDR_PIX_FMT_UNSPECIFIED;
   }
+  dest->chroma_data = nullptr;
+  dest->luma_stride = 0;
+  dest->chroma_stride = 0;
+
   ShepardsIDW idwTable(map_scale_factor);
   float display_boost = (std::min)(max_display_boost, metadata->maxContentBoost);
   GainLUT gainLUT(metadata, display_boost);

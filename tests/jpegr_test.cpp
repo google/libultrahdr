@@ -320,6 +320,8 @@ void decodeJpegRImg(ultrahdr_compressed_ptr img, [[maybe_unused]] const char* ou
   ASSERT_EQ(UHDR_NO_ERROR, jpegHdr.decodeJPEGR(img, &destImage));
   ASSERT_EQ(kImageWidth, destImage.width);
   ASSERT_EQ(kImageHeight, destImage.height);
+  ASSERT_NE(ULTRAHDR_COLORGAMUT_UNSPECIFIED, destImage.colorGamut);
+  ASSERT_EQ(ULTRAHDR_PIX_FMT_RGBAF16, destImage.pixelFormat);
 #ifdef DUMP_OUTPUT
   if (!writeFile(outFileName, destImage.data, outSize)) {
     std::cerr << "unable to write output file" << std::endl;
