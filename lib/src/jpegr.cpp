@@ -155,6 +155,11 @@ status_t JpegR::areInputArgumentsValid(ultrahdr_uncompressed_ptr p010_image_ptr,
     ALOGE("Unrecognized p010 color gamut %d", p010_image_ptr->colorGamut);
     return ERROR_UHDR_INVALID_COLORGAMUT;
   }
+  if (p010_image_ptr->pixelFormat != ULTRAHDR_PIX_FMT_P010) {
+    ALOGE("Invalid pixel format, expected %d, got %d", ULTRAHDR_PIX_FMT_P010,
+          p010_image_ptr->pixelFormat);
+    return ERROR_UHDR_INVALID_PIXEL_FORMAT;
+  }
   if (p010_image_ptr->luma_stride != 0 && p010_image_ptr->luma_stride < p010_image_ptr->width) {
     ALOGE("Luma stride must not be smaller than width, stride=%zu, width=%zu",
           p010_image_ptr->luma_stride, p010_image_ptr->width);
@@ -204,6 +209,11 @@ status_t JpegR::areInputArgumentsValid(ultrahdr_uncompressed_ptr p010_image_ptr,
     ALOGE("Unrecognized 420 color gamut %d", yuv420_image_ptr->colorGamut);
     return ERROR_UHDR_INVALID_COLORGAMUT;
   }
+  if (yuv420_image_ptr->pixelFormat != ULTRAHDR_PIX_FMT_YUV420) {
+    ALOGE("Invalid pixel format, expected %d, got %d", ULTRAHDR_PIX_FMT_YUV420,
+          yuv420_image_ptr->pixelFormat);
+    return ERROR_UHDR_INVALID_PIXEL_FORMAT;
+  }
   return UHDR_NO_ERROR;
 }
 
@@ -246,6 +256,7 @@ status_t JpegR::encodeJPEGR(ultrahdr_uncompressed_ptr p010_image_ptr,
   yuv420_image.width = p010_image.width;
   yuv420_image.height = p010_image.height;
   yuv420_image.colorGamut = p010_image.colorGamut;
+  yuv420_image.pixelFormat = ULTRAHDR_PIX_FMT_YUV420;
   yuv420_image.chroma_data = nullptr;
   yuv420_image.luma_stride = yu420_luma_stride;
   yuv420_image.chroma_stride = yu420_luma_stride >> 1;
@@ -522,6 +533,7 @@ status_t JpegR::encodeJPEGR(ultrahdr_uncompressed_ptr p010_image_ptr,
   yuv420_image.width = jpeg_dec_obj_yuv420.getDecompressedImageWidth();
   yuv420_image.height = jpeg_dec_obj_yuv420.getDecompressedImageHeight();
   yuv420_image.colorGamut = yuv420jpg_image_ptr->colorGamut;
+  yuv420_image.pixelFormat = ULTRAHDR_PIX_FMT_YUV420;
   if (yuv420_image.luma_stride == 0) yuv420_image.luma_stride = yuv420_image.width;
   if (!yuv420_image.chroma_data) {
     uint8_t* data = reinterpret_cast<uint8_t*>(yuv420_image.data);
@@ -699,6 +711,7 @@ status_t JpegR::decodeJPEGR(ultrahdr_compressed_ptr jpegr_image_ptr, ultrahdr_un
     dest->height = jpeg_dec_obj_yuv420.getDecompressedImageHeight();
     memcpy(dest->data, jpeg_dec_obj_yuv420.getDecompressedImagePtr(),
            dest->width * dest->height * 4);
+    dest->pixelFormat = ULTRAHDR_PIX_FMT_RGBA8888;
     return UHDR_NO_ERROR;
   }
 
@@ -722,6 +735,7 @@ status_t JpegR::decodeJPEGR(ultrahdr_compressed_ptr jpegr_image_ptr, ultrahdr_un
     int size = gainmap_image_ptr->width * gainmap_image_ptr->height;
     gainmap_image_ptr->data = malloc(size);
     memcpy(gainmap_image_ptr->data, gainmap_image.data, size);
+    gainmap_image_ptr->pixelFormat = ULTRAHDR_PIX_FMT_MONOCHROME;
   }
 
   ultrahdr_metadata_struct uhdr_metadata;
@@ -747,6 +761,7 @@ status_t JpegR::decodeJPEGR(ultrahdr_compressed_ptr jpegr_image_ptr, ultrahdr_un
   yuv420_image.height = jpeg_dec_obj_yuv420.getDecompressedImageHeight();
   yuv420_image.colorGamut = IccHelper::readIccColorGamut(jpeg_dec_obj_yuv420.getICCPtr(),
                                                          jpeg_dec_obj_yuv420.getICCSize());
+  yuv420_image.pixelFormat = ULTRAHDR_PIX_FMT_YUV420;
   yuv420_image.luma_stride = yuv420_image.width;
   uint8_t* data = reinterpret_cast<uint8_t*>(yuv420_image.data);
   yuv420_image.chroma_data = data + yuv420_image.luma_stride * yuv420_image.height;
@@ -860,6 +875,7 @@ status_t JpegR::generateGainMap(ultrahdr_uncompressed_ptr yuv420_image_ptr,
   dest->width = map_width;
   dest->height = map_height;
   dest->colorGamut = ULTRAHDR_COLORGAMUT_UNSPECIFIED;
+  dest->pixelFormat = ULTRAHDR_PIX_FMT_MONOCHROME;
   dest->luma_stride = map_width;
   dest->chroma_data = nullptr;
   dest->chroma_stride = 0;
@@ -1059,6 +1075,13 @@ status_t JpegR::applyGainMap(ultrahdr_uncompressed_ptr yuv420_image_ptr,
   dest->width = yuv420_image_ptr->width;
   dest->height = yuv420_image_ptr->height;
   dest->colorGamut = yuv420_image_ptr->colorGamut;
+  if (output_format == ULTRAHDR_OUTPUT_HDR_LINEAR) {
+    dest->pixelFormat = ULTRAHDR_PIX_FMT_RGBAF16;
+  } else if (output_format == ULTRAHDR_OUTPUT_HDR_PQ || output_format == ULTRAHDR_OUTPUT_HDR_HLG) {
+    dest->pixelFormat = ULTRAHDR_PIX_FMT_RGBA1010102;
+  } else {
+    dest->pixelFormat = ULTRAHDR_PIX_FMT_UNSPECIFIED;
+  }
   ShepardsIDW idwTable(map_scale_factor);
   float display_boost = (std::min)(max_display_boost, metadata->maxContentBoost);
   GainLUT gainLUT(metadata, display_boost);

@@ -77,6 +77,7 @@ typedef enum {
   ERROR_UHDR_INVALID_OUTPUT_FORMAT = UHDR_IO_ERROR_BASE - 9,
   ERROR_UHDR_BAD_METADATA = UHDR_IO_ERROR_BASE - 10,
   ERROR_UHDR_INVALID_CROPPING_PARAMETERS = UHDR_IO_ERROR_BASE - 11,
+  ERROR_UHDR_INVALID_PIXEL_FORMAT = UHDR_IO_ERROR_BASE - 12,
 
   UHDR_RUNTIME_ERROR_BASE = -20000,
   ERROR_UHDR_ENCODE_ERROR = UHDR_RUNTIME_ERROR_BASE - 1,
@@ -103,6 +104,8 @@ struct ultrahdr_uncompressed_struct {
   size_t height;
   // Color gamut.
   ultrahdr_color_gamut colorGamut;
+  // Pixel format.
+  ultrahdr_pixel_format pixelFormat;
 
   // Values below are optional
   // Pointer to chroma data, if it's NULL, chroma plane is considered to be immediately
@@ -120,8 +123,6 @@ struct ultrahdr_uncompressed_struct {
   // NOTE: if chroma_data is nullptr, chroma_stride is irrelevant. Just as the way,
   // chroma_data is derived from luma ptr, chroma stride is derived from luma stride.
   size_t chroma_stride = 0;
-  // Pixel format.
-  ultrahdr_pixel_format pixelFormat = ULTRAHDR_PIX_FMT_UNSPECIFIED;
 };
 
 /*

@@ -262,6 +262,7 @@ bool UltraHdrAppInput::fillP010ImageHandle() {
   mRawP010Image.width = mWidth;
   mRawP010Image.height = mHeight;
   mRawP010Image.colorGamut = mP010Cg;
+  mRawP010Image.pixelFormat = ULTRAHDR_PIX_FMT_P010;
   return loadFile(mP010File, mRawP010Image.data, p010Size);
 }
 
@@ -270,6 +271,7 @@ bool UltraHdrAppInput::fillYuv420ImageHandle() {
   mRawYuv420Image.width = mWidth;
   mRawYuv420Image.height = mHeight;
   mRawYuv420Image.colorGamut = mYuv420Cg;
+  mRawYuv420Image.pixelFormat = ULTRAHDR_PIX_FMT_YUV420;
   return loadFile(mYuv420File, mRawYuv420Image.data, yuv420Size);
 }
 
@@ -426,6 +428,7 @@ bool UltraHdrAppInput::convertP010ToRGBImage() {
   mRawRgba1010102Image.width = mRawP010Image.width;
   mRawRgba1010102Image.height = mRawP010Image.height;
   mRawRgba1010102Image.colorGamut = mRawP010Image.colorGamut;
+  mRawRgba1010102Image.pixelFormat = ULTRAHDR_PIX_FMT_RGBA1010102;
   uint32_t* rgbData = static_cast<uint32_t*>(mRawRgba1010102Image.data);
   uint16_t* y = static_cast<uint16_t*>(mRawP010Image.data);
   uint16_t* u = y + mRawP010Image.width * mRawP010Image.height;
@@ -476,6 +479,7 @@ bool UltraHdrAppInput::convertYuv420ToRGBImage() {
   mRawRgba8888Image.width = mRawYuv420Image.width;
   mRawRgba8888Image.height = mRawYuv420Image.height;
   mRawRgba8888Image.colorGamut = mRawYuv420Image.colorGamut;
+  mRawRgba8888Image.pixelFormat = ULTRAHDR_PIX_FMT_RGBA8888;
   uint32_t* rgbData = static_cast<uint32_t*>(mRawRgba8888Image.data);
   uint8_t* y = static_cast<uint8_t*>(mRawYuv420Image.data);
   uint8_t* u = y + (mRawYuv420Image.width * mRawYuv420Image.height);
@@ -526,6 +530,7 @@ bool UltraHdrAppInput::convertRgba8888ToYUV444Image() {
   mDestYUV444Image.width = mDestImage.width;
   mDestYUV444Image.height = mDestImage.height;
   mDestYUV444Image.colorGamut = mDestImage.colorGamut;
+  mDestYUV444Image.pixelFormat = ULTRAHDR_PIX_FMT_UNSPECIFIED;
 
   uint32_t* rgbData = static_cast<uint32_t*>(mDestImage.data);
 
@@ -587,6 +592,7 @@ bool UltraHdrAppInput::convertRgba1010102ToYUV444Image() {
   mDestYUV444Image.width = mDestImage.width;
   mDestYUV444Image.height = mDestImage.height;
   mDestYUV444Image.colorGamut = mDestImage.colorGamut;
+  mDestYUV444Image.pixelFormat = ULTRAHDR_PIX_FMT_UNSPECIFIED;
 
   uint32_t* rgbData = static_cast<uint32_t*>(mDestImage.data);
 

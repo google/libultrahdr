@@ -109,6 +109,12 @@ UhdrUnCompressedStructWrapper::UhdrUnCompressedStructWrapper(size_t width, size_
   mImg.width = width;
   mImg.height = height;
   mImg.colorGamut = ULTRAHDR_COLORGAMUT_UNSPECIFIED;
+  if (format == YCbCr_p010)
+    mImg.pixelFormat = ULTRAHDR_PIX_FMT_P010;
+  else if (format == YCbCr_420)
+    mImg.pixelFormat = ULTRAHDR_PIX_FMT_YUV420;
+  else
+    mImg.pixelFormat = ULTRAHDR_PIX_FMT_UNSPECIFIED;
   mImg.chroma_data = nullptr;
   mImg.luma_stride = 0;
   mImg.chroma_stride = 0;
@@ -460,7 +466,16 @@ TEST(JpegRTest, EncodeAPI0WithInvalidArgs) {
 
     rawImgP010->width = kWidth;
     rawImgP010->height = kHeight;
+    rawImgP010->pixelFormat = ULTRAHDR_PIX_FMT_RGBA1010102;
+    ASSERT_NE(uHdrLib.encodeJPEGR(rawImgP010, ultrahdr_transfer_function::ULTRAHDR_TF_HLG,
+                                  jpgImg.getImageHandle(), kQuality, nullptr),
+              UHDR_NO_ERROR)
+        << "fail, API allows bad image color format";
+
+    rawImgP010->width = kWidth;
+    rawImgP010->height = kHeight;
     rawImgP010->luma_stride = kWidth - 2;
+    rawImgP010->pixelFormat = ULTRAHDR_PIX_FMT_P010;
     ASSERT_NE(uHdrLib.encodeJPEGR(rawImgP010, ultrahdr_transfer_function::ULTRAHDR_TF_HLG,
                                   jpgImg.getImageHandle(), kQuality, nullptr),
               UHDR_NO_ERROR)
@@ -630,7 +645,16 @@ TEST(JpegRTest, EncodeAPI1WithInvalidArgs) {
 
     rawImgP010->width = kWidth;
     rawImgP010->height = kHeight;
+    rawImgP010->pixelFormat = ULTRAHDR_PIX_FMT_RGBA1010102;
+    ASSERT_NE(uHdrLib.encodeJPEGR(rawImgP010, ultrahdr_transfer_function::ULTRAHDR_TF_HLG,
+                                  jpgImg.getImageHandle(), kQuality, nullptr),
+              UHDR_NO_ERROR)
+        << "fail, API allows bad image color format";
+
+    rawImgP010->width = kWidth;
+    rawImgP010->height = kHeight;
     rawImgP010->luma_stride = kWidth - 2;
+    rawImgP010->pixelFormat = ULTRAHDR_PIX_FMT_P010;
     ASSERT_NE(
         uHdrLib.encodeJPEGR(rawImgP010, rawImg420, ultrahdr_transfer_function::ULTRAHDR_TF_HLG,
                             jpgImg.getImageHandle(), kQuality, nullptr),
@@ -733,7 +757,17 @@ TEST(JpegRTest, EncodeAPI1WithInvalidArgs) {
 
     rawImg420->width = kWidth;
     rawImg420->height = kHeight;
+    rawImg420->pixelFormat = ULTRAHDR_PIX_FMT_RGBA8888;
+    ASSERT_NE(
+        uHdrLib.encodeJPEGR(rawImgP010, rawImg420, ultrahdr_transfer_function::ULTRAHDR_TF_HLG,
+                            jpgImg.getImageHandle(), kQuality, nullptr),
+        UHDR_NO_ERROR)
+        << "fail, API allows bad pixel format";
+
+    rawImg420->width = kWidth;
+    rawImg420->height = kHeight;
     rawImg420->luma_stride = kWidth - 2;
+    rawImg420->pixelFormat = ULTRAHDR_PIX_FMT_YUV420;
     ASSERT_NE(
         uHdrLib.encodeJPEGR(rawImgP010, rawImg420, ultrahdr_transfer_function::ULTRAHDR_TF_HLG,
                             jpgImg.getImageHandle(), kQuality, nullptr),
@@ -917,6 +951,16 @@ TEST(JpegRTest, EncodeAPI2WithInvalidArgs) {
 
     rawImgP010->width = kWidth;
     rawImgP010->height = kHeight;
+    rawImgP010->pixelFormat = ULTRAHDR_PIX_FMT_RGBA1010102;
+    ASSERT_NE(
+        uHdrLib.encodeJPEGR(rawImgP010, rawImg420, jpgImg.getImageHandle(),
+                            ultrahdr_transfer_function::ULTRAHDR_TF_HLG, jpgImg.getImageHandle()),
+        UHDR_NO_ERROR)
+        << "fail, API allows bad pixel format";
+
+    rawImgP010->width = kWidth;
+    rawImgP010->height = kHeight;
+    rawImgP010->pixelFormat = ULTRAHDR_PIX_FMT_P010;
     rawImgP010->luma_stride = kWidth - 2;
     ASSERT_NE(
         uHdrLib.encodeJPEGR(rawImgP010, rawImg420, jpgImg.getImageHandle(),
@@ -1020,6 +1064,16 @@ TEST(JpegRTest, EncodeAPI2WithInvalidArgs) {
 
     rawImg420->width = kWidth;
     rawImg420->height = kHeight;
+    rawImg420->pixelFormat = ULTRAHDR_PIX_FMT_RGBA8888;
+    ASSERT_NE(
+        uHdrLib.encodeJPEGR(rawImgP010, rawImg420, jpgImg.getImageHandle(),
+                            ultrahdr_transfer_function::ULTRAHDR_TF_HLG, jpgImg.getImageHandle()),
+        UHDR_NO_ERROR)
+        << "fail, API allows bad pixel format for 420";
+
+    rawImg420->width = kWidth;
+    rawImg420->height = kHeight;
+    rawImg420->pixelFormat = ULTRAHDR_PIX_FMT_YUV420;
     rawImg420->luma_stride = kWidth - 2;
     ASSERT_NE(
         uHdrLib.encodeJPEGR(rawImgP010, rawImg420, jpgImg.getImageHandle(),
@@ -1186,6 +1240,16 @@ TEST(JpegRTest, EncodeAPI3WithInvalidArgs) {
 
     rawImgP010->width = kWidth;
     rawImgP010->height = kHeight;
+    rawImgP010->pixelFormat = ULTRAHDR_PIX_FMT_RGBA1010102;
+    ASSERT_NE(
+        uHdrLib.encodeJPEGR(rawImgP010, jpgImg.getImageHandle(),
+                            ultrahdr_transfer_function::ULTRAHDR_TF_HLG, jpgImg.getImageHandle()),
+        UHDR_NO_ERROR)
+        << "fail, API allows bad pixel format";
+
+    rawImgP010->width = kWidth;
+    rawImgP010->height = kHeight;
+    rawImgP010->pixelFormat = ULTRAHDR_PIX_FMT_P010;
     rawImgP010->luma_stride = kWidth - 2;
     ASSERT_NE(
         uHdrLib.encodeJPEGR(rawImgP010, jpgImg.getImageHandle(),

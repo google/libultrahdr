@@ -132,6 +132,7 @@ void UltraHdrEncFuzzer::process() {
       p010Img.width = width;
       p010Img.height = height;
       p010Img.colorGamut = p010Cg;
+      p010Img.pixelFormat = ULTRAHDR_PIX_FMT_P010;
       p010Img.luma_stride = hasYStride ? yStride : 0;
       if (isUVContiguous) {
         size_t p010Size = yStride * height * 3 / 2;
@@ -160,6 +161,7 @@ void UltraHdrEncFuzzer::process() {
       grayImg.width = map_width;
       grayImg.height = map_height;
       grayImg.colorGamut = ULTRAHDR_COLORGAMUT_UNSPECIFIED;
+      grayImg.pixelFormat = ULTRAHDR_PIX_FMT_MONOCHROME;
 
       const size_t graySize = map_width * map_height;
       grayImgRaw = std::make_unique<uint8_t[]>(graySize);
@@ -178,6 +180,7 @@ void UltraHdrEncFuzzer::process() {
       yuv420Img.width = width;
       yuv420Img.height = height;
       yuv420Img.colorGamut = yuv420Cg;
+      yuv420Img.pixelFormat = ULTRAHDR_PIX_FMT_YUV420;
       yuv420Img.luma_stride = hasYStride ? yStride : 0;
       if (isUVContiguous) {
         size_t yuv420Size = yStride * height * 3 / 2;

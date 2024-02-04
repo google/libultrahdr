@@ -133,7 +133,7 @@ class GainMapMathTest : public testing::Test {
         0xB2,
         0xB3,
     };
-    return {pixels, 4, 4, ULTRAHDR_COLORGAMUT_BT709, pixels + 16, 4, 2};
+    return {pixels, 4, 4, ULTRAHDR_COLORGAMUT_BT709, ULTRAHDR_PIX_FMT_YUV420, pixels + 16, 4, 2};
   }
 
   Color (*Yuv420Colors())[4] {
@@ -195,7 +195,7 @@ class GainMapMathTest : public testing::Test {
         0xA3 << 6,
         0xB3 << 6,
     };
-    return {pixels, 4, 4, ULTRAHDR_COLORGAMUT_BT709, pixels + 16, 4, 4};
+    return {pixels, 4, 4, ULTRAHDR_COLORGAMUT_BT709, ULTRAHDR_PIX_FMT_P010, pixels + 16, 4, 4};
   }
 
   Color (*P010Colors())[4] {
@@ -233,7 +233,7 @@ class GainMapMathTest : public testing::Test {
         0x00, 0x10, 0x20, 0x30, 0x01, 0x11, 0x21, 0x31,
         0x02, 0x12, 0x22, 0x32, 0x03, 0x13, 0x23, 0x33,
     };
-    return {pixels, 4, 4, ULTRAHDR_COLORGAMUT_UNSPECIFIED};
+    return {pixels, 4, 4, ULTRAHDR_COLORGAMUT_UNSPECIFIED, ULTRAHDR_PIX_FMT_MONOCHROME};
   }
 
   float (*MapValues())[4] {

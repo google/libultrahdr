@@ -175,6 +175,7 @@ bool fillRawImageHandle(ultrahdr_uncompressed_struct* rawImage, int width, int h
   rawImage->width = width;
   rawImage->height = height;
   rawImage->colorGamut = cg;
+  rawImage->pixelFormat = isP010 ? ULTRAHDR_PIX_FMT_P010 : ULTRAHDR_PIX_FMT_YUV420;
   return loadFile(file.c_str(), rawImage->data, imgSize);
 }
 
