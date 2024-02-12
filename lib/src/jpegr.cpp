@@ -701,6 +701,7 @@ status_t JpegR::decodeJPEGR(jr_compressed_ptr jpegr_image_ptr, jr_uncompressed_p
     gainmap_image_ptr->width = gainmap_image.width;
     gainmap_image_ptr->height = gainmap_image.height;
     int size = gainmap_image_ptr->width * gainmap_image_ptr->height;
+    // TODO dichenzhang: allocate memory outside the library
     gainmap_image_ptr->data = malloc(size);
     memcpy(gainmap_image_ptr->data, gainmap_image.data, size);
   }
