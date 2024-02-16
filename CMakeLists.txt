@@ -22,6 +22,7 @@ project(UltraHdr C CXX)
 # Detect system
 ###########################################################
 if(${CMAKE_SYSTEM_NAME} MATCHES "Linux")
+elseif(EMSCRIPTEN)
 elseif(WIN32)
 elseif(APPLE)
 else()
@@ -122,6 +123,19 @@ if(MSVC)
   add_compile_options(/wd4267) # conversion from 'size_t' to 'type' possible loss of data
   add_compile_options(/wd4305) # truncation from 'double' to 'float'
   add_compile_options(/wd4838) # conversion from 'type1' to 'type2' requires a narrowing conversion
+elseif(EMSCRIPTEN)
+  if(DEFINED UHDR_SANITIZE_OPTIONS)
+    message(FATAL_ERROR "Building with Sanitizer options not supported in Web Assembly Path")
+  endif()
+  if(UHDR_BUILD_FUZZERS)
+    message(FATAL_ERROR "Building fuzzers not supported in Web Assembly Path")
+  endif()
+  if(UHDR_BUILD_BENCHMARK)
+    message(FATAL_ERROR "Building benchmark not supported in Web Assembly Path")
+  endif()
+  if(UHDR_BUILD_TESTS)
+    message(FATAL_ERROR "Building tests not supported in Web Assembly Path")
+  endif()
 else()
   add_compile_options(-ffunction-sections)
   add_compile_options(-fdata-sections)
@@ -196,26 +210,39 @@ else()
   set(JPEG_LIB_PREFIX ${JPEGTURBO_BINARY_DIR}/)
 endif()
 set(JPEG_LIBRARIES ${JPEG_LIB_PREFIX}${JPEG_LIB})
-ExternalProject_Add(${JPEGTURBO_TARGET_NAME}
-    GIT_REPOSITORY https://github.com/libjpeg-turbo/libjpeg-turbo.git
-    GIT_TAG 3.0.1
-    PREFIX ${JPEGTURBO_PREFIX_DIR}
-    SOURCE_DIR ${JPEGTURBO_SOURCE_DIR}
-    BINARY_DIR ${JPEGTURBO_BINARY_DIR}
-    BUILD_COMMAND ${CMAKE_COMMAND} --build <BINARY_DIR> --config $<CONFIG> --target jpeg-static
-    CMAKE_ARGS -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
-               -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
-               -DCMAKE_C_FLAGS=${UHDR_CMAKE_C_FLAGS}
-               -DCMAKE_C_FLAGS_DEBUG=${CMAKE_C_FLAGS_DEBUG}
-               -DCMAKE_C_FLAGS_RELEASE=${CMAKE_C_FLAGS_RELEASE}
-               -DCMAKE_C_FLAGS_MINSIZEREL=${CMAKE_C_FLAGS_MINSIZEREL}
-               -DCMAKE_C_FLAGS_RELWITHDEBINFO=${CMAKE_C_FLAGS_RELWITHDEBINFO}
-               -DCMAKE_POSITION_INDEPENDENT_CODE=ON
-               -DENABLE_SHARED=0
-    BUILD_BYPRODUCTS ${JPEG_LIBRARIES}
-    INSTALL_COMMAND ""
-)
-
+if(EMSCRIPTEN)
+  ExternalProject_Add(${JPEGTURBO_TARGET_NAME}
+      GIT_REPOSITORY https://github.com/libjpeg-turbo/libjpeg-turbo.git
+      GIT_TAG 3.0.1
+      PREFIX ${JPEGTURBO_PREFIX_DIR}
+      SOURCE_DIR ${JPEGTURBO_SOURCE_DIR}
+      BINARY_DIR ${JPEGTURBO_BINARY_DIR}
+      CONFIGURE_COMMAND emcmake cmake ${JPEGTURBO_SOURCE_DIR} -DENABLE_SHARED=0 -DWITH_SIMD=0
+      BUILD_COMMAND ${CMAKE_COMMAND} --build <BINARY_DIR> --config $<CONFIG> --target jpeg-static
+      BUILD_BYPRODUCTS ${JPEG_LIBRARIES}
+      INSTALL_COMMAND ""
+  )
+else()
+  ExternalProject_Add(${JPEGTURBO_TARGET_NAME}
+      GIT_REPOSITORY https://github.com/libjpeg-turbo/libjpeg-turbo.git
+      GIT_TAG 3.0.1
+      PREFIX ${JPEGTURBO_PREFIX_DIR}
+      SOURCE_DIR ${JPEGTURBO_SOURCE_DIR}
+      BINARY_DIR ${JPEGTURBO_BINARY_DIR}
+      BUILD_COMMAND ${CMAKE_COMMAND} --build <BINARY_DIR> --config $<CONFIG> --target jpeg-static
+      CMAKE_ARGS -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
+                -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
+                -DCMAKE_C_FLAGS=${UHDR_CMAKE_C_FLAGS}
+                -DCMAKE_C_FLAGS_DEBUG=${CMAKE_C_FLAGS_DEBUG}
+                -DCMAKE_C_FLAGS_RELEASE=${CMAKE_C_FLAGS_RELEASE}
+                -DCMAKE_C_FLAGS_MINSIZEREL=${CMAKE_C_FLAGS_MINSIZEREL}
+                -DCMAKE_C_FLAGS_RELWITHDEBINFO=${CMAKE_C_FLAGS_RELWITHDEBINFO}
+                -DCMAKE_POSITION_INDEPENDENT_CODE=ON
+                -DENABLE_SHARED=0
+      BUILD_BYPRODUCTS ${JPEG_LIBRARIES}
+      INSTALL_COMMAND ""
+  )
+endif()
 if(UHDR_BUILD_TESTS)
   # gtest and gmock
   set(GTEST_TARGET_NAME googletest)
