@@ -26,6 +26,10 @@
 #include "ultrahdr/ultrahdr.h"
 #include "ultrahdr/jpegr.h"
 
+#if (defined(UHDR_ENABLE_INTRINSICS) && (defined(__ARM_NEON__) || defined(__ARM_NEON)))
+#include <arm_neon.h>
+#endif
+
 #define CLIP3(x, min, max) ((x) < (min)) ? (min) : ((x) > (max)) ? (max) : (x)
 
 namespace ultrahdr {
@@ -440,6 +444,23 @@ extern const std::array<float, 9> kYuvBt2100ToBt709;
 extern const std::array<float, 9> kYuvBt2100ToBt601;
 
 Color yuvColorGamutConversion(Color e_gamma, const std::array<float, 9>& coeffs);
+
+#if (defined(UHDR_ENABLE_INTRINSICS) && (defined(__ARM_NEON__) || defined(__ARM_NEON)))
+
+extern const int16_t kYuv709To601_coeffs_neon[8];
+extern const int16_t kYuv709To2100_coeffs_neon[8];
+extern const int16_t kYuv601To709_coeffs_neon[8];
+extern const int16_t kYuv601To2100_coeffs_neon[8];
+extern const int16_t kYuv2100To709_coeffs_neon[8];
+extern const int16_t kYuv2100To601_coeffs_neon[8];
+
+/*
+ * The Y values are provided at half the width of U & V values to allow use of the widening
+ * arithmetic instructions.
+ */
+int16x8x3_t yuvConversion_neon(uint8x8_t y, int16x8_t u, int16x8_t v, int16x8_t coeffs);
+
+#endif
 
 /*
  * Performs a color gamut transformation on an entire YUV420 image.

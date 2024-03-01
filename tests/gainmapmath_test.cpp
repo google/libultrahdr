@@ -97,6 +97,31 @@ class GainMapMathTest : public testing::Test {
   Color Bt2100YuvGreen() { return {{{0.6780f, -0.36037f, -0.45979f}}}; }
   Color Bt2100YuvBlue() { return {{{0.0593f, 0.5f, -0.04021f}}}; }
 
+  //////////////////////////////////////////////////////////////////////////////
+  // Reference values for when using fixed-point arithmetic.
+
+  Pixel RgbBlackPixel() { return {0, 0, 0}; }
+  Pixel RgbWhitePixel() { return {255, 255, 255}; }
+
+  Pixel RgbRedPixel() { return {255, 0, 0}; }
+  Pixel RgbGreenPixel() { return {0, 255, 0}; }
+  Pixel RgbBluePixel() { return {0, 0, 255}; }
+
+  Pixel YuvBlackPixel() { return {0, 0, 0}; }
+  Pixel YuvWhitePixel() { return {255, 0, 0}; }
+
+  Pixel SrgbYuvRedPixel() { return {54, -29, 128}; }
+  Pixel SrgbYuvGreenPixel() { return {182, -98, -116}; }
+  Pixel SrgbYuvBluePixel() { return {18, 128, -12}; }
+
+  Pixel P3YuvRedPixel() { return {76, -43, 128}; }
+  Pixel P3YuvGreenPixel() { return {150, -84, -107}; }
+  Pixel P3YuvBluePixel() { return {29, 128, -21}; }
+
+  Pixel Bt2100YuvRedPixel() { return {67, -36, 128}; }
+  Pixel Bt2100YuvGreenPixel() { return {173, -92, -117}; }
+  Pixel Bt2100YuvBluePixel() { return {15, 128, -10}; }
+
   float SrgbYuvToLuminance(Color yuv_gamma, ColorCalculationFn luminanceFn) {
     Color rgb_gamma = srgbYuvToRgb(yuv_gamma);
     Color rgb = srgbInvOetf(rgb_gamma);
@@ -654,6 +679,128 @@ TEST_F(GainMapMathTest, YuvColorGamutConversion) {
     }
   }
 }
+
+#if (defined(UHDR_ENABLE_INTRINSICS) && (defined(__ARM_NEON__) || defined(__ARM_NEON)))
+TEST_F(GainMapMathTest, YuvConversionNeon) {
+  const std::array<Pixel, 5> SrgbYuvColors{YuvBlackPixel(), YuvWhitePixel(), SrgbYuvRedPixel(),
+                                           SrgbYuvGreenPixel(), SrgbYuvBluePixel()};
+
+  const std::array<Pixel, 5> P3YuvColors{YuvBlackPixel(), YuvWhitePixel(), P3YuvRedPixel(),
+                                         P3YuvGreenPixel(), P3YuvBluePixel()};
+
+  const std::array<Pixel, 5> Bt2100YuvColors{YuvBlackPixel(), YuvWhitePixel(), Bt2100YuvRedPixel(),
+                                             Bt2100YuvGreenPixel(), Bt2100YuvBluePixel()};
+
+  struct InputSamples {
+    std::array<uint8_t, 8> y;
+    std::array<int16_t, 8> u;
+    std::array<int16_t, 8> v;
+  };
+
+  struct ExpectedSamples {
+    std::array<int16_t, 8> y;
+    std::array<int16_t, 8> u;
+    std::array<int16_t, 8> v;
+  };
+
+  // Each tuple contains three elements.
+  // 0. A pointer to the coefficients that will be passed to the Neon implementation
+  // 1. Input pixel/color array
+  // 2. The expected results
+  const std::array<
+      std::tuple<const int16_t*, const std::array<Pixel, 5>, const std::array<Pixel, 5>>, 6>
+      coeffs_setup_correct{{
+          {kYuv709To601_coeffs_neon, SrgbYuvColors, P3YuvColors},
+          {kYuv709To2100_coeffs_neon, SrgbYuvColors, Bt2100YuvColors},
+          {kYuv601To709_coeffs_neon, P3YuvColors, SrgbYuvColors},
+          {kYuv601To2100_coeffs_neon, P3YuvColors, Bt2100YuvColors},
+          {kYuv2100To709_coeffs_neon, Bt2100YuvColors, SrgbYuvColors},
+          {kYuv2100To601_coeffs_neon, Bt2100YuvColors, P3YuvColors},
+      }};
+
+  for (const auto& [coeff_ptr, input, expected] : coeffs_setup_correct) {
+    const int16x8_t coeffs = vld1q_s16(coeff_ptr);
+    InputSamples input_values;
+    ExpectedSamples expected_values;
+    for (size_t sample_idx = 0; sample_idx < 8; ++sample_idx) {
+      size_t ring_idx = sample_idx % input.size();
+      input_values.y.at(sample_idx) = static_cast<uint8_t>(input.at(ring_idx).y);
+      input_values.u.at(sample_idx) = input.at(ring_idx).u;
+      input_values.v.at(sample_idx) = input.at(ring_idx).v;
+
+      expected_values.y.at(sample_idx) = expected.at(ring_idx).y;
+      expected_values.u.at(sample_idx) = expected.at(ring_idx).u;
+      expected_values.v.at(sample_idx) = expected.at(ring_idx).v;
+    }
+
+    const uint8x8_t y_neon = vld1_u8(input_values.y.data());
+    const int16x8_t u_neon = vld1q_s16(input_values.u.data());
+    const int16x8_t v_neon = vld1q_s16(input_values.v.data());
+
+    const int16x8x3_t neon_result = yuvConversion_neon(y_neon, u_neon, v_neon, coeffs);
+
+    const int16x8_t y_neon_result = neon_result.val[0];
+    const int16x8_t u_neon_result = neon_result.val[1];
+    const int16x8_t v_neon_result = neon_result.val[2];
+
+    const Pixel result0 = {vgetq_lane_s16(y_neon_result, 0), vgetq_lane_s16(u_neon_result, 0),
+                           vgetq_lane_s16(v_neon_result, 0)};
+
+    const Pixel result1 = {vgetq_lane_s16(y_neon_result, 1), vgetq_lane_s16(u_neon_result, 1),
+                           vgetq_lane_s16(v_neon_result, 1)};
+
+    const Pixel result2 = {vgetq_lane_s16(y_neon_result, 2), vgetq_lane_s16(u_neon_result, 2),
+                           vgetq_lane_s16(v_neon_result, 2)};
+
+    const Pixel result3 = {vgetq_lane_s16(y_neon_result, 3), vgetq_lane_s16(u_neon_result, 3),
+                           vgetq_lane_s16(v_neon_result, 3)};
+
+    const Pixel result4 = {vgetq_lane_s16(y_neon_result, 4), vgetq_lane_s16(u_neon_result, 4),
+                           vgetq_lane_s16(v_neon_result, 4)};
+
+    const Pixel result5 = {vgetq_lane_s16(y_neon_result, 5), vgetq_lane_s16(u_neon_result, 5),
+                           vgetq_lane_s16(v_neon_result, 5)};
+
+    const Pixel result6 = {vgetq_lane_s16(y_neon_result, 6), vgetq_lane_s16(u_neon_result, 6),
+                           vgetq_lane_s16(v_neon_result, 6)};
+
+    const Pixel result7 = {vgetq_lane_s16(y_neon_result, 7), vgetq_lane_s16(u_neon_result, 7),
+                           vgetq_lane_s16(v_neon_result, 7)};
+
+    EXPECT_NEAR(result0.y, expected_values.y.at(0), 1);
+    EXPECT_NEAR(result0.u, expected_values.u.at(0), 1);
+    EXPECT_NEAR(result0.v, expected_values.v.at(0), 1);
+
+    EXPECT_NEAR(result1.y, expected_values.y.at(1), 1);
+    EXPECT_NEAR(result1.u, expected_values.u.at(1), 1);
+    EXPECT_NEAR(result1.v, expected_values.v.at(1), 1);
+
+    EXPECT_NEAR(result2.y, expected_values.y.at(2), 1);
+    EXPECT_NEAR(result2.u, expected_values.u.at(2), 1);
+    EXPECT_NEAR(result2.v, expected_values.v.at(2), 1);
+
+    EXPECT_NEAR(result3.y, expected_values.y.at(3), 1);
+    EXPECT_NEAR(result3.u, expected_values.u.at(3), 1);
+    EXPECT_NEAR(result3.v, expected_values.v.at(3), 1);
+
+    EXPECT_NEAR(result4.y, expected_values.y.at(4), 1);
+    EXPECT_NEAR(result4.u, expected_values.u.at(4), 1);
+    EXPECT_NEAR(result4.v, expected_values.v.at(4), 1);
+
+    EXPECT_NEAR(result5.y, expected_values.y.at(5), 1);
+    EXPECT_NEAR(result5.u, expected_values.u.at(5), 1);
+    EXPECT_NEAR(result5.v, expected_values.v.at(5), 1);
+
+    EXPECT_NEAR(result6.y, expected_values.y.at(6), 1);
+    EXPECT_NEAR(result6.u, expected_values.u.at(6), 1);
+    EXPECT_NEAR(result6.v, expected_values.v.at(6), 1);
+
+    EXPECT_NEAR(result7.y, expected_values.y.at(7), 1);
+    EXPECT_NEAR(result7.u, expected_values.u.at(7), 1);
+    EXPECT_NEAR(result7.v, expected_values.v.at(7), 1);
+  }
+}
+#endif
 
 TEST_F(GainMapMathTest, TransformYuv420) {
   jpegr_uncompressed_struct input = Yuv420Image();
