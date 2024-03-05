@@ -29,7 +29,8 @@ namespace ultrahdr {
 ////////////////////////////////////////////////////////////////////////////////
 // Framework
 
-const float kSdrWhiteNits = 100.0f;
+// ISO 22028-5
+const float kSdrWhiteNits = 203.0f;
 const float kHlgMaxNits = 1000.0f;
 const float kPqMaxNits = 10000.0f;
 
