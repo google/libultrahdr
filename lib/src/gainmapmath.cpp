@@ -575,8 +575,9 @@ Color getYuv420Pixel(jr_uncompressed_ptr image, size_t x, size_t y) {
 
   // 128 bias for UV given we are using jpeglib; see:
   // https://github.com/kornelski/libjpeg/blob/master/structure.doc
-  return {{{static_cast<float>(y_uint) / 255.0f, (static_cast<float>(u_uint) - 128.0f) / 255.0f,
-            (static_cast<float>(v_uint) - 128.0f) / 255.0f}}};
+  return {
+      {{static_cast<float>(y_uint) * (1 / 255.0f), static_cast<float>(u_uint - 128) * (1 / 255.0f),
+        static_cast<float>(v_uint - 128) * (1 / 255.0f)}}};
 }
 
 Color getP010Pixel(jr_uncompressed_ptr image, size_t x, size_t y) {
@@ -594,9 +595,9 @@ Color getP010Pixel(jr_uncompressed_ptr image, size_t x, size_t y) {
   uint16_t v_uint = chroma_data[pixel_v_idx] >> 6;
 
   // Conversions include taking narrow-range into account.
-  return {{{(static_cast<float>(y_uint) - 64.0f) / 876.0f,
-            (static_cast<float>(u_uint) - 64.0f) / 896.0f - 0.5f,
-            (static_cast<float>(v_uint) - 64.0f) / 896.0f - 0.5f}}};
+  return {{{static_cast<float>(y_uint - 64) * (1 / 876.0f),
+            static_cast<float>(u_uint - 64) * (1 / 896.0f) - 0.5f,
+            static_cast<float>(v_uint - 64) * (1 / 896.0f) - 0.5f}}};
 }
 
 typedef Color (*getPixelFn)(jr_uncompressed_ptr, size_t, size_t);

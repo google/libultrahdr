@@ -31,14 +31,14 @@ class GainMapMathTest : public testing::Test {
   float YuvConversionEpsilon() { return 1.0f / (255.0f * 2.0f); }
 
   Color Yuv420(uint8_t y, uint8_t u, uint8_t v) {
-    return {{{static_cast<float>(y) / 255.0f, (static_cast<float>(u) - 128.0f) / 255.0f,
-              (static_cast<float>(v) - 128.0f) / 255.0f}}};
+    return {{{static_cast<float>(y) * (1 / 255.0f), static_cast<float>(u - 128) * (1 / 255.0f),
+              static_cast<float>(v - 128) * (1 / 255.0f)}}};
   }
 
   Color P010(uint16_t y, uint16_t u, uint16_t v) {
-    return {
-        {{(static_cast<float>(y) - 64.0f) / 876.0f, (static_cast<float>(u) - 64.0f) / 896.0f - 0.5f,
-          (static_cast<float>(v) - 64.0f) / 896.0f - 0.5f}}};
+    return {{{static_cast<float>(y - 64) * (1 / 876.0f),
+              static_cast<float>(u - 64) * (1 / 896.0f) - 0.5f,
+              static_cast<float>(v - 64) * (1 / 896.0f) - 0.5f}}};
   }
 
   float Map(uint8_t e) { return static_cast<float>(e) / 255.0f; }
