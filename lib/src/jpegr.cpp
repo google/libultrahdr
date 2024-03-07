@@ -720,6 +720,8 @@ status_t JpegR::decodeJPEGR(jr_compressed_ptr jpegr_image_ptr, jr_uncompressed_p
     dest->height = jpeg_dec_obj_yuv420.getDecompressedImageHeight();
     memcpy(dest->data, jpeg_dec_obj_yuv420.getDecompressedImagePtr(),
            dest->width * dest->height * 4);
+    dest->colorGamut = IccHelper::readIccColorGamut(jpeg_dec_obj_yuv420.getICCPtr(),
+                                                    jpeg_dec_obj_yuv420.getICCSize());
     return JPEGR_NO_ERROR;
   }
 
