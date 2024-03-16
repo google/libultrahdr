@@ -504,7 +504,25 @@ status_t JpegR::encodeJPEGR(jr_uncompressed_ptr p010_image_ptr,
   yuv420_image.data = jpeg_dec_obj_yuv420.getDecompressedImagePtr();
   yuv420_image.width = jpeg_dec_obj_yuv420.getDecompressedImageWidth();
   yuv420_image.height = jpeg_dec_obj_yuv420.getDecompressedImageHeight();
-  yuv420_image.colorGamut = yuv420jpg_image_ptr->colorGamut;
+  if (jpeg_dec_obj_yuv420.getICCSize() > 0) {
+    ultrahdr_color_gamut cg = IccHelper::readIccColorGamut(jpeg_dec_obj_yuv420.getICCPtr(),
+                                                           jpeg_dec_obj_yuv420.getICCSize());
+    if (cg == ULTRAHDR_COLORGAMUT_UNSPECIFIED ||
+        (yuv420jpg_image_ptr->colorGamut != ULTRAHDR_COLORGAMUT_UNSPECIFIED &&
+         yuv420jpg_image_ptr->colorGamut != cg)) {
+      ALOGE("configured color gamut  %d does not match with color gamut specified in icc box %d",
+            yuv420_image_ptr->colorGamut, cg);
+      return ERROR_JPEGR_INVALID_COLORGAMUT;
+    }
+    yuv420_image.colorGamut = cg;
+  } else {
+    if (yuv420jpg_image_ptr->colorGamut <= ULTRAHDR_COLORGAMUT_UNSPECIFIED ||
+        yuv420jpg_image_ptr->colorGamut > ULTRAHDR_COLORGAMUT_MAX) {
+      ALOGE("Unrecognized 420 color gamut %d", yuv420_image_ptr->colorGamut);
+      return ERROR_JPEGR_INVALID_COLORGAMUT;
+    }
+    yuv420_image.colorGamut = yuv420jpg_image_ptr->colorGamut;
+  }
   if (yuv420_image.luma_stride == 0) yuv420_image.luma_stride = yuv420_image.width;
   if (!yuv420_image.chroma_data) {
     uint8_t* data = reinterpret_cast<uint8_t*>(yuv420_image.data);
@@ -568,6 +586,11 @@ status_t JpegR::encodeJPEGR(jr_compressed_ptr yuv420jpg_image_ptr,
     JPEGR_CHECK(appendGainMap(yuv420jpg_image_ptr, gainmapjpg_image_ptr, /* exif */ nullptr,
                               /* icc */ nullptr, /* icc size */ 0, metadata, dest));
   } else {
+    if (yuv420jpg_image_ptr->colorGamut <= ULTRAHDR_COLORGAMUT_UNSPECIFIED ||
+        yuv420jpg_image_ptr->colorGamut > ULTRAHDR_COLORGAMUT_MAX) {
+      ALOGE("Unrecognized 420 color gamut %d", yuv420_image_ptr->colorGamut);
+      return ERROR_JPEGR_INVALID_COLORGAMUT;
+    }
     std::shared_ptr<DataStruct> newIcc =
         IccHelper::writeIccProfile(ULTRAHDR_TF_SRGB, yuv420jpg_image_ptr->colorGamut);
     JPEGR_CHECK(appendGainMap(yuv420jpg_image_ptr, gainmapjpg_image_ptr, /* exif */ nullptr,
