@@ -24,6 +24,8 @@
 #include <fstream>
 #include <iostream>
 
+#include "ultrahdr_api.h"
+
 #include "ultrahdr/ultrahdrcommon.h"
 #include "ultrahdr/jpegr.h"
 #include "ultrahdr/jpegrutils.h"
@@ -301,6 +303,34 @@ static bool readFile(const char* fileName, void*& result, int maxLength, int& le
   return false;
 }
 
+uhdr_color_gamut_t map_internal_cg_to_cg(ultrahdr::ultrahdr_color_gamut cg) {
+  switch (cg) {
+    case ultrahdr::ULTRAHDR_COLORGAMUT_BT2100:
+      return UHDR_CG_BT_2100;
+    case ultrahdr::ULTRAHDR_COLORGAMUT_BT709:
+      return UHDR_CG_BT_709;
+    case ultrahdr::ULTRAHDR_COLORGAMUT_P3:
+      return UHDR_CG_DISPLAY_P3;
+    default:
+      return UHDR_CG_UNSPECIFIED;
+  }
+}
+
+uhdr_color_transfer_t map_internal_ct_to_ct(ultrahdr::ultrahdr_transfer_function ct) {
+  switch (ct) {
+    case ultrahdr::ULTRAHDR_TF_HLG:
+      return UHDR_CT_HLG;
+    case ultrahdr::ULTRAHDR_TF_PQ:
+      return UHDR_CT_PQ;
+    case ultrahdr::ULTRAHDR_TF_LINEAR:
+      return UHDR_CT_LINEAR;
+    case ultrahdr::ULTRAHDR_TF_SRGB:
+      return UHDR_CT_SRGB;
+    default:
+      return UHDR_CT_UNSPECIFIED;
+  }
+}
+
 void decodeJpegRImg(jr_compressed_ptr img, [[maybe_unused]] const char* outFileName) {
   jpegr_info_struct info{};
   JpegR jpegHdr;
@@ -319,6 +349,25 @@ void decodeJpegRImg(jr_compressed_ptr img, [[maybe_unused]] const char* outFileN
     std::cerr << "unable to write output file" << std::endl;
   }
 #endif
+  uhdr_codec_private_t* obj = uhdr_create_decoder();
+  uhdr_compressed_image_t uhdr_image{};
+  uhdr_image.data = img->data;
+  uhdr_image.data_sz = img->length;
+  uhdr_image.capacity = img->length;
+  uhdr_image.cg = UHDR_CG_UNSPECIFIED;
+  uhdr_image.ct = UHDR_CT_UNSPECIFIED;
+  uhdr_image.range = UHDR_CR_UNSPECIFIED;
+  uhdr_error_info_t status = uhdr_dec_set_image(obj, &uhdr_image);
+  ASSERT_EQ(UHDR_CODEC_OK, status.error_code) << status.detail;
+  status = uhdr_decode(obj);
+  ASSERT_EQ(UHDR_CODEC_OK, status.error_code) << status.detail;
+  uhdr_raw_image_t* raw_image = uhdr_get_decoded_image(obj);
+  ASSERT_NE(nullptr, raw_image);
+  ASSERT_EQ(map_internal_cg_to_cg(destImage.colorGamut), raw_image->cg);
+  ASSERT_EQ(destImage.width, raw_image->w);
+  ASSERT_EQ(destImage.height, raw_image->h);
+  ASSERT_EQ(0, memcmp(destImage.data, raw_image->planes[0], outSize));
+  uhdr_release_decoder(obj);
 }
 
 // ============================================================================
@@ -1398,6 +1447,33 @@ TEST_P(JpegRAPIEncodeAndDecodeTest, EncodeAPI0AndDecodeTest) {
       uHdrLib.encodeJPEGR(rawImg.getImageHandle(), ultrahdr_transfer_function::ULTRAHDR_TF_HLG,
                           jpgImg.getImageHandle(), kQuality, nullptr),
       JPEGR_NO_ERROR);
+
+  uhdr_codec_private_t* obj = uhdr_create_encoder();
+  uhdr_raw_image_t uhdrRawImg{};
+  uhdrRawImg.fmt = UHDR_IMG_FMT_24bppYCbCrP010;
+  uhdrRawImg.cg = map_internal_cg_to_cg(mP010ColorGamut);
+  uhdrRawImg.ct = map_internal_ct_to_ct(ultrahdr_transfer_function::ULTRAHDR_TF_HLG);
+  uhdrRawImg.range = UHDR_CR_UNSPECIFIED;
+  uhdrRawImg.w = kImageWidth;
+  uhdrRawImg.h = kImageHeight;
+  uhdrRawImg.planes[0] = rawImg.getImageHandle()->data;
+  uhdrRawImg.stride[0] = kImageWidth;
+  uhdrRawImg.planes[1] =
+      ((uint8_t*)(rawImg.getImageHandle()->data)) + kImageWidth * kImageHeight * 2;
+  uhdrRawImg.stride[1] = kImageWidth;
+  uhdr_error_info_t status = uhdr_enc_set_raw_image(obj, &uhdrRawImg, UHDR_HDR_IMG);
+  ASSERT_EQ(UHDR_CODEC_OK, status.error_code) << status.detail;
+  status = uhdr_enc_set_quality(obj, kQuality, UHDR_BASE_IMG);
+  ASSERT_EQ(UHDR_CODEC_OK, status.error_code) << status.detail;
+  status = uhdr_encode(obj);
+  ASSERT_EQ(UHDR_CODEC_OK, status.error_code) << status.detail;
+  uhdr_compressed_image_t* compressedImage = uhdr_get_encoded_stream(obj);
+  ASSERT_NE(nullptr, compressedImage);
+  ASSERT_EQ(jpgImg.getImageHandle()->length, compressedImage->data_sz);
+  ASSERT_EQ(0,
+            memcmp(jpgImg.getImageHandle()->data, compressedImage->data, compressedImage->data_sz));
+  uhdr_release_encoder(obj);
+
   // encode with luma stride set
   {
     UhdrUnCompressedStructWrapper rawImg2(kImageWidth, kImageHeight, YCbCr_p010);
@@ -1434,6 +1510,30 @@ TEST_P(JpegRAPIEncodeAndDecodeTest, EncodeAPI0AndDecodeTest) {
     auto jpg2 = jpgImg2.getImageHandle();
     ASSERT_EQ(jpg1->length, jpg2->length);
     ASSERT_EQ(0, memcmp(jpg1->data, jpg2->data, jpg1->length));
+
+    uhdr_codec_private_t* obj = uhdr_create_encoder();
+    uhdr_raw_image_t uhdrRawImg{};
+    uhdrRawImg.fmt = UHDR_IMG_FMT_24bppYCbCrP010;
+    uhdrRawImg.cg = map_internal_cg_to_cg(mP010ColorGamut);
+    uhdrRawImg.ct = map_internal_ct_to_ct(ultrahdr_transfer_function::ULTRAHDR_TF_HLG);
+    uhdrRawImg.range = UHDR_CR_UNSPECIFIED;
+    uhdrRawImg.w = kImageWidth;
+    uhdrRawImg.h = kImageHeight;
+    uhdrRawImg.planes[0] = rawImg2.getImageHandle()->data;
+    uhdrRawImg.stride[0] = rawImg2.getImageHandle()->luma_stride;
+    uhdrRawImg.planes[1] = rawImg2.getImageHandle()->chroma_data;
+    uhdrRawImg.stride[1] = rawImg2.getImageHandle()->chroma_stride;
+    uhdr_error_info_t status = uhdr_enc_set_raw_image(obj, &uhdrRawImg, UHDR_HDR_IMG);
+    ASSERT_EQ(UHDR_CODEC_OK, status.error_code) << status.detail;
+    status = uhdr_enc_set_quality(obj, kQuality, UHDR_BASE_IMG);
+    ASSERT_EQ(UHDR_CODEC_OK, status.error_code) << status.detail;
+    status = uhdr_encode(obj);
+    ASSERT_EQ(UHDR_CODEC_OK, status.error_code) << status.detail;
+    uhdr_compressed_image_t* compressedImage = uhdr_get_encoded_stream(obj);
+    ASSERT_NE(nullptr, compressedImage);
+    ASSERT_EQ(jpg1->length, compressedImage->data_sz);
+    ASSERT_EQ(0, memcmp(jpg1->data, compressedImage->data, jpg1->length));
+    uhdr_release_encoder(obj);
   }
   // encode with chroma stride set
   {
@@ -1610,6 +1710,49 @@ TEST_P(JpegRAPIEncodeAndDecodeTest, EncodeAPI1AndDecodeTest) {
     auto jpg2 = jpgImg2.getImageHandle();
     ASSERT_EQ(jpg1->length, jpg2->length);
     ASSERT_EQ(0, memcmp(jpg1->data, jpg2->data, jpg1->length));
+
+    uhdr_codec_private_t* obj = uhdr_create_encoder();
+    uhdr_raw_image_t uhdrRawImg{};
+    uhdrRawImg.fmt = UHDR_IMG_FMT_24bppYCbCrP010;
+    uhdrRawImg.cg = map_internal_cg_to_cg(mP010ColorGamut);
+    uhdrRawImg.ct = map_internal_ct_to_ct(ultrahdr_transfer_function::ULTRAHDR_TF_HLG);
+    uhdrRawImg.range = UHDR_CR_UNSPECIFIED;
+    uhdrRawImg.w = kImageWidth;
+    uhdrRawImg.h = kImageHeight;
+    uhdrRawImg.planes[0] = rawImgP010.getImageHandle()->data;
+    uhdrRawImg.stride[0] = kImageWidth;
+    uhdrRawImg.planes[1] =
+        ((uint8_t*)(rawImgP010.getImageHandle()->data)) + kImageWidth * kImageHeight * 2;
+    uhdrRawImg.stride[1] = kImageWidth;
+    uhdr_error_info_t status = uhdr_enc_set_raw_image(obj, &uhdrRawImg, UHDR_HDR_IMG);
+    ASSERT_EQ(UHDR_CODEC_OK, status.error_code) << status.detail;
+
+    uhdrRawImg.fmt = UHDR_IMG_FMT_12bppYCbCr420;
+    uhdrRawImg.cg = map_internal_cg_to_cg(mYuv420ColorGamut);
+    uhdrRawImg.ct = map_internal_ct_to_ct(ultrahdr_transfer_function::ULTRAHDR_TF_SRGB);
+    uhdrRawImg.range = UHDR_CR_UNSPECIFIED;
+    uhdrRawImg.w = kImageWidth;
+    uhdrRawImg.h = kImageHeight;
+    uhdrRawImg.planes[0] = rawImg2420.getImageHandle()->data;
+    uhdrRawImg.stride[0] = rawImg2420.getImageHandle()->luma_stride;
+    uhdrRawImg.planes[1] = rawImg2420.getImageHandle()->chroma_data;
+    uhdrRawImg.stride[1] = rawImg2420.getImageHandle()->chroma_stride;
+    uhdrRawImg.planes[2] = ((uint8_t*)(rawImg2420.getImageHandle()->chroma_data)) +
+                           rawImg2420.getImageHandle()->chroma_stride * kImageHeight / 2;
+    uhdrRawImg.stride[2] = rawImg2420.getImageHandle()->chroma_stride;
+    status = uhdr_enc_set_raw_image(obj, &uhdrRawImg, UHDR_SDR_IMG);
+    ASSERT_EQ(UHDR_CODEC_OK, status.error_code) << status.detail;
+
+    status = uhdr_enc_set_quality(obj, kQuality, UHDR_BASE_IMG);
+    ASSERT_EQ(UHDR_CODEC_OK, status.error_code) << status.detail;
+    status = uhdr_encode(obj);
+    ASSERT_EQ(UHDR_CODEC_OK, status.error_code) << status.detail;
+    uhdr_compressed_image_t* compressedImage = uhdr_get_encoded_stream(obj);
+    ASSERT_NE(nullptr, compressedImage);
+    ASSERT_EQ(jpgImg.getImageHandle()->length, compressedImage->data_sz);
+    ASSERT_EQ(
+        0, memcmp(jpgImg.getImageHandle()->data, compressedImage->data, compressedImage->data_sz));
+    uhdr_release_encoder(obj);
   }
   // encode with chroma stride set 420
   {
@@ -1773,6 +1916,59 @@ TEST_P(JpegRAPIEncodeAndDecodeTest, EncodeAPI2AndDecodeTest) {
     auto jpg2 = jpgImg2.getImageHandle();
     ASSERT_EQ(jpg1->length, jpg2->length);
     ASSERT_EQ(0, memcmp(jpg1->data, jpg2->data, jpg1->length));
+
+    uhdr_codec_private_t* obj = uhdr_create_encoder();
+    uhdr_raw_image_t uhdrRawImg{};
+    uhdrRawImg.fmt = UHDR_IMG_FMT_24bppYCbCrP010;
+    uhdrRawImg.cg = map_internal_cg_to_cg(mP010ColorGamut);
+    uhdrRawImg.ct = map_internal_ct_to_ct(ultrahdr_transfer_function::ULTRAHDR_TF_HLG);
+    uhdrRawImg.range = UHDR_CR_UNSPECIFIED;
+    uhdrRawImg.w = kImageWidth;
+    uhdrRawImg.h = kImageHeight;
+    uhdrRawImg.planes[0] = rawImgP010.getImageHandle()->data;
+    uhdrRawImg.stride[0] = kImageWidth;
+    uhdrRawImg.planes[1] =
+        ((uint8_t*)(rawImgP010.getImageHandle()->data)) + kImageWidth * kImageHeight * 2;
+    uhdrRawImg.stride[1] = kImageWidth;
+    uhdr_error_info_t status = uhdr_enc_set_raw_image(obj, &uhdrRawImg, UHDR_HDR_IMG);
+    ASSERT_EQ(UHDR_CODEC_OK, status.error_code) << status.detail;
+
+    uhdrRawImg.fmt = UHDR_IMG_FMT_12bppYCbCr420;
+    uhdrRawImg.cg = map_internal_cg_to_cg(mYuv420ColorGamut);
+    uhdrRawImg.ct = map_internal_ct_to_ct(ultrahdr_transfer_function::ULTRAHDR_TF_SRGB);
+    uhdrRawImg.range = UHDR_CR_UNSPECIFIED;
+    uhdrRawImg.w = kImageWidth;
+    uhdrRawImg.h = kImageHeight;
+    uhdrRawImg.planes[0] = rawImg2420.getImageHandle()->data;
+    uhdrRawImg.stride[0] = rawImg2420.getImageHandle()->luma_stride;
+    uhdrRawImg.planes[1] = rawImg2420.getImageHandle()->chroma_data;
+    uhdrRawImg.stride[1] = rawImg2420.getImageHandle()->chroma_stride;
+    uhdrRawImg.planes[2] = ((uint8_t*)(rawImg2420.getImageHandle()->chroma_data)) +
+                           rawImg2420.getImageHandle()->chroma_stride * kImageHeight / 2;
+    uhdrRawImg.stride[2] = rawImg2420.getImageHandle()->chroma_stride;
+    status = uhdr_enc_set_raw_image(obj, &uhdrRawImg, UHDR_SDR_IMG);
+    ASSERT_EQ(UHDR_CODEC_OK, status.error_code) << status.detail;
+
+    uhdr_compressed_image_t uhdrCompressedImg;
+    uhdrCompressedImg.data = sdr->data;
+    uhdrCompressedImg.data_sz = sdr->length;
+    uhdrCompressedImg.capacity = sdr->length;
+    uhdrCompressedImg.cg = map_internal_cg_to_cg(sdr->colorGamut);
+    uhdrCompressedImg.ct = UHDR_CT_UNSPECIFIED;
+    uhdrCompressedImg.range = UHDR_CR_UNSPECIFIED;
+    status = uhdr_enc_set_compressed_image(obj, &uhdrCompressedImg, UHDR_SDR_IMG);
+    ASSERT_EQ(UHDR_CODEC_OK, status.error_code) << status.detail;
+
+    status = uhdr_enc_set_quality(obj, kQuality, UHDR_BASE_IMG);
+    ASSERT_EQ(UHDR_CODEC_OK, status.error_code) << status.detail;
+    status = uhdr_encode(obj);
+    ASSERT_EQ(UHDR_CODEC_OK, status.error_code) << status.detail;
+    uhdr_compressed_image_t* compressedImage = uhdr_get_encoded_stream(obj);
+    ASSERT_NE(nullptr, compressedImage);
+    ASSERT_EQ(jpgImg.getImageHandle()->length, compressedImage->data_sz);
+    ASSERT_EQ(
+        0, memcmp(jpgImg.getImageHandle()->data, compressedImage->data, compressedImage->data_sz));
+    uhdr_release_encoder(obj);
   }
   // encode with chroma stride set
   {
@@ -1895,6 +2091,45 @@ TEST_P(JpegRAPIEncodeAndDecodeTest, EncodeAPI3AndDecodeTest) {
     auto jpg2 = jpgImg2.getImageHandle();
     ASSERT_EQ(jpg1->length, jpg2->length);
     ASSERT_EQ(0, memcmp(jpg1->data, jpg2->data, jpg1->length));
+  }
+
+  {
+    uhdr_codec_private_t* obj = uhdr_create_encoder();
+    uhdr_raw_image_t uhdrRawImg{};
+    uhdrRawImg.fmt = UHDR_IMG_FMT_24bppYCbCrP010;
+    uhdrRawImg.cg = map_internal_cg_to_cg(mP010ColorGamut);
+    uhdrRawImg.ct = map_internal_ct_to_ct(ultrahdr_transfer_function::ULTRAHDR_TF_HLG);
+    uhdrRawImg.range = UHDR_CR_UNSPECIFIED;
+    uhdrRawImg.w = kImageWidth;
+    uhdrRawImg.h = kImageHeight;
+    uhdrRawImg.planes[0] = rawImgP010.getImageHandle()->data;
+    uhdrRawImg.stride[0] = kImageWidth;
+    uhdrRawImg.planes[1] =
+        ((uint8_t*)(rawImgP010.getImageHandle()->data)) + kImageWidth * kImageHeight * 2;
+    uhdrRawImg.stride[1] = kImageWidth;
+    uhdr_error_info_t status = uhdr_enc_set_raw_image(obj, &uhdrRawImg, UHDR_HDR_IMG);
+    ASSERT_EQ(UHDR_CODEC_OK, status.error_code) << status.detail;
+
+    uhdr_compressed_image_t uhdrCompressedImg;
+    uhdrCompressedImg.data = sdr->data;
+    uhdrCompressedImg.data_sz = sdr->length;
+    uhdrCompressedImg.capacity = sdr->length;
+    uhdrCompressedImg.cg = map_internal_cg_to_cg(sdr->colorGamut);
+    uhdrCompressedImg.ct = UHDR_CT_UNSPECIFIED;
+    uhdrCompressedImg.range = UHDR_CR_UNSPECIFIED;
+    status = uhdr_enc_set_compressed_image(obj, &uhdrCompressedImg, UHDR_SDR_IMG);
+    ASSERT_EQ(UHDR_CODEC_OK, status.error_code) << status.detail;
+
+    status = uhdr_enc_set_quality(obj, kQuality, UHDR_BASE_IMG);
+    ASSERT_EQ(UHDR_CODEC_OK, status.error_code) << status.detail;
+    status = uhdr_encode(obj);
+    ASSERT_EQ(UHDR_CODEC_OK, status.error_code) << status.detail;
+    uhdr_compressed_image_t* compressedImage = uhdr_get_encoded_stream(obj);
+    ASSERT_NE(nullptr, compressedImage);
+    ASSERT_EQ(jpgImg.getImageHandle()->length, compressedImage->data_sz);
+    ASSERT_EQ(
+        0, memcmp(jpgImg.getImageHandle()->data, compressedImage->data, compressedImage->data_sz));
+    uhdr_release_encoder(obj);
   }
 
   auto jpg1 = jpgImg.getImageHandle();

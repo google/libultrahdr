@@ -162,5 +162,5 @@ List of decode API:
 | metadata  | (optional, default to NULL) Destination of metadata (gain map version, min/max content boost). |
 
 For more info:
-- Refer to [jpegr.h](lib/include/ultrahdr/jpegr.h) for detailed description of various encode and decode api.
+- Refer to [ultrahdr_api.h](ultrahdr_api.h) for detailed description of various encode and decode api.
 - Refer to [ultrahdr_app.cpp](examples/ultrahdr_app.cpp) for examples of its usage.
