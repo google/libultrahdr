@@ -19,6 +19,16 @@
 
 //#define LOG_NDEBUG 0
 
+#include <map>
+#include <memory>
+#include <vector>
+
+#include "ultrahdr_api.h"
+
+// ===============================================================================================
+// Function Macros
+// ===============================================================================================
+
 #ifdef __ANDROID__
 #include "log/log.h"
 #else
@@ -60,5 +70,80 @@
 #endif
 
 #define ALIGNM(x, m) ((((x) + ((m)-1)) / (m)) * (m))
+
+namespace ultrahdr {
+
+// ===============================================================================================
+// Structure Definitions
+// ===============================================================================================
+
+/**\brief uhdr memory block */
+typedef struct uhdr_memory_block {
+  uhdr_memory_block(size_t capacity);
+
+  std::unique_ptr<uint8_t[]> m_buffer; /**< data */
+  size_t m_capacity;                   /**< capacity */
+} uhdr_memory_block_t;                 /**< alias for struct uhdr_memory_block */
+
+/**\brief extended raw image descriptor */
+typedef struct uhdr_raw_image_ext : uhdr_raw_image_t {
+  uhdr_raw_image_ext(uhdr_img_fmt_t fmt, uhdr_color_gamut_t cg, uhdr_color_transfer_t ct,
+                     uhdr_color_range_t range, unsigned w, unsigned h, unsigned align_stride_to);
+
+ private:
+  std::unique_ptr<ultrahdr::uhdr_memory_block> m_block;
+} uhdr_raw_image_ext_t; /**< alias for struct uhdr_raw_image_ext */
+
+/**\brief extended compressed image descriptor */
+typedef struct uhdr_compressed_image_ext : uhdr_compressed_image_t {
+  uhdr_compressed_image_ext(uhdr_color_gamut_t cg, uhdr_color_transfer_t ct,
+                            uhdr_color_range_t range, unsigned sz);
+
+ private:
+  std::unique_ptr<ultrahdr::uhdr_memory_block> m_block;
+} uhdr_compressed_image_ext_t; /**< alias for struct uhdr_compressed_image_ext */
+
+}  // namespace ultrahdr
+
+// ===============================================================================================
+// Extensions of ultrahdr api definitions, so outside ultrahdr namespace
+// ===============================================================================================
+
+struct uhdr_codec_private {};
+
+struct uhdr_encoder_private : uhdr_codec_private {
+  // config data
+  std::map<uhdr_img_label, std::unique_ptr<ultrahdr::uhdr_raw_image_ext_t>> m_raw_images;
+  std::map<uhdr_img_label, std::unique_ptr<ultrahdr::uhdr_compressed_image_ext_t>>
+      m_compressed_images;
+  std::map<uhdr_img_label, int> m_quality;
+  std::vector<uint8_t> m_exif;
+  uhdr_gainmap_metadata_t m_metadata;
+  uhdr_codec_t m_output_format;
+
+  // internal data
+  bool m_sailed;
+  std::unique_ptr<ultrahdr::uhdr_compressed_image_ext_t> m_compressed_output_buffer;
+  uhdr_error_info_t m_encode_call_status;
+};
+
+struct uhdr_decoder_private : uhdr_codec_private {
+  // config data
+  std::unique_ptr<ultrahdr::uhdr_compressed_image_ext_t> m_uhdr_compressed_img;
+  uhdr_img_fmt_t m_output_fmt;
+  uhdr_color_transfer_t m_output_ct;
+  float m_output_max_disp_boost;
+
+  // internal data
+  bool m_sailed;
+  std::unique_ptr<ultrahdr::uhdr_raw_image_ext_t> m_decoded_img_buffer;
+  std::unique_ptr<ultrahdr::uhdr_raw_image_ext_t> m_gainmap_img_buffer;
+  std::vector<uint8_t> m_exif;
+  std::vector<uint8_t> m_icc;
+  std::vector<uint8_t> m_base_xmp;
+  std::vector<uint8_t> m_gainmap_xmp;
+  uhdr_gainmap_metadata_t m_metadata;
+  uhdr_error_info_t m_decode_call_status;
+};
 
 #endif  // ULTRAHDR_ULTRAHDRCOMMON_H

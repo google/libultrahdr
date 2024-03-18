@@ -122,6 +122,7 @@ if(MSVC)
   add_compile_options(/wd4267) # conversion from 'size_t' to 'type' possible loss of data
   add_compile_options(/wd4305) # truncation from 'double' to 'float'
   add_compile_options(/wd4838) # conversion from 'type1' to 'type2' requires a narrowing conversion
+  add_compile_options(/wd26812) # Prefer enum class over enum
 else()
   add_compile_options(-ffunction-sections)
   add_compile_options(-fdata-sections)
@@ -299,7 +300,7 @@ file(GLOB UHDR_TEST_LIST "${TESTS_DIR}/*.cpp")
 file(GLOB UHDR_BM_LIST "${BENCHMARK_DIR}/*.cpp")
 file(GLOB IMAGE_IO_LIST "${THIRD_PARTY_DIR}/image_io/src/**/*.cc")
 
-set(COMMON_INCLUDE_LIST ${SOURCE_DIR}/include/ ${JPEG_INCLUDE_DIRS})
+set(COMMON_INCLUDE_LIST ${CMAKE_SOURCE_DIR} ${SOURCE_DIR}/include/ ${JPEG_INCLUDE_DIRS})
 set(COMMON_LIBS_LIST ${JPEG_LIBRARIES} Threads::Threads)
 
 ###########################################################
