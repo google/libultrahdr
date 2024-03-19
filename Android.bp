@@ -35,7 +35,10 @@ cc_library {
     name: "libultrahdr",
     host_supported: true,
     vendor_available: true,
-    export_include_dirs: ["lib/include"],
+    export_include_dirs: [
+        ".",
+        "lib/include",
+    ],
     local_include_dirs: ["lib/include"],
 
     srcs: [
@@ -44,6 +47,7 @@ cc_library {
         "lib/src/gainmapmath.cpp",
         "lib/src/jpegrutils.cpp",
         "lib/src/multipictureformat.cpp",
+        "lib/src/ultrahdr_api.cpp",
     ],
 
     shared_libs: [
