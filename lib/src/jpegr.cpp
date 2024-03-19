@@ -511,14 +511,14 @@ status_t JpegR::encodeJPEGR(jr_uncompressed_ptr p010_image_ptr,
         (yuv420jpg_image_ptr->colorGamut != ULTRAHDR_COLORGAMUT_UNSPECIFIED &&
          yuv420jpg_image_ptr->colorGamut != cg)) {
       ALOGE("configured color gamut  %d does not match with color gamut specified in icc box %d",
-            yuv420_image_ptr->colorGamut, cg);
+            yuv420jpg_image_ptr->colorGamut, cg);
       return ERROR_JPEGR_INVALID_COLORGAMUT;
     }
     yuv420_image.colorGamut = cg;
   } else {
     if (yuv420jpg_image_ptr->colorGamut <= ULTRAHDR_COLORGAMUT_UNSPECIFIED ||
         yuv420jpg_image_ptr->colorGamut > ULTRAHDR_COLORGAMUT_MAX) {
-      ALOGE("Unrecognized 420 color gamut %d", yuv420_image_ptr->colorGamut);
+      ALOGE("Unrecognized 420 color gamut %d", yuv420jpg_image_ptr->colorGamut);
       return ERROR_JPEGR_INVALID_COLORGAMUT;
     }
     yuv420_image.colorGamut = yuv420jpg_image_ptr->colorGamut;
@@ -588,7 +588,7 @@ status_t JpegR::encodeJPEGR(jr_compressed_ptr yuv420jpg_image_ptr,
   } else {
     if (yuv420jpg_image_ptr->colorGamut <= ULTRAHDR_COLORGAMUT_UNSPECIFIED ||
         yuv420jpg_image_ptr->colorGamut > ULTRAHDR_COLORGAMUT_MAX) {
-      ALOGE("Unrecognized 420 color gamut %d", yuv420_image_ptr->colorGamut);
+      ALOGE("Unrecognized 420 color gamut %d", yuv420jpg_image_ptr->colorGamut);
       return ERROR_JPEGR_INVALID_COLORGAMUT;
     }
     std::shared_ptr<DataStruct> newIcc =
