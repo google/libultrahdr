@@ -326,10 +326,15 @@ void GainMapMathTest::TearDown() {}
   EXPECT_NEAR((e1).u, (e2).u, ComparisonEpsilon()); \
   EXPECT_NEAR((e1).v, (e2).v, ComparisonEpsilon())
 
+// Due to -ffp-contract=fast being enabled by default with GCC, allow some
+// margin when comparing fused and unfused floating-point operations.
 #define EXPECT_YUV_BETWEEN(e, min, max)                                           \
-  EXPECT_THAT((e).y, testing::AllOf(testing::Ge((min).y), testing::Le((max).y))); \
-  EXPECT_THAT((e).u, testing::AllOf(testing::Ge((min).u), testing::Le((max).u))); \
-  EXPECT_THAT((e).v, testing::AllOf(testing::Ge((min).v), testing::Le((max).v)))
+  EXPECT_THAT((e).y, testing::AllOf(testing::Ge((min).y - ComparisonEpsilon()),   \
+                                    testing::Le((max).y + ComparisonEpsilon()))); \
+  EXPECT_THAT((e).u, testing::AllOf(testing::Ge((min).u - ComparisonEpsilon()),   \
+                                    testing::Le((max).u + ComparisonEpsilon()))); \
+  EXPECT_THAT((e).v, testing::AllOf(testing::Ge((min).v - ComparisonEpsilon()),   \
+                                    testing::Le((max).v + ComparisonEpsilon())))
 
 // TODO: a bunch of these tests can be parameterized.
 
