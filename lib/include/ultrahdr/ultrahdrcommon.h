@@ -135,14 +135,20 @@ struct uhdr_decoder_private : uhdr_codec_private {
   float m_output_max_disp_boost;
 
   // internal data
+  bool m_probed;
   bool m_sailed;
   std::unique_ptr<ultrahdr::uhdr_raw_image_ext_t> m_decoded_img_buffer;
   std::unique_ptr<ultrahdr::uhdr_raw_image_ext_t> m_gainmap_img_buffer;
+  int m_img_wd, m_img_ht;
+  int m_gainmap_wd, m_gainmap_ht;
   std::vector<uint8_t> m_exif;
+  uhdr_mem_block_t m_exif_block;
   std::vector<uint8_t> m_icc;
+  uhdr_mem_block_t m_icc_block;
   std::vector<uint8_t> m_base_xmp;
   std::vector<uint8_t> m_gainmap_xmp;
   uhdr_gainmap_metadata_t m_metadata;
+  uhdr_error_info_t m_probe_call_status;
   uhdr_error_info_t m_decode_call_status;
 };
 
