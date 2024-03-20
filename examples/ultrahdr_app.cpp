@@ -405,13 +405,14 @@ bool UltraHdrAppInput::fillJpegRImageHandle() {
 }
 
 bool UltraHdrAppInput::encode() {
-#define CHECK_ERR(x)                             \
+#define RET_IF_ERR(x)                            \
   {                                              \
     uhdr_error_info_t status = (x);              \
     if (status.error_code != UHDR_CODEC_OK) {    \
       if (status.has_detail) {                   \
         std::cerr << status.detail << std::endl; \
       }                                          \
+      uhdr_release_encoder(handle);              \
       return false;                              \
     }                                            \
   }
@@ -422,36 +423,39 @@ bool UltraHdrAppInput::encode() {
       std::cerr << " failed to load file " << mP010File << std::endl;
       return false;
     }
-    CHECK_ERR(uhdr_enc_set_raw_image(handle, &mRawP010Image, UHDR_HDR_IMG))
+    RET_IF_ERR(uhdr_enc_set_raw_image(handle, &mRawP010Image, UHDR_HDR_IMG))
   }
   if (mYuv420File != nullptr) {
     if (!fillYuv420ImageHandle()) {
       std::cerr << " failed to load file " << mYuv420File << std::endl;
       return false;
     }
-    CHECK_ERR(uhdr_enc_set_raw_image(handle, &mRawYuv420Image, UHDR_SDR_IMG))
+    RET_IF_ERR(uhdr_enc_set_raw_image(handle, &mRawYuv420Image, UHDR_SDR_IMG))
   }
   if (mYuv420JpegFile != nullptr) {
     if (!fillYuv420JpegImageHandle()) {
       std::cerr << " failed to load file " << mYuv420JpegFile << std::endl;
       return false;
     }
-    CHECK_ERR(uhdr_enc_set_compressed_image(handle, &mYuv420JpegImage, UHDR_SDR_IMG))
+    RET_IF_ERR(uhdr_enc_set_compressed_image(handle, &mYuv420JpegImage, UHDR_SDR_IMG))
   }
-  CHECK_ERR(uhdr_enc_set_quality(handle, mQuality, UHDR_BASE_IMG))
+  RET_IF_ERR(uhdr_enc_set_quality(handle, mQuality, UHDR_BASE_IMG))
 #ifdef PROFILE_ENABLE
   const int profileCount = 10;
   Profiler profileEncode;
   profileEncode.timerStart();
   for (auto i = 0; i < profileCount; i++) {
 #endif
-    CHECK_ERR(uhdr_encode(handle))
+    RET_IF_ERR(uhdr_encode(handle))
 #ifdef PROFILE_ENABLE
   }
   profileEncode.timerStop();
   auto avgEncTime = profileEncode.elapsedTime() / (profileCount * 1000.f);
   printf("Average encode time for res %d x %d is %f ms \n", mWidth, mHeight, avgEncTime);
 #endif
+
+#undef RET_IF_ERR
+
   auto output = uhdr_get_encoded_stream(handle);
 
   // for decoding
@@ -462,8 +466,8 @@ bool UltraHdrAppInput::encode() {
   mJpegImgR.ct = output->ct;
   mJpegImgR.range = output->range;
   writeFile("out.jpeg", output->data, output->data_sz);
-
   uhdr_release_encoder(handle);
+
   return true;
 }
 
@@ -472,10 +476,23 @@ bool UltraHdrAppInput::decode() {
     std::cerr << " failed to load file " << mJpegRFile << std::endl;
     return false;
   }
+
+#define RET_IF_ERR(x)                            \
+  {                                              \
+    uhdr_error_info_t status = (x);              \
+    if (status.error_code != UHDR_CODEC_OK) {    \
+      if (status.has_detail) {                   \
+        std::cerr << status.detail << std::endl; \
+      }                                          \
+      uhdr_release_decoder(handle);              \
+      return false;                              \
+    }                                            \
+  }
+
   uhdr_codec_private_t* handle = uhdr_create_decoder();
-  CHECK_ERR(uhdr_dec_set_image(handle, &mJpegImgR))
-  CHECK_ERR(uhdr_dec_set_out_color_transfer(handle, mOTf))
-  CHECK_ERR(uhdr_dec_set_out_img_format(handle, mOfmt))
+  RET_IF_ERR(uhdr_dec_set_image(handle, &mJpegImgR))
+  RET_IF_ERR(uhdr_dec_set_out_color_transfer(handle, mOTf))
+  RET_IF_ERR(uhdr_dec_set_out_img_format(handle, mOfmt))
 
 #ifdef PROFILE_ENABLE
   const int profileCount = 10;
@@ -483,13 +500,16 @@ bool UltraHdrAppInput::decode() {
   profileDecode.timerStart();
   for (auto i = 0; i < profileCount; i++) {
 #endif
-    CHECK_ERR(uhdr_decode(handle))
+    RET_IF_ERR(uhdr_decode(handle))
 #ifdef PROFILE_ENABLE
   }
   profileDecode.timerStop();
   auto avgDecTime = profileDecode.elapsedTime() / (profileCount * 1000.f);
   printf("Average decode time for res %ld x %ld is %f ms \n", info.width, info.height, avgDecTime);
 #endif
+
+#undef RET_IF_ERR
+
   uhdr_raw_image_t* output = uhdr_get_decoded_image(handle);
 
   mDestImage.fmt = output->fmt;
@@ -511,6 +531,7 @@ bool UltraHdrAppInput::decode() {
   }
   writeFile("outrgb.raw", output);
   uhdr_release_decoder(handle);
+
   return true;
 }
 
