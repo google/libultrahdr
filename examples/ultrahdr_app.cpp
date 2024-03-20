@@ -27,6 +27,7 @@
 #include <cstdint>
 #include <fstream>
 #include <iostream>
+#include <sstream>
 
 #include "ultrahdr_api.h"
 
@@ -232,7 +233,8 @@ static bool writeFile(const char* filename, uhdr_raw_image_t* img) {
 class UltraHdrAppInput {
  public:
   UltraHdrAppInput(const char* p010File, const char* yuv420File, const char* yuv420JpegFile,
-                   size_t width, size_t height, uhdr_color_gamut_t p010Cg = UHDR_CG_BT_709,
+                   const char* gainmapJpegFile, const char* gainmapMetadataCfgFile, size_t width,
+                   size_t height, uhdr_color_gamut_t p010Cg = UHDR_CG_BT_709,
                    uhdr_color_gamut_t yuv420Cg = UHDR_CG_BT_709,
                    uhdr_color_transfer_t p010Tf = UHDR_CT_HLG, int quality = 100,
                    uhdr_color_transfer_t oTf = UHDR_CT_HLG,
@@ -240,6 +242,8 @@ class UltraHdrAppInput {
       : mP010File(p010File),
         mYuv420File(yuv420File),
         mYuv420JpegFile(yuv420JpegFile),
+        mGainMapJpegFile(gainmapJpegFile),
+        mGainMapMetadataCfgFile(gainmapMetadataCfgFile),
         mJpegRFile(nullptr),
         mWidth(width),
         mHeight(height),
@@ -302,6 +306,8 @@ class UltraHdrAppInput {
   bool convertP010ToRGBImage();
   bool fillYuv420ImageHandle();
   bool fillYuv420JpegImageHandle();
+  bool fillGainMapJpegImageHandle();
+  bool fillGainMapMetadataDescriptor();
   bool convertYuv420ToRGBImage();
   bool convertRgba8888ToYUV444Image();
   bool convertRgba1010102ToYUV444Image();
@@ -315,6 +321,8 @@ class UltraHdrAppInput {
   const char* mP010File;
   const char* mYuv420File;
   const char* mYuv420JpegFile;
+  const char *mGainMapJpegFile;
+  const char *mGainMapMetadataCfgFile;
   const char* mJpegRFile;
   const int mWidth;
   const int mHeight;
@@ -330,6 +338,8 @@ class UltraHdrAppInput {
   uhdr_raw_image_t mRawRgba1010102Image{};
   uhdr_raw_image_t mRawYuv420Image{};
   uhdr_compressed_image_t mYuv420JpegImage{};
+  uhdr_compressed_image_t mGainMapJpegImage{};
+  uhdr_gainmap_metadata mMetadata{};
   uhdr_raw_image_t mRawRgba8888Image{};
   uhdr_compressed_image_t mJpegImgR{};
   uhdr_raw_image_t mDestImage{};
@@ -388,6 +398,58 @@ bool UltraHdrAppInput::fillYuv420JpegImageHandle() {
   return false;
 }
 
+bool UltraHdrAppInput::fillGainMapJpegImageHandle() {
+  std::ifstream ifd(mGainMapJpegFile, std::ios::binary | std::ios::ate);
+  if (ifd.good()) {
+    int size = ifd.tellg();
+    mGainMapJpegImage.capacity = size;
+    mGainMapJpegImage.data_sz = size;
+    mGainMapJpegImage.data = nullptr;
+    mGainMapJpegImage.cg = UHDR_CG_UNSPECIFIED;
+    mGainMapJpegImage.ct = UHDR_CT_UNSPECIFIED;
+    mGainMapJpegImage.range = UHDR_CR_UNSPECIFIED;
+    ifd.close();
+    return loadFile(mGainMapJpegFile, mGainMapJpegImage.data, size);
+  }
+  return false;
+}
+
+void parse_argument(uhdr_gainmap_metadata* metadata, char* argument, float* value) {
+  if (!strcmp(argument, "maxContentBoost"))
+    metadata->max_content_boost = *value;
+  else if (!strcmp(argument, "minContentBoost"))
+    metadata->min_content_boost = *value;
+  else if (!strcmp(argument, "gamma"))
+    metadata->gamma = *value;
+  else if (!strcmp(argument, "offsetSdr"))
+    metadata->offset_sdr = *value;
+  else if (!strcmp(argument, "offsetHdr"))
+    metadata->offset_hdr = *value;
+  else if (!strcmp(argument, "hdrCapacityMin"))
+    metadata->hdr_capacity_min = *value;
+  else if (!strcmp(argument, "hdrCapacityMax"))
+    metadata->hdr_capacity_max = *value;
+  else
+    std::cout << " Ignoring argument " << argument << std::endl;
+}
+
+bool UltraHdrAppInput::fillGainMapMetadataDescriptor() {
+  std::ifstream file(mGainMapMetadataCfgFile);
+  if (!file.is_open()) {
+    return false;
+  }
+  std::string line;
+  char argument[128];
+  float value;
+  while (std::getline(file, line)) {
+    if (sscanf(line.c_str(), "--%s %f", argument, &value) == 2) {
+      parse_argument(&mMetadata, argument, &value);
+    }
+  }
+  file.close();
+  return true;
+}
+
 bool UltraHdrAppInput::fillJpegRImageHandle() {
   std::ifstream ifd(mJpegRFile, std::ios::binary | std::ios::ate);
   if (ifd.good()) {
@@ -437,7 +499,21 @@ bool UltraHdrAppInput::encode() {
       std::cerr << " failed to load file " << mYuv420JpegFile << std::endl;
       return false;
     }
-    RET_IF_ERR(uhdr_enc_set_compressed_image(handle, &mYuv420JpegImage, UHDR_SDR_IMG))
+    RET_IF_ERR(uhdr_enc_set_compressed_image(
+        handle, &mYuv420JpegImage,
+        (mGainMapJpegFile != nullptr && mGainMapMetadataCfgFile != nullptr) ? UHDR_BASE_IMG
+                                                                            : UHDR_SDR_IMG))
+  }
+  if (mGainMapJpegFile != nullptr && mGainMapMetadataCfgFile != nullptr) {
+    if (!fillGainMapJpegImageHandle()) {
+      std::cerr << " failed to load file " << mGainMapJpegFile << std::endl;
+      return false;
+    }
+    if (!fillGainMapMetadataDescriptor()) {
+      std::cerr << " failed to read config file " << mGainMapMetadataCfgFile << std::endl;
+      return false;
+    }
+    RET_IF_ERR(uhdr_enc_set_gainmap_image(handle, &mGainMapJpegImage, &mMetadata))
   }
   RET_IF_ERR(uhdr_enc_set_quality(handle, mQuality, UHDR_BASE_IMG))
 #ifdef PROFILE_ENABLE
@@ -982,13 +1058,15 @@ static void usage(const char* name) {
   fprintf(stderr, "\n## ultra hdr demo application.\nUsage : %s \n", name);
   fprintf(stderr, "    -m    mode of operation. [0:encode, 1:decode] \n");
   fprintf(stderr, "\n## encoder options : \n");
-  fprintf(stderr, "    -p    raw 10 bit input resource in p010 color format, mandatory. \n");
+  fprintf(stderr, "    -p    raw 10 bit input resource in p010 color format. \n");
   fprintf(stderr,
           "    -y    raw 8 bit input resource in yuv420, optional. \n"
           "          if not provided tonemapping happens internally. \n");
-  fprintf(stderr, "    -i    compressed 8 bit jpeg file path, optional \n");
-  fprintf(stderr, "    -w    input file width, mandatory. \n");
-  fprintf(stderr, "    -h    input file height, mandatory. \n");
+  fprintf(stderr, "    -i    compressed 8 bit jpeg file path. \n");
+  fprintf(stderr, "    -g    compressed 8 bit gainmap file path. \n");
+  fprintf(stderr, "    -f    gainmap metadata config file. \n");
+  fprintf(stderr, "    -w    input file width. \n");
+  fprintf(stderr, "    -h    input file height. \n");
   fprintf(stderr, "    -C    10 bit input color gamut, optional. [0:bt709, 1:p3, 2:bt2100] \n");
   fprintf(stderr, "    -c    8 bit input color gamut, optional. [0:bt709, 1:p3, 2:bt2100] \n");
   fprintf(stderr, "    -t    10 bit input transfer function, optional. [0:linear, 1:hlg, 2:pq] \n");
@@ -1029,6 +1107,10 @@ static void usage(const char* name) {
   fprintf(stderr,
           "    ultrahdr_app -m 0 -p cosmat_1920x1080_p010.yuv -i cosmat_1920x1080_420_8bit.jpg -w "
           "1920 -h 1080 -t 1 -o 1 -O 5 -e 1\n");
+  fprintf(stderr, "\n## encode api-4 :\n");
+  fprintf(stderr,
+          "    ultrahdr_app -m 0 -i cosmat_1920x1080_420_8bit.jpg -g cosmat_1920x1080_420_8bit.jpg "
+          "-f metadata.cfg\n");
   fprintf(stderr, "\n## decode api :\n");
   fprintf(stderr, "    ultrahdr_app -m 1 -j cosmat_1920x1080_hdr.jpg \n");
   fprintf(stderr, "    ultrahdr_app -m 1 -j cosmat_1920x1080_hdr.jpg -o 3 -O 3\n");
@@ -1037,9 +1119,10 @@ static void usage(const char* name) {
 }
 
 int main(int argc, char* argv[]) {
-  char opt_string[] = "p:y:i:w:h:C:c:t:q:o:O:m:j:e:";
+  char opt_string[] = "p:y:i:g:f:w:h:C:c:t:q:o:O:m:j:e:";
   char *p010_file = nullptr, *yuv420_file = nullptr, *jpegr_file = nullptr,
-       *yuv420_jpeg_file = nullptr;
+       *yuv420_jpeg_file = nullptr, *gainmap_jpeg_file = nullptr,
+       *gainmap_metadata_cfg_file = nullptr;
   int width = 0, height = 0;
   uhdr_color_gamut_t p010Cg = UHDR_CG_BT_709;
   uhdr_color_gamut_t yuv420Cg = UHDR_CG_BT_709;
@@ -1060,6 +1143,12 @@ int main(int argc, char* argv[]) {
         break;
       case 'i':
         yuv420_jpeg_file = optarg_s;
+        break;
+      case 'g':
+        gainmap_jpeg_file = optarg_s;
+        break;
+      case 'f':
+        gainmap_metadata_cfg_file = optarg_s;
         break;
       case 'w':
         width = atoi(optarg_s);
@@ -1100,12 +1189,15 @@ int main(int argc, char* argv[]) {
     }
   }
   if (mode == 0) {
-    if (width <= 0 || height <= 0 || p010_file == nullptr) {
+    if ((width <= 0 || height <= 0 || p010_file == nullptr) &&
+        (yuv420_jpeg_file == nullptr || gainmap_jpeg_file == nullptr ||
+         gainmap_metadata_cfg_file == nullptr)) {
       usage(argv[0]);
       return -1;
     }
-    UltraHdrAppInput appInput(p010_file, yuv420_file, yuv420_jpeg_file, width, height, p010Cg,
-                              yuv420Cg, p010Tf, quality, outTf, outFmt);
+    UltraHdrAppInput appInput(p010_file, yuv420_file, yuv420_jpeg_file, gainmap_jpeg_file,
+                              gainmap_metadata_cfg_file, width, height, p010Cg, yuv420Cg, p010Tf,
+                              quality, outTf, outFmt);
     if (!appInput.encode()) return -1;
     if (compute_psnr == 1) {
       if (!appInput.decode()) return -1;
@@ -1114,11 +1206,13 @@ int main(int argc, char* argv[]) {
         appInput.computeRGBSdrPSNR();
         appInput.convertRgba8888ToYUV444Image();
         appInput.computeYUVSdrPSNR();
-      } else if (outFmt == UHDR_IMG_FMT_32bppRGBA1010102) {
+      } else if (outFmt == UHDR_IMG_FMT_32bppRGBA1010102 && p010_file != nullptr) {
         appInput.convertP010ToRGBImage();
         appInput.computeRGBHdrPSNR();
         appInput.convertRgba1010102ToYUV444Image();
         appInput.computeYUVHdrPSNR();
+      } else {
+        std::cerr << "failed to compute psnr " << std::endl;
       }
     }
   } else if (mode == 1) {
