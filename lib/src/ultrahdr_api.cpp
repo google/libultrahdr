@@ -20,6 +20,7 @@
 #include "ultrahdr_api.h"
 #include "ultrahdr/ultrahdrcommon.h"
 #include "ultrahdr/jpegr.h"
+#include "ultrahdr/jpegrutils.h"
 
 static const uhdr_error_info_t g_no_error = {UHDR_CODEC_OK, 0, ""};
 
@@ -851,6 +852,34 @@ void uhdr_reset_encoder(uhdr_codec_private_t* enc) {
   }
 }
 
+int is_uhdr_image(void* data, int size) {
+#define RET_IF_ERR(x)                         \
+  {                                           \
+    uhdr_error_info_t status = (x);           \
+    if (status.error_code != UHDR_CODEC_OK) { \
+      uhdr_release_decoder(obj);              \
+      return 0;                               \
+    }                                         \
+  }
+
+  uhdr_codec_private_t* obj = uhdr_create_decoder();
+  uhdr_compressed_image_t uhdr_image;
+  uhdr_image.data = data;
+  uhdr_image.data_sz = size;
+  uhdr_image.capacity = size;
+  uhdr_image.cg = UHDR_CG_UNSPECIFIED;
+  uhdr_image.ct = UHDR_CT_UNSPECIFIED;
+  uhdr_image.range = UHDR_CR_UNSPECIFIED;
+
+  RET_IF_ERR(uhdr_dec_set_image(obj, &uhdr_image));
+  RET_IF_ERR(uhdr_dec_probe(obj));
+#undef RET_IF_ERR
+
+  uhdr_release_decoder(obj);
+
+  return 1;
+}
+
 uhdr_codec_private_t* uhdr_create_decoder(void) {
   uhdr_decoder_private* handle = new uhdr_decoder_private();
 
@@ -892,7 +921,7 @@ uhdr_error_info_t uhdr_dec_set_image(uhdr_codec_private_t* dec, uhdr_compressed_
   if (status.error_code != UHDR_CODEC_OK) return status;
 
   uhdr_decoder_private* handle = reinterpret_cast<uhdr_decoder_private*>(dec);
-  if (handle->m_sailed) {
+  if (handle->m_probed) {
     status.error_code = UHDR_CODEC_INVALID_OPERATION;
     status.has_detail = 1;
     snprintf(status.detail, sizeof status.detail,
@@ -928,7 +957,7 @@ uhdr_error_info_t uhdr_dec_set_out_img_format(uhdr_codec_private_t* dec, uhdr_im
   if (status.error_code != UHDR_CODEC_OK) return status;
 
   uhdr_decoder_private* handle = reinterpret_cast<uhdr_decoder_private*>(dec);
-  if (handle->m_sailed) {
+  if (handle->m_probed) {
     status.error_code = UHDR_CODEC_INVALID_OPERATION;
     status.has_detail = 1;
     snprintf(status.detail, sizeof status.detail,
@@ -961,7 +990,7 @@ uhdr_error_info_t uhdr_dec_set_out_color_transfer(uhdr_codec_private_t* dec,
   if (status.error_code != UHDR_CODEC_OK) return status;
 
   uhdr_decoder_private* handle = reinterpret_cast<uhdr_decoder_private*>(dec);
-  if (handle->m_sailed) {
+  if (handle->m_probed) {
     status.error_code = UHDR_CODEC_INVALID_OPERATION;
     status.has_detail = 1;
     snprintf(status.detail, sizeof status.detail,
@@ -992,7 +1021,7 @@ uhdr_error_info_t uhdr_dec_set_out_max_display_boost(uhdr_codec_private_t* dec,
   if (status.error_code != UHDR_CODEC_OK) return status;
 
   uhdr_decoder_private* handle = reinterpret_cast<uhdr_decoder_private*>(dec);
-  if (handle->m_sailed) {
+  if (handle->m_probed) {
     status.error_code = UHDR_CODEC_INVALID_OPERATION;
     status.has_detail = 1;
     snprintf(status.detail, sizeof status.detail,
@@ -1004,6 +1033,169 @@ uhdr_error_info_t uhdr_dec_set_out_max_display_boost(uhdr_codec_private_t* dec,
   handle->m_output_max_disp_boost = display_boost;
 
   return status;
+}
+
+uhdr_error_info_t uhdr_dec_probe(uhdr_codec_private_t* dec) {
+  if (dec == nullptr) {
+    uhdr_error_info_t status;
+    status.error_code = UHDR_CODEC_INVALID_PARAM;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail, "received nullptr for uhdr codec instance");
+    return status;
+  }
+
+  uhdr_decoder_private* handle = reinterpret_cast<uhdr_decoder_private*>(dec);
+  uhdr_error_info_t& status = handle->m_probe_call_status;
+
+  if (!handle->m_probed) {
+    handle->m_probed = true;
+
+    if (handle->m_uhdr_compressed_img.get() == nullptr) {
+      status.error_code = UHDR_CODEC_INVALID_OPERATION;
+      status.has_detail = 1;
+      snprintf(status.detail, sizeof status.detail, "did not receive any image for decoding");
+      return status;
+    }
+
+    ultrahdr::jpeg_info_struct primary_image;
+    ultrahdr::jpeg_info_struct gainmap_image;
+    ultrahdr::jpegr_info_struct jpegr_info;
+    jpegr_info.primaryImgInfo = &primary_image;
+    jpegr_info.gainmapImgInfo = &gainmap_image;
+
+    ultrahdr::jpegr_compressed_struct uhdr_image;
+    uhdr_image.data = handle->m_uhdr_compressed_img->data;
+    uhdr_image.length = uhdr_image.maxLength = handle->m_uhdr_compressed_img->data_sz;
+    uhdr_image.colorGamut = map_cg_to_internal_cg(handle->m_uhdr_compressed_img->cg);
+
+    ultrahdr::JpegR jpegr;
+    ultrahdr::status_t internal_status = jpegr.getJPEGRInfo(&uhdr_image, &jpegr_info);
+    map_internal_error_status_to_error_info(internal_status, status);
+    if (status.error_code != UHDR_CODEC_OK) return status;
+
+    ultrahdr::ultrahdr_metadata_struct metadata;
+    if (ultrahdr::getMetadataFromXMP(gainmap_image.xmpData.data(), gainmap_image.xmpData.size(),
+                                     &metadata)) {
+      handle->m_metadata.max_content_boost = metadata.maxContentBoost;
+      handle->m_metadata.min_content_boost = metadata.minContentBoost;
+      handle->m_metadata.gamma = metadata.gamma;
+      handle->m_metadata.offset_sdr = metadata.offsetSdr;
+      handle->m_metadata.offset_hdr = metadata.offsetHdr;
+      handle->m_metadata.hdr_capacity_min = metadata.hdrCapacityMin;
+      handle->m_metadata.hdr_capacity_max = metadata.hdrCapacityMax;
+    } else {
+      status.error_code = UHDR_CODEC_UNKNOWN_ERROR;
+      status.has_detail = 1;
+      snprintf(status.detail, sizeof status.detail, "encountered error while parsing metadata");
+      return status;
+    }
+
+    handle->m_img_wd = primary_image.width;
+    handle->m_img_ht = primary_image.height;
+    handle->m_gainmap_wd = gainmap_image.width;
+    handle->m_gainmap_ht = gainmap_image.height;
+    handle->m_exif = std::move(primary_image.exifData);
+    handle->m_exif_block.data = handle->m_exif.data();
+    handle->m_exif_block.data_sz = handle->m_exif_block.capacity = handle->m_exif.size();
+    handle->m_icc = std::move(primary_image.iccData);
+    handle->m_icc_block.data = handle->m_icc.data();
+    handle->m_icc_block.data_sz = handle->m_icc_block.capacity = handle->m_icc.size();
+    handle->m_base_xmp = std::move(primary_image.xmpData);
+    handle->m_gainmap_xmp = std::move(gainmap_image.xmpData);
+  }
+
+  return status;
+}
+
+int uhdr_dec_get_image_width(uhdr_codec_private_t* dec) {
+  if (dec == nullptr) {
+    return -1;
+  }
+
+  uhdr_decoder_private* handle = reinterpret_cast<uhdr_decoder_private*>(dec);
+  if (!handle->m_probed || handle->m_probe_call_status.error_code != UHDR_CODEC_OK) {
+    return -1;
+  }
+
+  return handle->m_img_wd;
+}
+
+int uhdr_dec_get_image_height(uhdr_codec_private_t* dec) {
+  if (dec == nullptr) {
+    return -1;
+  }
+
+  uhdr_decoder_private* handle = reinterpret_cast<uhdr_decoder_private*>(dec);
+  if (!handle->m_probed || handle->m_probe_call_status.error_code != UHDR_CODEC_OK) {
+    return -1;
+  }
+
+  return handle->m_img_ht;
+}
+
+int uhdr_dec_get_gainmap_width(uhdr_codec_private_t* dec) {
+  if (dec == nullptr) {
+    return -1;
+  }
+
+  uhdr_decoder_private* handle = reinterpret_cast<uhdr_decoder_private*>(dec);
+  if (!handle->m_probed || handle->m_probe_call_status.error_code != UHDR_CODEC_OK) {
+    return -1;
+  }
+
+  return handle->m_gainmap_wd;
+}
+
+int uhdr_dec_get_gainmap_height(uhdr_codec_private_t* dec) {
+  if (dec == nullptr) {
+    return -1;
+  }
+
+  uhdr_decoder_private* handle = reinterpret_cast<uhdr_decoder_private*>(dec);
+  if (!handle->m_probed || handle->m_probe_call_status.error_code != UHDR_CODEC_OK) {
+    return -1;
+  }
+
+  return handle->m_gainmap_ht;
+}
+
+uhdr_mem_block_t* uhdr_dec_get_exif(uhdr_codec_private_t* dec) {
+  if (dec == nullptr) {
+    return nullptr;
+  }
+
+  uhdr_decoder_private* handle = reinterpret_cast<uhdr_decoder_private*>(dec);
+  if (!handle->m_probed || handle->m_probe_call_status.error_code != UHDR_CODEC_OK) {
+    return nullptr;
+  }
+
+  return &handle->m_exif_block;
+}
+
+uhdr_mem_block_t* uhdr_dec_get_icc(uhdr_codec_private_t* dec) {
+  if (dec == nullptr) {
+    return nullptr;
+  }
+
+  uhdr_decoder_private* handle = reinterpret_cast<uhdr_decoder_private*>(dec);
+  if (!handle->m_probed || handle->m_probe_call_status.error_code != UHDR_CODEC_OK) {
+    return nullptr;
+  }
+
+  return &handle->m_icc_block;
+}
+
+uhdr_gainmap_metadata_t* uhdr_dec_get_gain_map_metadata(uhdr_codec_private_t* dec) {
+  if (dec == nullptr) {
+    return nullptr;
+  }
+
+  uhdr_decoder_private* handle = reinterpret_cast<uhdr_decoder_private*>(dec);
+  if (!handle->m_probed || handle->m_probe_call_status.error_code != UHDR_CODEC_OK) {
+    return nullptr;
+  }
+
+  return &handle->m_metadata;
 }
 
 uhdr_error_info_t uhdr_decode(uhdr_codec_private_t* dec) {
@@ -1021,35 +1213,20 @@ uhdr_error_info_t uhdr_decode(uhdr_codec_private_t* dec) {
     return handle->m_decode_call_status;
   }
 
-  handle->m_sailed = true;
-
   uhdr_error_info_t& status = handle->m_decode_call_status;
-  ultrahdr::jpeg_info_struct primary_image;
-  ultrahdr::jpeg_info_struct gainmap_image;
-  ultrahdr::jpegr_info_struct jpegr_info;
-  jpegr_info.width = 0;
-  jpegr_info.height = 0;
-  jpegr_info.primaryImgInfo = &primary_image;
-  jpegr_info.gainmapImgInfo = &gainmap_image;
+  status = uhdr_dec_probe(dec);
+  if (status.error_code != UHDR_CODEC_OK) return status;
+
+  handle->m_sailed = true;
 
   ultrahdr::jpegr_compressed_struct uhdr_image;
   uhdr_image.data = handle->m_uhdr_compressed_img->data;
   uhdr_image.length = uhdr_image.maxLength = handle->m_uhdr_compressed_img->data_sz;
   uhdr_image.colorGamut = map_cg_to_internal_cg(handle->m_uhdr_compressed_img->cg);
 
-  ultrahdr::JpegR jpegr;
-  ultrahdr::status_t internal_status = jpegr.getJPEGRInfo(&uhdr_image, &jpegr_info);
-  map_internal_error_status_to_error_info(internal_status, status);
-  if (status.error_code != UHDR_CODEC_OK) return status;
-
-  handle->m_exif = std::move(primary_image.exifData);
-  handle->m_icc = std::move(primary_image.iccData);
-  handle->m_base_xmp = std::move(primary_image.xmpData);
-  handle->m_gainmap_xmp = std::move(gainmap_image.xmpData);
-
   handle->m_decoded_img_buffer = std::make_unique<ultrahdr::uhdr_raw_image_ext_t>(
       handle->m_output_fmt, UHDR_CG_UNSPECIFIED, handle->m_output_ct, UHDR_CR_UNSPECIFIED,
-      primary_image.width, primary_image.height, 1);
+      handle->m_img_wd, handle->m_img_ht, 1);
   // alias
   ultrahdr::jpegr_uncompressed_struct dest;
   dest.data = handle->m_decoded_img_buffer->planes[UHDR_PLANE_PACKED];
@@ -1057,27 +1234,19 @@ uhdr_error_info_t uhdr_decode(uhdr_codec_private_t* dec) {
 
   handle->m_gainmap_img_buffer = std::make_unique<ultrahdr::uhdr_raw_image_ext_t>(
       UHDR_IMG_FMT_8bppYCbCr400, UHDR_CG_UNSPECIFIED, UHDR_CT_UNSPECIFIED, UHDR_CR_UNSPECIFIED,
-      gainmap_image.width, gainmap_image.height, 1);
+      handle->m_gainmap_wd, handle->m_gainmap_ht, 1);
   // alias
   ultrahdr::jpegr_uncompressed_struct dest_gainmap;
   dest_gainmap.data = handle->m_gainmap_img_buffer->planes[UHDR_PLANE_Y];
 
-  ultrahdr::ultrahdr_metadata_struct metadata;
-  internal_status = jpegr.decodeJPEGR(
+  ultrahdr::JpegR jpegr;
+  ultrahdr::status_t internal_status = jpegr.decodeJPEGR(
       &uhdr_image, &dest, handle->m_output_max_disp_boost, nullptr,
       map_ct_fmt_to_internal_output_fmt(handle->m_output_ct, handle->m_output_fmt), &dest_gainmap,
-      &metadata);
+      nullptr);
   map_internal_error_status_to_error_info(internal_status, status);
   if (status.error_code == UHDR_CODEC_OK) {
     handle->m_decoded_img_buffer->cg = map_internal_cg_to_cg(dest.colorGamut);
-
-    handle->m_metadata.max_content_boost = metadata.maxContentBoost;
-    handle->m_metadata.min_content_boost = metadata.minContentBoost;
-    handle->m_metadata.gamma = metadata.gamma;
-    handle->m_metadata.offset_sdr = metadata.offsetSdr;
-    handle->m_metadata.offset_hdr = metadata.offsetHdr;
-    handle->m_metadata.hdr_capacity_min = metadata.hdrCapacityMin;
-    handle->m_metadata.hdr_capacity_max = metadata.hdrCapacityMax;
   }
 
   return status;
@@ -1109,19 +1278,6 @@ uhdr_raw_image_t* uhdr_get_gain_map_image(uhdr_codec_private_t* dec) {
   return handle->m_gainmap_img_buffer.get();
 }
 
-uhdr_gainmap_metadata_t* uhdr_get_gain_map_metadata(uhdr_codec_private_t* dec) {
-  if (dec == nullptr) {
-    return nullptr;
-  }
-
-  uhdr_decoder_private* handle = reinterpret_cast<uhdr_decoder_private*>(dec);
-  if (!handle->m_sailed || handle->m_decode_call_status.error_code != UHDR_CODEC_OK) {
-    return nullptr;
-  }
-
-  return &handle->m_metadata;
-}
-
 void uhdr_reset_decoder(uhdr_codec_private_t* dec) {
   if (dec != nullptr) {
     uhdr_decoder_private* handle = reinterpret_cast<uhdr_decoder_private*>(dec);
@@ -1133,14 +1289,22 @@ void uhdr_reset_decoder(uhdr_codec_private_t* dec) {
     handle->m_output_max_disp_boost = FLT_MAX;
 
     // ready to be configured
+    handle->m_probed = false;
     handle->m_sailed = false;
     handle->m_decoded_img_buffer.reset();
     handle->m_gainmap_img_buffer.reset();
+    handle->m_img_wd = 0;
+    handle->m_img_ht = 0;
+    handle->m_gainmap_wd = 0;
+    handle->m_gainmap_ht = 0;
     handle->m_exif.clear();
+    memset(&handle->m_exif_block, 0, sizeof handle->m_exif_block);
     handle->m_icc.clear();
+    memset(&handle->m_icc_block, 0, sizeof handle->m_icc_block);
     handle->m_base_xmp.clear();
     handle->m_gainmap_xmp.clear();
     memset(&handle->m_metadata, 0, sizeof handle->m_metadata);
+    handle->m_probe_call_status = g_no_error;
     handle->m_decode_call_status = g_no_error;
   }
 }

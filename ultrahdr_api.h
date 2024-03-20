@@ -124,7 +124,7 @@ typedef enum uhdr_codec_err {
 typedef struct uhdr_error_info {
   uhdr_codec_err_t error_code;
   int has_detail;
-  char detail[128];
+  char detail[256];
 } uhdr_error_info_t; /**< alias for struct uhdr_error_info */
 
 /**\brief Raw Image Descriptor */
@@ -387,6 +387,16 @@ UHDR_EXTERN void uhdr_reset_encoder(uhdr_codec_private_t* enc);
 // Decoder APIs
 // ===============================================================================================
 
+/*!\brief check if it is a valid ultrahdr image.
+ *
+ * @param[in]  data  pointer to input compressed stream
+ * @param[in]  size  size of compressed stream
+ *
+ * @returns 1 if the input data has a primary image, gain map image and gain map metadata. 0
+ * otherwise.
+ */
+UHDR_EXTERN int is_uhdr_image(void* data, int size);
+
 /*!\brief Create a new decoder instance. The instance is initialized with default settings.
  * To override the settings use uhdr_dec_set_*()
  *
@@ -450,6 +460,72 @@ UHDR_EXTERN uhdr_error_info_t uhdr_dec_set_out_color_transfer(uhdr_codec_private
 UHDR_EXTERN uhdr_error_info_t uhdr_dec_set_out_max_display_boost(uhdr_codec_private_t* dec,
                                                                  float display_boost);
 
+/*!\brief This function parses the bitstream that is registered with the decoder context and makes
+ * image information available to the client via uhdr_dec_get_() functions. It does not decompress
+ * the image. That is done by uhdr_decode().
+ *
+ * \param[in]  dec  decoder instance.
+ *
+ * \return uhdr_error_info_t #UHDR_CODEC_OK if operation succeeds, uhdr_codec_err_t otherwise.
+ */
+UHDR_EXTERN uhdr_error_info_t uhdr_dec_probe(uhdr_codec_private_t* dec);
+
+/*!\brief Get base image width
+ *
+ * \param[in]  dec  decoder instance.
+ *
+ * \return -1 if probe call is unsuccessful, base image width otherwise
+ */
+UHDR_EXTERN int uhdr_dec_get_image_width(uhdr_codec_private_t* dec);
+
+/*!\brief Get base image height
+ *
+ * \param[in]  dec  decoder instance.
+ *
+ * \return -1 if probe call is unsuccessful, base image height otherwise
+ */
+UHDR_EXTERN int uhdr_dec_get_image_height(uhdr_codec_private_t* dec);
+
+/*!\brief Get gainmap image width
+ *
+ * \param[in]  dec  decoder instance.
+ *
+ * \return -1 if probe call is unsuccessful, gain map image width otherwise
+ */
+UHDR_EXTERN int uhdr_dec_get_gainmap_width(uhdr_codec_private_t* dec);
+
+/*!\brief Get gainmap image height
+ *
+ * \param[in]  dec  decoder instance.
+ *
+ * \return -1 if probe call is unsuccessful, gain map image height otherwise
+ */
+UHDR_EXTERN int uhdr_dec_get_gainmap_height(uhdr_codec_private_t* dec);
+
+/*!\brief Get exif information
+ *
+ * \param[in]  dec  decoder instance.
+ *
+ * \return nullptr if probe call is unsuccessful, memory block with exif data otherwise
+ */
+UHDR_EXTERN uhdr_mem_block_t* uhdr_dec_get_exif(uhdr_codec_private_t* dec);
+
+/*!\brief Get icc information
+ *
+ * \param[in]  dec  decoder instance.
+ *
+ * \return nullptr if probe call is unsuccessful, memory block with icc data otherwise
+ */
+UHDR_EXTERN uhdr_mem_block_t* uhdr_dec_get_icc(uhdr_codec_private_t* dec);
+
+/*!\brief Get gain map metadata
+ *
+ * \param[in]  dec  decoder instance.
+ *
+ * \return nullptr if decoded process call is unsuccessful, gainmap metadata descriptor otherwise
+ */
+UHDR_EXTERN uhdr_gainmap_metadata_t* uhdr_dec_get_gain_map_metadata(uhdr_codec_private_t* dec);
+
 /*!\brief Decode process call
  * After initializing the decoder context, call to this function will submit data for decoding. If
  * the call is successful, the decoded output is stored internally and is accessible via
@@ -494,14 +570,6 @@ UHDR_EXTERN uhdr_raw_image_t* uhdr_get_decoded_image(uhdr_codec_private_t* dec);
  * \return nullptr if decoded process call is unsuccessful, raw image descriptor otherwise
  */
 UHDR_EXTERN uhdr_raw_image_t* uhdr_get_gain_map_image(uhdr_codec_private_t* dec);
-
-/*!\brief Get gain map metadata
- *
- * \param[in]  dec  decoder instance.
- *
- * \return nullptr if decoded process call is unsuccessful, gainmap metadata descriptor otherwise
- */
-UHDR_EXTERN uhdr_gainmap_metadata_t* uhdr_get_gain_map_metadata(uhdr_codec_private_t* dec);
 
 /*!\brief Reset decoder instance.
  * Clears all previous settings and resets to default state and ready for re-initialization
