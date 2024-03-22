@@ -1491,17 +1491,17 @@ status_t JpegR::convertYuv(jr_uncompressed_ptr image, ultrahdr_color_gamut src_e
     return ERROR_JPEGR_INVALID_COLORGAMUT;
   }
 
-  ColorTransformFn conversionFn = nullptr;
+  const std::array<float, 9>* coeffs_ptr = nullptr;
   switch (src_encoding) {
     case ULTRAHDR_COLORGAMUT_BT709:
       switch (dest_encoding) {
         case ULTRAHDR_COLORGAMUT_BT709:
           return JPEGR_NO_ERROR;
         case ULTRAHDR_COLORGAMUT_P3:
-          conversionFn = yuv709To601;
+          coeffs_ptr = &kYuvBt709ToBt601;
           break;
         case ULTRAHDR_COLORGAMUT_BT2100:
-          conversionFn = yuv709To2100;
+          coeffs_ptr = &kYuvBt709ToBt2100;
           break;
         default:
           // Should be impossible to hit after input validation
@@ -1511,12 +1511,12 @@ status_t JpegR::convertYuv(jr_uncompressed_ptr image, ultrahdr_color_gamut src_e
     case ULTRAHDR_COLORGAMUT_P3:
       switch (dest_encoding) {
         case ULTRAHDR_COLORGAMUT_BT709:
-          conversionFn = yuv601To709;
+          coeffs_ptr = &kYuvBt601ToBt709;
           break;
         case ULTRAHDR_COLORGAMUT_P3:
           return JPEGR_NO_ERROR;
         case ULTRAHDR_COLORGAMUT_BT2100:
-          conversionFn = yuv601To2100;
+          coeffs_ptr = &kYuvBt601ToBt2100;
           break;
         default:
           // Should be impossible to hit after input validation
@@ -1526,10 +1526,10 @@ status_t JpegR::convertYuv(jr_uncompressed_ptr image, ultrahdr_color_gamut src_e
     case ULTRAHDR_COLORGAMUT_BT2100:
       switch (dest_encoding) {
         case ULTRAHDR_COLORGAMUT_BT709:
-          conversionFn = yuv2100To709;
+          coeffs_ptr = &kYuvBt2100ToBt709;
           break;
         case ULTRAHDR_COLORGAMUT_P3:
-          conversionFn = yuv2100To601;
+          coeffs_ptr = &kYuvBt2100ToBt601;
           break;
         case ULTRAHDR_COLORGAMUT_BT2100:
           return JPEGR_NO_ERROR;
@@ -1543,17 +1543,12 @@ status_t JpegR::convertYuv(jr_uncompressed_ptr image, ultrahdr_color_gamut src_e
       return ERROR_JPEGR_INVALID_COLORGAMUT;
   }
 
-  if (conversionFn == nullptr) {
+  if (coeffs_ptr == nullptr) {
     // Should be impossible to hit after input validation
     return ERROR_JPEGR_INVALID_COLORGAMUT;
   }
 
-  for (size_t y = 0; y < image->height / 2; ++y) {
-    for (size_t x = 0; x < image->width / 2; ++x) {
-      transformYuv420(image, x, y, conversionFn);
-    }
-  }
-
+  transformYuv420(image, *coeffs_ptr);
   return JPEGR_NO_ERROR;
 }
 

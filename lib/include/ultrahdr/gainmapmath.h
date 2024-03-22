@@ -17,6 +17,7 @@
 #ifndef ULTRAHDR_GAINMAPMATH_H
 #define ULTRAHDR_GAINMAPMATH_H
 
+#include <array>
 #include <cmath>
 
 #include "ultrahdr/ultrahdr.h"
@@ -421,24 +422,25 @@ ColorTransformFn getHdrConversionFn(ultrahdr_color_gamut sdr_gamut, ultrahdr_col
  * Bt.709 and Bt.2100 have well-defined YUV encodings; Display-P3's is less well defined, but is
  * treated as Bt.601 by DataSpace, hence we do the same.
  */
-Color yuv709To601(Color e_gamma);
-Color yuv709To2100(Color e_gamma);
-Color yuv601To709(Color e_gamma);
-Color yuv601To2100(Color e_gamma);
-Color yuv2100To709(Color e_gamma);
-Color yuv2100To601(Color e_gamma);
+extern const std::array<float, 9> kYuvBt709ToBt601;
+extern const std::array<float, 9> kYuvBt709ToBt2100;
+extern const std::array<float, 9> kYuvBt601ToBt709;
+extern const std::array<float, 9> kYuvBt601ToBt2100;
+extern const std::array<float, 9> kYuvBt2100ToBt709;
+extern const std::array<float, 9> kYuvBt2100ToBt601;
+
+Color yuvColorGamutConversion(Color e_gamma, const std::array<float, 9>& coeffs);
 
 /*
- * Performs a transformation at the chroma x and y coordinates provided on a YUV420 image.
+ * Performs a color gamut transformation on an entire YUV420 image.
  *
  * Apply the transformation by determining transformed YUV for each of the 4 Y + 1 UV; each Y gets
  * this result, and UV gets the averaged result.
  *
- * x_chroma and y_chroma should be less than or equal to half the image's width and height
- * respecitively, since input is 4:2:0 subsampled.
+ * The chroma channels should be less than or equal to half the image's width and height
+ * respectively, since input is 4:2:0 subsampled.
  */
-void transformYuv420(jr_uncompressed_ptr image, size_t x_chroma, size_t y_chroma,
-                     ColorTransformFn fn);
+void transformYuv420(jr_uncompressed_ptr image, const std::array<float, 9>& coeffs);
 
 ////////////////////////////////////////////////////////////////////////////////
 // Gain map calculations

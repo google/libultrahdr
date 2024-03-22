@@ -448,83 +448,102 @@ ColorTransformFn getHdrConversionFn(ultrahdr_color_gamut sdr_gamut,
 }
 
 // All of these conversions are derived from the respective input YUV->RGB conversion followed by
-// the RGB->YUV for the receiving encoding. They are consistent with the RGB<->YUV functions in this
-// file, given that we uses BT.709 encoding for sRGB and BT.601 encoding for Display-P3, to match
-// DataSpace.
+// the RGB->YUV for the receiving encoding. They are consistent with the RGB<->YUV functions in
+// gainmapmath.cpp, given that we use BT.709 encoding for sRGB and BT.601 encoding for Display-P3,
+// to match DataSpace.
 
-Color yuv709To601(Color e_gamma) {
-  return {{{1.0f * e_gamma.y + 0.101579f * e_gamma.u + 0.196076f * e_gamma.v,
-            0.0f * e_gamma.y + 0.989854f * e_gamma.u + -0.110653f * e_gamma.v,
-            0.0f * e_gamma.y + -0.072453f * e_gamma.u + 0.983398f * e_gamma.v}}};
+// Yuv Bt709 -> Yuv Bt601
+// Y' = (1.0 * Y) + ( 0.101579 * U) + ( 0.196076 * V)
+// U' = (0.0 * Y) + ( 0.989854 * U) + (-0.110653 * V)
+// V' = (0.0 * Y) + (-0.072453 * U) + ( 0.983398 * V)
+const std::array<float, 9> kYuvBt709ToBt601 = {
+    1.0f, 0.101579f, 0.196076f, 0.0f, 0.989854f, -0.110653f, 0.0f, -0.072453f, 0.983398f};
+
+// Yuv Bt709 -> Yuv Bt2100
+// Y' = (1.0 * Y) + (-0.016969 * U) + ( 0.096312 * V)
+// U' = (0.0 * Y) + ( 0.995306 * U) + (-0.051192 * V)
+// V' = (0.0 * Y) + ( 0.011507 * U) + ( 1.002637 * V)
+const std::array<float, 9> kYuvBt709ToBt2100 = {
+    1.0f, -0.016969f, 0.096312f, 0.0f, 0.995306f, -0.051192f, 0.0f, 0.011507f, 1.002637f};
+
+// Yuv Bt601 -> Yuv Bt709
+// Y' = (1.0 * Y) + (-0.118188 * U) + (-0.212685 * V)
+// U' = (0.0 * Y) + ( 1.018640 * U) + ( 0.114618 * V)
+// V' = (0.0 * Y) + ( 0.075049 * U) + ( 1.025327 * V)
+const std::array<float, 9> kYuvBt601ToBt709 = {
+    1.0f, -0.118188f, -0.212685f, 0.0f, 1.018640f, 0.114618f, 0.0f, 0.075049f, 1.025327f};
+
+// Yuv Bt601 -> Yuv Bt2100
+// Y' = (1.0 * Y) + (-0.128245 * U) + (-0.115879 * V)
+// U' = (0.0 * Y) + ( 1.010016 * U) + ( 0.061592 * V)
+// V' = (0.0 * Y) + ( 0.086969 * U) + ( 1.029350 * V)
+const std::array<float, 9> kYuvBt601ToBt2100 = {
+    1.0f, -0.128245f, -0.115879, 0.0f, 1.010016f, 0.061592f, 0.0f, 0.086969f, 1.029350f};
+
+// Yuv Bt2100 -> Yuv Bt709
+// Y' = (1.0 * Y) + ( 0.018149 * U) + (-0.095132 * V)
+// U' = (0.0 * Y) + ( 1.004123 * U) + ( 0.051267 * V)
+// V' = (0.0 * Y) + (-0.011524 * U) + ( 0.996782 * V)
+const std::array<float, 9> kYuvBt2100ToBt709 = {
+    1.0f, 0.018149f, -0.095132f, 0.0f, 1.004123f, 0.051267f, 0.0f, -0.011524f, 0.996782f};
+
+// Yuv Bt2100 -> Yuv Bt601
+// Y' = (1.0 * Y) + ( 0.117887 * U) + ( 0.105521 * V)
+// U' = (0.0 * Y) + ( 0.995211 * U) + (-0.059549 * V)
+// V' = (0.0 * Y) + (-0.084085 * U) + ( 0.976518 * V)
+const std::array<float, 9> kYuvBt2100ToBt601 = {
+    1.0f, 0.117887f, 0.105521f, 0.0f, 0.995211f, -0.059549f, 0.0f, -0.084085f, 0.976518f};
+
+Color yuvColorGamutConversion(Color e_gamma, const std::array<float, 9>& coeffs) {
+  const float y = e_gamma.y * std::get<0>(coeffs) + e_gamma.u * std::get<1>(coeffs) +
+                  e_gamma.v * std::get<2>(coeffs);
+  const float u = e_gamma.y * std::get<3>(coeffs) + e_gamma.u * std::get<4>(coeffs) +
+                  e_gamma.v * std::get<5>(coeffs);
+  const float v = e_gamma.y * std::get<6>(coeffs) + e_gamma.u * std::get<7>(coeffs) +
+                  e_gamma.v * std::get<8>(coeffs);
+  return {y, u, v};
 }
 
-Color yuv709To2100(Color e_gamma) {
-  return {{{1.0f * e_gamma.y + -0.016969f * e_gamma.u + 0.096312f * e_gamma.v,
-            0.0f * e_gamma.y + 0.995306f * e_gamma.u + -0.051192f * e_gamma.v,
-            0.0f * e_gamma.y + 0.011507f * e_gamma.u + 1.002637f * e_gamma.v}}};
-}
+void transformYuv420(jr_uncompressed_ptr image, const std::array<float, 9>& coeffs) {
+  for (size_t y = 0; y < image->height / 2; ++y) {
+    for (size_t x = 0; x < image->width / 2; ++x) {
+      Color yuv1 = getYuv420Pixel(image, x * 2, y * 2);
+      Color yuv2 = getYuv420Pixel(image, x * 2 + 1, y * 2);
+      Color yuv3 = getYuv420Pixel(image, x * 2, y * 2 + 1);
+      Color yuv4 = getYuv420Pixel(image, x * 2 + 1, y * 2 + 1);
 
-Color yuv601To709(Color e_gamma) {
-  return {{{1.0f * e_gamma.y + -0.118188f * e_gamma.u + -0.212685f * e_gamma.v,
-            0.0f * e_gamma.y + 1.018640f * e_gamma.u + 0.114618f * e_gamma.v,
-            0.0f * e_gamma.y + 0.075049f * e_gamma.u + 1.025327f * e_gamma.v}}};
-}
+      yuv1 = yuvColorGamutConversion(yuv1, coeffs);
+      yuv2 = yuvColorGamutConversion(yuv2, coeffs);
+      yuv3 = yuvColorGamutConversion(yuv3, coeffs);
+      yuv4 = yuvColorGamutConversion(yuv4, coeffs);
 
-Color yuv601To2100(Color e_gamma) {
-  return {{{1.0f * e_gamma.y + -0.128245f * e_gamma.u + -0.115879f * e_gamma.v,
-            0.0f * e_gamma.y + 1.010016f * e_gamma.u + 0.061592f * e_gamma.v,
-            0.0f * e_gamma.y + 0.086969f * e_gamma.u + 1.029350f * e_gamma.v}}};
-}
+      Color new_uv = (yuv1 + yuv2 + yuv3 + yuv4) / 4.0f;
 
-Color yuv2100To709(Color e_gamma) {
-  return {{{1.0f * e_gamma.y + 0.018149f * e_gamma.u + -0.095132f * e_gamma.v,
-            0.0f * e_gamma.y + 1.004123f * e_gamma.u + 0.051267f * e_gamma.v,
-            0.0f * e_gamma.y + -0.011524f * e_gamma.u + 0.996782f * e_gamma.v}}};
-}
+      size_t pixel_y1_idx = x * 2 + y * 2 * image->luma_stride;
+      size_t pixel_y2_idx = (x * 2 + 1) + y * 2 * image->luma_stride;
+      size_t pixel_y3_idx = x * 2 + (y * 2 + 1) * image->luma_stride;
+      size_t pixel_y4_idx = (x * 2 + 1) + (y * 2 + 1) * image->luma_stride;
 
-Color yuv2100To601(Color e_gamma) {
-  return {{{1.0f * e_gamma.y + 0.117887f * e_gamma.u + 0.105521f * e_gamma.v,
-            0.0f * e_gamma.y + 0.995211f * e_gamma.u + -0.059549f * e_gamma.v,
-            0.0f * e_gamma.y + -0.084085f * e_gamma.u + 0.976518f * e_gamma.v}}};
-}
+      uint8_t& y1_uint = reinterpret_cast<uint8_t*>(image->data)[pixel_y1_idx];
+      uint8_t& y2_uint = reinterpret_cast<uint8_t*>(image->data)[pixel_y2_idx];
+      uint8_t& y3_uint = reinterpret_cast<uint8_t*>(image->data)[pixel_y3_idx];
+      uint8_t& y4_uint = reinterpret_cast<uint8_t*>(image->data)[pixel_y4_idx];
 
-void transformYuv420(jr_uncompressed_ptr image, size_t x_chroma, size_t y_chroma,
-                     ColorTransformFn fn) {
-  Color yuv1 = getYuv420Pixel(image, x_chroma * 2, y_chroma * 2);
-  Color yuv2 = getYuv420Pixel(image, x_chroma * 2 + 1, y_chroma * 2);
-  Color yuv3 = getYuv420Pixel(image, x_chroma * 2, y_chroma * 2 + 1);
-  Color yuv4 = getYuv420Pixel(image, x_chroma * 2 + 1, y_chroma * 2 + 1);
+      size_t pixel_count = image->chroma_stride * image->height / 2;
+      size_t pixel_uv_idx = x + y * (image->chroma_stride);
 
-  yuv1 = fn(yuv1);
-  yuv2 = fn(yuv2);
-  yuv3 = fn(yuv3);
-  yuv4 = fn(yuv4);
+      uint8_t& u_uint = reinterpret_cast<uint8_t*>(image->chroma_data)[pixel_uv_idx];
+      uint8_t& v_uint = reinterpret_cast<uint8_t*>(image->chroma_data)[pixel_count + pixel_uv_idx];
 
-  Color new_uv = (yuv1 + yuv2 + yuv3 + yuv4) / 4.0f;
+      y1_uint = static_cast<uint8_t>(CLIP3((yuv1.y * 255.0f + 0.5f), 0, 255));
+      y2_uint = static_cast<uint8_t>(CLIP3((yuv2.y * 255.0f + 0.5f), 0, 255));
+      y3_uint = static_cast<uint8_t>(CLIP3((yuv3.y * 255.0f + 0.5f), 0, 255));
+      y4_uint = static_cast<uint8_t>(CLIP3((yuv4.y * 255.0f + 0.5f), 0, 255));
 
-  size_t pixel_y1_idx = x_chroma * 2 + y_chroma * 2 * image->luma_stride;
-  size_t pixel_y2_idx = (x_chroma * 2 + 1) + y_chroma * 2 * image->luma_stride;
-  size_t pixel_y3_idx = x_chroma * 2 + (y_chroma * 2 + 1) * image->luma_stride;
-  size_t pixel_y4_idx = (x_chroma * 2 + 1) + (y_chroma * 2 + 1) * image->luma_stride;
-
-  uint8_t& y1_uint = reinterpret_cast<uint8_t*>(image->data)[pixel_y1_idx];
-  uint8_t& y2_uint = reinterpret_cast<uint8_t*>(image->data)[pixel_y2_idx];
-  uint8_t& y3_uint = reinterpret_cast<uint8_t*>(image->data)[pixel_y3_idx];
-  uint8_t& y4_uint = reinterpret_cast<uint8_t*>(image->data)[pixel_y4_idx];
-
-  size_t pixel_count = image->chroma_stride * image->height / 2;
-  size_t pixel_uv_idx = x_chroma + y_chroma * (image->chroma_stride);
-
-  uint8_t& u_uint = reinterpret_cast<uint8_t*>(image->chroma_data)[pixel_uv_idx];
-  uint8_t& v_uint = reinterpret_cast<uint8_t*>(image->chroma_data)[pixel_count + pixel_uv_idx];
-
-  y1_uint = static_cast<uint8_t>(CLIP3((yuv1.y * 255.0f + 0.5f), 0, 255));
-  y2_uint = static_cast<uint8_t>(CLIP3((yuv2.y * 255.0f + 0.5f), 0, 255));
-  y3_uint = static_cast<uint8_t>(CLIP3((yuv3.y * 255.0f + 0.5f), 0, 255));
-  y4_uint = static_cast<uint8_t>(CLIP3((yuv4.y * 255.0f + 0.5f), 0, 255));
-
-  u_uint = static_cast<uint8_t>(CLIP3((new_uv.u * 255.0f + 128.0f + 0.5f), 0, 255));
-  v_uint = static_cast<uint8_t>(CLIP3((new_uv.v * 255.0f + 128.0f + 0.5f), 0, 255));
+      u_uint = static_cast<uint8_t>(CLIP3((new_uv.u * 255.0f + 128.0f + 0.5f), 0, 255));
+      v_uint = static_cast<uint8_t>(CLIP3((new_uv.v * 255.0f + 128.0f + 0.5f), 0, 255));
+    }
+  }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
