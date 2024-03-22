@@ -165,13 +165,14 @@ static bool loadFile(const char* filename, uhdr_raw_image_t* handle) {
   if (ifd.good()) {
     if (handle->fmt == UHDR_IMG_FMT_24bppYCbCrP010) {
       const int bpp = 2;
-      ifd.read(static_cast<char*>(handle->planes[0]), handle->w * handle->h * bpp);
-      ifd.read(static_cast<char*>(handle->planes[1]), (handle->w / 2) * (handle->h / 2) * bpp * 2);
+      ifd.read(static_cast<char*>(handle->planes[UHDR_PLANE_Y]), handle->w * handle->h * bpp);
+      ifd.read(static_cast<char*>(handle->planes[UHDR_PLANE_UV]),
+               (handle->w / 2) * (handle->h / 2) * bpp * 2);
       return true;
     } else if (handle->fmt == UHDR_IMG_FMT_12bppYCbCr420) {
-      ifd.read(static_cast<char*>(handle->planes[0]), handle->w * handle->h);
-      ifd.read(static_cast<char*>(handle->planes[1]), (handle->w / 2) * (handle->h / 2));
-      ifd.read(static_cast<char*>(handle->planes[2]), (handle->w / 2) * (handle->h / 2));
+      ifd.read(static_cast<char*>(handle->planes[UHDR_PLANE_Y]), handle->w * handle->h);
+      ifd.read(static_cast<char*>(handle->planes[UHDR_PLANE_U]), (handle->w / 2) * (handle->h / 2));
+      ifd.read(static_cast<char*>(handle->planes[UHDR_PLANE_V]), (handle->w / 2) * (handle->h / 2));
       return true;
     }
     return false;
@@ -195,9 +196,9 @@ static bool writeFile(const char* filename, uhdr_raw_image_t* img) {
   if (ofd.is_open()) {
     if (img->fmt == UHDR_IMG_FMT_32bppRGBA8888 || img->fmt == UHDR_IMG_FMT_64bppRGBAHalfFloat ||
         img->fmt == UHDR_IMG_FMT_32bppRGBA1010102) {
-      char* data = static_cast<char*>(img->planes[0]);
+      char* data = static_cast<char*>(img->planes[UHDR_PLANE_PACKED]);
       int bpp = img->fmt == UHDR_IMG_FMT_64bppRGBAHalfFloat ? 8 : 4;
-      const size_t stride = img->stride[0] * bpp;
+      const size_t stride = img->stride[UHDR_PLANE_PACKED] * bpp;
       const size_t length = img->w * bpp;
       for (unsigned i = 0; i < img->h; i++, data += stride) {
         ofd.write(data, length);
@@ -205,20 +206,20 @@ static bool writeFile(const char* filename, uhdr_raw_image_t* img) {
       return true;
     } else if ((int)img->fmt == UHDR_IMG_FMT_24bppYCbCr444 ||
                (int)img->fmt == UHDR_IMG_FMT_48bppYCbCr444) {
-      char* data = static_cast<char*>(img->planes[0]);
+      char* data = static_cast<char*>(img->planes[UHDR_PLANE_Y]);
       int bpp = (int)img->fmt == UHDR_IMG_FMT_48bppYCbCr444 ? 2 : 1;
-      size_t stride = img->stride[0] * bpp;
+      size_t stride = img->stride[UHDR_PLANE_Y] * bpp;
       size_t length = img->w * bpp;
       for (unsigned i = 0; i < img->h; i++, data += stride) {
         ofd.write(data, length);
       }
-      data = static_cast<char*>(img->planes[1]);
-      stride = img->stride[1] * bpp;
+      data = static_cast<char*>(img->planes[UHDR_PLANE_U]);
+      stride = img->stride[UHDR_PLANE_U] * bpp;
       for (unsigned i = 0; i < img->h; i++, data += stride) {
         ofd.write(data, length);
       }
-      data = static_cast<char*>(img->planes[2]);
-      stride = img->stride[2] * bpp;
+      data = static_cast<char*>(img->planes[UHDR_PLANE_V]);
+      stride = img->stride[UHDR_PLANE_V] * bpp;
       for (unsigned i = 0; i < img->h; i++, data += stride) {
         ofd.write(data, length);
       }
@@ -271,7 +272,7 @@ class UltraHdrAppInput {
         mMode(1){};
 
   ~UltraHdrAppInput() {
-    int count = sizeof mRawP010Image.planes / sizeof mRawP010Image.planes[0];
+    int count = sizeof mRawP010Image.planes / sizeof mRawP010Image.planes[UHDR_PLANE_Y];
     for (int i = 0; i < count; i++) {
       if (mRawP010Image.planes[i]) {
         free(mRawP010Image.planes[i]);
@@ -356,12 +357,12 @@ bool UltraHdrAppInput::fillP010ImageHandle() {
   mRawP010Image.range = UHDR_CR_LIMITED_RANGE;
   mRawP010Image.w = mWidth;
   mRawP010Image.h = mHeight;
-  mRawP010Image.planes[0] = malloc(mWidth * mHeight * bpp);
-  mRawP010Image.planes[1] = malloc((mWidth / 2) * (mHeight / 2) * bpp * 2);
-  mRawP010Image.planes[2] = nullptr;
-  mRawP010Image.stride[0] = mWidth;
-  mRawP010Image.stride[1] = mWidth;
-  mRawP010Image.stride[2] = 0;
+  mRawP010Image.planes[UHDR_PLANE_Y] = malloc(mWidth * mHeight * bpp);
+  mRawP010Image.planes[UHDR_PLANE_UV] = malloc((mWidth / 2) * (mHeight / 2) * bpp * 2);
+  mRawP010Image.planes[UHDR_PLANE_V] = nullptr;
+  mRawP010Image.stride[UHDR_PLANE_Y] = mWidth;
+  mRawP010Image.stride[UHDR_PLANE_UV] = mWidth;
+  mRawP010Image.stride[UHDR_PLANE_V] = 0;
   return loadFile(mP010File, &mRawP010Image);
 }
 
@@ -373,12 +374,12 @@ bool UltraHdrAppInput::fillYuv420ImageHandle() {
   mRawYuv420Image.range = UHDR_CR_FULL_RANGE;
   mRawYuv420Image.w = mWidth;
   mRawYuv420Image.h = mHeight;
-  mRawYuv420Image.planes[0] = malloc(mWidth * mHeight);
-  mRawYuv420Image.planes[1] = malloc((mWidth / 2) * (mHeight / 2));
-  mRawYuv420Image.planes[2] = malloc((mWidth / 2) * (mHeight / 2));
-  mRawYuv420Image.stride[0] = mWidth;
-  mRawYuv420Image.stride[1] = mWidth / 2;
-  mRawYuv420Image.stride[2] = mWidth / 2;
+  mRawYuv420Image.planes[UHDR_PLANE_Y] = malloc(mWidth * mHeight);
+  mRawYuv420Image.planes[UHDR_PLANE_U] = malloc((mWidth / 2) * (mHeight / 2));
+  mRawYuv420Image.planes[UHDR_PLANE_V] = malloc((mWidth / 2) * (mHeight / 2));
+  mRawYuv420Image.stride[UHDR_PLANE_Y] = mWidth;
+  mRawYuv420Image.stride[UHDR_PLANE_U] = mWidth / 2;
+  mRawYuv420Image.stride[UHDR_PLANE_V] = mWidth / 2;
   return loadFile(mYuv420File, &mRawYuv420Image);
 }
 
@@ -595,12 +596,12 @@ bool UltraHdrAppInput::decode() {
   mDestImage.w = output->w;
   mDestImage.h = output->h;
   int bpp = (output->fmt == UHDR_IMG_FMT_64bppRGBAHalfFloat) ? 8 : 4;
-  mDestImage.planes[0] = malloc(output->w * output->h * bpp);
-  char* inData = static_cast<char*>(output->planes[0]);
-  char* outData = static_cast<char*>(mDestImage.planes[0]);
-  const size_t inStride = output->stride[0] * bpp;
+  mDestImage.planes[UHDR_PLANE_PACKED] = malloc(output->w * output->h * bpp);
+  char* inData = static_cast<char*>(output->planes[UHDR_PLANE_PACKED]);
+  char* outData = static_cast<char*>(mDestImage.planes[UHDR_PLANE_PACKED]);
+  const size_t inStride = output->stride[UHDR_PLANE_PACKED] * bpp;
   const size_t outStride = output->w * bpp;
-  mDestImage.stride[0] = output->w;
+  mDestImage.stride[UHDR_PLANE_PACKED] = output->w;
   const size_t length = output->w * bpp;
   for (unsigned i = 0; i < output->h; i++, inData += inStride, outData += outStride) {
     memcpy(outData, inData, length);
@@ -631,23 +632,23 @@ bool UltraHdrAppInput::convertP010ToRGBImage() {
   mRawRgba1010102Image.range = UHDR_CR_FULL_RANGE;
   mRawRgba1010102Image.w = mRawP010Image.w;
   mRawRgba1010102Image.h = mRawP010Image.h;
-  mRawRgba1010102Image.planes[0] = malloc(mRawP010Image.w * mRawP010Image.h * 4);
-  mRawRgba1010102Image.planes[1] = nullptr;
-  mRawRgba1010102Image.planes[2] = nullptr;
-  mRawRgba1010102Image.stride[0] = mWidth;
-  mRawRgba1010102Image.stride[1] = 0;
-  mRawRgba1010102Image.stride[2] = 0;
+  mRawRgba1010102Image.planes[UHDR_PLANE_PACKED] = malloc(mRawP010Image.w * mRawP010Image.h * 4);
+  mRawRgba1010102Image.planes[UHDR_PLANE_U] = nullptr;
+  mRawRgba1010102Image.planes[UHDR_PLANE_V] = nullptr;
+  mRawRgba1010102Image.stride[UHDR_PLANE_PACKED] = mWidth;
+  mRawRgba1010102Image.stride[UHDR_PLANE_U] = 0;
+  mRawRgba1010102Image.stride[UHDR_PLANE_V] = 0;
 
-  uint32_t* rgbData = static_cast<uint32_t*>(mRawRgba1010102Image.planes[0]);
-  uint16_t* y = static_cast<uint16_t*>(mRawP010Image.planes[0]);
-  uint16_t* u = static_cast<uint16_t*>(mRawP010Image.planes[1]);
+  uint32_t* rgbData = static_cast<uint32_t*>(mRawRgba1010102Image.planes[UHDR_PLANE_PACKED]);
+  uint16_t* y = static_cast<uint16_t*>(mRawP010Image.planes[UHDR_PLANE_Y]);
+  uint16_t* u = static_cast<uint16_t*>(mRawP010Image.planes[UHDR_PLANE_UV]);
   uint16_t* v = u + 1;
 
   for (size_t i = 0; i < mRawP010Image.h; i++) {
     for (size_t j = 0; j < mRawP010Image.w; j++) {
-      float y0 = float(y[mRawP010Image.stride[0] * i + j] >> 6);
-      float u0 = float(u[mRawP010Image.stride[1] * (i / 2) + (j / 2) * 2] >> 6);
-      float v0 = float(v[mRawP010Image.stride[1] * (i / 2) + (j / 2) * 2] >> 6);
+      float y0 = float(y[mRawP010Image.stride[UHDR_PLANE_Y] * i + j] >> 6);
+      float u0 = float(u[mRawP010Image.stride[UHDR_PLANE_UV] * (i / 2) + (j / 2) * 2] >> 6);
+      float v0 = float(v[mRawP010Image.stride[UHDR_PLANE_UV] * (i / 2) + (j / 2) * 2] >> 6);
 
       y0 = CLIP3(y0, 64.0f, 940.0f);
       u0 = CLIP3(u0, 64.0f, 960.0f);
@@ -685,24 +686,24 @@ bool UltraHdrAppInput::convertYuv420ToRGBImage() {
   mRawRgba8888Image.range = UHDR_CR_FULL_RANGE;
   mRawRgba8888Image.w = mRawYuv420Image.w;
   mRawRgba8888Image.h = mRawYuv420Image.h;
-  mRawRgba8888Image.planes[0] = malloc(mRawYuv420Image.w * mRawYuv420Image.h * 4);
-  mRawRgba8888Image.planes[1] = nullptr;
-  mRawRgba8888Image.planes[2] = nullptr;
-  mRawRgba8888Image.stride[0] = mWidth;
-  mRawRgba8888Image.stride[1] = 0;
-  mRawRgba8888Image.stride[2] = 0;
+  mRawRgba8888Image.planes[UHDR_PLANE_PACKED] = malloc(mRawYuv420Image.w * mRawYuv420Image.h * 4);
+  mRawRgba8888Image.planes[UHDR_PLANE_U] = nullptr;
+  mRawRgba8888Image.planes[UHDR_PLANE_V] = nullptr;
+  mRawRgba8888Image.stride[UHDR_PLANE_PACKED] = mWidth;
+  mRawRgba8888Image.stride[UHDR_PLANE_U] = 0;
+  mRawRgba8888Image.stride[UHDR_PLANE_V] = 0;
 
-  uint32_t* rgbData = static_cast<uint32_t*>(mRawRgba8888Image.planes[0]);
-  uint8_t* y = static_cast<uint8_t*>(mRawYuv420Image.planes[0]);
-  uint8_t* u = static_cast<uint8_t*>(mRawYuv420Image.planes[1]);
-  uint8_t* v = static_cast<uint8_t*>(mRawYuv420Image.planes[2]);
+  uint32_t* rgbData = static_cast<uint32_t*>(mRawRgba8888Image.planes[UHDR_PLANE_PACKED]);
+  uint8_t* y = static_cast<uint8_t*>(mRawYuv420Image.planes[UHDR_PLANE_Y]);
+  uint8_t* u = static_cast<uint8_t*>(mRawYuv420Image.planes[UHDR_PLANE_U]);
+  uint8_t* v = static_cast<uint8_t*>(mRawYuv420Image.planes[UHDR_PLANE_V]);
 
   const float* coeffs = BT601YUVtoRGBMatrix;
   for (size_t i = 0; i < mRawYuv420Image.h; i++) {
     for (size_t j = 0; j < mRawYuv420Image.w; j++) {
-      float y0 = float(y[mRawYuv420Image.stride[0] * i + j]);
-      float u0 = float(u[mRawYuv420Image.stride[1] * (i / 2) + (j / 2)] - 128);
-      float v0 = float(v[mRawYuv420Image.stride[2] * (i / 2) + (j / 2)] - 128);
+      float y0 = float(y[mRawYuv420Image.stride[UHDR_PLANE_Y] * i + j]);
+      float u0 = float(u[mRawYuv420Image.stride[UHDR_PLANE_U] * (i / 2) + (j / 2)] - 128);
+      float v0 = float(v[mRawYuv420Image.stride[UHDR_PLANE_V] * (i / 2) + (j / 2)] - 128);
 
       y0 /= 255.0f;
       u0 /= 255.0f;
@@ -739,25 +740,25 @@ bool UltraHdrAppInput::convertRgba8888ToYUV444Image() {
   mDestYUV444Image.range = UHDR_CR_FULL_RANGE;
   mDestYUV444Image.w = mDestImage.w;
   mDestYUV444Image.h = mDestImage.h;
-  mDestYUV444Image.planes[0] = malloc(mDestImage.w * mDestImage.h);
-  mDestYUV444Image.planes[1] = malloc(mDestImage.w * mDestImage.h);
-  mDestYUV444Image.planes[2] = malloc(mDestImage.w * mDestImage.h);
-  mDestYUV444Image.stride[0] = mWidth;
-  mDestYUV444Image.stride[1] = mWidth;
-  mDestYUV444Image.stride[2] = mWidth;
+  mDestYUV444Image.planes[UHDR_PLANE_Y] = malloc(mDestImage.w * mDestImage.h);
+  mDestYUV444Image.planes[UHDR_PLANE_U] = malloc(mDestImage.w * mDestImage.h);
+  mDestYUV444Image.planes[UHDR_PLANE_V] = malloc(mDestImage.w * mDestImage.h);
+  mDestYUV444Image.stride[UHDR_PLANE_Y] = mWidth;
+  mDestYUV444Image.stride[UHDR_PLANE_U] = mWidth;
+  mDestYUV444Image.stride[UHDR_PLANE_V] = mWidth;
 
-  uint32_t* rgbData = static_cast<uint32_t*>(mDestImage.planes[0]);
+  uint32_t* rgbData = static_cast<uint32_t*>(mDestImage.planes[UHDR_PLANE_PACKED]);
 
-  uint8_t* yData = static_cast<uint8_t*>(mDestYUV444Image.planes[0]);
-  uint8_t* uData = static_cast<uint8_t*>(mDestYUV444Image.planes[1]);
-  uint8_t* vData = static_cast<uint8_t*>(mDestYUV444Image.planes[2]);
+  uint8_t* yData = static_cast<uint8_t*>(mDestYUV444Image.planes[UHDR_PLANE_Y]);
+  uint8_t* uData = static_cast<uint8_t*>(mDestYUV444Image.planes[UHDR_PLANE_U]);
+  uint8_t* vData = static_cast<uint8_t*>(mDestYUV444Image.planes[UHDR_PLANE_V]);
 
   const float* coeffs = BT601RGBtoYUVMatrix;
   for (size_t i = 0; i < mDestImage.h; i++) {
     for (size_t j = 0; j < mDestImage.w; j++) {
-      float r0 = float(rgbData[mDestImage.stride[0] * i + j] & 0xff);
-      float g0 = float((rgbData[mDestImage.stride[0] * i + j] >> 8) & 0xff);
-      float b0 = float((rgbData[mDestImage.stride[0] * i + j] >> 16) & 0xff);
+      float r0 = float(rgbData[mDestImage.stride[UHDR_PLANE_PACKED] * i + j] & 0xff);
+      float g0 = float((rgbData[mDestImage.stride[UHDR_PLANE_PACKED] * i + j] >> 8) & 0xff);
+      float b0 = float((rgbData[mDestImage.stride[UHDR_PLANE_PACKED] * i + j] >> 16) & 0xff);
 
       r0 /= 255.0f;
       g0 /= 255.0f;
@@ -775,9 +776,9 @@ bool UltraHdrAppInput::convertRgba8888ToYUV444Image() {
       u = CLIP3(u, 0.0f, 255.0f);
       v = CLIP3(v, 0.0f, 255.0f);
 
-      yData[mDestYUV444Image.stride[0] * i + j] = uint8_t(y);
-      uData[mDestYUV444Image.stride[1] * i + j] = uint8_t(u);
-      vData[mDestYUV444Image.stride[2] * i + j] = uint8_t(v);
+      yData[mDestYUV444Image.stride[UHDR_PLANE_Y] * i + j] = uint8_t(y);
+      uData[mDestYUV444Image.stride[UHDR_PLANE_U] * i + j] = uint8_t(u);
+      vData[mDestYUV444Image.stride[UHDR_PLANE_V] * i + j] = uint8_t(v);
     }
   }
   writeFile("outyuv444.yuv", &mDestYUV444Image);
@@ -803,24 +804,24 @@ bool UltraHdrAppInput::convertRgba1010102ToYUV444Image() {
   mDestYUV444Image.range = UHDR_CR_FULL_RANGE;
   mDestYUV444Image.w = mDestImage.w;
   mDestYUV444Image.h = mDestImage.h;
-  mDestYUV444Image.planes[0] = malloc(mDestImage.w * mDestImage.h * 2);
-  mDestYUV444Image.planes[1] = malloc(mDestImage.w * mDestImage.h * 2);
-  mDestYUV444Image.planes[2] = malloc(mDestImage.w * mDestImage.h * 2);
-  mDestYUV444Image.stride[0] = mWidth;
-  mDestYUV444Image.stride[1] = mWidth;
-  mDestYUV444Image.stride[2] = mWidth;
+  mDestYUV444Image.planes[UHDR_PLANE_Y] = malloc(mDestImage.w * mDestImage.h * 2);
+  mDestYUV444Image.planes[UHDR_PLANE_U] = malloc(mDestImage.w * mDestImage.h * 2);
+  mDestYUV444Image.planes[UHDR_PLANE_V] = malloc(mDestImage.w * mDestImage.h * 2);
+  mDestYUV444Image.stride[UHDR_PLANE_Y] = mWidth;
+  mDestYUV444Image.stride[UHDR_PLANE_U] = mWidth;
+  mDestYUV444Image.stride[UHDR_PLANE_V] = mWidth;
 
-  uint32_t* rgbData = static_cast<uint32_t*>(mDestImage.planes[0]);
+  uint32_t* rgbData = static_cast<uint32_t*>(mDestImage.planes[UHDR_PLANE_PACKED]);
 
-  uint16_t* yData = static_cast<uint16_t*>(mDestYUV444Image.planes[0]);
-  uint16_t* uData = static_cast<uint16_t*>(mDestYUV444Image.planes[1]);
-  uint16_t* vData = static_cast<uint16_t*>(mDestYUV444Image.planes[2]);
+  uint16_t* yData = static_cast<uint16_t*>(mDestYUV444Image.planes[UHDR_PLANE_Y]);
+  uint16_t* uData = static_cast<uint16_t*>(mDestYUV444Image.planes[UHDR_PLANE_U]);
+  uint16_t* vData = static_cast<uint16_t*>(mDestYUV444Image.planes[UHDR_PLANE_V]);
 
   for (size_t i = 0; i < mDestImage.h; i++) {
     for (size_t j = 0; j < mDestImage.w; j++) {
-      float r0 = float(rgbData[mDestImage.stride[0] * i + j] & 0x3ff);
-      float g0 = float((rgbData[mDestImage.stride[0] * i + j] >> 10) & 0x3ff);
-      float b0 = float((rgbData[mDestImage.stride[0] * i + j] >> 20) & 0x3ff);
+      float r0 = float(rgbData[mDestImage.stride[UHDR_PLANE_PACKED] * i + j] & 0x3ff);
+      float g0 = float((rgbData[mDestImage.stride[UHDR_PLANE_PACKED] * i + j] >> 10) & 0x3ff);
+      float b0 = float((rgbData[mDestImage.stride[UHDR_PLANE_PACKED] * i + j] >> 20) & 0x3ff);
 
       r0 /= 1023.0f;
       g0 /= 1023.0f;
@@ -838,9 +839,9 @@ bool UltraHdrAppInput::convertRgba1010102ToYUV444Image() {
       u = CLIP3(u, 64.0f, 960.0f);
       v = CLIP3(v, 64.0f, 960.0f);
 
-      yData[mDestYUV444Image.stride[0] * i + j] = uint16_t(y);
-      uData[mDestYUV444Image.stride[1] * i + j] = uint16_t(u);
-      vData[mDestYUV444Image.stride[2] * i + j] = uint16_t(v);
+      yData[mDestYUV444Image.stride[UHDR_PLANE_Y] * i + j] = uint16_t(y);
+      uData[mDestYUV444Image.stride[UHDR_PLANE_U] * i + j] = uint16_t(u);
+      vData[mDestYUV444Image.stride[UHDR_PLANE_V] * i + j] = uint16_t(v);
     }
   }
   writeFile("outyuv444.yuv", &mDestYUV444Image);
@@ -852,8 +853,8 @@ void UltraHdrAppInput::computeRGBHdrPSNR() {
     std::cout << "psnr not supported for output format " << mOfmt << std::endl;
     return;
   }
-  uint32_t* rgbDataSrc = static_cast<uint32_t*>(mRawRgba1010102Image.planes[0]);
-  uint32_t* rgbDataDst = static_cast<uint32_t*>(mDestImage.planes[0]);
+  uint32_t* rgbDataSrc = static_cast<uint32_t*>(mRawRgba1010102Image.planes[UHDR_PLANE_PACKED]);
+  uint32_t* rgbDataDst = static_cast<uint32_t*>(mDestImage.planes[UHDR_PLANE_PACKED]);
   if (rgbDataSrc == nullptr || rgbDataDst == nullptr) {
     std::cerr << "invalid src or dst pointer for psnr computation " << std::endl;
     return;
@@ -898,8 +899,8 @@ void UltraHdrAppInput::computeRGBSdrPSNR() {
     std::cout << "psnr not supported for output format " << mOfmt << std::endl;
     return;
   }
-  uint32_t* rgbDataSrc = static_cast<uint32_t*>(mRawRgba8888Image.planes[0]);
-  uint32_t* rgbDataDst = static_cast<uint32_t*>(mDestImage.planes[0]);
+  uint32_t* rgbDataSrc = static_cast<uint32_t*>(mRawRgba8888Image.planes[UHDR_PLANE_PACKED]);
+  uint32_t* rgbDataDst = static_cast<uint32_t*>(mDestImage.planes[UHDR_PLANE_PACKED]);
   if (rgbDataSrc == nullptr || rgbDataDst == nullptr) {
     std::cerr << "invalid src or dst pointer for psnr computation " << std::endl;
     return;
@@ -940,13 +941,13 @@ void UltraHdrAppInput::computeYUVHdrPSNR() {
     std::cout << "psnr not supported for output format " << mOfmt << std::endl;
     return;
   }
-  uint16_t* yDataSrc = static_cast<uint16_t*>(mRawP010Image.planes[0]);
-  uint16_t* uDataSrc = static_cast<uint16_t*>(mRawP010Image.planes[1]);
+  uint16_t* yDataSrc = static_cast<uint16_t*>(mRawP010Image.planes[UHDR_PLANE_Y]);
+  uint16_t* uDataSrc = static_cast<uint16_t*>(mRawP010Image.planes[UHDR_PLANE_UV]);
   uint16_t* vDataSrc = uDataSrc + 1;
 
-  uint16_t* yDataDst = static_cast<uint16_t*>(mDestYUV444Image.planes[0]);
-  uint16_t* uDataDst = static_cast<uint16_t*>(mDestYUV444Image.planes[1]);
-  uint16_t* vDataDst = static_cast<uint16_t*>(mDestYUV444Image.planes[2]);
+  uint16_t* yDataDst = static_cast<uint16_t*>(mDestYUV444Image.planes[UHDR_PLANE_Y]);
+  uint16_t* uDataDst = static_cast<uint16_t*>(mDestYUV444Image.planes[UHDR_PLANE_U]);
+  uint16_t* vDataDst = static_cast<uint16_t*>(mDestYUV444Image.planes[UHDR_PLANE_V]);
   if (yDataSrc == nullptr || uDataSrc == nullptr || yDataDst == nullptr || uDataDst == nullptr ||
       vDataDst == nullptr) {
     std::cerr << "invalid src or dst pointer for psnr computation " << std::endl;
@@ -961,27 +962,29 @@ void UltraHdrAppInput::computeYUVHdrPSNR() {
   uint64_t ySqError = 0, uSqError = 0, vSqError = 0;
   for (size_t i = 0; i < mDestYUV444Image.h; i++) {
     for (size_t j = 0; j < mDestYUV444Image.w; j++) {
-      int ySrc = (yDataSrc[mRawP010Image.stride[0] * i + j] >> 6) & 0x3ff;
+      int ySrc = (yDataSrc[mRawP010Image.stride[UHDR_PLANE_Y] * i + j] >> 6) & 0x3ff;
       ySrc = CLIP3(ySrc, 64, 940);
-      int yDst = yDataDst[mDestYUV444Image.stride[0] * i + j] & 0x3ff;
+      int yDst = yDataDst[mDestYUV444Image.stride[UHDR_PLANE_Y] * i + j] & 0x3ff;
       ySqError += (ySrc - yDst) * (ySrc - yDst);
 
       if (i % 2 == 0 && j % 2 == 0) {
-        int uSrc = (uDataSrc[mRawP010Image.stride[1] * (i / 2) + (j / 2) * 2] >> 6) & 0x3ff;
+        int uSrc =
+            (uDataSrc[mRawP010Image.stride[UHDR_PLANE_UV] * (i / 2) + (j / 2) * 2] >> 6) & 0x3ff;
         uSrc = CLIP3(uSrc, 64, 960);
-        int uDst = uDataDst[mDestYUV444Image.stride[1] * i + j] & 0x3ff;
-        uDst += uDataDst[mDestYUV444Image.stride[1] * i + j + 1] & 0x3ff;
-        uDst += uDataDst[mDestYUV444Image.stride[1] * (i + 1) + j + 1] & 0x3ff;
-        uDst += uDataDst[mDestYUV444Image.stride[1] * (i + 1) + j + 1] & 0x3ff;
+        int uDst = uDataDst[mDestYUV444Image.stride[UHDR_PLANE_U] * i + j] & 0x3ff;
+        uDst += uDataDst[mDestYUV444Image.stride[UHDR_PLANE_U] * i + j + 1] & 0x3ff;
+        uDst += uDataDst[mDestYUV444Image.stride[UHDR_PLANE_U] * (i + 1) + j + 1] & 0x3ff;
+        uDst += uDataDst[mDestYUV444Image.stride[UHDR_PLANE_U] * (i + 1) + j + 1] & 0x3ff;
         uDst = (uDst + 2) >> 2;
         uSqError += (uSrc - uDst) * (uSrc - uDst);
 
-        int vSrc = (vDataSrc[mRawP010Image.stride[1] * (i / 2) + (j / 2) * 2] >> 6) & 0x3ff;
+        int vSrc =
+            (vDataSrc[mRawP010Image.stride[UHDR_PLANE_UV] * (i / 2) + (j / 2) * 2] >> 6) & 0x3ff;
         vSrc = CLIP3(vSrc, 64, 960);
-        int vDst = vDataDst[mDestYUV444Image.stride[2] * i + j] & 0x3ff;
-        vDst += vDataDst[mDestYUV444Image.stride[2] * i + j + 1] & 0x3ff;
-        vDst += vDataDst[mDestYUV444Image.stride[2] * (i + 1) + j + 1] & 0x3ff;
-        vDst += vDataDst[mDestYUV444Image.stride[2] * (i + 1) + j + 1] & 0x3ff;
+        int vDst = vDataDst[mDestYUV444Image.stride[UHDR_PLANE_V] * i + j] & 0x3ff;
+        vDst += vDataDst[mDestYUV444Image.stride[UHDR_PLANE_V] * i + j + 1] & 0x3ff;
+        vDst += vDataDst[mDestYUV444Image.stride[UHDR_PLANE_V] * (i + 1) + j + 1] & 0x3ff;
+        vDst += vDataDst[mDestYUV444Image.stride[UHDR_PLANE_V] * (i + 1) + j + 1] & 0x3ff;
         vDst = (vDst + 2) >> 2;
         vSqError += (vSrc - vDst) * (vSrc - vDst);
       }
@@ -1007,35 +1010,35 @@ void UltraHdrAppInput::computeYUVSdrPSNR() {
     return;
   }
 
-  uint8_t* yDataSrc = static_cast<uint8_t*>(mRawYuv420Image.planes[0]);
-  uint8_t* uDataSrc = static_cast<uint8_t*>(mRawYuv420Image.planes[1]);
-  uint8_t* vDataSrc = static_cast<uint8_t*>(mRawYuv420Image.planes[2]);
+  uint8_t* yDataSrc = static_cast<uint8_t*>(mRawYuv420Image.planes[UHDR_PLANE_Y]);
+  uint8_t* uDataSrc = static_cast<uint8_t*>(mRawYuv420Image.planes[UHDR_PLANE_U]);
+  uint8_t* vDataSrc = static_cast<uint8_t*>(mRawYuv420Image.planes[UHDR_PLANE_V]);
 
-  uint8_t* yDataDst = static_cast<uint8_t*>(mDestYUV444Image.planes[0]);
-  uint8_t* uDataDst = static_cast<uint8_t*>(mDestYUV444Image.planes[1]);
-  uint8_t* vDataDst = static_cast<uint8_t*>(mDestYUV444Image.planes[2]);
+  uint8_t* yDataDst = static_cast<uint8_t*>(mDestYUV444Image.planes[UHDR_PLANE_Y]);
+  uint8_t* uDataDst = static_cast<uint8_t*>(mDestYUV444Image.planes[UHDR_PLANE_U]);
+  uint8_t* vDataDst = static_cast<uint8_t*>(mDestYUV444Image.planes[UHDR_PLANE_V]);
 
   uint64_t ySqError = 0, uSqError = 0, vSqError = 0;
   for (size_t i = 0; i < mDestYUV444Image.h; i++) {
     for (size_t j = 0; j < mDestYUV444Image.w; j++) {
-      int ySrc = yDataSrc[mRawYuv420Image.stride[0] * i + j];
-      int yDst = yDataDst[mDestYUV444Image.stride[0] * i + j];
+      int ySrc = yDataSrc[mRawYuv420Image.stride[UHDR_PLANE_Y] * i + j];
+      int yDst = yDataDst[mDestYUV444Image.stride[UHDR_PLANE_Y] * i + j];
       ySqError += (ySrc - yDst) * (ySrc - yDst);
 
       if (i % 2 == 0 && j % 2 == 0) {
-        int uSrc = uDataSrc[mRawYuv420Image.stride[1] * (i / 2) + j / 2];
-        int uDst = uDataDst[mDestYUV444Image.stride[1] * i + j];
-        uDst += uDataDst[mDestYUV444Image.stride[1] * i + j + 1];
-        uDst += uDataDst[mDestYUV444Image.stride[1] * (i + 1) + j];
-        uDst += uDataDst[mDestYUV444Image.stride[1] * (i + 1) + j + 1];
+        int uSrc = uDataSrc[mRawYuv420Image.stride[UHDR_PLANE_U] * (i / 2) + j / 2];
+        int uDst = uDataDst[mDestYUV444Image.stride[UHDR_PLANE_U] * i + j];
+        uDst += uDataDst[mDestYUV444Image.stride[UHDR_PLANE_U] * i + j + 1];
+        uDst += uDataDst[mDestYUV444Image.stride[UHDR_PLANE_U] * (i + 1) + j];
+        uDst += uDataDst[mDestYUV444Image.stride[UHDR_PLANE_U] * (i + 1) + j + 1];
         uDst = (uDst + 2) >> 2;
         uSqError += (uSrc - uDst) * (uSrc - uDst);
 
-        int vSrc = vDataSrc[mRawYuv420Image.stride[2] * (i / 2) + j / 2];
-        int vDst = vDataDst[mDestYUV444Image.stride[2] * i + j];
-        vDst += vDataDst[mDestYUV444Image.stride[2] * i + j + 1];
-        vDst += vDataDst[mDestYUV444Image.stride[2] * (i + 1) + j];
-        vDst += vDataDst[mDestYUV444Image.stride[2] * (i + 1) + j + 1];
+        int vSrc = vDataSrc[mRawYuv420Image.stride[UHDR_PLANE_V] * (i / 2) + j / 2];
+        int vDst = vDataDst[mDestYUV444Image.stride[UHDR_PLANE_V] * i + j];
+        vDst += vDataDst[mDestYUV444Image.stride[UHDR_PLANE_V] * i + j + 1];
+        vDst += vDataDst[mDestYUV444Image.stride[UHDR_PLANE_V] * (i + 1) + j];
+        vDst += vDataDst[mDestYUV444Image.stride[UHDR_PLANE_V] * (i + 1) + j + 1];
         vDst = (vDst + 2) >> 2;
         vSqError += (vSrc - vDst) * (vSrc - vDst);
       }

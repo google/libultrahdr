@@ -70,23 +70,23 @@ uhdr_raw_image_ext::uhdr_raw_image_ext(uhdr_img_fmt_t fmt, uhdr_color_gamut_t cg
   this->m_block = std::make_unique<uhdr_memory_block_t>(total_size);
 
   uint8_t* data = this->m_block->m_buffer.get();
-  this->planes[0] = data;
-  this->stride[0] = aligned_width;
+  this->planes[UHDR_PLANE_Y] = data;
+  this->stride[UHDR_PLANE_Y] = aligned_width;
   if (fmt == UHDR_IMG_FMT_24bppYCbCrP010) {
-    this->planes[1] = data + plane_1_sz;
-    this->stride[1] = aligned_width;
-    this->planes[2] = nullptr;
-    this->stride[2] = 0;
+    this->planes[UHDR_PLANE_UV] = data + plane_1_sz;
+    this->stride[UHDR_PLANE_UV] = aligned_width;
+    this->planes[UHDR_PLANE_V] = nullptr;
+    this->stride[UHDR_PLANE_V] = 0;
   } else if (fmt == UHDR_IMG_FMT_12bppYCbCr420) {
-    this->planes[1] = data + plane_1_sz;
-    this->stride[1] = aligned_width / 2;
-    this->planes[2] = data + plane_1_sz + plane_2_sz;
-    this->stride[2] = aligned_width / 2;
+    this->planes[UHDR_PLANE_U] = data + plane_1_sz;
+    this->stride[UHDR_PLANE_U] = aligned_width / 2;
+    this->planes[UHDR_PLANE_V] = data + plane_1_sz + plane_2_sz;
+    this->stride[UHDR_PLANE_V] = aligned_width / 2;
   } else {
-    this->planes[1] = nullptr;
-    this->stride[1] = 0;
-    this->planes[2] = nullptr;
-    this->stride[2] = 0;
+    this->planes[UHDR_PLANE_U] = nullptr;
+    this->stride[UHDR_PLANE_U] = 0;
+    this->planes[UHDR_PLANE_V] = nullptr;
+    this->stride[UHDR_PLANE_V] = 0;
   }
 }
 
