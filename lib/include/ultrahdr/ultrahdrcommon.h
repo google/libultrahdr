@@ -19,8 +19,10 @@
 
 //#define LOG_NDEBUG 0
 
+#include <deque>
 #include <map>
 #include <memory>
+#include <string>
 #include <vector>
 
 #include "ultrahdr_api.h"
@@ -103,6 +105,9 @@ typedef struct uhdr_compressed_image_ext : uhdr_compressed_image_t {
   std::unique_ptr<ultrahdr::uhdr_memory_block> m_block;
 } uhdr_compressed_image_ext_t; /**< alias for struct uhdr_compressed_image_ext */
 
+/*!\brief forward declaration for image effect descriptor */
+typedef struct uhdr_effect_desc uhdr_effect_desc_t;
+
 }  // namespace ultrahdr
 
 // ===============================================================================================
@@ -110,7 +115,9 @@ typedef struct uhdr_compressed_image_ext : uhdr_compressed_image_t {
 // ===============================================================================================
 
 struct uhdr_codec_private {
-  virtual ~uhdr_codec_private() = default;
+  std::deque<ultrahdr::uhdr_effect_desc_t*> m_effects;
+
+  virtual ~uhdr_codec_private();
 };
 
 struct uhdr_encoder_private : uhdr_codec_private {

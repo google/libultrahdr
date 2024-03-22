@@ -19,6 +19,7 @@
 
 #include "ultrahdr_api.h"
 #include "ultrahdr/ultrahdrcommon.h"
+#include "ultrahdr/editorhelper.h"
 #include "ultrahdr/jpegr.h"
 #include "ultrahdr/jpegrutils.h"
 
@@ -102,7 +103,80 @@ uhdr_compressed_image_ext::uhdr_compressed_image_ext(uhdr_color_gamut_t cg,
   this->range = range;
 }
 
+uhdr_error_info_t apply_effects(uhdr_decoder_private* dec) {
+  for (auto& it : dec->m_effects) {
+    std::unique_ptr<ultrahdr::uhdr_raw_image_ext_t> disp_img = nullptr;
+    std::unique_ptr<ultrahdr::uhdr_raw_image_ext_t> gm_img = nullptr;
+
+    if (nullptr != dynamic_cast<uhdr_rotate_effect_t*>(it)) {
+      int degree = (dynamic_cast<ultrahdr::uhdr_rotate_effect_t*>(it))->m_degree;
+      disp_img = apply_rotate(dec->m_decoded_img_buffer.get(), degree);
+      gm_img = apply_rotate(dec->m_gainmap_img_buffer.get(), degree);
+    } else if (nullptr != dynamic_cast<uhdr_mirror_effect_t*>(it)) {
+      uhdr_mirror_direction_t direction = (dynamic_cast<uhdr_mirror_effect_t*>(it))->m_direction;
+      disp_img = apply_mirror(dec->m_decoded_img_buffer.get(), direction);
+      gm_img = apply_mirror(dec->m_gainmap_img_buffer.get(), direction);
+    } else if (nullptr != dynamic_cast<uhdr_crop_effect_t*>(it)) {
+      auto crop_effect = dynamic_cast<uhdr_crop_effect_t*>(it);
+      uhdr_raw_image_t* disp = dec->m_decoded_img_buffer.get();
+      uhdr_raw_image_t* gm = dec->m_gainmap_img_buffer.get();
+      int left = (std::max)(0, crop_effect->m_left);
+      int right = (std::min)((int)disp->w, crop_effect->m_right);
+      int top = (std::max)(0, crop_effect->m_top);
+      int bottom = (std::min)((int)disp->h, crop_effect->m_bottom);
+      int scale_factor = disp->w / gm->w;
+
+      if (right - left <= scale_factor || bottom - top <= scale_factor) {
+        uhdr_error_info_t status;
+        status.error_code = UHDR_CODEC_UNKNOWN_ERROR;
+        status.has_detail = 1;
+        snprintf(status.detail, sizeof status.detail,
+                 "After crop image dimensions are <= 0, display image dimensions %dx%d, gain map "
+                 "image dimensions %dx%d",
+                 right - left, bottom - top, (right - left) / scale_factor,
+                 (bottom - top) / scale_factor);
+        return status;
+      }
+      apply_crop(disp, left, top, right - left, bottom - top);
+      apply_crop(gm, left / scale_factor, top / scale_factor, (right - left) / scale_factor,
+                 (bottom - top) / scale_factor);
+      continue;
+    } else if (nullptr != dynamic_cast<uhdr_resize_effect_t*>(it)) {
+      auto resize_effect = dynamic_cast<uhdr_resize_effect_t*>(it);
+      int dst_w = resize_effect->m_width;
+      int dst_h = resize_effect->m_height;
+      if (dst_w == 0 || dst_h == 0) {
+        uhdr_error_info_t status;
+        status.error_code = UHDR_CODEC_INVALID_PARAM;
+        snprintf(status.detail, sizeof status.detail,
+                 "destination width or destination height cannot be zero");
+        return status;
+      }
+      disp_img = apply_resize(dec->m_decoded_img_buffer.get(), dst_w, dst_h);
+      gm_img = apply_resize(dec->m_gainmap_img_buffer.get(), dst_w, dst_h);
+    }
+
+    if (disp_img == nullptr || gm_img == nullptr) {
+      uhdr_error_info_t status;
+      status.error_code = UHDR_CODEC_UNKNOWN_ERROR;
+      status.has_detail = 1;
+      snprintf(status.detail, sizeof status.detail,
+               "encountered unknown error while applying effect %s", it->to_string().c_str());
+      return status;
+    }
+    dec->m_decoded_img_buffer = std::move(disp_img);
+    dec->m_gainmap_img_buffer = std::move(gm_img);
+  }
+
+  return g_no_error;
+}
+
 }  // namespace ultrahdr
+
+uhdr_codec_private::~uhdr_codec_private() {
+  for (auto it : m_effects) delete it;
+  m_effects.clear();
+}
 
 ultrahdr::ultrahdr_pixel_format map_pix_fmt_to_internal_pix_fmt(uhdr_img_fmt_t fmt) {
   switch (fmt) {
@@ -682,6 +756,13 @@ uhdr_error_info_t uhdr_encode(uhdr_codec_private_t* enc) {
 
   uhdr_error_info_t& status = handle->m_encode_call_status;
 
+  if (handle->m_effects.size() != 0) {
+    status.error_code = UHDR_CODEC_INVALID_PARAM;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail, "image effects are not currently enabled");
+    return status;
+  }
+
   ultrahdr::status_t internal_status = ultrahdr::JPEGR_NO_ERROR;
   if (handle->m_output_format == UHDR_CODEC_JPG) {
     ultrahdr::jpegr_exif_struct exif{};
@@ -836,6 +917,8 @@ void uhdr_reset_encoder(uhdr_codec_private_t* enc) {
     uhdr_encoder_private* handle = dynamic_cast<uhdr_encoder_private*>(enc);
 
     // clear entries and restore defaults
+    for (auto it : handle->m_effects) delete it;
+    handle->m_effects.clear();
     handle->m_raw_images.clear();
     handle->m_compressed_images.clear();
     handle->m_quality.clear();
@@ -1249,6 +1332,10 @@ uhdr_error_info_t uhdr_decode(uhdr_codec_private_t* dec) {
     handle->m_decoded_img_buffer->cg = map_internal_cg_to_cg(dest.colorGamut);
   }
 
+  if (status.error_code == UHDR_CODEC_OK && dec->m_effects.size() != 0) {
+    status = ultrahdr::apply_effects(handle);
+  }
+
   return status;
 }
 
@@ -1283,6 +1370,8 @@ void uhdr_reset_decoder(uhdr_codec_private_t* dec) {
     uhdr_decoder_private* handle = dynamic_cast<uhdr_decoder_private*>(dec);
 
     // clear entries and restore defaults
+    for (auto it : handle->m_effects) delete it;
+    handle->m_effects.clear();
     handle->m_uhdr_compressed_img.reset();
     handle->m_output_fmt = UHDR_IMG_FMT_64bppRGBAHalfFloat;
     handle->m_output_ct = UHDR_CT_LINEAR;
@@ -1307,4 +1396,83 @@ void uhdr_reset_decoder(uhdr_codec_private_t* dec) {
     handle->m_probe_call_status = g_no_error;
     handle->m_decode_call_status = g_no_error;
   }
+}
+
+uhdr_error_info_t uhdr_add_effect_mirror(uhdr_codec_private_t* codec,
+                                         uhdr_mirror_direction_t direction) {
+  uhdr_error_info_t status = g_no_error;
+
+  if (codec == nullptr) {
+    status.error_code = UHDR_CODEC_INVALID_PARAM;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail, "received nullptr for uhdr codec instance");
+    return status;
+  }
+
+  if (direction != UHDR_MIRROR_HORIZONTAL && direction != UHDR_MIRROR_VERTICAL) {
+    status.error_code = UHDR_CODEC_INVALID_PARAM;
+    status.has_detail = 1;
+    snprintf(
+        status.detail, sizeof status.detail,
+        "unsupported direction, expects one of {UHDR_MIRROR_HORIZONTAL, UHDR_MIRROR_VERTICAL}");
+    return status;
+  }
+
+  codec->m_effects.push_back(new ultrahdr::uhdr_mirror_effect_t(direction));
+
+  return status;
+}
+
+uhdr_error_info_t uhdr_add_effect_rotate(uhdr_codec_private_t* codec, int degrees) {
+  uhdr_error_info_t status = g_no_error;
+
+  if (codec == nullptr) {
+    status.error_code = UHDR_CODEC_INVALID_PARAM;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail, "received nullptr for uhdr codec instance");
+    return status;
+  }
+
+  if (degrees != 90 && degrees != 180 && degrees != 270) {
+    status.error_code = UHDR_CODEC_INVALID_PARAM;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "unsupported degrees, expects one of {90, 180, 270}");
+    return status;
+  }
+
+  codec->m_effects.push_back(new ultrahdr::uhdr_rotate_effect_t(degrees));
+
+  return status;
+}
+
+uhdr_error_info_t uhdr_add_effect_crop(uhdr_codec_private_t* codec, int left, int right, int top,
+                                       int bottom) {
+  uhdr_error_info_t status = g_no_error;
+
+  if (codec == nullptr) {
+    status.error_code = UHDR_CODEC_INVALID_PARAM;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail, "received nullptr for uhdr codec instance");
+    return status;
+  }
+
+  codec->m_effects.push_back(new ultrahdr::uhdr_crop_effect_t(left, right, top, bottom));
+
+  return status;
+}
+
+uhdr_error_info_t uhdr_add_effect_resize(uhdr_codec_private_t* codec, int width, int height) {
+  uhdr_error_info_t status = g_no_error;
+
+  if (codec == nullptr) {
+    status.error_code = UHDR_CODEC_INVALID_PARAM;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail, "received nullptr for uhdr codec instance");
+    return status;
+  }
+
+  codec->m_effects.push_back(new ultrahdr::uhdr_resize_effect_t(width, height));
+
+  return status;
 }
