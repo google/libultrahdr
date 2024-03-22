@@ -366,7 +366,15 @@ void decodeJpegRImg(jr_compressed_ptr img, [[maybe_unused]] const char* outFileN
   ASSERT_EQ(map_internal_cg_to_cg(destImage.colorGamut), raw_image->cg);
   ASSERT_EQ(destImage.width, raw_image->w);
   ASSERT_EQ(destImage.height, raw_image->h);
-  ASSERT_EQ(0, memcmp(destImage.data, raw_image->planes[0], outSize));
+  char* testData = static_cast<char*>(raw_image->planes[UHDR_PLANE_PACKED]);
+  char* refData = static_cast<char*>(destImage.data);
+  int bpp = (raw_image->fmt == UHDR_IMG_FMT_64bppRGBAHalfFloat) ? 8 : 4;
+  const size_t testStride = raw_image->stride[UHDR_PLANE_PACKED] * bpp;
+  const size_t refStride = destImage.width * bpp;
+  const size_t length = destImage.width * bpp;
+  for (unsigned i = 0; i < destImage.height; i++, testData += testStride, refData += refStride) {
+    ASSERT_EQ(0, memcmp(testData, refData, length));
+  }
   uhdr_release_decoder(obj);
 }
 
@@ -1456,11 +1464,11 @@ TEST_P(JpegRAPIEncodeAndDecodeTest, EncodeAPI0AndDecodeTest) {
   uhdrRawImg.range = UHDR_CR_UNSPECIFIED;
   uhdrRawImg.w = kImageWidth;
   uhdrRawImg.h = kImageHeight;
-  uhdrRawImg.planes[0] = rawImg.getImageHandle()->data;
-  uhdrRawImg.stride[0] = kImageWidth;
-  uhdrRawImg.planes[1] =
+  uhdrRawImg.planes[UHDR_PLANE_Y] = rawImg.getImageHandle()->data;
+  uhdrRawImg.stride[UHDR_PLANE_Y] = kImageWidth;
+  uhdrRawImg.planes[UHDR_PLANE_UV] =
       ((uint8_t*)(rawImg.getImageHandle()->data)) + kImageWidth * kImageHeight * 2;
-  uhdrRawImg.stride[1] = kImageWidth;
+  uhdrRawImg.stride[UHDR_PLANE_UV] = kImageWidth;
   uhdr_error_info_t status = uhdr_enc_set_raw_image(obj, &uhdrRawImg, UHDR_HDR_IMG);
   ASSERT_EQ(UHDR_CODEC_OK, status.error_code) << status.detail;
   status = uhdr_enc_set_quality(obj, kQuality, UHDR_BASE_IMG);
@@ -1519,10 +1527,10 @@ TEST_P(JpegRAPIEncodeAndDecodeTest, EncodeAPI0AndDecodeTest) {
     uhdrRawImg.range = UHDR_CR_UNSPECIFIED;
     uhdrRawImg.w = kImageWidth;
     uhdrRawImg.h = kImageHeight;
-    uhdrRawImg.planes[0] = rawImg2.getImageHandle()->data;
-    uhdrRawImg.stride[0] = rawImg2.getImageHandle()->luma_stride;
-    uhdrRawImg.planes[1] = rawImg2.getImageHandle()->chroma_data;
-    uhdrRawImg.stride[1] = rawImg2.getImageHandle()->chroma_stride;
+    uhdrRawImg.planes[UHDR_PLANE_Y] = rawImg2.getImageHandle()->data;
+    uhdrRawImg.stride[UHDR_PLANE_Y] = rawImg2.getImageHandle()->luma_stride;
+    uhdrRawImg.planes[UHDR_PLANE_UV] = rawImg2.getImageHandle()->chroma_data;
+    uhdrRawImg.stride[UHDR_PLANE_UV] = rawImg2.getImageHandle()->chroma_stride;
     uhdr_error_info_t status = uhdr_enc_set_raw_image(obj, &uhdrRawImg, UHDR_HDR_IMG);
     ASSERT_EQ(UHDR_CODEC_OK, status.error_code) << status.detail;
     status = uhdr_enc_set_quality(obj, kQuality, UHDR_BASE_IMG);
@@ -1719,11 +1727,11 @@ TEST_P(JpegRAPIEncodeAndDecodeTest, EncodeAPI1AndDecodeTest) {
     uhdrRawImg.range = UHDR_CR_UNSPECIFIED;
     uhdrRawImg.w = kImageWidth;
     uhdrRawImg.h = kImageHeight;
-    uhdrRawImg.planes[0] = rawImgP010.getImageHandle()->data;
-    uhdrRawImg.stride[0] = kImageWidth;
-    uhdrRawImg.planes[1] =
+    uhdrRawImg.planes[UHDR_PLANE_Y] = rawImgP010.getImageHandle()->data;
+    uhdrRawImg.stride[UHDR_PLANE_Y] = kImageWidth;
+    uhdrRawImg.planes[UHDR_PLANE_UV] =
         ((uint8_t*)(rawImgP010.getImageHandle()->data)) + kImageWidth * kImageHeight * 2;
-    uhdrRawImg.stride[1] = kImageWidth;
+    uhdrRawImg.stride[UHDR_PLANE_UV] = kImageWidth;
     uhdr_error_info_t status = uhdr_enc_set_raw_image(obj, &uhdrRawImg, UHDR_HDR_IMG);
     ASSERT_EQ(UHDR_CODEC_OK, status.error_code) << status.detail;
 
@@ -1733,13 +1741,13 @@ TEST_P(JpegRAPIEncodeAndDecodeTest, EncodeAPI1AndDecodeTest) {
     uhdrRawImg.range = UHDR_CR_UNSPECIFIED;
     uhdrRawImg.w = kImageWidth;
     uhdrRawImg.h = kImageHeight;
-    uhdrRawImg.planes[0] = rawImg2420.getImageHandle()->data;
-    uhdrRawImg.stride[0] = rawImg2420.getImageHandle()->luma_stride;
-    uhdrRawImg.planes[1] = rawImg2420.getImageHandle()->chroma_data;
-    uhdrRawImg.stride[1] = rawImg2420.getImageHandle()->chroma_stride;
-    uhdrRawImg.planes[2] = ((uint8_t*)(rawImg2420.getImageHandle()->chroma_data)) +
+    uhdrRawImg.planes[UHDR_PLANE_Y] = rawImg2420.getImageHandle()->data;
+    uhdrRawImg.stride[UHDR_PLANE_Y] = rawImg2420.getImageHandle()->luma_stride;
+    uhdrRawImg.planes[UHDR_PLANE_U] = rawImg2420.getImageHandle()->chroma_data;
+    uhdrRawImg.stride[UHDR_PLANE_U] = rawImg2420.getImageHandle()->chroma_stride;
+    uhdrRawImg.planes[UHDR_PLANE_V] = ((uint8_t*)(rawImg2420.getImageHandle()->chroma_data)) +
                            rawImg2420.getImageHandle()->chroma_stride * kImageHeight / 2;
-    uhdrRawImg.stride[2] = rawImg2420.getImageHandle()->chroma_stride;
+    uhdrRawImg.stride[UHDR_PLANE_V] = rawImg2420.getImageHandle()->chroma_stride;
     status = uhdr_enc_set_raw_image(obj, &uhdrRawImg, UHDR_SDR_IMG);
     ASSERT_EQ(UHDR_CODEC_OK, status.error_code) << status.detail;
 
@@ -1925,11 +1933,11 @@ TEST_P(JpegRAPIEncodeAndDecodeTest, EncodeAPI2AndDecodeTest) {
     uhdrRawImg.range = UHDR_CR_UNSPECIFIED;
     uhdrRawImg.w = kImageWidth;
     uhdrRawImg.h = kImageHeight;
-    uhdrRawImg.planes[0] = rawImgP010.getImageHandle()->data;
-    uhdrRawImg.stride[0] = kImageWidth;
-    uhdrRawImg.planes[1] =
+    uhdrRawImg.planes[UHDR_PLANE_Y] = rawImgP010.getImageHandle()->data;
+    uhdrRawImg.stride[UHDR_PLANE_Y] = kImageWidth;
+    uhdrRawImg.planes[UHDR_PLANE_UV] =
         ((uint8_t*)(rawImgP010.getImageHandle()->data)) + kImageWidth * kImageHeight * 2;
-    uhdrRawImg.stride[1] = kImageWidth;
+    uhdrRawImg.stride[UHDR_PLANE_UV] = kImageWidth;
     uhdr_error_info_t status = uhdr_enc_set_raw_image(obj, &uhdrRawImg, UHDR_HDR_IMG);
     ASSERT_EQ(UHDR_CODEC_OK, status.error_code) << status.detail;
 
@@ -1939,13 +1947,13 @@ TEST_P(JpegRAPIEncodeAndDecodeTest, EncodeAPI2AndDecodeTest) {
     uhdrRawImg.range = UHDR_CR_UNSPECIFIED;
     uhdrRawImg.w = kImageWidth;
     uhdrRawImg.h = kImageHeight;
-    uhdrRawImg.planes[0] = rawImg2420.getImageHandle()->data;
-    uhdrRawImg.stride[0] = rawImg2420.getImageHandle()->luma_stride;
-    uhdrRawImg.planes[1] = rawImg2420.getImageHandle()->chroma_data;
-    uhdrRawImg.stride[1] = rawImg2420.getImageHandle()->chroma_stride;
-    uhdrRawImg.planes[2] = ((uint8_t*)(rawImg2420.getImageHandle()->chroma_data)) +
+    uhdrRawImg.planes[UHDR_PLANE_Y] = rawImg2420.getImageHandle()->data;
+    uhdrRawImg.stride[UHDR_PLANE_Y] = rawImg2420.getImageHandle()->luma_stride;
+    uhdrRawImg.planes[UHDR_PLANE_U] = rawImg2420.getImageHandle()->chroma_data;
+    uhdrRawImg.stride[UHDR_PLANE_U] = rawImg2420.getImageHandle()->chroma_stride;
+    uhdrRawImg.planes[UHDR_PLANE_V] = ((uint8_t*)(rawImg2420.getImageHandle()->chroma_data)) +
                            rawImg2420.getImageHandle()->chroma_stride * kImageHeight / 2;
-    uhdrRawImg.stride[2] = rawImg2420.getImageHandle()->chroma_stride;
+    uhdrRawImg.stride[UHDR_PLANE_V] = rawImg2420.getImageHandle()->chroma_stride;
     status = uhdr_enc_set_raw_image(obj, &uhdrRawImg, UHDR_SDR_IMG);
     ASSERT_EQ(UHDR_CODEC_OK, status.error_code) << status.detail;
 
@@ -2102,11 +2110,11 @@ TEST_P(JpegRAPIEncodeAndDecodeTest, EncodeAPI3AndDecodeTest) {
     uhdrRawImg.range = UHDR_CR_UNSPECIFIED;
     uhdrRawImg.w = kImageWidth;
     uhdrRawImg.h = kImageHeight;
-    uhdrRawImg.planes[0] = rawImgP010.getImageHandle()->data;
-    uhdrRawImg.stride[0] = kImageWidth;
-    uhdrRawImg.planes[1] =
+    uhdrRawImg.planes[UHDR_PLANE_Y] = rawImgP010.getImageHandle()->data;
+    uhdrRawImg.stride[UHDR_PLANE_Y] = kImageWidth;
+    uhdrRawImg.planes[UHDR_PLANE_UV] =
         ((uint8_t*)(rawImgP010.getImageHandle()->data)) + kImageWidth * kImageHeight * 2;
-    uhdrRawImg.stride[1] = kImageWidth;
+    uhdrRawImg.stride[UHDR_PLANE_UV] = kImageWidth;
     uhdr_error_info_t status = uhdr_enc_set_raw_image(obj, &uhdrRawImg, UHDR_HDR_IMG);
     ASSERT_EQ(UHDR_CODEC_OK, status.error_code) << status.detail;
 
