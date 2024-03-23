@@ -676,11 +676,19 @@ status_t JpegR::decodeJPEGR(jr_compressed_ptr jpegr_image_ptr, jr_uncompressed_p
   }
 
   if (output_format == ULTRAHDR_OUTPUT_SDR) {
+#ifdef JCS_ALPHA_EXTENSIONS
     if ((jpeg_dec_obj_yuv420.getDecompressedImageWidth() *
          jpeg_dec_obj_yuv420.getDecompressedImageHeight() * 4) >
         jpeg_dec_obj_yuv420.getDecompressedImageSize()) {
       return ERROR_JPEGR_DECODE_ERROR;
     }
+#else
+    if ((jpeg_dec_obj_yuv420.getDecompressedImageWidth() *
+         jpeg_dec_obj_yuv420.getDecompressedImageHeight() * 3) >
+        jpeg_dec_obj_yuv420.getDecompressedImageSize()) {
+      return ERROR_JPEGR_DECODE_ERROR;
+    }
+#endif
   } else {
     if ((jpeg_dec_obj_yuv420.getDecompressedImageWidth() *
          jpeg_dec_obj_yuv420.getDecompressedImageHeight() * 3 / 2) >
@@ -741,8 +749,18 @@ status_t JpegR::decodeJPEGR(jr_compressed_ptr jpegr_image_ptr, jr_uncompressed_p
   if (output_format == ULTRAHDR_OUTPUT_SDR) {
     dest->width = jpeg_dec_obj_yuv420.getDecompressedImageWidth();
     dest->height = jpeg_dec_obj_yuv420.getDecompressedImageHeight();
+#ifdef JCS_ALPHA_EXTENSIONS
     memcpy(dest->data, jpeg_dec_obj_yuv420.getDecompressedImagePtr(),
            dest->width * dest->height * 4);
+#else
+    uint32_t* pixelDst = static_cast<uint32_t*>(dest->data);
+    uint8_t* pixelSrc = static_cast<uint8_t*>(jpeg_dec_obj_yuv420.getDecompressedImagePtr());
+    for (int i = 0; i < dest->width * dest->height; i++) {
+      *pixelDst = pixelSrc[0] | (pixelSrc[1] << 8) | (pixelSrc[2] << 16) | (0xff << 24);
+      pixelSrc += 3;
+      pixelDst += 1;
+    }
+#endif
     dest->colorGamut = IccHelper::readIccColorGamut(jpeg_dec_obj_yuv420.getICCPtr(),
                                                     jpeg_dec_obj_yuv420.getICCSize());
     return JPEGR_NO_ERROR;
