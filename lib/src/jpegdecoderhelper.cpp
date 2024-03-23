@@ -270,9 +270,15 @@ bool JpegDecoderHelper::decode(const void* image, int length, decode_mode_t deco
       ALOGE("%s: decodeToRGBA unexpected primary image sub-sampling", __func__);
       goto CleanUp;
     }
+#ifdef JCS_ALPHA_EXTENSIONS
     // 4 bytes per pixel
     mResultBuffer.resize(cinfo.image_width * cinfo.image_height * 4);
     cinfo.out_color_space = JCS_EXT_RGBA;
+#else
+    // 3 bytes per pixel
+    mResultBuffer.resize(cinfo.image_width * cinfo.image_height * 3);
+    cinfo.out_color_space = JCS_RGB;
+#endif
   } else if (decodeTo == DECODE_TO_YCBCR) {
     if (cinfo.jpeg_color_space == JCS_YCbCr) {
       if (cinfo.comp_info[0].h_samp_factor != 2 || cinfo.comp_info[0].v_samp_factor != 2 ||
@@ -315,9 +321,19 @@ CleanUp:
 
 bool JpegDecoderHelper::decompress(jpeg_decompress_struct* cinfo, const uint8_t* dest,
                                    bool isSingleChannel) {
-  return isSingleChannel ? decompressSingleChannel(cinfo, dest)
-                         : ((cinfo->out_color_space == JCS_EXT_RGBA) ? decompressRGBA(cinfo, dest)
-                                                                     : decompressYUV(cinfo, dest));
+  if (isSingleChannel) {
+    return decompressSingleChannel(cinfo, dest);
+  } else {
+#ifdef JCS_ALPHA_EXTENSIONS
+    if (cinfo->out_color_space == JCS_EXT_RGBA) {
+#else
+    if (cinfo->out_color_space == JCS_RGB) {
+#endif
+      return decompressRGBA(cinfo, dest);
+    } else {
+      return decompressYUV(cinfo, dest);
+    }
+  }
 }
 
 bool JpegDecoderHelper::getCompressedImageParameters(const void* image, int length) {
@@ -329,7 +345,11 @@ bool JpegDecoderHelper::decompressRGBA(jpeg_decompress_struct* cinfo, const uint
 
   while (cinfo->output_scanline < cinfo->image_height) {
     if (1 != jpeg_read_scanlines(cinfo, &out, 1)) return false;
+#ifdef JCS_ALPHA_EXTENSIONS
     out += cinfo->image_width * 4;
+#else
+    out += cinfo->image_width * 3;
+#endif
   }
   return true;
 }
