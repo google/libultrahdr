@@ -109,7 +109,9 @@ typedef struct uhdr_compressed_image_ext : uhdr_compressed_image_t {
 // Extensions of ultrahdr api definitions, so outside ultrahdr namespace
 // ===============================================================================================
 
-struct uhdr_codec_private {};
+struct uhdr_codec_private {
+  virtual ~uhdr_codec_private() = default;
+};
 
 struct uhdr_encoder_private : uhdr_codec_private {
   // config data

@@ -228,7 +228,7 @@ uhdr_error_info_t uhdr_enc_validate_and_set_compressed_img(uhdr_codec_private_t*
                                                            uhdr_img_label_t intent) {
   uhdr_error_info_t status = g_no_error;
 
-  if (enc == nullptr) {
+  if (dynamic_cast<uhdr_encoder_private*>(enc) == nullptr) {
     status.error_code = UHDR_CODEC_INVALID_PARAM;
     status.has_detail = 1;
     snprintf(status.detail, sizeof status.detail, "received nullptr for uhdr codec instance");
@@ -249,7 +249,7 @@ uhdr_error_info_t uhdr_enc_validate_and_set_compressed_img(uhdr_codec_private_t*
   }
   if (status.error_code != UHDR_CODEC_OK) return status;
 
-  uhdr_encoder_private* handle = reinterpret_cast<uhdr_encoder_private*>(enc);
+  uhdr_encoder_private* handle = dynamic_cast<uhdr_encoder_private*>(enc);
   if (handle->m_sailed) {
     status.error_code = UHDR_CODEC_INVALID_OPERATION;
     status.has_detail = 1;
@@ -278,8 +278,8 @@ uhdr_codec_private_t* uhdr_create_encoder(void) {
 }
 
 void uhdr_release_encoder(uhdr_codec_private_t* enc) {
-  if (enc != nullptr) {
-    uhdr_encoder_private* handle = reinterpret_cast<uhdr_encoder_private*>(enc);
+  if (dynamic_cast<uhdr_encoder_private*>(enc) != nullptr) {
+    uhdr_encoder_private* handle = dynamic_cast<uhdr_encoder_private*>(enc);
     delete handle;
   }
 }
@@ -288,7 +288,7 @@ uhdr_error_info_t uhdr_enc_set_raw_image(uhdr_codec_private_t* enc, uhdr_raw_ima
                                          uhdr_img_label_t intent) {
   uhdr_error_info_t status = g_no_error;
 
-  if (enc == nullptr) {
+  if (dynamic_cast<uhdr_encoder_private*>(enc) == nullptr) {
     status.error_code = UHDR_CODEC_INVALID_PARAM;
     status.has_detail = 1;
     snprintf(status.detail, sizeof status.detail, "received nullptr for uhdr codec instance");
@@ -396,7 +396,7 @@ uhdr_error_info_t uhdr_enc_set_raw_image(uhdr_codec_private_t* enc, uhdr_raw_ima
   }
   if (status.error_code != UHDR_CODEC_OK) return status;
 
-  uhdr_encoder_private* handle = reinterpret_cast<uhdr_encoder_private*>(enc);
+  uhdr_encoder_private* handle = dynamic_cast<uhdr_encoder_private*>(enc);
   if (intent == UHDR_HDR_IMG &&
       handle->m_raw_images.find(UHDR_SDR_IMG) != handle->m_raw_images.end()) {
     auto& sdr_raw_entry = handle->m_raw_images.find(UHDR_SDR_IMG)->second;
@@ -548,7 +548,7 @@ uhdr_error_info_t uhdr_enc_set_gainmap_image(uhdr_codec_private_t* enc,
   status = uhdr_enc_validate_and_set_compressed_img(enc, img, UHDR_GAIN_MAP_IMG);
   if (status.error_code != UHDR_CODEC_OK) return status;
 
-  uhdr_encoder_private* handle = reinterpret_cast<uhdr_encoder_private*>(enc);
+  uhdr_encoder_private* handle = dynamic_cast<uhdr_encoder_private*>(enc);
   memcpy(&handle->m_metadata, metadata, sizeof *metadata);
 
   return status;
@@ -558,7 +558,7 @@ uhdr_error_info_t uhdr_enc_set_quality(uhdr_codec_private_t* enc, int quality,
                                        uhdr_img_label_t intent) {
   uhdr_error_info_t status = g_no_error;
 
-  if (enc == nullptr) {
+  if (dynamic_cast<uhdr_encoder_private*>(enc) == nullptr) {
     status.error_code = UHDR_CODEC_INVALID_PARAM;
     status.has_detail = 1;
     snprintf(status.detail, sizeof status.detail, "received nullptr for uhdr codec instance");
@@ -578,7 +578,7 @@ uhdr_error_info_t uhdr_enc_set_quality(uhdr_codec_private_t* enc, int quality,
   }
   if (status.error_code != UHDR_CODEC_OK) return status;
 
-  uhdr_encoder_private* handle = reinterpret_cast<uhdr_encoder_private*>(enc);
+  uhdr_encoder_private* handle = dynamic_cast<uhdr_encoder_private*>(enc);
   if (handle->m_sailed) {
     status.error_code = UHDR_CODEC_INVALID_OPERATION;
     status.has_detail = 1;
@@ -596,7 +596,7 @@ uhdr_error_info_t uhdr_enc_set_quality(uhdr_codec_private_t* enc, int quality,
 uhdr_error_info_t uhdr_enc_set_exif_data(uhdr_codec_private_t* enc, uhdr_mem_block_t* exif) {
   uhdr_error_info_t status = g_no_error;
 
-  if (enc == nullptr) {
+  if (dynamic_cast<uhdr_encoder_private*>(enc) == nullptr) {
     status.error_code = UHDR_CODEC_INVALID_PARAM;
     status.has_detail = 1;
     snprintf(status.detail, sizeof status.detail, "received nullptr for uhdr codec instance");
@@ -616,7 +616,7 @@ uhdr_error_info_t uhdr_enc_set_exif_data(uhdr_codec_private_t* enc, uhdr_mem_blo
   }
   if (status.error_code != UHDR_CODEC_OK) return status;
 
-  uhdr_encoder_private* handle = reinterpret_cast<uhdr_encoder_private*>(enc);
+  uhdr_encoder_private* handle = dynamic_cast<uhdr_encoder_private*>(enc);
   if (handle->m_sailed) {
     status.error_code = UHDR_CODEC_INVALID_OPERATION;
     status.has_detail = 1;
@@ -636,7 +636,7 @@ uhdr_error_info_t uhdr_enc_set_exif_data(uhdr_codec_private_t* enc, uhdr_mem_blo
 uhdr_error_info_t uhdr_enc_set_output_format(uhdr_codec_private_t* enc, uhdr_codec_t media_type) {
   uhdr_error_info_t status = g_no_error;
 
-  if (enc == nullptr) {
+  if (dynamic_cast<uhdr_encoder_private*>(enc) == nullptr) {
     status.error_code = UHDR_CODEC_INVALID_PARAM;
     status.has_detail = 1;
     snprintf(status.detail, sizeof status.detail, "received nullptr for uhdr codec instance");
@@ -648,7 +648,7 @@ uhdr_error_info_t uhdr_enc_set_output_format(uhdr_codec_private_t* enc, uhdr_cod
   }
   if (status.error_code != UHDR_CODEC_OK) return status;
 
-  uhdr_encoder_private* handle = reinterpret_cast<uhdr_encoder_private*>(enc);
+  uhdr_encoder_private* handle = dynamic_cast<uhdr_encoder_private*>(enc);
   if (handle->m_sailed) {
     status.error_code = UHDR_CODEC_INVALID_OPERATION;
     status.has_detail = 1;
@@ -664,7 +664,7 @@ uhdr_error_info_t uhdr_enc_set_output_format(uhdr_codec_private_t* enc, uhdr_cod
 }
 
 uhdr_error_info_t uhdr_encode(uhdr_codec_private_t* enc) {
-  if (enc == nullptr) {
+  if (dynamic_cast<uhdr_encoder_private*>(enc) == nullptr) {
     uhdr_error_info_t status;
     status.error_code = UHDR_CODEC_INVALID_PARAM;
     status.has_detail = 1;
@@ -672,7 +672,7 @@ uhdr_error_info_t uhdr_encode(uhdr_codec_private_t* enc) {
     return status;
   }
 
-  uhdr_encoder_private* handle = reinterpret_cast<uhdr_encoder_private*>(enc);
+  uhdr_encoder_private* handle = dynamic_cast<uhdr_encoder_private*>(enc);
 
   if (handle->m_sailed) {
     return handle->m_encode_call_status;
@@ -819,11 +819,11 @@ uhdr_error_info_t uhdr_encode(uhdr_codec_private_t* enc) {
 }
 
 uhdr_compressed_image_t* uhdr_get_encoded_stream(uhdr_codec_private_t* enc) {
-  if (enc == nullptr) {
+  if (dynamic_cast<uhdr_encoder_private*>(enc) == nullptr) {
     return nullptr;
   }
 
-  uhdr_encoder_private* handle = reinterpret_cast<uhdr_encoder_private*>(enc);
+  uhdr_encoder_private* handle = dynamic_cast<uhdr_encoder_private*>(enc);
   if (!handle->m_sailed || handle->m_encode_call_status.error_code != UHDR_CODEC_OK) {
     return nullptr;
   }
@@ -832,8 +832,8 @@ uhdr_compressed_image_t* uhdr_get_encoded_stream(uhdr_codec_private_t* enc) {
 }
 
 void uhdr_reset_encoder(uhdr_codec_private_t* enc) {
-  if (enc != nullptr) {
-    uhdr_encoder_private* handle = reinterpret_cast<uhdr_encoder_private*>(enc);
+  if (dynamic_cast<uhdr_encoder_private*>(enc) != nullptr) {
+    uhdr_encoder_private* handle = dynamic_cast<uhdr_encoder_private*>(enc);
 
     // clear entries and restore defaults
     handle->m_raw_images.clear();
@@ -890,8 +890,8 @@ uhdr_codec_private_t* uhdr_create_decoder(void) {
 }
 
 void uhdr_release_decoder(uhdr_codec_private_t* dec) {
-  if (dec != nullptr) {
-    uhdr_decoder_private* handle = reinterpret_cast<uhdr_decoder_private*>(dec);
+  if (dynamic_cast<uhdr_decoder_private*>(dec) != nullptr) {
+    uhdr_decoder_private* handle = dynamic_cast<uhdr_decoder_private*>(dec);
     delete handle;
   }
 }
@@ -899,7 +899,7 @@ void uhdr_release_decoder(uhdr_codec_private_t* dec) {
 uhdr_error_info_t uhdr_dec_set_image(uhdr_codec_private_t* dec, uhdr_compressed_image_t* img) {
   uhdr_error_info_t status = g_no_error;
 
-  if (dec == nullptr) {
+  if (dynamic_cast<uhdr_decoder_private*>(dec) == nullptr) {
     status.error_code = UHDR_CODEC_INVALID_PARAM;
     status.has_detail = 1;
     snprintf(status.detail, sizeof status.detail, "received nullptr for uhdr codec instance");
@@ -920,7 +920,7 @@ uhdr_error_info_t uhdr_dec_set_image(uhdr_codec_private_t* dec, uhdr_compressed_
   }
   if (status.error_code != UHDR_CODEC_OK) return status;
 
-  uhdr_decoder_private* handle = reinterpret_cast<uhdr_decoder_private*>(dec);
+  uhdr_decoder_private* handle = dynamic_cast<uhdr_decoder_private*>(dec);
   if (handle->m_probed) {
     status.error_code = UHDR_CODEC_INVALID_OPERATION;
     status.has_detail = 1;
@@ -941,7 +941,7 @@ uhdr_error_info_t uhdr_dec_set_image(uhdr_codec_private_t* dec, uhdr_compressed_
 uhdr_error_info_t uhdr_dec_set_out_img_format(uhdr_codec_private_t* dec, uhdr_img_fmt_t fmt) {
   uhdr_error_info_t status = g_no_error;
 
-  if (dec == nullptr) {
+  if (dynamic_cast<uhdr_decoder_private*>(dec) == nullptr) {
     status.error_code = UHDR_CODEC_INVALID_PARAM;
     status.has_detail = 1;
     snprintf(status.detail, sizeof status.detail, "received nullptr for uhdr codec instance");
@@ -956,7 +956,7 @@ uhdr_error_info_t uhdr_dec_set_out_img_format(uhdr_codec_private_t* dec, uhdr_im
   }
   if (status.error_code != UHDR_CODEC_OK) return status;
 
-  uhdr_decoder_private* handle = reinterpret_cast<uhdr_decoder_private*>(dec);
+  uhdr_decoder_private* handle = dynamic_cast<uhdr_decoder_private*>(dec);
   if (handle->m_probed) {
     status.error_code = UHDR_CODEC_INVALID_OPERATION;
     status.has_detail = 1;
@@ -975,7 +975,7 @@ uhdr_error_info_t uhdr_dec_set_out_color_transfer(uhdr_codec_private_t* dec,
                                                   uhdr_color_transfer_t ct) {
   uhdr_error_info_t status = g_no_error;
 
-  if (dec == nullptr) {
+  if (dynamic_cast<uhdr_decoder_private*>(dec) == nullptr) {
     status.error_code = UHDR_CODEC_INVALID_PARAM;
     status.has_detail = 1;
     snprintf(status.detail, sizeof status.detail, "received nullptr for uhdr codec instance");
@@ -989,7 +989,7 @@ uhdr_error_info_t uhdr_dec_set_out_color_transfer(uhdr_codec_private_t* dec,
   }
   if (status.error_code != UHDR_CODEC_OK) return status;
 
-  uhdr_decoder_private* handle = reinterpret_cast<uhdr_decoder_private*>(dec);
+  uhdr_decoder_private* handle = dynamic_cast<uhdr_decoder_private*>(dec);
   if (handle->m_probed) {
     status.error_code = UHDR_CODEC_INVALID_OPERATION;
     status.has_detail = 1;
@@ -1008,7 +1008,7 @@ uhdr_error_info_t uhdr_dec_set_out_max_display_boost(uhdr_codec_private_t* dec,
                                                      float display_boost) {
   uhdr_error_info_t status = g_no_error;
 
-  if (dec == nullptr) {
+  if (dynamic_cast<uhdr_decoder_private*>(dec) == nullptr) {
     status.error_code = UHDR_CODEC_INVALID_PARAM;
     status.has_detail = 1;
     snprintf(status.detail, sizeof status.detail, "received nullptr for uhdr codec instance");
@@ -1020,7 +1020,7 @@ uhdr_error_info_t uhdr_dec_set_out_max_display_boost(uhdr_codec_private_t* dec,
   }
   if (status.error_code != UHDR_CODEC_OK) return status;
 
-  uhdr_decoder_private* handle = reinterpret_cast<uhdr_decoder_private*>(dec);
+  uhdr_decoder_private* handle = dynamic_cast<uhdr_decoder_private*>(dec);
   if (handle->m_probed) {
     status.error_code = UHDR_CODEC_INVALID_OPERATION;
     status.has_detail = 1;
@@ -1036,7 +1036,7 @@ uhdr_error_info_t uhdr_dec_set_out_max_display_boost(uhdr_codec_private_t* dec,
 }
 
 uhdr_error_info_t uhdr_dec_probe(uhdr_codec_private_t* dec) {
-  if (dec == nullptr) {
+  if (dynamic_cast<uhdr_decoder_private*>(dec) == nullptr) {
     uhdr_error_info_t status;
     status.error_code = UHDR_CODEC_INVALID_PARAM;
     status.has_detail = 1;
@@ -1044,7 +1044,7 @@ uhdr_error_info_t uhdr_dec_probe(uhdr_codec_private_t* dec) {
     return status;
   }
 
-  uhdr_decoder_private* handle = reinterpret_cast<uhdr_decoder_private*>(dec);
+  uhdr_decoder_private* handle = dynamic_cast<uhdr_decoder_private*>(dec);
   uhdr_error_info_t& status = handle->m_probe_call_status;
 
   if (!handle->m_probed) {
@@ -1108,11 +1108,11 @@ uhdr_error_info_t uhdr_dec_probe(uhdr_codec_private_t* dec) {
 }
 
 int uhdr_dec_get_image_width(uhdr_codec_private_t* dec) {
-  if (dec == nullptr) {
+  if (dynamic_cast<uhdr_decoder_private*>(dec) == nullptr) {
     return -1;
   }
 
-  uhdr_decoder_private* handle = reinterpret_cast<uhdr_decoder_private*>(dec);
+  uhdr_decoder_private* handle = dynamic_cast<uhdr_decoder_private*>(dec);
   if (!handle->m_probed || handle->m_probe_call_status.error_code != UHDR_CODEC_OK) {
     return -1;
   }
@@ -1121,11 +1121,11 @@ int uhdr_dec_get_image_width(uhdr_codec_private_t* dec) {
 }
 
 int uhdr_dec_get_image_height(uhdr_codec_private_t* dec) {
-  if (dec == nullptr) {
+  if (dynamic_cast<uhdr_decoder_private*>(dec) == nullptr) {
     return -1;
   }
 
-  uhdr_decoder_private* handle = reinterpret_cast<uhdr_decoder_private*>(dec);
+  uhdr_decoder_private* handle = dynamic_cast<uhdr_decoder_private*>(dec);
   if (!handle->m_probed || handle->m_probe_call_status.error_code != UHDR_CODEC_OK) {
     return -1;
   }
@@ -1134,11 +1134,11 @@ int uhdr_dec_get_image_height(uhdr_codec_private_t* dec) {
 }
 
 int uhdr_dec_get_gainmap_width(uhdr_codec_private_t* dec) {
-  if (dec == nullptr) {
+  if (dynamic_cast<uhdr_decoder_private*>(dec) == nullptr) {
     return -1;
   }
 
-  uhdr_decoder_private* handle = reinterpret_cast<uhdr_decoder_private*>(dec);
+  uhdr_decoder_private* handle = dynamic_cast<uhdr_decoder_private*>(dec);
   if (!handle->m_probed || handle->m_probe_call_status.error_code != UHDR_CODEC_OK) {
     return -1;
   }
@@ -1147,11 +1147,11 @@ int uhdr_dec_get_gainmap_width(uhdr_codec_private_t* dec) {
 }
 
 int uhdr_dec_get_gainmap_height(uhdr_codec_private_t* dec) {
-  if (dec == nullptr) {
+  if (dynamic_cast<uhdr_decoder_private*>(dec) == nullptr) {
     return -1;
   }
 
-  uhdr_decoder_private* handle = reinterpret_cast<uhdr_decoder_private*>(dec);
+  uhdr_decoder_private* handle = dynamic_cast<uhdr_decoder_private*>(dec);
   if (!handle->m_probed || handle->m_probe_call_status.error_code != UHDR_CODEC_OK) {
     return -1;
   }
@@ -1160,11 +1160,11 @@ int uhdr_dec_get_gainmap_height(uhdr_codec_private_t* dec) {
 }
 
 uhdr_mem_block_t* uhdr_dec_get_exif(uhdr_codec_private_t* dec) {
-  if (dec == nullptr) {
+  if (dynamic_cast<uhdr_decoder_private*>(dec) == nullptr) {
     return nullptr;
   }
 
-  uhdr_decoder_private* handle = reinterpret_cast<uhdr_decoder_private*>(dec);
+  uhdr_decoder_private* handle = dynamic_cast<uhdr_decoder_private*>(dec);
   if (!handle->m_probed || handle->m_probe_call_status.error_code != UHDR_CODEC_OK) {
     return nullptr;
   }
@@ -1173,11 +1173,11 @@ uhdr_mem_block_t* uhdr_dec_get_exif(uhdr_codec_private_t* dec) {
 }
 
 uhdr_mem_block_t* uhdr_dec_get_icc(uhdr_codec_private_t* dec) {
-  if (dec == nullptr) {
+  if (dynamic_cast<uhdr_decoder_private*>(dec) == nullptr) {
     return nullptr;
   }
 
-  uhdr_decoder_private* handle = reinterpret_cast<uhdr_decoder_private*>(dec);
+  uhdr_decoder_private* handle = dynamic_cast<uhdr_decoder_private*>(dec);
   if (!handle->m_probed || handle->m_probe_call_status.error_code != UHDR_CODEC_OK) {
     return nullptr;
   }
@@ -1186,11 +1186,11 @@ uhdr_mem_block_t* uhdr_dec_get_icc(uhdr_codec_private_t* dec) {
 }
 
 uhdr_gainmap_metadata_t* uhdr_dec_get_gain_map_metadata(uhdr_codec_private_t* dec) {
-  if (dec == nullptr) {
+  if (dynamic_cast<uhdr_decoder_private*>(dec) == nullptr) {
     return nullptr;
   }
 
-  uhdr_decoder_private* handle = reinterpret_cast<uhdr_decoder_private*>(dec);
+  uhdr_decoder_private* handle = dynamic_cast<uhdr_decoder_private*>(dec);
   if (!handle->m_probed || handle->m_probe_call_status.error_code != UHDR_CODEC_OK) {
     return nullptr;
   }
@@ -1199,7 +1199,7 @@ uhdr_gainmap_metadata_t* uhdr_dec_get_gain_map_metadata(uhdr_codec_private_t* de
 }
 
 uhdr_error_info_t uhdr_decode(uhdr_codec_private_t* dec) {
-  if (dec == nullptr) {
+  if (dynamic_cast<uhdr_decoder_private*>(dec) == nullptr) {
     uhdr_error_info_t status;
     status.error_code = UHDR_CODEC_INVALID_PARAM;
     status.has_detail = 1;
@@ -1207,7 +1207,7 @@ uhdr_error_info_t uhdr_decode(uhdr_codec_private_t* dec) {
     return status;
   }
 
-  uhdr_decoder_private* handle = reinterpret_cast<uhdr_decoder_private*>(dec);
+  uhdr_decoder_private* handle = dynamic_cast<uhdr_decoder_private*>(dec);
 
   if (handle->m_sailed) {
     return handle->m_decode_call_status;
@@ -1253,11 +1253,11 @@ uhdr_error_info_t uhdr_decode(uhdr_codec_private_t* dec) {
 }
 
 uhdr_raw_image_t* uhdr_get_decoded_image(uhdr_codec_private_t* dec) {
-  if (dec == nullptr) {
+  if (dynamic_cast<uhdr_decoder_private*>(dec) == nullptr) {
     return nullptr;
   }
 
-  uhdr_decoder_private* handle = reinterpret_cast<uhdr_decoder_private*>(dec);
+  uhdr_decoder_private* handle = dynamic_cast<uhdr_decoder_private*>(dec);
   if (!handle->m_sailed || handle->m_decode_call_status.error_code != UHDR_CODEC_OK) {
     return nullptr;
   }
@@ -1266,11 +1266,11 @@ uhdr_raw_image_t* uhdr_get_decoded_image(uhdr_codec_private_t* dec) {
 }
 
 uhdr_raw_image_t* uhdr_get_gain_map_image(uhdr_codec_private_t* dec) {
-  if (dec == nullptr) {
+  if (dynamic_cast<uhdr_decoder_private*>(dec) == nullptr) {
     return nullptr;
   }
 
-  uhdr_decoder_private* handle = reinterpret_cast<uhdr_decoder_private*>(dec);
+  uhdr_decoder_private* handle = dynamic_cast<uhdr_decoder_private*>(dec);
   if (!handle->m_sailed || handle->m_decode_call_status.error_code != UHDR_CODEC_OK) {
     return nullptr;
   }
@@ -1279,8 +1279,8 @@ uhdr_raw_image_t* uhdr_get_gain_map_image(uhdr_codec_private_t* dec) {
 }
 
 void uhdr_reset_decoder(uhdr_codec_private_t* dec) {
-  if (dec != nullptr) {
-    uhdr_decoder_private* handle = reinterpret_cast<uhdr_decoder_private*>(dec);
+  if (dynamic_cast<uhdr_decoder_private*>(dec) != nullptr) {
+    uhdr_decoder_private* handle = dynamic_cast<uhdr_decoder_private*>(dec);
 
     // clear entries and restore defaults
     handle->m_uhdr_compressed_img.reset();
