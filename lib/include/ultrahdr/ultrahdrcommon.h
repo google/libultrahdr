@@ -19,8 +19,10 @@
 
 //#define LOG_NDEBUG 0
 
+#include <deque>
 #include <map>
 #include <memory>
+#include <string>
 #include <vector>
 
 #include "ultrahdr_api.h"
@@ -103,13 +105,99 @@ typedef struct uhdr_compressed_image_ext : uhdr_compressed_image_t {
   std::unique_ptr<ultrahdr::uhdr_memory_block> m_block;
 } uhdr_compressed_image_ext_t; /**< alias for struct uhdr_compressed_image_ext */
 
+/*!\brief List of supported mirror directions */
+typedef enum uhdr_mirror_direction {
+  UHDR_MIRROR_VERTICAL,    /**< flip image over x axis */
+  UHDR_MIRROR_HORIZONTAL,  /**< flip image over y axis */
+} uhdr_mirror_direction_t; /**< alias for enum uhdr_mirror_direction */
+
+/*!\brief uhdr image effect descriptor */
+typedef struct uhdr_effect_desc {
+  virtual std::string to_string() = 0;
+
+  virtual ~uhdr_effect_desc() = default;
+} uhdr_effect_desc_t; /**< alias for struct uhdr_effect_desc */
+
+/*!\brief mirror effect descriptor */
+typedef struct uhdr_mirror_effect : uhdr_effect_desc {
+  uhdr_mirror_effect(uhdr_mirror_direction_t direction) : m_direction{direction} {}
+
+  std::string to_string() {
+    return "effect : mirror, metadata : direction - " +
+           ((m_direction == ultrahdr::UHDR_MIRROR_HORIZONTAL) ? std::string{"horizontal"}
+                                                              : std::string{"vertical"});
+  }
+
+  uhdr_mirror_direction_t m_direction;
+} uhdr_mirror_effect_t; /**< alias for struct uhdr_mirror_effect */
+
+/*!\brief rotate effect descriptor */
+typedef struct uhdr_rotate_effect : uhdr_effect_desc {
+  uhdr_rotate_effect(int degree) : m_degree{degree} {}
+
+  std::string to_string() {
+    return "effect : rotate, metadata : degree - " + std::to_string(m_degree);
+  }
+
+  int m_degree;
+} uhdr_rotate_effect_t; /**< alias for struct uhdr_rotate_effect */
+
+/*!\brief crop effect descriptor */
+typedef struct uhdr_crop_effect : uhdr_effect_desc {
+  uhdr_crop_effect(int left, int right, int top, int bottom)
+      : m_left{left}, m_right{right}, m_top{top}, m_bottom{bottom} {}
+
+  std::string to_string() {
+    return "effect : crop, metadata : left, right, top, bottom - " + std::to_string(m_left) + " ," +
+           std::to_string(m_right) + " ," + std::to_string(m_top) + " ," + std::to_string(m_bottom);
+  }
+
+  int m_left;
+  int m_right;
+  int m_top;
+  int m_bottom;
+} uhdr_crop_effect_t; /**< alias for struct uhdr_crop_effect */
+
+/*!\brief resize effect descriptor */
+typedef struct uhdr_resize_effect : uhdr_effect_desc {
+  uhdr_resize_effect(int width, int height) : m_width{width}, m_height{height} {}
+
+  std::string to_string() {
+    return "effect : resize, metadata : dimensions w, h" + std::to_string(m_width) + " ," +
+           std::to_string(m_height);
+  }
+
+  int m_width;
+  int m_height;
+} uhdr_resize_effect_t; /**< alias for struct uhdr_resize_effect */
+
+// ===============================================================================================
+// Function Declarations
+// ===============================================================================================
+
+std::unique_ptr<uhdr_raw_image_ext_t> apply_rotate(uhdr_raw_image_t* src, int degree);
+
+std::unique_ptr<uhdr_raw_image_ext_t> apply_mirror(uhdr_raw_image_t* src,
+                                                   uhdr_mirror_direction_t direction);
+
+std::unique_ptr<uhdr_raw_image_ext_t> apply_resize(uhdr_raw_image* src, int dst_w, int dst_h);
+
+void apply_crop(uhdr_raw_image_t* src, int left, int top, int wd, int ht);
+
 }  // namespace ultrahdr
 
 // ===============================================================================================
 // Extensions of ultrahdr api definitions, so outside ultrahdr namespace
 // ===============================================================================================
 
-struct uhdr_codec_private {};
+struct uhdr_codec_private {
+  std::deque<ultrahdr::uhdr_effect_desc_t*> m_effects;
+
+  virtual ~uhdr_codec_private() {
+    for (auto it : m_effects) delete it;
+    m_effects.clear();
+  }
+};
 
 struct uhdr_encoder_private : uhdr_codec_private {
   // config data
