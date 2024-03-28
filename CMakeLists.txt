@@ -23,6 +23,7 @@ project(libuhdr VERSION 1.0 LANGUAGES C CXX
 # Detect system
 ###########################################################
 if(${CMAKE_SYSTEM_NAME} MATCHES "Linux")
+elseif(${CMAKE_SYSTEM_NAME} MATCHES "Emscripten")
 elseif(WIN32)
 elseif(APPLE)
 else()
@@ -104,13 +105,30 @@ if(UHDR_ENABLE_INSTALL)
   set(UHDR_ENABLE_LOGS FALSE) # no verbose logs
 endif()
 
+if(EMSCRIPTEN)
+  set(UHDR_BUILD_DEPS TRUE) # not using -s USE_LIBJPEG=1, building it ourself
+  set(UHDR_ENABLE_INSTALL FALSE) # not providing install/uninstall targets in emscripten builds?
+endif()
+
 ###########################################################
 # Compile flags
 ###########################################################
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
-set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+if(NOT EMSCRIPTEN)
+  set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+endif()
+
+include(CheckCXXCompilerFlag)
+function(CheckCompilerOption opt res)
+  set(CMAKE_REQUIRED_FLAGS ${opt})
+  check_cxx_compiler_flag(${opt} ${res})
+  unset(CMAKE_REQUIRED_FLAGS)
+  if(NOT ${res})
+    message(FATAL_ERROR "Unsupported compiler option(s) ${opt}")
+  endif()
+endfunction(CheckCompilerOption)
 
 if(MSVC)
   if(DEFINED UHDR_SANITIZE_OPTIONS)
@@ -128,6 +146,21 @@ if(MSVC)
   add_compile_options(/wd4305) # truncation from 'double' to 'float'
   add_compile_options(/wd4838) # conversion from 'type1' to 'type2' requires a narrowing conversion
   add_compile_options(/wd26812) # Prefer enum class over enum
+elseif(EMSCRIPTEN)
+  if(UHDR_BUILD_TESTS)
+    message(FATAL_ERROR "Building tests not supported in Web Assembly Path")
+  endif()
+  if(UHDR_BUILD_BENCHMARK)
+    message(FATAL_ERROR "Building benchmark not supported in Web Assembly Path")
+  endif()
+  if(UHDR_BUILD_FUZZERS)
+    message(FATAL_ERROR "Building fuzzers not supported in Web Assembly Path")
+  endif()
+  if(DEFINED UHDR_SANITIZE_OPTIONS)
+    CheckCompilerOption("-fsanitize=${UHDR_SANITIZE_OPTIONS}" SUPPORTS_SAN_OPTIONS)
+    add_compile_options(-fsanitize=${UHDR_SANITIZE_OPTIONS})
+    add_link_options(-fsanitize=${UHDR_SANITIZE_OPTIONS})
+  endif()
 else()
   add_compile_options(-ffunction-sections)
   add_compile_options(-fdata-sections)
@@ -142,16 +175,6 @@ else()
     add_compile_options(-march=x86-64)
     add_compile_options(-mtune=generic)
   endif()
-
-  include(CheckCXXCompilerFlag)
-  function(CheckCompilerOption opt res)
-    set(CMAKE_REQUIRED_FLAGS ${opt})
-    check_cxx_compiler_flag(${opt} ${res})
-    unset(CMAKE_REQUIRED_FLAGS)
-    if(NOT ${res})
-      message(FATAL_ERROR "Unsupported compiler option(s) ${opt}")
-    endif()
-  endfunction(CheckCompilerOption)
 
   if(DEFINED UHDR_SANITIZE_OPTIONS)
     CheckCompilerOption("-fsanitize=${UHDR_SANITIZE_OPTIONS}" SUPPORTS_SAN_OPTIONS)
@@ -239,25 +262,40 @@ if(NOT JPEG_FOUND)
     set(JPEG_LIB_PREFIX ${JPEGTURBO_BINARY_DIR}/)
   endif()
   set(JPEG_LIBRARIES ${JPEG_LIB_PREFIX}${JPEG_LIB})
-  ExternalProject_Add(${JPEGTURBO_TARGET_NAME}
-      GIT_REPOSITORY https://github.com/libjpeg-turbo/libjpeg-turbo.git
-      GIT_TAG 3.0.1
-      PREFIX ${JPEGTURBO_PREFIX_DIR}
-      SOURCE_DIR ${JPEGTURBO_SOURCE_DIR}
-      BINARY_DIR ${JPEGTURBO_BINARY_DIR}
-      BUILD_COMMAND ${CMAKE_COMMAND} --build <BINARY_DIR> --config $<CONFIG> --target jpeg-static
-      CMAKE_ARGS -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
-                 -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
-                 -DCMAKE_C_FLAGS=${UHDR_CMAKE_C_FLAGS}
-                 -DCMAKE_C_FLAGS_DEBUG=${CMAKE_C_FLAGS_DEBUG}
-                 -DCMAKE_C_FLAGS_RELEASE=${CMAKE_C_FLAGS_RELEASE}
-                 -DCMAKE_C_FLAGS_MINSIZEREL=${CMAKE_C_FLAGS_MINSIZEREL}
-                 -DCMAKE_C_FLAGS_RELWITHDEBINFO=${CMAKE_C_FLAGS_RELWITHDEBINFO}
-                 -DCMAKE_POSITION_INDEPENDENT_CODE=ON
-                 -DENABLE_SHARED=0
-      BUILD_BYPRODUCTS ${JPEG_LIBRARIES}
-      INSTALL_COMMAND ""
-  )
+  if(EMSCRIPTEN)
+    ExternalProject_Add(${JPEGTURBO_TARGET_NAME}
+        GIT_REPOSITORY https://github.com/libjpeg-turbo/libjpeg-turbo.git
+        GIT_TAG 3.0.1
+        PREFIX ${JPEGTURBO_PREFIX_DIR}
+        SOURCE_DIR ${JPEGTURBO_SOURCE_DIR}
+        BINARY_DIR ${JPEGTURBO_BINARY_DIR}
+        CONFIGURE_COMMAND emcmake cmake ${JPEGTURBO_SOURCE_DIR}
+                          -DENABLE_SHARED=0 -DWITH_SIMD=0
+        BUILD_COMMAND ${CMAKE_COMMAND} --build <BINARY_DIR> --config $<CONFIG> --target jpeg-static
+        BUILD_BYPRODUCTS ${JPEG_LIBRARIES}
+        INSTALL_COMMAND ""
+    )
+  else()
+    ExternalProject_Add(${JPEGTURBO_TARGET_NAME}
+        GIT_REPOSITORY https://github.com/libjpeg-turbo/libjpeg-turbo.git
+        GIT_TAG 3.0.1
+        PREFIX ${JPEGTURBO_PREFIX_DIR}
+        SOURCE_DIR ${JPEGTURBO_SOURCE_DIR}
+        BINARY_DIR ${JPEGTURBO_BINARY_DIR}
+        BUILD_COMMAND ${CMAKE_COMMAND} --build <BINARY_DIR> --config $<CONFIG> --target jpeg-static
+        CMAKE_ARGS -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
+                   -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
+                   -DCMAKE_C_FLAGS=${UHDR_CMAKE_C_FLAGS}
+                   -DCMAKE_C_FLAGS_DEBUG=${CMAKE_C_FLAGS_DEBUG}
+                   -DCMAKE_C_FLAGS_RELEASE=${CMAKE_C_FLAGS_RELEASE}
+                   -DCMAKE_C_FLAGS_MINSIZEREL=${CMAKE_C_FLAGS_MINSIZEREL}
+                   -DCMAKE_C_FLAGS_RELWITHDEBINFO=${CMAKE_C_FLAGS_RELWITHDEBINFO}
+                   -DCMAKE_POSITION_INDEPENDENT_CODE=ON
+                   -DENABLE_SHARED=0
+        BUILD_BYPRODUCTS ${JPEG_LIBRARIES}
+        INSTALL_COMMAND ""
+    )
+  endif()
 endif()
 
 if(UHDR_BUILD_TESTS)
