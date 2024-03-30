@@ -612,7 +612,7 @@ status_t JpegR::getJPEGRInfo(jr_compressed_ptr jpegr_image_ptr, jr_info_ptr jpeg
 
   jpegr_compressed_struct primary_image, gainmap_image;
   status_t status = extractPrimaryImageAndGainMap(jpegr_image_ptr, &primary_image, &gainmap_image);
-  if (status != JPEGR_NO_ERROR && status != ERROR_JPEGR_GAIN_MAP_IMAGE_NOT_FOUND) {
+  if (status != JPEGR_NO_ERROR) {
     return status;
   }
   status = parseJpegInfo(&primary_image, jpegr_image_info_ptr->primaryImgInfo,
