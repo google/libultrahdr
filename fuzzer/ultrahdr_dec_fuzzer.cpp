@@ -56,11 +56,9 @@ void UltraHdrDecFuzzer::process() {
   auto decodedRaw = std::make_unique<uint8_t[]>(outSize);
   decodedJpegR.data = decodedRaw.get();
   ultrahdr_metadata_struct metadata;
-  jpegr_uncompressed_struct decodedGainMap{};
   (void)jpegHdr.decodeJPEGR(&jpegImgR, &decodedJpegR,
                             mFdp.ConsumeFloatingPointInRange<float>(1.0, FLT_MAX), nullptr, of,
-                            &decodedGainMap, &metadata);
-  if (decodedGainMap.data) free(decodedGainMap.data);
+                            nullptr, &metadata);
 }
 
 extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {

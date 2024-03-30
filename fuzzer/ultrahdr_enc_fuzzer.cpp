@@ -297,14 +297,12 @@ void UltraHdrEncFuzzer::process() {
         auto decodedRaw = std::make_unique<uint8_t[]>(outSize);
         decodedJpegR.data = decodedRaw.get();
         ultrahdr_metadata_struct metadata;
-        jpegr_uncompressed_struct decodedGainMap{};
         status = jpegHdr.decodeJPEGR(&jpegImgR, &decodedJpegR,
                                      mFdp.ConsumeFloatingPointInRange<float>(1.0, FLT_MAX), nullptr,
-                                     of, &decodedGainMap, &metadata);
+                                     of, nullptr, &metadata);
         if (status != JPEGR_NO_ERROR) {
           ALOGE("encountered error during decoding %d", status);
         }
-        if (decodedGainMap.data) free(decodedGainMap.data);
       } else {
         ALOGE("encountered error during get jpeg info %d", status);
       }
