@@ -16,7 +16,8 @@
 
 cmake_minimum_required(VERSION 3.13)
 
-project(UltraHdr C CXX)
+project(libuhdr VERSION 1.0 LANGUAGES C CXX
+        DESCRIPTION "Library for encoding and decoding ultrahdr images")
 
 ###########################################################
 # Detect system
@@ -84,6 +85,7 @@ option_if_not_defined(UHDR_BUILD_BENCHMARK "Build benchmark " FALSE)
 option_if_not_defined(UHDR_BUILD_FUZZERS "Build fuzzers " FALSE)
 option_if_not_defined(UHDR_BUILD_DEPS "Build deps and not use pre-installed packages " FALSE)
 option_if_not_defined(UHDR_ENABLE_LOGS "Build with verbose logging " FALSE)
+option_if_not_defined(UHDR_ENABLE_INSTALL "Add install target for ultrahdr package" TRUE)
 
 if(UHDR_BUILD_BENCHMARK AND WIN32)
   message(FATAL_ERROR "Building benchmarks on current platform not supported")
@@ -91,8 +93,15 @@ endif()
 
 # side effects
 if(UHDR_BUILD_FUZZERS)
+  set(UHDR_ENABLE_INSTALL FALSE) # during fuzz testing dont install targets
   set(UHDR_BUILD_DEPS TRUE) # for fuzz testing its best to build all dependencies from source.
                             # This is to instrument dependencies libs as well
+endif()
+
+if(UHDR_ENABLE_INSTALL)
+  set(UHDR_BUILD_FUZZERS FALSE) # dont instrument any code
+  set(UHDR_BUILD_DEPS FALSE) # use pre-builts for portability
+  set(UHDR_ENABLE_LOGS FALSE) # no verbose logs
 endif()
 
 ###########################################################
@@ -173,6 +182,34 @@ if(UHDR_ENABLE_LOGS)
 endif()
 
 ###########################################################
+# Utils
+###########################################################
+# copied from https://github.com/google/shaderc/blob/main/cmake/utils.cmake
+macro(get_transitive_static_libs target out_list)
+  if(TARGET ${target})
+    get_target_property(target_type ${target} TYPE)
+    if(target_type STREQUAL "STATIC_LIBRARY")
+      list(INSERT ${out_list} 0 ${target})
+      get_target_property(libs ${target} LINK_LIBRARIES)
+      if(libs)
+        foreach(lib ${libs})
+          get_transitive_static_libs(${lib} ${out_list})
+        endforeach()
+      endif()
+    endif()
+  endif()
+endmacro()
+
+# combine a list of static libraries in to a single library
+function(combine_static_libs target output_target)
+  set(all_libs_list "")
+  get_transitive_static_libs(${target} all_libs_list)
+  foreach(lib IN LISTS all_libs_list)
+    target_sources(${output_target} PRIVATE $<TARGET_OBJECTS:${lib}>)
+  endforeach()
+endfunction()
+
+###########################################################
 # Dependencies
 ###########################################################
 
@@ -189,9 +226,14 @@ set(UHDR_CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${UHDR_COMPILE_FLAGS_STR}")
 set(UHDR_CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${UHDR_COMPILE_FLAGS_STR}")
 
 # libjpeg-turbo
-if(NOT UHDR_BUILD_DEPS)
-  find_package(JPEG)
+if(UHDR_ENABLE_INSTALL)
+  find_package(JPEG REQUIRED)
+else()
+  if(NOT UHDR_BUILD_DEPS)
+    find_package(JPEG)
+  endif()
 endif()
+
 if(NOT JPEG_FOUND)
   set(JPEGTURBO_TARGET_NAME turbojpeg)
   set(JPEGTURBO_PREFIX_DIR ${CMAKE_CURRENT_BINARY_DIR}/${JPEGTURBO_TARGET_NAME})
@@ -449,110 +491,28 @@ if(UHDR_BUILD_FUZZERS)
   target_link_libraries(ultrahdr_dec_fuzzer ${UHDR_CORE_LIB_NAME})
 endif()
 
-###########################################################
-# Utils
-###########################################################
-# combine a list of static libraries in to a single library
-# hassle due to ExternalProject_Add(). Else we could get transitive libs for
-# each target and rely on target_sources(${new_target} PRIVATE $<TARGET_OBJECTS:${lib}>)
-# to combine libraries
-function(combine_static_libs output_lib list_of_targets list_of_addl_libs)
-  set(OUT_LIB ${CMAKE_STATIC_LIBRARY_PREFIX}${output_lib}${CMAKE_STATIC_LIBRARY_SUFFIX})
-  if(IS_MULTI)
-    set(OUTPUT_LIB_PATH ${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>/${OUT_LIB})
-    set(MOCK_FILE ${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>/${output_lib}.dummy.cpp)
-  else()
-    set(OUTPUT_LIB_PATH ${CMAKE_CURRENT_BINARY_DIR}/${OUT_LIB})
-    set(MOCK_FILE ${CMAKE_CURRENT_BINARY_DIR}/${output_lib}.dummy.cpp)
-  endif()
-  if(MSVC OR APPLE)
-    if(MSVC)
-      find_program(lib_tool lib)
-    else()
-      find_program(lib_tool libtool)
-    endif()
-    if(NOT lib_tool)
-      message(WARNING "lib_tool not found! skipping combine archives")
-      return()
-    endif()
-    foreach(tgt ${list_of_targets})
-      get_target_property(target_type ${tgt} TYPE)
-      if(target_type STREQUAL "STATIC_LIBRARY")
-        list(APPEND list_of_static_libs $<TARGET_FILE:${tgt}>)
-      endif()
-    endforeach()
-    foreach(lib ${list_of_addl_libs})
-      list(FIND list_of_static_libs ${lib} res)
-      if(res EQUAL -1)
-        list(APPEND list_of_static_libs ${lib})
-      endif()
-    endforeach()
+if(UHDR_ENABLE_INSTALL)
+  set(UHDR_TARGET_NAME uhdr)
+  add_library(${UHDR_TARGET_NAME} SHARED)
+  add_dependencies(${UHDR_TARGET_NAME} ${UHDR_CORE_LIB_NAME})
+  set_target_properties(${UHDR_TARGET_NAME} PROPERTIES PUBLIC_HEADER ultrahdr_api.h)
+  combine_static_libs(${UHDR_CORE_LIB_NAME} ${UHDR_TARGET_NAME})
 
-    # Create a dummy file for the combined library
-    # Have it depend on all input targets so that the combined library is regenerated
-    # if any of them changes.
-    add_custom_command(OUTPUT ${MOCK_FILE}
-      COMMAND echo // Auto Generated, for target ${output_lib} > ${MOCK_FILE}
-      DEPENDS "${list_of_targets}" "${list_of_addl_libs}")
+  if(NOT MSVC)
+    include(GNUInstallDirs)
 
-    add_library(${output_lib} STATIC ${MOCK_FILE})
+    # pkg-config: libuhdr.pc
+    configure_file("${CMAKE_CURRENT_SOURCE_DIR}/libuhdr.pc.template"
+                   "${CMAKE_CURRENT_BINARY_DIR}/libuhdr.pc" @ONLY NEWLINE_STYLE UNIX)
+    install(FILES "${CMAKE_CURRENT_BINARY_DIR}/libuhdr.pc"
+            DESTINATION "${CMAKE_INSTALL_PREFIX}/lib/${CMAKE_LIBRARY_ARCHITECTURE}/pkgconfig")
+    install(TARGETS ${UHDR_TARGET_NAME}
+            DESTINATION "${CMAKE_INSTALL_PREFIX}/lib/${CMAKE_LIBRARY_ARCHITECTURE}/"
+            PUBLIC_HEADER DESTINATION "${CMAKE_INSTALL_PREFIX}/include")
 
-    # Add a custom command to combine the archives after the static library is "built".
-    if(MSVC)
-      add_custom_command(TARGET ${output_lib}
-        POST_BUILD
-        COMMAND ${lib_tool} /NOLOGO /OUT:${OUTPUT_LIB_PATH} ${list_of_static_libs})
-    else()
-      add_custom_command(TARGET ${output_lib}
-        POST_BUILD
-        COMMAND ${lib_tool} -static -o ${OUTPUT_LIB_PATH} ${list_of_static_libs})
-    endif()
-  else()
-    # Generate the MRI file for CMAKE_AR to consume.
-    if(IS_MULTI)
-      set(MRI_FILE ${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>/${output_lib}.mri)
-    else()
-      set(MRI_FILE ${CMAKE_CURRENT_BINARY_DIR}/${output_lib}.mri)
-    endif()
-    set(MRI_CONTENT "CREATE ${OUTPUT_LIB_PATH}\n")
-    foreach(tgt ${list_of_targets})
-      get_target_property(target_type ${tgt} TYPE)
-      if(target_type STREQUAL "STATIC_LIBRARY")
-        string(APPEND MRI_CONTENT "ADDLIB $<TARGET_FILE:${tgt}>\n")
-      endif()
-    endforeach()
-    foreach(lib ${list_of_addl_libs})
-      string(FIND ${MRI_CONTENT} "ADDLIB ${lib}\n" res)
-      if(res EQUAL -1)
-        string(APPEND MRI_CONTENT "ADDLIB ${lib}\n")
-      endif()
-    endforeach()
-    string(APPEND MRI_CONTENT "SAVE\n")
-    string(APPEND MRI_CONTENT "END\n")
-    file(GENERATE OUTPUT ${MRI_FILE} CONTENT ${MRI_CONTENT})
-
-    # Create a dummy file for the combined library
-    # Have it depend on all input targets so that the combined library is regenerated
-    # if any of them changes.
-    add_custom_command(OUTPUT ${MOCK_FILE}
-      COMMAND echo // Auto Generated, for target ${output_lib} > ${MOCK_FILE}
-      DEPENDS "${list_of_targets}" "${list_of_addl_libs}")
-
-    add_library(${output_lib} STATIC ${MOCK_FILE})
-
-    # Add a custom command to combine the archives after the static library is "built".
-    add_custom_command(TARGET ${output_lib}
+    add_custom_target(uninstall)
+    add_custom_command(TARGET uninstall
       POST_BUILD
-      COMMAND ${CMAKE_AR} -M < ${MRI_FILE})
+      COMMAND xargs rm -vf < install_manifest.txt)
   endif()
-endfunction()
-
-if(UHDR_BUILD_DEPS)
-  set(INPUT_TARGETS ${UHDR_CORE_LIB_NAME} ${IMAGEIO_TARGET_NAME} ${JPEGTURBO_TARGET_NAME})
-  set(ADDL_LIBS ${JPEG_LIBRARIES})
-else()
-  set(INPUT_TARGETS ${UHDR_CORE_LIB_NAME} ${IMAGEIO_TARGET_NAME})
-  set(ADDL_LIBS "")
 endif()
-
-combine_static_libs(uhdr "${INPUT_TARGETS}" "${ADDL_LIBS}")
