@@ -92,7 +92,7 @@ if(UHDR_BUILD_BENCHMARK AND WIN32)
 endif()
 
 # side effects
-if(UHDR_BUILD_FUZZERS)
+if(UHDR_BUILD_FUZZERS OR UHDR_BUILD_DEPS)
   set(UHDR_ENABLE_INSTALL FALSE) # during fuzz testing dont install targets
   set(UHDR_BUILD_DEPS TRUE) # for fuzz testing its best to build all dependencies from source.
                             # This is to instrument dependencies libs as well
@@ -495,19 +495,25 @@ if(UHDR_ENABLE_INSTALL)
   set(UHDR_TARGET_NAME uhdr)
   add_library(${UHDR_TARGET_NAME} SHARED)
   add_dependencies(${UHDR_TARGET_NAME} ${UHDR_CORE_LIB_NAME})
+  target_link_libraries(${UHDR_TARGET_NAME} PRIVATE ${JPEG_LIBRARIES})
   set_target_properties(${UHDR_TARGET_NAME} PROPERTIES PUBLIC_HEADER ultrahdr_api.h)
   combine_static_libs(${UHDR_CORE_LIB_NAME} ${UHDR_TARGET_NAME})
 
-  if(NOT MSVC)
+  if(NOT(WIN32 OR XCODE))
     include(GNUInstallDirs)
 
     # pkg-config: libuhdr.pc
     configure_file("${CMAKE_CURRENT_SOURCE_DIR}/libuhdr.pc.template"
                    "${CMAKE_CURRENT_BINARY_DIR}/libuhdr.pc" @ONLY NEWLINE_STYLE UNIX)
+    if(CMAKE_LIBRARY_ARCHITECTURE STREQUAL "")
+      set(DST_LIBRARY_PATH "${CMAKE_INSTALL_PREFIX}/lib/")
+    else()
+      set(DST_LIBRARY_PATH "${CMAKE_INSTALL_PREFIX}/lib/${CMAKE_LIBRARY_ARCHITECTURE}")
+    endif()
     install(FILES "${CMAKE_CURRENT_BINARY_DIR}/libuhdr.pc"
-            DESTINATION "${CMAKE_INSTALL_PREFIX}/lib/${CMAKE_LIBRARY_ARCHITECTURE}/pkgconfig")
+            DESTINATION "${DST_LIBRARY_PATH}/pkgconfig")
     install(TARGETS ${UHDR_TARGET_NAME}
-            DESTINATION "${CMAKE_INSTALL_PREFIX}/lib/${CMAKE_LIBRARY_ARCHITECTURE}/"
+            DESTINATION "${DST_LIBRARY_PATH}/"
             PUBLIC_HEADER DESTINATION "${CMAKE_INSTALL_PREFIX}/include")
 
     add_custom_target(uninstall)

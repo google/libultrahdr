@@ -5,7 +5,7 @@ includedir="${prefix}/include"
 Name: @PROJECT_NAME@
 Description: @CMAKE_PROJECT_DESCRIPTION@
 Version: @PROJECT_VERSION@
-Requires: libjpeg
+Requires.private: libjpeg
 Cflags: -I${includedir}
 Libs: -L${libdir} -l@UHDR_TARGET_NAME@
 Libs.private: @CMAKE_THREAD_LIBS_INIT@
