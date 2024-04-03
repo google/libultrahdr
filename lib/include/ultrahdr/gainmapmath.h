@@ -460,6 +460,10 @@ extern const int16_t kYuv2100To601_coeffs_neon[8];
  */
 int16x8x3_t yuvConversion_neon(uint8x8_t y, int16x8_t u, int16x8_t v, int16x8_t coeffs);
 
+void transformYuv420_neon(jr_uncompressed_ptr image, const int16_t* coeffs_ptr);
+
+status_t convertYuv_neon(jr_uncompressed_ptr image, ultrahdr_color_gamut src_encoding,
+                         ultrahdr_color_gamut dst_encoding);
 #endif
 
 /*

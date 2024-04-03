@@ -17,6 +17,7 @@
 #include "ultrahdr/gainmapmath.h"
 
 #include <arm_neon.h>
+#include <cassert>
 
 namespace ultrahdr {
 
@@ -108,6 +109,134 @@ int16x8x3_t yuvConversion_neon(uint8x8_t y, int16x8_t u, int16x8_t v, int16x8_t 
   const int16x8_t u_output = uConversion_neon(u, v, coeffs);
   const int16x8_t v_output = vConversion_neon(u, v, coeffs);
   return {y_output, u_output, v_output};
+}
+
+void transformYuv420_neon(jr_uncompressed_ptr image, const int16_t* coeffs_ptr) {
+  // Implementation assumes image buffer is multiple of 16.
+  assert(image->width % 16 == 0);
+  uint8_t* y0_ptr = static_cast<uint8_t*>(image->data);
+  uint8_t* y1_ptr = y0_ptr + image->luma_stride;
+  uint8_t* u_ptr = static_cast<uint8_t*>(image->chroma_data);
+  uint8_t* v_ptr = u_ptr + image->chroma_stride * (image->height / 2);
+
+  const int16x8_t coeffs = vld1q_s16(coeffs_ptr);
+  const uint16x8_t uv_bias = vreinterpretq_u16_s16(vdupq_n_s16(-128));
+  size_t h = 0;
+  do {
+    size_t w = 0;
+    do {
+      uint8x16_t y0 = vld1q_u8(y0_ptr + w * 2);
+      uint8x16_t y1 = vld1q_u8(y1_ptr + w * 2);
+      uint8x8_t u = vld1_u8(u_ptr + w);
+      uint8x8_t v = vld1_u8(v_ptr + w);
+
+      // 128 bias for UV given we are using libjpeg; see:
+      // https://github.com/kornelski/libjpeg/blob/master/structure.doc
+      int16x8_t u_wide_s16 = vreinterpretq_s16_u16(vaddw_u8(uv_bias, u));  // -128 + u
+      int16x8_t v_wide_s16 = vreinterpretq_s16_u16(vaddw_u8(uv_bias, v));  // -128 + v
+
+      const int16x8_t u_wide_lo = vzip1q_s16(u_wide_s16, u_wide_s16);
+      const int16x8_t u_wide_hi = vzip2q_s16(u_wide_s16, u_wide_s16);
+      const int16x8_t v_wide_lo = vzip1q_s16(v_wide_s16, v_wide_s16);
+      const int16x8_t v_wide_hi = vzip2q_s16(v_wide_s16, v_wide_s16);
+
+      const int16x8_t y0_lo = yConversion_neon(vget_low_u8(y0), u_wide_lo, v_wide_lo, coeffs);
+      const int16x8_t y0_hi = yConversion_neon(vget_high_u8(y0), u_wide_hi, v_wide_hi, coeffs);
+      const int16x8_t y1_lo = yConversion_neon(vget_low_u8(y1), u_wide_lo, v_wide_lo, coeffs);
+      const int16x8_t y1_hi = yConversion_neon(vget_high_u8(y1), u_wide_hi, v_wide_hi, coeffs);
+
+      const int16x8_t new_u = uConversion_neon(u_wide_s16, v_wide_s16, coeffs);
+      const int16x8_t new_v = vConversion_neon(u_wide_s16, v_wide_s16, coeffs);
+
+      // Narrow from 16-bit to 8-bit with saturation.
+      const uint8x16_t y0_output = vcombine_u8(vqmovun_s16(y0_lo), vqmovun_s16(y0_hi));
+      const uint8x16_t y1_output = vcombine_u8(vqmovun_s16(y1_lo), vqmovun_s16(y1_hi));
+      const uint8x8_t u_output = vqmovun_s16(vaddq_s16(new_u, vdupq_n_s16(128)));
+      const uint8x8_t v_output = vqmovun_s16(vaddq_s16(new_v, vdupq_n_s16(128)));
+
+      vst1q_u8(y0_ptr + w * 2, y0_output);
+      vst1q_u8(y1_ptr + w * 2, y1_output);
+      vst1_u8(u_ptr + w, u_output);
+      vst1_u8(v_ptr + w, v_output);
+
+      w += 8;
+    } while (w < image->width / 2);
+    y0_ptr += image->luma_stride * 2;
+    y1_ptr += image->luma_stride * 2;
+    u_ptr += image->chroma_stride;
+    v_ptr += image->chroma_stride;
+  } while (++h < image->height / 2);
+}
+
+status_t convertYuv_neon(jr_uncompressed_ptr image, ultrahdr_color_gamut src_encoding,
+                         ultrahdr_color_gamut dst_encoding) {
+  if (image == nullptr) {
+    return ERROR_JPEGR_BAD_PTR;
+  }
+  if (src_encoding == ULTRAHDR_COLORGAMUT_UNSPECIFIED ||
+      dst_encoding == ULTRAHDR_COLORGAMUT_UNSPECIFIED) {
+    return ERROR_JPEGR_INVALID_COLORGAMUT;
+  }
+
+  const int16_t* coeffs = nullptr;
+  switch (src_encoding) {
+    case ULTRAHDR_COLORGAMUT_BT709:
+      switch (dst_encoding) {
+        case ULTRAHDR_COLORGAMUT_BT709:
+          return JPEGR_NO_ERROR;
+        case ULTRAHDR_COLORGAMUT_P3:
+          coeffs = kYuv709To601_coeffs_neon;
+          break;
+        case ULTRAHDR_COLORGAMUT_BT2100:
+          coeffs = kYuv709To2100_coeffs_neon;
+          break;
+        default:
+          // Should be impossible to hit after input validation
+          return ERROR_JPEGR_INVALID_COLORGAMUT;
+      }
+      break;
+    case ULTRAHDR_COLORGAMUT_P3:
+      switch (dst_encoding) {
+        case ULTRAHDR_COLORGAMUT_BT709:
+          coeffs = kYuv601To709_coeffs_neon;
+          break;
+        case ULTRAHDR_COLORGAMUT_P3:
+          return JPEGR_NO_ERROR;
+        case ULTRAHDR_COLORGAMUT_BT2100:
+          coeffs = kYuv601To2100_coeffs_neon;
+          break;
+        default:
+          // Should be impossible to hit after input validation
+          return ERROR_JPEGR_INVALID_COLORGAMUT;
+      }
+      break;
+    case ULTRAHDR_COLORGAMUT_BT2100:
+      switch (dst_encoding) {
+        case ULTRAHDR_COLORGAMUT_BT709:
+          coeffs = kYuv2100To709_coeffs_neon;
+          break;
+        case ULTRAHDR_COLORGAMUT_P3:
+          coeffs = kYuv2100To601_coeffs_neon;
+          break;
+        case ULTRAHDR_COLORGAMUT_BT2100:
+          return JPEGR_NO_ERROR;
+        default:
+          // Should be impossible to hit after input validation
+          return ERROR_JPEGR_INVALID_COLORGAMUT;
+      }
+      break;
+    default:
+      // Should be impossible to hit after input validation
+      return ERROR_JPEGR_INVALID_COLORGAMUT;
+  }
+
+  if (coeffs == nullptr) {
+    // Should be impossible to hit after input validation
+    return ERROR_JPEGR_INVALID_COLORGAMUT;
+  }
+
+  transformYuv420_neon(image, coeffs);
+  return JPEGR_NO_ERROR;
 }
 
 }  // namespace ultrahdr
