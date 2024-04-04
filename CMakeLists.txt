@@ -369,7 +369,7 @@ target_include_directories(${IMAGEIO_TARGET_NAME} PRIVATE
   "${THIRD_PARTY_DIR}/image_io/src/modp_b64/modp_b64")
 
 set(UHDR_CORE_LIB_NAME core)
-add_library(${UHDR_CORE_LIB_NAME} STATIC ${UHDR_CORE_SRCS_LIST})
+add_library(${UHDR_CORE_LIB_NAME} ${UHDR_CORE_SRCS_LIST})
 if(NOT JPEG_FOUND)
   add_dependencies(${UHDR_CORE_LIB_NAME} ${JPEGTURBO_TARGET_NAME})
 endif()
