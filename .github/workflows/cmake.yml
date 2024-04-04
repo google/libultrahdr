@@ -19,7 +19,28 @@ jobs:
             build-system: cmake
             cmake-opts: '-DUHDR_BUILD_TESTS=1 -DUHDR_ENABLE_INSTALL=0 -DUHDR_BUILD_FUZZERS=0'
 
+          - name: ubuntu-latest-gcc-cmake-deps
+            os: ubuntu-latest
+            cc: gcc
+            cxx: g++
+            build-system: cmake
+            cmake-opts: '-DUHDR_BUILD_TESTS=1 -DUHDR_ENABLE_INSTALL=0 -DUHDR_BUILD_FUZZERS=0 -DUHDR_BUILD_DEPS=1'
+
           - name: ubuntu-latest-clang-cmake
+            os: ubuntu-latest
+            cc: clang
+            cxx: clang++
+            build-system: cmake
+            cmake-opts: '-DUHDR_BUILD_TESTS=1 -DUHDR_ENABLE_INSTALL=0 -DUHDR_BUILD_FUZZERS=0'
+
+          - name: ubuntu-latest-clang-cmake-deps
+            os: ubuntu-latest
+            cc: clang
+            cxx: clang++
+            build-system: cmake
+            cmake-opts: '-DUHDR_BUILD_TESTS=1 -DUHDR_ENABLE_INSTALL=0 -DUHDR_BUILD_DEPS=1'
+
+          - name: ubuntu-latest-clang-cmake-fuzzers
             os: ubuntu-latest
             cc: clang
             cxx: clang++
@@ -33,6 +54,13 @@ jobs:
             build-system: cmake
             cmake-opts: '-DUHDR_BUILD_TESTS=1 -DUHDR_ENABLE_INSTALL=0 -DUHDR_BUILD_FUZZERS=0'
 
+          - name: macos-latest-clang-cmake-deps
+            os: macos-latest
+            cc: clang
+            cxx: clang++
+            build-system: cmake
+            cmake-opts: '-DUHDR_BUILD_TESTS=1 -DUHDR_ENABLE_INSTALL=0 -DUHDR_BUILD_DEPS=1'
+
           - name: windows-latest-vs-cmake
             os: windows-latest
             cc: clang
@@ -43,7 +71,19 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
+
+    - name: Install MacOS dependencies
+      if: startsWith(matrix.os,'macos')
+      run: |
+        brew update
+        brew install pkg-config jpeg-turbo
+
+    - name: Install Linux dependencies
+      if: startsWith(matrix.os,'ubuntu')
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libjpeg-dev
 
     - name: Configure CMake
       env:
