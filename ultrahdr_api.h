@@ -626,4 +626,40 @@ UHDR_EXTERN uhdr_raw_image_t* uhdr_get_gain_map_image(uhdr_codec_private_t* dec)
  */
 UHDR_EXTERN void uhdr_reset_decoder(uhdr_codec_private_t* dec);
 
+// ===============================================================================================
+// Common APIs
+// ===============================================================================================
+
+/*!\brief Add image editing operations (pre-encode or post-decode).
+ * Below functions list the set of edits supported. Program can set any combination of these during
+ * initialization. Once the encode/decode process call is made, before encoding or after decoding
+ * the edits are applied in the order of configuration.
+ *
+ * \param[in]  codec  codec instance.
+ *
+ * \return uhdr_error_info_t #UHDR_CODEC_OK if operation succeeds,
+ *                           #UHDR_CODEC_INVALID_PARAM otherwise.
+ */
+
+/*!\brief List of supported mirror directions */
+typedef enum uhdr_mirror_direction {
+  UHDR_MIRROR_VERTICAL,    /**< flip image over x axis */
+  UHDR_MIRROR_HORIZONTAL,  /**< flip image over y axis */
+} uhdr_mirror_direction_t; /**< alias for enum uhdr_mirror_direction */
+
+// Add mirror effect
+UHDR_EXTERN uhdr_error_info_t uhdr_add_effect_mirror(uhdr_codec_private_t* codec,
+                                                     uhdr_mirror_direction_t direction);
+
+// Add rotate effect (supported values 90, 180, 270)
+UHDR_EXTERN uhdr_error_info_t uhdr_add_effect_rotate(uhdr_codec_private_t* codec, int degrees);
+
+// Add crop effect (left, right, top and bottom are in pixels)
+UHDR_EXTERN uhdr_error_info_t uhdr_add_effect_crop(uhdr_codec_private_t* codec, int left, int right,
+                                                   int top, int bottom);
+
+// Add resize effect
+UHDR_EXTERN uhdr_error_info_t uhdr_add_effect_resize(uhdr_codec_private_t* codec, int width,
+                                                     int height);
+
 #endif  // ULTRAHDR_API_H
