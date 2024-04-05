@@ -1,12 +1,11 @@
-Building fuzzers for libultrahdr
-================================
+## Building fuzzers for libultrahdr
 
 ### Requirements
 
 - Refer [Requirements](../README.md#Requirements)
 
-- Additionally compilers are required to support options *-fsanitize=fuzzer, -fsanitize=fuzzer-no-link*.
-  For instance, clang 12 (or later)
+- Additionally compilers are required to support options `-fsanitize=fuzzer, -fsanitize=fuzzer-no-link`.
+  For instance, `clang 12` (or later)
 
 ### Building Commands
 
@@ -15,16 +14,14 @@ Building fuzzers for libultrahdr
     cmake ../ -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DUHDR_BUILD_FUZZERS=1
     make
 
-This will generate the following files under *{build_directory}*:
-
-**libultrahdr.a**<br> Instrumented ultrahdr library
+This will generate the following files under `build_directory`:
 
 **ultrahdr_enc_fuzzer**<br> ultrahdr encoder fuzzer
 
 **ultrahdr_dec_fuzzer**<br> ultrahdr decoder fuzzer
 
 Additionally, while building fuzzers, user can enable sanitizers by providing desired
-sanitizer option(s) through UHDR_SANITIZE_OPTIONS.
+sanitizer option(s) through `UHDR_SANITIZE_OPTIONS`.
 
 To enable ASan,
 

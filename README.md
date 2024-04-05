@@ -1,78 +1,101 @@
-Background
-==========
+# Background
 
 libultrahdr is an image compression library that uses gain map technology
 to store and distribute HDR images. Conceptually on the encoding side, the
 library accepts SDR and HDR rendition of an image and from these a Gain Map
 (quotient between the two renditions) is computed. The library then uses
 backward compatible means to store the base image (SDR), gain map image and
-some associated metadata. Legacy readers that do not support parsing the
+some associated metadata. Legacy readers that do not support handling the
 gain map image and/or metadata, will display the base image. Readers that
 support the format combine the base image with the gain map and render a
 high dynamic range image on compatible displays.
 
-More information about libultrahdr can be found at
-<https://developer.android.com/guide/topics/media/platform/hdr-image-format>.
+For additional information about libultrahdr, see android hdr-image-format
+[guide](https://developer.android.com/guide/topics/media/platform/hdr-image-format).
 
 
-Building libultrahdr
-======================
+## Building libultrahdr
 
-libultrahdr compresses base image and gain map image in to jpeg format.
-For this libjpeg-turbo is used. This is cloned from
-<https://github.com/libjpeg-turbo/libjpeg-turbo.git> and included in the
-build process.
-
-Requirements
---------------
+### Requirements
 
 - [CMake](http://www.cmake.org) v3.13 or later
+- C++ compiler, supporting at least C++17.
+- libultrahdr uses jpeg compression format to store sdr image and gainmap quotient.
+  So, libjpeg or any other jpeg codec that is ABI and API compatible with libjpeg.
 
-- [NASM](http://www.nasm.us) or [Yasm](http://yasm.tortall.net)
-  (If libjpeg-turbo needs to be built with SIMD extensions)
+The library offers a way to skip installing libjpeg by passing `UHDR_BUILD_DEPS=1`
+at the time of configure. That is, `cmake -DUHDR_BUILD_DEPS=1` will clone jpeg codec
+from [link](https://github.com/libjpeg-turbo/libjpeg-turbo.git) and include it in
+the build process. This is however not recommended.
+
+If jpeg is included in the build process then to build jpeg with simd extensions,
+- C compiler
+- [NASM](http://www.nasm.us) or [Yasm](http://yasm.tortall.net) are needed.
   * If using NASM, 2.13 or later is required.
   * If using Yasm, 1.2.0 or later is required.
-  * If building on macOS, NASM or Yasm can be obtained from
-    [MacPorts](http://www.macports.org/) or [Homebrew](http://brew.sh/).
 
-- Compilers with support for C++17
-
-Should work with GCC v7 (or later) and Clang 5 (or later) on Linux and Mac Platforms.
-
-Should work with Microsoft Visual C++ 2019 (or later) on Windows Platforms.
-
-Build Procedure
----------------
+### Build Procedure
 
 To build libultrahdr, examples, unit tests:
 
 ### Un*x (including Linux, Mac)
 
-    mkdir {build_directory}
-    cd {build_directory}
-    cmake -G "Unix Makefiles"  -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DUHDR_BUILD_TESTS=1 ../
+    mkdir build_directory
+    cd build_directory
+    cmake -G "Unix Makefiles" -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DUHDR_BUILD_TESTS=1 ../
     make
     ctest
+    make install
 
-This will generate the following files under *{build_directory}*:
+This will generate the following files under `build_directory`:
 
-**libultrahdr.a**<br> Static link library for the ultrahdr API
+**libuhdr.so or libuhdr.dylib**<br> ultrahdr shared library
 
-**ultrahdr_app**<br> Sample application demonstrating ultrahdr API
+**libuhdr.pc**<br> ultrahdr pkg-config file
+
+**ultrahdr_app**<br> Statically linked sample application demonstrating ultrahdr API usage
 
 **ultrahdr_unit_test**<br> Unit tests
 
+`make install` will install libuhdr.so, ultrahdr_api.h, libuhdr.pc for system-wide usage and
+`make uninstall` will remove the same.
+
+NOTE: you may need to run `ldconfig` after install/uninstall
+
+### MinGW
+
+NOTE: This assumes that you are building on a Windows machine using the MSYS
+environment.
+
+    mkdir build_directory
+    cd build_directory
+    cmake -G "MSYS Makefiles" -DUHDR_BUILD_TESTS=1 ../
+    cmake --build ./
+    ctest
+
+    mkdir build_directory
+    cd build_directory
+    cmake -G "MinGW Makefiles" -DUHDR_BUILD_TESTS=1 ../
+    cmake --build ./
+    ctest
+
+This will generate the following files under `build_directory`:
+
+**libuhdr.dll**<br> ultrahdr shared library
+
+**ultrahdr_app.exe**<br> Sample application demonstrating ultrahdr API
+
+**ultrahdr_unit_test.exe**<br> Unit tests
+
 ### Visual C++ (IDE)
 
-    mkdir {build_directory}
-    cd {build_directory}
-    cmake -G "Visual Studio 16 2019" -DUHDR_BUILD_TESTS=1 ../
+    mkdir build_directory
+    cd build_directory
+    cmake -G "Visual Studio 16 2019" -DUHDR_BUILD_DEPS=1 -DUHDR_BUILD_TESTS=1 ../
     cmake --build ./ --config=Release
     ctest -C Release
 
-This will generate the following files under *{build_directory/Release}*:
-
-**ultrahdr.lib**<br> Static link library for the ultrahdr API
+This will generate the following files under `build_directory/Release`:
 
 **ultrahdr_app.exe**<br> Sample application demonstrating ultrahdr API
 
@@ -80,51 +103,24 @@ This will generate the following files under *{build_directory/Release}*:
 
 ### Visual C++ (Command line)
 
-    mkdir {build_directory}
-    cd {build_directory}
-    cmake -G "NMake Makefiles" -DUHDR_BUILD_TESTS=1 ../
+    mkdir build_directory
+    cd build_directory
+    cmake -G "NMake Makefiles" -DUHDR_BUILD_DEPS=1 -DUHDR_BUILD_TESTS=1 ../
     cmake --build ./
     ctest
 
-This will generate the following files under *{build_directory}*:
-
-**ultrahdr.lib**<br> Static link library for the ultrahdr API
-
-**ultrahdr_app.exe**<br> Sample application demonstrating ultrahdr API
-
-**ultrahdr_unit_test.exe**<br> Unit tests
-
-### MinGW
-
-NOTE: This assumes that you are building on a Windows machine using the MSYS
-environment.
-
-    mkdir {build_directory}
-    cd {build_directory}
-    cmake -G "MSYS Makefiles" -DUHDR_BUILD_TESTS=1 ../
-    cmake --build ./
-    ctest
-
-    mkdir {build_directory}
-    cd {build_directory}
-    cmake -G "MinGW Makefiles" -DUHDR_BUILD_TESTS=1 ../
-    cmake --build ./
-    ctest
-
-This will generate the following files under *{build_directory}*:
-
-**libultrahdr.a**<br> Static link library for the ultrahdr API
+This will generate the following files under `build_directory`:
 
 **ultrahdr_app.exe**<br> Sample application demonstrating ultrahdr API
 
 **ultrahdr_unit_test.exe**<br> Unit tests
 
 
-NOTE: To not build unit tests, skip passing -DUHDR_BUILD_TESTS=1
+NOTE: To not build unit tests, skip passing `-DUHDR_BUILD_TESTS=1`
 
 ### Building Benchmark
 
-To build benchmarks, pass -DUHDR_BUILD_BENCHMARK=1 to cmake configure command and build.
+To build benchmarks, pass `-DUHDR_BUILD_BENCHMARK=1` to cmake configure command and build.
 
 This will additionally generate,
 
@@ -135,32 +131,34 @@ This will additionally generate,
 
 Refer to [README.md](fuzzer/README.md) for complete instructions.
 
-Using libultrahdr
-===================
+## Using libultrahdr
 
-libultrahdr includes two classes of APIs, one to compress and the other to
-decompress HDR images:
+A detailed description of libultrahdr encode and decode api is included in [ultrahdr_api.h](ultrahdr_api.h)
+and for sample usage refer [demo app](examples/ultrahdr_app.cpp).
 
-List of encode APIs:
-| Input  | HDR YUV | SDR YUV | JPEG | Encoded gainmap | Quality (0 ~ 100) | EXIF | Use case |
-| ------------- | ------------- | ------------- | ------------- | ------------- | ------------- | ------------- | ------------- |
-| API-0  | P010  | No | No | No | Required | Optional | Experimental only. |
-| API-1  | P010  | YUV_420 | No | No | Required | Optional | Raw SDR input. Primary image will be encoded from the raw SDR input in the library. |
-| API-2  | P010  | YUV_420 | Yes | No | No | No | Both JPEG and raw SDR inputs. Gainmap will be calculated from raw HDR and raw SDR inputs, the JPEG input will be preserved (including metadata) as the primary image. |
-| API-3  | P010  | No | Yes | No | No | No | SDR JPEG input. Gainmap will be calculated from raw HDR and the decoding result of the JPEG input, the JPEG input will be preserved (including metadata) as the primary image.  |
-| API-4  | No  | No | Yes | Yes | No | No | SDR JPEG and gainmap inputs. The library will only generate the Ultra HDR related metadata and write everything into the Ultra HDR format, all other metadata from the JPEG input will be preserved. |
+libultrahdr includes two classes of APIs, one to compress and the other to decompress HDR images:
 
-List of decode API:
+### Encoding api outline:
+
+| Scenario  | Hdr intent raw | Sdr intent raw | Sdr intent compressed | Gain map compressed | Quality |   Exif   | Use Case |
+|:---------:| :----------: | :----------: | :---------------------: | :-------------------: | :-------: | :---------: | :-------- |
+| API - 0 | P010 |    No   |  No  |  No  | Optional| Optional | Used if, only hdr raw intent is present. (Experimental).[^1] |
+| API - 1 | P010 | YUV420  |  No  |  No  | Optional| Optional | Used if, hdr raw and sdr raw intents are present.[^2] |
+| API - 2 | P010 | YUV420  | Yes  |  No  |    No   |    No    | Used if, hdr raw, sdr raw and sdr compressed intents are present.[^3] |
+| API - 3 | P010 |    No   | Yes  |  No  |    No   |    No    | Used if, hdr raw and sdr compressed intents are present.[^4] |
+| API - 4 |  No  |    No   | Yes  | Yes  |    No   |    No    | Used if, sdr compressed, gain map compressed and GainMap Metadata are present.[^5] |
+
+[^1]: Tonemap hdr to sdr. Compute gain map from hdr and sdr. Compress sdr and gainmap at quality configured. Add exif if provided. Combine sdr compressed, gainmap in multi picture format with gainmap metadata.
+[^2]: Compute gain map from hdr and sdr. Compress sdr and gainmap at quality configured. Add exif if provided. Combine sdr compressed, gainmap in multi picture format with gainmap metadata.
+[^3]: Compute gain map from hdr and raw sdr. Compress gainmap. Combine sdr compressed, gainmap in multi picture format with gainmap metadata.
+[^4]: Decode compressed sdr input. Compute gain map from hdr and decoded sdr. Compress gainmap. Combine sdr compressed, gainmap in multi picture format with gainmap metadata.
+[^5]: Combine sdr compressed, gainmap in multi picture format with gainmap metadata.
+
+### Decoding api outline:
+
+Configure display device characteristics (display transfer characteristics, max display boost) for optimal usage.
+
 | Input  | Usage |
 | ------------- | ------------- |
-| compressed_jpegr_image  | The input data. Pointer to JPEG/R stream. |
-| dest  | The output data. Destination that decoded data to be written. |
 | max_display_boost  | (optional, >= 1.0) the maximum available boost supported by a display. |
-| exif  | (optional, default to NULL) Destination that exif data to be written. |
-| gain_map  | (optional, default to NULL) Destination that decoded gain map data to be written. |
-| output_format  | <table><thead><tr><th>Value</th><th>Color format to be written</th></tr></thead><tbody><tr><td>SDR</td><td>RGBA_8888</td></tr><tr><td>HDR_LINEAR</td><td>(default) RGBA_F16 linear</td></tr><tr><td>HDR_PQ</td><td>RGBA_1010102 PQ</td></tr><tr><td>HDR_HLG</td><td>RGBA_1010102 HLG</td></tr></tbody></table> |
-| metadata  | (optional, default to NULL) Destination of metadata (gain map version, min/max content boost). |
-
-For more info:
-- Refer to [ultrahdr_api.h](ultrahdr_api.h) for detailed description of various encode and decode api.
-- Refer to [ultrahdr_app.cpp](examples/ultrahdr_app.cpp) for examples of its usage.
+| supported color transfer format pairs  | <table><thead><tr><th>color transfer</th><th>Color format </th></tr></thead><tbody><tr><td>SDR</td><td>32bppRGBA8888</td></tr><tr><td>HDR_LINEAR</td><td>64bppRGBAHalfFloat</td></tr><tr><td>HDR_PQ</td><td>32bppRGBA1010102 PQ</td></tr><tr><td>HDR_HLG</td><td>32bppRGBA1010102 HLG</td></tr></tbody></table> |
