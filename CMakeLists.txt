@@ -92,8 +92,8 @@ if(UHDR_BUILD_BENCHMARK AND WIN32)
 endif()
 
 # side effects
-if(UHDR_BUILD_FUZZERS)
-  set(UHDR_ENABLE_INSTALL FALSE) # during fuzz testing dont install targets
+if(UHDR_BUILD_FUZZERS OR UHDR_BUILD_DEPS)
+  set(UHDR_ENABLE_INSTALL FALSE) # during fuzz testing dont enable install/uninstall targets
   set(UHDR_BUILD_DEPS TRUE) # for fuzz testing its best to build all dependencies from source.
                             # This is to instrument dependencies libs as well
 endif()
@@ -119,21 +119,9 @@ if(MSVC)
   if(UHDR_BUILD_FUZZERS)
     message(FATAL_ERROR "Building fuzzers not supported in MSVC path")
   endif()
-  foreach(flag_var
-          CMAKE_C_FLAGS CMAKE_C_FLAGS_DEBUG CMAKE_C_FLAGS_RELEASE
-          CMAKE_C_FLAGS_MINSIZEREL CMAKE_C_FLAGS_RELWITHDEBINFO
-          CMAKE_CXX_FLAGS CMAKE_CXX_FLAGS_DEBUG CMAKE_CXX_FLAGS_RELEASE
-          CMAKE_CXX_FLAGS_MINSIZEREL CMAKE_CXX_FLAGS_RELWITHDEBINFO)
-    if(${flag_var} MATCHES "/MD")
-      string(REGEX REPLACE "/MD" "/MT" ${flag_var} "${${flag_var}}")
-    endif()
-    if (${flag_var} MATCHES "/MDd")
-      string(REGEX REPLACE "/MDd" "/MTd" ${flag_var} "${${flag_var}}")
-    endif()
-  endforeach()
   add_definitions(-D_CRT_SECURE_NO_WARNINGS)
   # Disable specific warnings
-  # TODO: None of these should be disabled, but for now,for a warning-free msvc build these are
+  # TODO: None of these should be disabled, but for now, for a warning-free msvc build these are
   # added. fix the warnings and remove these filters
   add_compile_options(/wd4244) # conversion from 'type1' to 'type2', possible loss of data
   add_compile_options(/wd4267) # conversion from 'size_t' to 'type' possible loss of data
@@ -289,6 +277,9 @@ if(UHDR_BUILD_TESTS)
     set(GTEST_LIB_PREFIX ${GTEST_BINARY_DIR}/lib/)
   endif()
   set(GTEST_BOTH_LIBRARIES ${GTEST_LIB_PREFIX}${GTEST_LIB} ${GTEST_LIB_PREFIX}${GTEST_LIB_MAIN})
+  if(MSVC)
+    set(MSVC_ARGS "-Dgtest_force_shared_crt=ON")
+  endif()
   ExternalProject_Add(${GTEST_TARGET_NAME}
       GIT_REPOSITORY https://github.com/google/googletest
       GIT_TAG v1.14.0
@@ -303,6 +294,7 @@ if(UHDR_BUILD_TESTS)
                  -DCMAKE_CXX_FLAGS_MINSIZEREL=${CMAKE_CXX_FLAGS_MINSIZEREL}
                  -DCMAKE_CXX_FLAGS_RELWITHDEBINFO=${CMAKE_CXX_FLAGS_RELWITHDEBINFO}
                  -DCMAKE_POSITION_INDEPENDENT_CODE=ON
+                 ${MSVC_ARGS}
       BUILD_BYPRODUCTS ${GTEST_BOTH_LIBRARIES}
       INSTALL_COMMAND ""
   )
@@ -379,7 +371,6 @@ target_include_directories(${UHDR_CORE_LIB_NAME} PRIVATE
   "${THIRD_PARTY_DIR}/image_io/includes/"
 )
 target_include_directories(${UHDR_CORE_LIB_NAME} PUBLIC ${EXPORT_INCLUDE_DIR})
-
 target_link_libraries(${UHDR_CORE_LIB_NAME} PRIVATE ${COMMON_LIBS_LIST} ${IMAGEIO_TARGET_NAME})
 
 if(UHDR_BUILD_EXAMPLES)
@@ -495,20 +486,21 @@ if(UHDR_ENABLE_INSTALL)
   set(UHDR_TARGET_NAME uhdr)
   add_library(${UHDR_TARGET_NAME} SHARED)
   add_dependencies(${UHDR_TARGET_NAME} ${UHDR_CORE_LIB_NAME})
+  target_link_libraries(${UHDR_TARGET_NAME} PRIVATE ${JPEG_LIBRARIES})
   set_target_properties(${UHDR_TARGET_NAME} PROPERTIES PUBLIC_HEADER ultrahdr_api.h)
   combine_static_libs(${UHDR_CORE_LIB_NAME} ${UHDR_TARGET_NAME})
 
-  if(NOT MSVC)
+  if(NOT(WIN32 OR XCODE))
     include(GNUInstallDirs)
 
     # pkg-config: libuhdr.pc
     configure_file("${CMAKE_CURRENT_SOURCE_DIR}/libuhdr.pc.template"
                    "${CMAKE_CURRENT_BINARY_DIR}/libuhdr.pc" @ONLY NEWLINE_STYLE UNIX)
     install(FILES "${CMAKE_CURRENT_BINARY_DIR}/libuhdr.pc"
-            DESTINATION "${CMAKE_INSTALL_PREFIX}/lib/${CMAKE_LIBRARY_ARCHITECTURE}/pkgconfig")
+            DESTINATION "${CMAKE_INSTALL_LIBDIR}/pkgconfig")
     install(TARGETS ${UHDR_TARGET_NAME}
-            DESTINATION "${CMAKE_INSTALL_PREFIX}/lib/${CMAKE_LIBRARY_ARCHITECTURE}/"
-            PUBLIC_HEADER DESTINATION "${CMAKE_INSTALL_PREFIX}/include")
+            DESTINATION "${CMAKE_INSTALL_LIBDIR}"
+            PUBLIC_HEADER DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}")
 
     add_custom_target(uninstall)
     add_custom_command(TARGET uninstall
