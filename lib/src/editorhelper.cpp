@@ -331,4 +331,5 @@ std::unique_ptr<uhdr_raw_image_ext_t> apply_resize(ultrahdr::uhdr_resize_effect_
   }
   return std::move(dst);
 }
+
 }  // namespace ultrahdr
