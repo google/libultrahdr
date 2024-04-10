@@ -19,7 +19,10 @@
 
 #include <array>
 #include <cmath>
+#include <cstring>
 
+#include "ultrahdr_api.h"
+#include "ultrahdr/ultrahdrcommon.h"
 #include "ultrahdr/ultrahdr.h"
 #include "ultrahdr/jpegr.h"
 
@@ -516,6 +519,11 @@ uint32_t colorToRgba1010102(Color e_gamma);
  * Alpha always set to 1.0.
  */
 uint64_t colorToRgbaF16(Color e_gamma);
+
+/*
+ * Helper for preparing encoder raw inputs for encoding
+ */
+std::unique_ptr<uhdr_raw_image_ext_t> convert_raw_input_to_ycbcr(uhdr_raw_image_t* src);
 
 }  // namespace ultrahdr
 

@@ -19,6 +19,7 @@
 
 #include "ultrahdr_api.h"
 #include "ultrahdr/ultrahdrcommon.h"
+#include "ultrahdr/gainmapmath.h"
 #include "ultrahdr/editorhelper.h"
 #include "ultrahdr/jpegr.h"
 #include "ultrahdr/jpegrutils.h"
@@ -385,19 +386,21 @@ uhdr_error_info_t uhdr_enc_set_raw_image(uhdr_codec_private_t* enc, uhdr_raw_ima
     status.has_detail = 1;
     snprintf(status.detail, sizeof status.detail,
              "invalid intent %d, expects one of {UHDR_HDR_IMG, UHDR_SDR_IMG}", intent);
-  } else if (intent == UHDR_HDR_IMG && img->fmt != UHDR_IMG_FMT_24bppYCbCrP010) {
+  } else if (intent == UHDR_HDR_IMG && (img->fmt != UHDR_IMG_FMT_24bppYCbCrP010 &&
+                                        img->fmt != UHDR_IMG_FMT_32bppRGBA1010102)) {
     status.error_code = UHDR_CODEC_INVALID_PARAM;
     status.has_detail = 1;
     snprintf(status.detail, sizeof status.detail,
              "unsupported input pixel format for hdr intent %d, expects one of "
-             "{UHDR_IMG_FMT_24bppYCbCrP010}",
+             "{UHDR_IMG_FMT_24bppYCbCrP010, UHDR_IMG_FMT_32bppRGBA1010102}",
              img->fmt);
-  } else if (intent == UHDR_SDR_IMG && img->fmt != UHDR_IMG_FMT_12bppYCbCr420) {
+  } else if (intent == UHDR_SDR_IMG &&
+             (img->fmt != UHDR_IMG_FMT_12bppYCbCr420 && img->fmt != UHDR_IMG_FMT_32bppRGBA8888)) {
     status.error_code = UHDR_CODEC_INVALID_PARAM;
     status.has_detail = 1;
     snprintf(status.detail, sizeof status.detail,
              "unsupported input pixel format for sdr intent %d, expects one of "
-             "{UHDR_IMG_FMT_12bppYCbCr420}",
+             "{UHDR_IMG_FMT_12bppYCbCr420, UHDR_IMG_FMT_32bppRGBA8888}",
              img->fmt);
   } else if (img->cg != UHDR_CG_BT_2100 && img->cg != UHDR_CG_DISPLAY_P3 &&
              img->cg != UHDR_CG_BT_709) {
@@ -521,52 +524,13 @@ uhdr_error_info_t uhdr_enc_set_raw_image(uhdr_codec_private_t* enc, uhdr_raw_ima
     return status;
   }
 
-  std::unique_ptr<ultrahdr::uhdr_raw_image_ext_t> entry =
-      std::make_unique<ultrahdr::uhdr_raw_image_ext_t>(img->fmt, img->cg, img->ct, img->range,
-                                                       img->w, img->h, 64);
-
-  if (img->fmt == UHDR_IMG_FMT_12bppYCbCr420) {
-    uint8_t* y_dst = static_cast<uint8_t*>(entry->planes[UHDR_PLANE_Y]);
-    uint8_t* y_src = static_cast<uint8_t*>(img->planes[UHDR_PLANE_Y]);
-    uint8_t* u_dst = static_cast<uint8_t*>(entry->planes[UHDR_PLANE_U]);
-    uint8_t* u_src = static_cast<uint8_t*>(img->planes[UHDR_PLANE_U]);
-    uint8_t* v_dst = static_cast<uint8_t*>(entry->planes[UHDR_PLANE_V]);
-    uint8_t* v_src = static_cast<uint8_t*>(img->planes[UHDR_PLANE_V]);
-
-    // copy y
-    for (size_t i = 0; i < img->h; i++) {
-      memcpy(y_dst, y_src, img->w);
-      y_dst += entry->stride[UHDR_PLANE_Y];
-      y_src += img->stride[UHDR_PLANE_Y];
-    }
-    // copy cb & cr
-    for (size_t i = 0; i < img->h / 2; i++) {
-      memcpy(u_dst, u_src, img->w / 2);
-      memcpy(v_dst, v_src, img->w / 2);
-      u_dst += entry->stride[UHDR_PLANE_U];
-      v_dst += entry->stride[UHDR_PLANE_V];
-      u_src += img->stride[UHDR_PLANE_U];
-      v_src += img->stride[UHDR_PLANE_V];
-    }
-  } else if (img->fmt == UHDR_IMG_FMT_24bppYCbCrP010) {
-    int bpp = 2;
-    uint8_t* y_dst = static_cast<uint8_t*>(entry->planes[UHDR_PLANE_Y]);
-    uint8_t* y_src = static_cast<uint8_t*>(img->planes[UHDR_PLANE_Y]);
-    uint8_t* uv_dst = static_cast<uint8_t*>(entry->planes[UHDR_PLANE_UV]);
-    uint8_t* uv_src = static_cast<uint8_t*>(img->planes[UHDR_PLANE_UV]);
-
-    // copy y
-    for (size_t i = 0; i < img->h; i++) {
-      memcpy(y_dst, y_src, img->w * bpp);
-      y_dst += (entry->stride[UHDR_PLANE_Y] * bpp);
-      y_src += (img->stride[UHDR_PLANE_Y] * bpp);
-    }
-    // copy cbcr
-    for (size_t i = 0; i < img->h / 2; i++) {
-      memcpy(uv_dst, uv_src, img->w * bpp);
-      uv_dst += (entry->stride[UHDR_PLANE_UV] * bpp);
-      uv_src += (img->stride[UHDR_PLANE_UV] * bpp);
-    }
+  std::unique_ptr<ultrahdr::uhdr_raw_image_ext_t> entry = ultrahdr::convert_raw_input_to_ycbcr(img);
+  if (entry == nullptr) {
+    status.error_code = UHDR_CODEC_UNKNOWN_ERROR;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "encountered unknown error during color space conversion");
+    return status;
   }
 
   handle->m_raw_images.insert_or_assign(intent, std::move(entry));

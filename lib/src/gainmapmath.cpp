@@ -758,4 +758,183 @@ uint64_t colorToRgbaF16(Color e_gamma) {
          (((uint64_t)floatToHalf(e_gamma.b)) << 32) | (((uint64_t)floatToHalf(1.0f)) << 48);
 }
 
+std::unique_ptr<uhdr_raw_image_ext_t> convert_raw_input_to_ycbcr(uhdr_raw_image_t* src) {
+  std::unique_ptr<uhdr_raw_image_ext_t> dst = nullptr;
+  Color (*rgbToyuv)(Color) = nullptr;
+
+  if (src->fmt == UHDR_IMG_FMT_32bppRGBA1010102 || src->fmt == UHDR_IMG_FMT_32bppRGBA8888) {
+    if (src->cg == UHDR_CG_BT_709) {
+      rgbToyuv = srgbRgbToYuv;
+    } else if (src->cg == UHDR_CG_BT_2100) {
+      rgbToyuv = bt2100RgbToYuv;
+    } else if (src->cg == UHDR_CG_DISPLAY_P3) {
+      rgbToyuv = p3RgbToYuv;
+    } else {
+      return dst;
+    }
+  }
+
+  if (src->fmt == UHDR_IMG_FMT_32bppRGBA1010102) {
+    dst = std::make_unique<uhdr_raw_image_ext_t>(UHDR_IMG_FMT_24bppYCbCrP010, src->cg, src->ct,
+                                                 UHDR_CR_LIMITED_RANGE, src->w, src->h, 64);
+
+    uint32_t* rgbData = static_cast<uint32_t*>(src->planes[UHDR_PLANE_PACKED]);
+    unsigned int srcStride = src->stride[UHDR_PLANE_PACKED];
+
+    uint16_t* yData = static_cast<uint16_t*>(dst->planes[UHDR_PLANE_Y]);
+    uint16_t* uData = static_cast<uint16_t*>(dst->planes[UHDR_PLANE_UV]);
+    uint16_t* vData = uData + 1;
+
+    for (size_t i = 0; i < dst->h; i += 2) {
+      for (size_t j = 0; j < dst->w; j += 2) {
+        Color pixel[4];
+
+        pixel[0].r = float(rgbData[srcStride * i + j] & 0x3ff);
+        pixel[0].g = float((rgbData[srcStride * i + j] >> 10) & 0x3ff);
+        pixel[0].b = float((rgbData[srcStride * i + j] >> 20) & 0x3ff);
+
+        pixel[1].r = float(rgbData[srcStride * i + j + 1] & 0x3ff);
+        pixel[1].g = float((rgbData[srcStride * i + j + 1] >> 10) & 0x3ff);
+        pixel[1].b = float((rgbData[srcStride * i + j + 1] >> 20) & 0x3ff);
+
+        pixel[2].r = float(rgbData[srcStride * (i + 1) + j] & 0x3ff);
+        pixel[2].g = float((rgbData[srcStride * (i + 1) + j] >> 10) & 0x3ff);
+        pixel[2].b = float((rgbData[srcStride * (i + 1) + j] >> 20) & 0x3ff);
+
+        pixel[3].r = float(rgbData[srcStride * (i + 1) + j + 1] & 0x3ff);
+        pixel[3].g = float((rgbData[srcStride * (i + 1) + j + 1] >> 10) & 0x3ff);
+        pixel[3].b = float((rgbData[srcStride * (i + 1) + j + 1] >> 20) & 0x3ff);
+
+        for (int k = 0; k < 4; k++) {
+          pixel[k] /= 1023.0f;
+          pixel[k] = (*rgbToyuv)(pixel[k]);
+
+          pixel[k].y = (pixel[k].y * 876.0f) + 64.0f + 0.5f;
+          pixel[k].y = CLIP3(pixel[k].y, 64.0f, 940.0f);
+        }
+
+        yData[dst->stride[UHDR_PLANE_Y] * i + j] = uint16_t(pixel[0].y) << 6;
+        yData[dst->stride[UHDR_PLANE_Y] * i + j + 1] = uint16_t(pixel[1].y) << 6;
+        yData[dst->stride[UHDR_PLANE_Y] * (i + 1) + j] = uint16_t(pixel[2].y) << 6;
+        yData[dst->stride[UHDR_PLANE_Y] * (i + 1) + j + 1] = uint16_t(pixel[3].y) << 6;
+
+        pixel[0].u = (pixel[0].u + pixel[1].u + pixel[2].u + pixel[3].u) / 4;
+        pixel[0].v = (pixel[0].v + pixel[1].v + pixel[2].v + pixel[3].v) / 4;
+
+        pixel[0].u = (pixel[0].u * 896.0f) + 512.0f + 0.5f;
+        pixel[0].v = (pixel[0].v * 896.0f) + 512.0f + 0.5f;
+
+        pixel[0].u = CLIP3(pixel[0].u, 64.0f, 960.0f);
+        pixel[0].v = CLIP3(pixel[0].v, 64.0f, 960.0f);
+
+        uData[dst->stride[UHDR_PLANE_UV] * (i / 2) + j] = uint16_t(pixel[0].u) << 6;
+        vData[dst->stride[UHDR_PLANE_UV] * (i / 2) + j] = uint16_t(pixel[0].v) << 6;
+      }
+    }
+  } else if (src->fmt == UHDR_IMG_FMT_32bppRGBA8888) {
+    dst = std::make_unique<uhdr_raw_image_ext_t>(UHDR_IMG_FMT_12bppYCbCr420, src->cg, src->ct,
+                                                 UHDR_CR_FULL_RANGE, src->w, src->h, 64);
+    uint32_t* rgbData = static_cast<uint32_t*>(src->planes[UHDR_PLANE_PACKED]);
+    unsigned int srcStride = src->stride[UHDR_PLANE_PACKED];
+
+    uint8_t* yData = static_cast<uint8_t*>(dst->planes[UHDR_PLANE_Y]);
+    uint8_t* uData = static_cast<uint8_t*>(dst->planes[UHDR_PLANE_U]);
+    uint8_t* vData = static_cast<uint8_t*>(dst->planes[UHDR_PLANE_V]);
+    for (size_t i = 0; i < dst->h; i += 2) {
+      for (size_t j = 0; j < dst->w; j += 2) {
+        Color pixel[4];
+
+        pixel[0].r = float(rgbData[srcStride * i + j] & 0xff);
+        pixel[0].g = float((rgbData[srcStride * i + j] >> 8) & 0xff);
+        pixel[0].b = float((rgbData[srcStride * i + j] >> 16) & 0xff);
+
+        pixel[1].r = float(rgbData[srcStride * i + (j + 1)] & 0xff);
+        pixel[1].g = float((rgbData[srcStride * i + (j + 1)] >> 8) & 0xff);
+        pixel[1].b = float((rgbData[srcStride * i + (j + 1)] >> 16) & 0xff);
+
+        pixel[2].r = float(rgbData[srcStride * (i + 1) + j] & 0xff);
+        pixel[2].g = float((rgbData[srcStride * (i + 1) + j] >> 8) & 0xff);
+        pixel[2].b = float((rgbData[srcStride * (i + 1) + j] >> 16) & 0xff);
+
+        pixel[3].r = float(rgbData[srcStride * (i + 1) + (j + 1)] & 0xff);
+        pixel[3].g = float((rgbData[srcStride * (i + 1) + (j + 1)] >> 8) & 0xff);
+        pixel[3].b = float((rgbData[srcStride * (i + 1) + (j + 1)] >> 16) & 0xff);
+
+        for (int k = 0; k < 4; k++) {
+          pixel[k] /= 255.0f;
+          pixel[k] = (*rgbToyuv)(pixel[k]);
+
+          pixel[k].y = pixel[k].y * 255.0f + 0.5f;
+          pixel[k].y = CLIP3(pixel[k].y, 0.0f, 255.0f);
+        }
+        yData[dst->stride[UHDR_PLANE_Y] * i + j] = uint8_t(pixel[0].y);
+        yData[dst->stride[UHDR_PLANE_Y] * i + j + 1] = uint8_t(pixel[1].y);
+        yData[dst->stride[UHDR_PLANE_Y] * (i + 1) + j] = uint8_t(pixel[2].y);
+        yData[dst->stride[UHDR_PLANE_Y] * (i + 1) + j + 1] = uint8_t(pixel[3].y);
+
+        pixel[0].u = (pixel[0].u + pixel[1].u + pixel[2].u + pixel[3].u) / 4;
+        pixel[0].v = (pixel[0].v + pixel[1].v + pixel[2].v + pixel[3].v) / 4;
+
+        pixel[0].u = pixel[0].u * 255.0f + 0.5 + 128.0f;
+        pixel[0].v = pixel[0].v * 255.0f + 0.5 + 128.0f;
+
+        pixel[0].u = CLIP3(pixel[0].u, 0.0f, 255.0f);
+        pixel[0].v = CLIP3(pixel[0].v, 0.0f, 255.0f);
+
+        uData[dst->stride[UHDR_PLANE_U] * (i / 2) + (j / 2)] = uint8_t(pixel[0].u);
+        vData[dst->stride[UHDR_PLANE_V] * (i / 2) + (j / 2)] = uint8_t(pixel[0].v);
+      }
+    }
+  } else if (src->fmt == UHDR_IMG_FMT_12bppYCbCr420) {
+    dst = std::make_unique<ultrahdr::uhdr_raw_image_ext_t>(src->fmt, src->cg, src->ct, src->range,
+                                                           src->w, src->h, 64);
+
+    uint8_t* y_dst = static_cast<uint8_t*>(dst->planes[UHDR_PLANE_Y]);
+    uint8_t* y_src = static_cast<uint8_t*>(src->planes[UHDR_PLANE_Y]);
+    uint8_t* u_dst = static_cast<uint8_t*>(dst->planes[UHDR_PLANE_U]);
+    uint8_t* u_src = static_cast<uint8_t*>(src->planes[UHDR_PLANE_U]);
+    uint8_t* v_dst = static_cast<uint8_t*>(dst->planes[UHDR_PLANE_V]);
+    uint8_t* v_src = static_cast<uint8_t*>(src->planes[UHDR_PLANE_V]);
+
+    // copy y
+    for (size_t i = 0; i < src->h; i++) {
+      memcpy(y_dst, y_src, src->w);
+      y_dst += dst->stride[UHDR_PLANE_Y];
+      y_src += src->stride[UHDR_PLANE_Y];
+    }
+    // copy cb & cr
+    for (size_t i = 0; i < src->h / 2; i++) {
+      memcpy(u_dst, u_src, src->w / 2);
+      memcpy(v_dst, v_src, src->w / 2);
+      u_dst += dst->stride[UHDR_PLANE_U];
+      v_dst += dst->stride[UHDR_PLANE_V];
+      u_src += src->stride[UHDR_PLANE_U];
+      v_src += src->stride[UHDR_PLANE_V];
+    }
+  } else if (src->fmt == UHDR_IMG_FMT_24bppYCbCrP010) {
+    dst = std::make_unique<ultrahdr::uhdr_raw_image_ext_t>(src->fmt, src->cg, src->ct, src->range,
+                                                           src->w, src->h, 64);
+
+    int bpp = 2;
+    uint8_t* y_dst = static_cast<uint8_t*>(dst->planes[UHDR_PLANE_Y]);
+    uint8_t* y_src = static_cast<uint8_t*>(src->planes[UHDR_PLANE_Y]);
+    uint8_t* uv_dst = static_cast<uint8_t*>(dst->planes[UHDR_PLANE_UV]);
+    uint8_t* uv_src = static_cast<uint8_t*>(src->planes[UHDR_PLANE_UV]);
+
+    // copy y
+    for (size_t i = 0; i < src->h; i++) {
+      memcpy(y_dst, y_src, src->w * bpp);
+      y_dst += (dst->stride[UHDR_PLANE_Y] * bpp);
+      y_src += (src->stride[UHDR_PLANE_Y] * bpp);
+    }
+    // copy cbcr
+    for (size_t i = 0; i < src->h / 2; i++) {
+      memcpy(uv_dst, uv_src, src->w * bpp);
+      uv_dst += (dst->stride[UHDR_PLANE_UV] * bpp);
+      uv_src += (src->stride[UHDR_PLANE_UV] * bpp);
+    }
+  }
+  return std::move(dst);
+}
+
 }  // namespace ultrahdr
