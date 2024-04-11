@@ -375,12 +375,19 @@ uhdr_error_info_t uhdr_enc_set_raw_image(uhdr_codec_private_t* enc, uhdr_raw_ima
     status.has_detail = 1;
     snprintf(status.detail, sizeof status.detail,
              "invalid intent %d, expects one of {UHDR_HDR_IMG, UHDR_SDR_IMG}", intent);
-  } else if (img->fmt != UHDR_IMG_FMT_12bppYCbCr420 && img->fmt != UHDR_IMG_FMT_24bppYCbCrP010) {
+  } else if (intent == UHDR_HDR_IMG && img->fmt != UHDR_IMG_FMT_24bppYCbCrP010) {
     status.error_code = UHDR_CODEC_INVALID_PARAM;
     status.has_detail = 1;
     snprintf(status.detail, sizeof status.detail,
-             "invalid input pixel format %d, expects one of {UHDR_IMG_FMT_12bppYCbCr420, "
-             "UHDR_IMG_FMT_24bppYCbCrP010}",
+             "unsupported input pixel format for hdr intent %d, expects one of "
+             "{UHDR_IMG_FMT_24bppYCbCrP010}",
+             img->fmt);
+  } else if (intent == UHDR_SDR_IMG && img->fmt != UHDR_IMG_FMT_12bppYCbCr420) {
+    status.error_code = UHDR_CODEC_INVALID_PARAM;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "unsupported input pixel format for sdr intent %d, expects one of "
+             "{UHDR_IMG_FMT_12bppYCbCr420}",
              img->fmt);
   } else if (img->cg != UHDR_CG_BT_2100 && img->cg != UHDR_CG_DISPLAY_P3 &&
              img->cg != UHDR_CG_BT_709) {
@@ -1302,6 +1309,17 @@ uhdr_error_info_t uhdr_decode(uhdr_codec_private_t* dec) {
 
   handle->m_sailed = true;
 
+  ultrahdr::ultrahdr_output_format outputFormat =
+      map_ct_fmt_to_internal_output_fmt(handle->m_output_ct, handle->m_output_fmt);
+  if (outputFormat == ultrahdr::ultrahdr_output_format::ULTRAHDR_OUTPUT_UNSPECIFIED) {
+    uhdr_error_info_t status;
+    status.error_code = UHDR_CODEC_INVALID_PARAM;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "unsupported output pixel format and output color transfer pair");
+    return status;
+  }
+
   ultrahdr::jpegr_compressed_struct uhdr_image;
   uhdr_image.data = handle->m_uhdr_compressed_img->data;
   uhdr_image.length = uhdr_image.maxLength = handle->m_uhdr_compressed_img->data_sz;
@@ -1323,10 +1341,9 @@ uhdr_error_info_t uhdr_decode(uhdr_codec_private_t* dec) {
   dest_gainmap.data = handle->m_gainmap_img_buffer->planes[UHDR_PLANE_Y];
 
   ultrahdr::JpegR jpegr;
-  ultrahdr::status_t internal_status = jpegr.decodeJPEGR(
-      &uhdr_image, &dest, handle->m_output_max_disp_boost, nullptr,
-      map_ct_fmt_to_internal_output_fmt(handle->m_output_ct, handle->m_output_fmt), &dest_gainmap,
-      nullptr);
+  ultrahdr::status_t internal_status =
+      jpegr.decodeJPEGR(&uhdr_image, &dest, handle->m_output_max_disp_boost, nullptr, outputFormat,
+                        &dest_gainmap, nullptr);
   map_internal_error_status_to_error_info(internal_status, status);
   if (status.error_code == UHDR_CODEC_OK) {
     handle->m_decoded_img_buffer->cg = map_internal_cg_to_cg(dest.colorGamut);
