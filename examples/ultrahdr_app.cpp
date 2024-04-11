@@ -832,8 +832,8 @@ bool UltraHdrAppInput::convertRgba1010102ToYUV444Image() {
       float v = coeffs[6] * r0 + coeffs[7] * g0 + coeffs[8] * b0;
 
       y = (y * 876.0f) + 64.0f + 0.5f;
-      u = (u * 896.0f) + 64.0f + 512.0f + 0.5f;
-      v = (v * 896.0f) + 64.0f + 512.0f + 0.5f;
+      u = (u * 896.0f) + 512.0f + 0.5f;
+      v = (v * 896.0f) + 512.0f + 0.5f;
 
       y = CLIP3(y, 64.0f, 940.0f);
       u = CLIP3(u, 64.0f, 960.0f);
