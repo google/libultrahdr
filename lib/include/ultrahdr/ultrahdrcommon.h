@@ -32,8 +32,46 @@
 // ===============================================================================================
 
 #ifdef __ANDROID__
-#include "log/log.h"
+
+#ifdef LOG_NDEBUG
+#include "android/log.h"
+
+#ifndef LOG_TAG
+#define LOG_TAG "UHDR"
+#endif
+
+#ifndef ALOGD
+#define ALOGD(...) __android_log_print(ANDROID_LOG_DEBUG, LOG_TAG, __VA_ARGS__)
+#endif
+
+#ifndef ALOGE
+#define ALOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
+#endif
+
+#ifndef ALOGI
+#define ALOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
+#endif
+
+#ifndef ALOGV
+#define ALOGV(...) __android_log_print(ANDROID_LOG_VERBOSE, LOG_TAG, __VA_ARGS__)
+#endif
+
+#ifndef ALOGW
+#define ALOGW(...) __android_log_print(ANDROID_LOG_WARN, LOG_TAG, __VA_ARGS__)
+#endif
+
 #else
+
+#define ALOGD(...) ((void)0)
+#define ALOGE(...) ((void)0)
+#define ALOGI(...) ((void)0)
+#define ALOGV(...) ((void)0)
+#define ALOGW(...) ((void)0)
+
+#endif
+
+#else
+
 #ifdef LOG_NDEBUG
 #include <cstdio>
 
@@ -42,33 +80,41 @@
     fprintf(stderr, __VA_ARGS__); \
     fprintf(stderr, "\n");        \
   } while (0)
+
 #define ALOGE(...)                \
   do {                            \
     fprintf(stderr, __VA_ARGS__); \
     fprintf(stderr, "\n");        \
   } while (0)
+
 #define ALOGI(...)                \
   do {                            \
     fprintf(stdout, __VA_ARGS__); \
     fprintf(stdout, "\n");        \
   } while (0)
+
 #define ALOGV(...)                \
   do {                            \
     fprintf(stdout, __VA_ARGS__); \
     fprintf(stdout, "\n");        \
   } while (0)
+
 #define ALOGW(...)                \
   do {                            \
     fprintf(stderr, __VA_ARGS__); \
     fprintf(stderr, "\n");        \
   } while (0)
+
 #else
+
 #define ALOGD(...) ((void)0)
 #define ALOGE(...) ((void)0)
 #define ALOGI(...) ((void)0)
 #define ALOGV(...) ((void)0)
 #define ALOGW(...) ((void)0)
+
 #endif
+
 #endif
 
 #define ALIGNM(x, m) ((((x) + ((m)-1)) / (m)) * (m))
