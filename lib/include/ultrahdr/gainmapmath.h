@@ -282,8 +282,8 @@ Color srgbInvOetfLUT(Color e_gamma);
  *
  * [0.0, 1.0] range in and out.
  */
- float srgbOetf(float e);
- Color srgbOetf(Color e);
+float srgbOetf(float e);
+Color srgbOetf(Color e);
 
 constexpr size_t kSrgbInvOETFPrecision = 10;
 constexpr size_t kSrgbInvOETFNumEntries = 1 << kSrgbInvOETFPrecision;

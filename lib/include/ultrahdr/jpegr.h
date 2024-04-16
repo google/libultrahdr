@@ -440,7 +440,7 @@ class JpegR {
    * @return NO_ERROR if calculation succeeds, error code if error occurs.
    */
   status_t toneMap(jr_uncompressed_ptr src, jr_uncompressed_ptr dest,
-          ultrahdr_transfer_function hdr_tf);
+                   ultrahdr_transfer_function hdr_tf);
 
   /*
    * This method will convert a YUV420 image from one YUV encoding to another in-place (eg.
@@ -508,11 +508,7 @@ struct GlobalTonemapOutputs {
 // `rgb_out` is returned in this same range. `headroom` describes the ratio
 // between the HDR and SDR peak luminances and must be > 1. The `y_sdr` output
 // is in the range [0.0, 1.0] while `y_hdr` is in the range [0.0, headroom].
-GlobalTonemapOutputs hlgGlobalTonemap(const std::array<float, 3>& rgb_in,
-                                      float headroom);
-
-
-
+GlobalTonemapOutputs hlgGlobalTonemap(const std::array<float, 3>& rgb_in, float headroom);
 
 }  // namespace ultrahdr
 
