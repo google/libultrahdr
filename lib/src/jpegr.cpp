@@ -237,7 +237,8 @@ status_t JpegR::encodeJPEGR(jr_uncompressed_ptr p010_image_ptr, ultrahdr_transfe
   yuv420_image.chroma_data = data + yuv420_image.luma_stride * yuv420_image.height;
 
   // tone map
-  JPEGR_CHECK(toneMap(&p010_image, &yuv420_image));
+//  JPEGR_CHECK(toneMap(&p010_image, &yuv420_image));
+  JPEGR_CHECK(toneMap(&p010_image, &yuv420_image, hdr_tf));
 
   // gain map
   ultrahdr_metadata_struct metadata;
@@ -1481,49 +1482,6 @@ status_t JpegR::appendGainMap(jr_compressed_ptr primary_jpg_image_ptr,
   return JPEGR_NO_ERROR;
 }
 
-status_t JpegR::toneMap(jr_uncompressed_ptr src, jr_uncompressed_ptr dest) {
-  if (src == nullptr || dest == nullptr) {
-    return ERROR_JPEGR_BAD_PTR;
-  }
-  if (src->width != dest->width || src->height != dest->height) {
-    return ERROR_JPEGR_RESOLUTION_MISMATCH;
-  }
-  uint16_t* src_y_data = reinterpret_cast<uint16_t*>(src->data);
-  uint8_t* dst_y_data = reinterpret_cast<uint8_t*>(dest->data);
-  for (size_t y = 0; y < src->height; ++y) {
-    uint16_t* src_y_row = src_y_data + y * src->luma_stride;
-    uint8_t* dst_y_row = dst_y_data + y * dest->luma_stride;
-    for (size_t x = 0; x < src->width; ++x) {
-      uint16_t y_uint = src_y_row[x] >> 6;
-      dst_y_row[x] = static_cast<uint8_t>((y_uint >> 2) & 0xff);
-    }
-    if (dest->width != dest->luma_stride) {
-      memset(dst_y_row + dest->width, 0, dest->luma_stride - dest->width);
-    }
-  }
-  uint16_t* src_uv_data = reinterpret_cast<uint16_t*>(src->chroma_data);
-  uint8_t* dst_u_data = reinterpret_cast<uint8_t*>(dest->chroma_data);
-  size_t dst_v_offset = (dest->chroma_stride * dest->height / 2);
-  uint8_t* dst_v_data = dst_u_data + dst_v_offset;
-  for (size_t y = 0; y < src->height / 2; ++y) {
-    uint16_t* src_uv_row = src_uv_data + y * src->chroma_stride;
-    uint8_t* dst_u_row = dst_u_data + y * dest->chroma_stride;
-    uint8_t* dst_v_row = dst_v_data + y * dest->chroma_stride;
-    for (size_t x = 0; x < src->width / 2; ++x) {
-      uint16_t u_uint = src_uv_row[x << 1] >> 6;
-      uint16_t v_uint = src_uv_row[(x << 1) + 1] >> 6;
-      dst_u_row[x] = static_cast<uint8_t>((u_uint >> 2) & 0xff);
-      dst_v_row[x] = static_cast<uint8_t>((v_uint >> 2) & 0xff);
-    }
-    if (dest->width / 2 != dest->chroma_stride) {
-      memset(dst_u_row + dest->width / 2, 0, dest->chroma_stride - dest->width / 2);
-      memset(dst_v_row + dest->width / 2, 0, dest->chroma_stride - dest->width / 2);
-    }
-  }
-  dest->colorGamut = src->colorGamut;
-  return JPEGR_NO_ERROR;
-}
-
 status_t JpegR::convertYuv(jr_uncompressed_ptr image, ultrahdr_color_gamut src_encoding,
                            ultrahdr_color_gamut dest_encoding) {
   if (image == nullptr) {
@@ -1594,6 +1552,168 @@ status_t JpegR::convertYuv(jr_uncompressed_ptr image, ultrahdr_color_gamut src_e
   for (size_t y = 0; y < image->height / 2; ++y) {
     for (size_t x = 0; x < image->width / 2; ++x) {
       transformYuv420(image, x, y, conversionFn);
+    }
+  }
+
+  return JPEGR_NO_ERROR;
+}
+
+namespace {
+float ReinhardMap(float y_hdr, float headroom) {
+  float out = 1.0 + y_hdr / (headroom * headroom);
+  out /= 1.0 + y_hdr;
+  return out * y_hdr;
+}
+}  // namespace
+
+GlobalTonemapOutputs hlgGlobalTonemap(const std::array<float, 3>& rgb_in,
+                                      float headroom) {
+  constexpr float kRgbToYBt2020[3] = {0.2627f, 0.6780f, 0.0593f};
+  constexpr float kOotfGamma = 1.2f;
+
+  // Apply OOTF and Scale to Headroom to get HDR values that are referenced to
+  // SDR white. The range [0.0, 1.0] is linearly stretched to [0.0, headroom]
+  // after the OOTF.
+  const float y_in = rgb_in[0] * kRgbToYBt2020[0] +
+                     rgb_in[1] * kRgbToYBt2020[1] +
+                     rgb_in[2] * kRgbToYBt2020[2];
+  const float y_ootf_div_y_in = std::pow(y_in, kOotfGamma - 1.0f);
+  std::array<float, 3> rgb_hdr;
+  std::transform(rgb_in.begin(), rgb_in.end(), rgb_hdr.begin(),
+                 [&](float x) { return x * headroom * y_ootf_div_y_in; });
+
+  // Apply a tone mapping to compress the range [0, headroom] to [0, 1] by
+  // keeping the shadows the same and crushing the highlights.
+  float max_hdr = *std::max_element(rgb_hdr.begin(), rgb_hdr.end());
+  float max_sdr = ReinhardMap(max_hdr, headroom);
+  std::array<float, 3> rgb_sdr;
+  std::transform(rgb_hdr.begin(), rgb_hdr.end(), rgb_sdr.begin(), [&](float x) {
+    if (x > 0.0f) {
+      return x * max_sdr / max_hdr;
+    }
+    return 0.0f;
+  });
+
+  return {
+      .rgb_out = rgb_sdr,
+      .y_hdr = max_hdr,
+      .y_sdr = max_sdr,
+  };
+}
+
+uint8_t ScaleTo8Bit(float value) {
+  constexpr float kMaxValFloat = 255.0f;
+  constexpr int kMaxValInt = 255;
+  return std::clamp(static_cast<int>(std::round(value * kMaxValFloat)), 0,
+                    kMaxValInt);
+}
+
+status_t JpegR::toneMap(jr_uncompressed_ptr src, jr_uncompressed_ptr dest,
+        ultrahdr_transfer_function hdr_tf) {
+  if (src == nullptr || dest == nullptr) {
+    return ERROR_JPEGR_BAD_PTR;
+  }
+  if (src->width != dest->width || src->height != dest->height) {
+    return ERROR_JPEGR_RESOLUTION_MISMATCH;
+  }
+
+  dest->colorGamut = ULTRAHDR_COLORGAMUT_P3;
+
+  size_t width = src->width;
+  size_t height = src->height;
+
+  ColorTransformFn hdrYuvToRgbFn = nullptr;
+  switch (src->colorGamut) {
+    case ULTRAHDR_COLORGAMUT_BT709:
+      hdrYuvToRgbFn = srgbYuvToRgb;
+      break;
+    case ULTRAHDR_COLORGAMUT_P3:
+      hdrYuvToRgbFn = p3YuvToRgb;
+      break;
+    case ULTRAHDR_COLORGAMUT_BT2100:
+      hdrYuvToRgbFn = bt2100YuvToRgb;
+      break;
+    case ULTRAHDR_COLORGAMUT_UNSPECIFIED:
+      // Should be impossible to hit after input validation.
+      return ERROR_JPEGR_INVALID_COLORGAMUT;
+  }
+
+  ColorTransformFn hdrInvOetf = nullptr;
+  switch (hdr_tf) {
+    case ULTRAHDR_TF_HLG:
+#if USE_HLG_INVOETF_LUT
+      hdrInvOetf = hlgInvOetfLUT;
+#else
+      hdrInvOetf = hlgInvOetf;
+#endif
+      break;
+    case ULTRAHDR_TF_PQ:
+#if USE_PQ_INVOETF_LUT
+      hdrInvOetf = pqInvOetfLUT;
+#else
+      hdrInvOetf = pqInvOetf;
+#endif
+      break;
+    default:
+      // Should be impossible to hit after input validation.
+      return ERROR_JPEGR_INVALID_TRANS_FUNC;
+  }
+
+  ColorTransformFn hdrGamutConversionFn =
+        getHdrConversionFn(dest->colorGamut, src->colorGamut);
+
+  size_t luma_stride = dest->luma_stride == 0 ? dest->width : dest->luma_stride;
+  size_t chroma_stride = dest->chroma_stride == 0 ? luma_stride / 2 : dest->chroma_stride;
+  if (dest->chroma_data == nullptr) {
+    uint8_t* data = reinterpret_cast<uint8_t*>(dest->data);
+    dest->chroma_data = data + luma_stride * dest->height;
+  }
+  uint8_t* luma_data = reinterpret_cast<uint8_t*>(dest->data);
+  uint8_t* chroma_data = reinterpret_cast<uint8_t*>(dest->chroma_data);
+
+  float u_max = 0.0f;
+
+  for (int y = 0; y < height; y += 2) {
+    for (int x = 0; x < width; x += 2) {
+      // We assume the input is P010, and output is YUV420
+      float sdr_u_gamma = 0.0f;
+      float sdr_v_gamma = 0.0f;
+      for (int i = 0; i < 2; i++) {
+        for (int j = 0; j < 2; j++) {
+            Color hdr_yuv_gamma = getP010Pixel(src, x + j, y + i);
+            Color hdr_rgb_gamma = hdrYuvToRgbFn(hdr_yuv_gamma);
+
+            Color hdr_rgb = hdrInvOetf(hdr_rgb_gamma);
+
+            GlobalTonemapOutputs tonemap_outputs = hlgGlobalTonemap(
+                    {hdr_rgb.r, hdr_rgb.g, hdr_rgb.b}, kHlgHeadroom);
+            Color sdr_rgb_linear_bt2100 = {{{tonemap_outputs.rgb_out[0],
+                    tonemap_outputs.rgb_out[1], tonemap_outputs.rgb_out[2]}}};
+            Color sdr_rgb = hdrGamutConversionFn(sdr_rgb_linear_bt2100);
+
+            // Hard clip out-of-gamut values;
+            sdr_rgb = clampPixelFloat(sdr_rgb);
+
+            Color sdr_rgb_gamma = srgbOetf(sdr_rgb);
+            Color sdr_yuv_gamma = srgbRgbToYuv(sdr_rgb_gamma);
+
+            sdr_yuv_gamma += {{{0.0f, 0.5f, 0.5f}}};
+
+            if (u_max < hdr_yuv_gamma.u) {
+              u_max = hdr_yuv_gamma.u;
+            }
+
+            size_t out_y_idx = (y + i) * luma_stride + x + j;
+            luma_data[out_y_idx] = ScaleTo8Bit(sdr_yuv_gamma.y);
+
+            sdr_u_gamma += sdr_yuv_gamma.u * 0.25f;
+            sdr_v_gamma += sdr_yuv_gamma.v * 0.25f;
+        }
+      }
+      size_t out_chroma_idx = x / 2 + (y / 2) * chroma_stride;
+      size_t offset_cr = chroma_stride * (dest->height / 2);
+      chroma_data[out_chroma_idx] = ScaleTo8Bit(sdr_u_gamma);
+      chroma_data[out_chroma_idx + offset_cr] = ScaleTo8Bit(sdr_v_gamma);
     }
   }
 

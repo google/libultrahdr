@@ -35,6 +35,11 @@ const float kSdrWhiteNits = 203.0f;
 const float kHlgMaxNits = 1000.0f;
 const float kPqMaxNits = 10000.0f;
 
+static const float kMaxPixelFloat = 1.0f;
+
+// Describes the tone-mapping operation & gain-map encoding parameters.
+const float kHlgHeadroom = 1000.0f / 203.0f;
+
 struct Color {
   union {
     struct {
@@ -52,6 +57,13 @@ struct Color {
 
 typedef Color (*ColorTransformFn)(Color);
 typedef float (*ColorCalculationFn)(Color);
+
+static float clampPixelFloat(float value) {
+  return (value < 0.0f) ? 0.0f : (value > kMaxPixelFloat) ? kMaxPixelFloat : value;
+}
+static Color clampPixelFloat(Color e) {
+  return {{{clampPixelFloat(e.r), clampPixelFloat(e.g), clampPixelFloat(e.b)}}};
+}
 
 // A transfer function mapping encoded values to linear values,
 // represented by this 7-parameter piecewise function:
@@ -264,6 +276,14 @@ float srgbInvOetf(float e_gamma);
 Color srgbInvOetf(Color e_gamma);
 float srgbInvOetfLUT(float e_gamma);
 Color srgbInvOetfLUT(Color e_gamma);
+
+/*
+ * Convert from linear to srgb, according to IEC 61966-2-1/Amd 1:2003.
+ *
+ * [0.0, 1.0] range in and out.
+ */
+ float srgbOetf(float e);
+ Color srgbOetf(Color e);
 
 constexpr size_t kSrgbInvOETFPrecision = 10;
 constexpr size_t kSrgbInvOETFNumEntries = 1 << kSrgbInvOETFPrecision;

@@ -17,6 +17,7 @@
 #ifndef ULTRAHDR_JPEGR_H
 #define ULTRAHDR_JPEGR_H
 
+#include <array>
 #include <cfloat>
 
 #include "ultrahdr/ultrahdr.h"
@@ -435,8 +436,11 @@ class JpegR {
    * @param src pointer to uncompressed HDR image struct. HDR image is expected to be
    *            in p010 color format
    * @param dest pointer to store tonemapped SDR image
+   * @param hdr_tf transfer function of the HDR image
+   * @return NO_ERROR if calculation succeeds, error code if error occurs.
    */
-  status_t toneMap(jr_uncompressed_ptr src, jr_uncompressed_ptr dest);
+  status_t toneMap(jr_uncompressed_ptr src, jr_uncompressed_ptr dest,
+          ultrahdr_transfer_function hdr_tf);
 
   /*
    * This method will convert a YUV420 image from one YUV encoding to another in-place (eg.
@@ -490,6 +494,26 @@ class JpegR {
                                   ultrahdr_transfer_function hdr_tf, jr_compressed_ptr dest,
                                   int quality);
 };
+
+struct GlobalTonemapOutputs {
+  std::array<float, 3> rgb_out;
+  float y_hdr;
+  float y_sdr;
+};
+
+// Applies a global tone mapping, based on Chrome's HLG/PQ rendering implemented
+// at
+// https://source.chromium.org/chromium/chromium/src/+/main:ui/gfx/color_transform.cc;l=1198-1232;drc=ac505aff1d29ec3bfcf317cb77d5e196a3664e92
+// `rgb_in` is expected to be in the normalized range of [0.0, 1.0] and
+// `rgb_out` is returned in this same range. `headroom` describes the ratio
+// between the HDR and SDR peak luminances and must be > 1. The `y_sdr` output
+// is in the range [0.0, 1.0] while `y_hdr` is in the range [0.0, headroom].
+GlobalTonemapOutputs hlgGlobalTonemap(const std::array<float, 3>& rgb_in,
+                                      float headroom);
+
+
+
+
 }  // namespace ultrahdr
 
 #endif  // ULTRAHDR_JPEGR_H

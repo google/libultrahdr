@@ -112,11 +112,6 @@ void ShepardsIDW::fillShepardsIDW(float* weights, int incR, int incB) {
 ////////////////////////////////////////////////////////////////////////////////
 // sRGB transformations
 
-static const float kMaxPixelFloat = 1.0f;
-static float clampPixelFloat(float value) {
-  return (value < 0.0f) ? 0.0f : (value > kMaxPixelFloat) ? kMaxPixelFloat : value;
-}
-
 // See IEC 61966-2-1/Amd 1:2003, Equation F.7.
 static const float kSrgbR = 0.2126f, kSrgbG = 0.7152f, kSrgbB = 0.0722f;
 
@@ -168,6 +163,21 @@ float srgbInvOetfLUT(float e_gamma) {
 
 Color srgbInvOetfLUT(Color e_gamma) {
   return {{{srgbInvOetfLUT(e_gamma.r), srgbInvOetfLUT(e_gamma.g), srgbInvOetfLUT(e_gamma.b)}}};
+}
+
+float srgbOetf(float e) {
+  constexpr float kThreshold = 0.00304;
+  constexpr float kLowSlope = 12.92;
+  constexpr float kHighOffset = 0.055;
+  constexpr float kPowerExponent = 1.0 / 2.4;
+  if (e < kThreshold) {
+    return kLowSlope * e;
+  }
+  return (1.0 + kHighOffset) * std::pow(e, kPowerExponent) - kHighOffset;
+}
+
+Color srgbOetf(Color e) {
+  return {{{srgbOetf(e.r), srgbOetf(e.g), srgbOetf(e.b)}}};
 }
 
 ////////////////////////////////////////////////////////////////////////////////
