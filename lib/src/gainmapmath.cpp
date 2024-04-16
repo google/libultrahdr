@@ -176,9 +176,7 @@ float srgbOetf(float e) {
   return (1.0 + kHighOffset) * std::pow(e, kPowerExponent) - kHighOffset;
 }
 
-Color srgbOetf(Color e) {
-  return {{{srgbOetf(e.r), srgbOetf(e.g), srgbOetf(e.b)}}};
-}
+Color srgbOetf(Color e) { return {{{srgbOetf(e.r), srgbOetf(e.g), srgbOetf(e.b)}}}; }
 
 ////////////////////////////////////////////////////////////////////////////////
 // Display-P3 transformations
