@@ -23,6 +23,12 @@
 
 // #define DUMP_OUTPUT
 
+#ifdef __ANDROID__
+#define INPUT_IMAGE "/data/local/tmp/raw_p010_image.p010"
+#else
+#define INPUT_IMAGE "./data/raw_p010_image.p010"
+#endif
+
 #define OUTPUT_P010_IMAGE "output.p010"
 #define OUTPUT_YUV_IMAGE "output.yuv"
 #define OUTPUT_RGBA_IMAGE "output.rgb"
@@ -60,7 +66,7 @@ static bool writeFile(std::string prefixName, uhdr_raw_image_t* img) {
     const char* data = static_cast<char*>(img->planes[UHDR_PLANE_Y]);
     size_t stride = img->stride[UHDR_PLANE_Y] * bpp;
     size_t length = img->w * bpp;
-    for (int i = 0; i < img->h; i++, data += stride) {
+    for (unsigned i = 0; i < img->h; i++, data += stride) {
       ofd.write(data, length);
     }
 
@@ -68,20 +74,20 @@ static bool writeFile(std::string prefixName, uhdr_raw_image_t* img) {
       data = static_cast<char*>(img->planes[UHDR_PLANE_UV]);
       stride = img->stride[UHDR_PLANE_UV] * bpp;
       length = img->w * bpp;
-      for (int i = 0; i < img->h / 2; i++, data += stride) {
+      for (unsigned i = 0; i < img->h / 2; i++, data += stride) {
         ofd.write(data, length);
       }
     } else if (img->fmt == UHDR_IMG_FMT_12bppYCbCr420) {
       data = static_cast<char*>(img->planes[UHDR_PLANE_U]);
       stride = img->stride[UHDR_PLANE_U] * bpp;
       length = (img->w / 2) * bpp;
-      for (int i = 0; i < img->h / 2; i++, data += stride) {
+      for (unsigned i = 0; i < img->h / 2; i++, data += stride) {
         ofd.write(data, length);
       }
       data = static_cast<char*>(img->planes[UHDR_PLANE_V]);
       stride = img->stride[UHDR_PLANE_V] * bpp;
       length = (img->w / 2) * bpp;
-      for (int i = 0; i < img->h / 2; i++, data += stride) {
+      for (unsigned i = 0; i < img->h / 2; i++, data += stride) {
         ofd.write(data, length);
       }
     }
@@ -224,6 +230,7 @@ class EditorHelperTest
     for (int i = 0; i < count; i++) {
       if (img_a.planes[i]) {
         free(img_a.planes[i]);
+        img_a.planes[i] = nullptr;
       }
     }
   }
@@ -232,82 +239,60 @@ class EditorHelperTest
   int width;
   int height;
   uhdr_img_fmt_t fmt;
-  uhdr_raw_image_t img_a;
+  uhdr_raw_image_t img_a{};
 };
 
 TEST_P(EditorHelperTest, Rotate) {
   initImageHandle(&img_a, width, height, fmt);
   ASSERT_TRUE(loadFile(filename.c_str(), &img_a)) << "unable to load file " << filename;
-  auto dst = apply_rotate(&img_a, 90);
-  dst = apply_rotate(dst.get(), 90);
-  dst = apply_rotate(dst.get(), 180);
-  dst = apply_rotate(dst.get(), 270);
-  dst = apply_rotate(dst.get(), 90);
-  dst = apply_rotate(dst.get(), 90);
-  dst = apply_rotate(dst.get(), 270);
-  ASSERT_NO_FATAL_FAILURE(compareImg(&img_a, dst.get()));
+  ultrahdr::uhdr_rotate_effect_t r90(90), r180(180), r270(270);
+  auto dst = apply_rotate(&r90, &img_a);
+  dst = apply_rotate(&r90, dst.get());
+  dst = apply_rotate(&r180, dst.get());
+  dst = apply_rotate(&r270, dst.get());
+  dst = apply_rotate(&r90, dst.get());
+  dst = apply_rotate(&r90, dst.get());
+  dst = apply_rotate(&r270, dst.get());
+  ASSERT_NO_FATAL_FAILURE(compareImg(&img_a, dst.get()))
+      << "failed for resolution " << width << " x " << height << " format: " << fmt;
 }
 
 TEST_P(EditorHelperTest, Mirror) {
   initImageHandle(&img_a, width, height, fmt);
   ASSERT_TRUE(loadFile(filename.c_str(), &img_a)) << "unable to load file " << filename;
-  auto dst = apply_mirror(&img_a, UHDR_MIRROR_VERTICAL);
-  dst = apply_mirror(dst.get(), UHDR_MIRROR_VERTICAL);
-  dst = apply_mirror(dst.get(), UHDR_MIRROR_HORIZONTAL);
-  dst = apply_mirror(dst.get(), UHDR_MIRROR_HORIZONTAL);
-  ASSERT_NO_FATAL_FAILURE(compareImg(&img_a, dst.get()));
-}
-
-TEST_P(EditorHelperTest, MultipleEffects) {
-  initImageHandle(&img_a, width, height, fmt);
-  ASSERT_TRUE(loadFile(filename.c_str(), &img_a)) << "unable to load file " << filename;
-  auto dst = apply_mirror(&img_a, UHDR_MIRROR_VERTICAL);
-  dst = apply_rotate(dst.get(), 180);
-  dst = apply_mirror(dst.get(), UHDR_MIRROR_HORIZONTAL);
-  ASSERT_NO_FATAL_FAILURE(compareImg(&img_a, dst.get()));
-
-  dst = apply_mirror(dst.get(), UHDR_MIRROR_HORIZONTAL);
-  dst = apply_rotate(dst.get(), 90);
-  dst = apply_rotate(dst.get(), 90);
-  dst = apply_mirror(dst.get(), UHDR_MIRROR_VERTICAL);
-  ASSERT_NO_FATAL_FAILURE(compareImg(&img_a, dst.get()));
-
-  dst = apply_rotate(dst.get(), 270);
-  dst = apply_mirror(dst.get(), UHDR_MIRROR_VERTICAL);
-  dst = apply_rotate(dst.get(), 90);
-  dst = apply_mirror(dst.get(), UHDR_MIRROR_HORIZONTAL);
-  ASSERT_NO_FATAL_FAILURE(compareImg(&img_a, dst.get()));
-
-  dst = apply_resize(dst.get(), width / 2, height / 2);
-  ASSERT_EQ(img_a.fmt, dst->fmt);
-  ASSERT_EQ(img_a.cg, dst->cg);
-  ASSERT_EQ(img_a.ct, dst->ct);
-  ASSERT_EQ(img_a.range, dst->range);
-  ASSERT_EQ(dst->w, width / 2);
-  ASSERT_EQ(dst->h, height / 2);
-
-  uhdr_raw_image_ext_t* img_copy = dst.get();
-  apply_crop(img_copy, 8, 8, width / 4, height / 4);
-  ASSERT_EQ(dst->fmt, img_copy->fmt);
-  ASSERT_EQ(dst->cg, img_copy->cg);
-  ASSERT_EQ(dst->ct, img_copy->ct);
-  ASSERT_EQ(dst->range, img_copy->range);
-  ASSERT_EQ(width / 4, img_copy->w);
-  ASSERT_EQ(height / 4, img_copy->h);
+  ultrahdr::uhdr_mirror_effect_t mhorz(UHDR_MIRROR_HORIZONTAL), mvert(UHDR_MIRROR_VERTICAL);
+  auto dst = apply_mirror(&mhorz, &img_a);
+  dst = apply_mirror(&mvert, dst.get());
+  dst = apply_mirror(&mhorz, dst.get());
+  dst = apply_mirror(&mhorz, dst.get());
+  ASSERT_NO_FATAL_FAILURE(compareImg(&img_a, dst.get()))
+      << "failed for resolution " << width << " x " << height << " format: " << fmt;
 }
 
 TEST_P(EditorHelperTest, Crop) {
+  const int left = 16;
+  const int top = 16;
+  const int crop_wd = 32;
+  const int crop_ht = 32;
+
+  if (width < (left + crop_wd) || height <= (top + crop_ht)) {
+    GTEST_SKIP() << "Test skipped as crop attributes are too large for resolution " +
+                        std::to_string(width) + " x " + std::to_string(height) +
+                        " format: " + std::to_string(fmt);
+  }
+  std::string msg = "failed for resolution " + std::to_string(width) + " x " +
+                    std::to_string(height) + " format: " + std::to_string(fmt);
   initImageHandle(&img_a, width, height, fmt);
   ASSERT_TRUE(loadFile(filename.c_str(), &img_a)) << "unable to load file " << filename;
   uhdr_raw_image_t img_copy = img_a;
-  apply_crop(&img_copy, 8, 8, width / 2, height / 2);
+  apply_crop(&img_copy, left, top, crop_wd, crop_ht);
 
-  ASSERT_EQ(img_a.fmt, img_copy.fmt);
-  ASSERT_EQ(img_a.cg, img_copy.cg);
-  ASSERT_EQ(img_a.ct, img_copy.ct);
-  ASSERT_EQ(img_a.range, img_copy.range);
-  ASSERT_EQ(img_copy.w, width / 2);
-  ASSERT_EQ(img_copy.h, height / 2);
+  ASSERT_EQ(img_a.fmt, img_copy.fmt) << msg;
+  ASSERT_EQ(img_a.cg, img_copy.cg) << msg;
+  ASSERT_EQ(img_a.ct, img_copy.ct) << msg;
+  ASSERT_EQ(img_a.range, img_copy.range) << msg;
+  ASSERT_EQ(img_copy.w, crop_wd) << msg;
+  ASSERT_EQ(img_copy.h, crop_ht) << msg;
 #ifdef DUMP_OUTPUT
   if (!writeFile("cropped", &img_copy)) {
     std::cerr << "unable to write output file" << std::endl;
@@ -316,16 +301,24 @@ TEST_P(EditorHelperTest, Crop) {
 }
 
 TEST_P(EditorHelperTest, Resize) {
+  if ((fmt == UHDR_IMG_FMT_12bppYCbCr420 || UHDR_IMG_FMT_24bppYCbCrP010) &&
+      (((width / 2) % 2 != 0) || ((height / 2) % 2 != 0))) {
+    GTEST_SKIP() << "Test skipped for resolution " + std::to_string(width) + " x " +
+                        std::to_string(height) + " format: " + std::to_string(fmt);
+  }
+  std::string msg = "failed for resolution " + std::to_string(width) + " x " +
+                    std::to_string(height) + " format: " + std::to_string(fmt);
   initImageHandle(&img_a, width, height, fmt);
   ASSERT_TRUE(loadFile(filename.c_str(), &img_a)) << "unable to load file " << filename;
-  auto dst = apply_resize(&img_a, width / 2, height / 2);
+  ultrahdr::uhdr_resize_effect_t resize(width / 2, height / 2);
+  auto dst = apply_resize(&resize, &img_a, width / 2, height / 2);
 
-  ASSERT_EQ(img_a.fmt, dst->fmt);
-  ASSERT_EQ(img_a.cg, dst->cg);
-  ASSERT_EQ(img_a.ct, dst->ct);
-  ASSERT_EQ(img_a.range, dst->range);
-  ASSERT_EQ(dst->w, width / 2);
-  ASSERT_EQ(dst->h, height / 2);
+  ASSERT_EQ(img_a.fmt, dst->fmt) << msg;
+  ASSERT_EQ(img_a.cg, dst->cg) << msg;
+  ASSERT_EQ(img_a.ct, dst->ct) << msg;
+  ASSERT_EQ(img_a.range, dst->range) << msg;
+  ASSERT_EQ(dst->w, width / 2) << msg;
+  ASSERT_EQ(dst->h, height / 2) << msg;
 #ifdef DUMP_OUTPUT
   if (!writeFile("resize", dst.get())) {
     std::cerr << "unable to write output file" << std::endl;
@@ -333,32 +326,65 @@ TEST_P(EditorHelperTest, Resize) {
 #endif
 }
 
-#ifdef __ANDROID__
-INSTANTIATE_TEST_SUITE_P(
-    EditorAPIParameterizedTests, EditorHelperTest,
-    ::testing::Values(std::make_tuple("/data/local/tmp/raw_p010_image.p010", 1280, 720,
-                                      UHDR_IMG_FMT_24bppYCbCrP010),
-                      std::make_tuple("/data/local/tmp/raw_yuv420_image.yuv420", 1280, 720,
-                                      UHDR_IMG_FMT_12bppYCbCr420),
-                      std::make_tuple("/data/local/tmp/raw_yuv420_image.yuv420", 1280, 720,
-                                      UHDR_IMG_FMT_8bppYCbCr400),
-                      std::make_tuple("/data/local/tmp/raw_p010_image.p010", 352, 288,
-                                      UHDR_IMG_FMT_32bppRGBA1010102),
-                      std::make_tuple("/data/local/tmp/raw_p010_image.p010", 352, 288,
-                                      UHDR_IMG_FMT_64bppRGBAHalfFloat),
-                      std::make_tuple("/data/local/tmp/raw_p010_image.p010", 352, 288,
-                                      UHDR_IMG_FMT_32bppRGBA8888)));
+TEST_P(EditorHelperTest, MultipleEffects) {
+  std::string msg = "failed for resolution " + std::to_string(width) + " x " +
+                    std::to_string(height) + " format: " + std::to_string(fmt);
+  initImageHandle(&img_a, width, height, fmt);
+  ASSERT_TRUE(loadFile(filename.c_str(), &img_a)) << "unable to load file " << filename;
+  ultrahdr::uhdr_rotate_effect_t r90(90), r180(180), r270(270);
+  ultrahdr::uhdr_mirror_effect_t mhorz(UHDR_MIRROR_HORIZONTAL), mvert(UHDR_MIRROR_VERTICAL);
+  ultrahdr::uhdr_resize_effect_t resize(width / 2, height / 2);
+  auto dst = apply_mirror(&mhorz, &img_a);
+  dst = apply_rotate(&r180, dst.get());
+  dst = apply_mirror(&mhorz, dst.get());
+  ASSERT_NO_FATAL_FAILURE(compareImg(&img_a, dst.get())) << msg;
 
-#else
+  dst = apply_mirror(&mhorz, dst.get());
+  dst = apply_rotate(&r90, dst.get());
+  dst = apply_rotate(&r90, dst.get());
+  dst = apply_mirror(&mvert, dst.get());
+  ASSERT_NO_FATAL_FAILURE(compareImg(&img_a, dst.get())) << msg;
+
+  dst = apply_rotate(&r270, dst.get());
+  dst = apply_mirror(&mvert, dst.get());
+  dst = apply_rotate(&r90, dst.get());
+  dst = apply_mirror(&mhorz, dst.get());
+  ASSERT_NO_FATAL_FAILURE(compareImg(&img_a, dst.get())) << msg;
+
+  dst = apply_resize(&resize, dst.get(), width * 2, height * 2);
+  ASSERT_EQ(img_a.fmt, dst->fmt) << msg;
+  ASSERT_EQ(img_a.cg, dst->cg) << msg;
+  ASSERT_EQ(img_a.ct, dst->ct) << msg;
+  ASSERT_EQ(img_a.range, dst->range) << msg;
+  ASSERT_EQ(dst->w, width * 2) << msg;
+  ASSERT_EQ(dst->h, height * 2) << msg;
+
+  const int left = 16;
+  const int top = 16;
+  const int crop_wd = 32;
+  const int crop_ht = 32;
+  if (dst->w < (left + crop_wd) || dst->h <= (top + crop_ht)) {
+    GTEST_SKIP() << "Test skipped as crop attributes are too large for resolution " +
+                        std::to_string(dst->w) + " x " + std::to_string(dst->h) +
+                        " format: " + std::to_string(fmt);
+  }
+  uhdr_raw_image_ext_t* img_copy = dst.get();
+  apply_crop(img_copy, left, top, crop_wd, crop_ht);
+  ASSERT_EQ(dst->fmt, img_copy->fmt) << msg;
+  ASSERT_EQ(dst->cg, img_copy->cg) << msg;
+  ASSERT_EQ(dst->ct, img_copy->ct) << msg;
+  ASSERT_EQ(dst->range, img_copy->range) << msg;
+  ASSERT_EQ(crop_wd, img_copy->w) << msg;
+  ASSERT_EQ(crop_ht, img_copy->h) << msg;
+}
+
 INSTANTIATE_TEST_SUITE_P(
     EditorAPIParameterizedTests, EditorHelperTest,
-    ::testing::Values(
-        std::make_tuple("./data/raw_p010_image.p010", 1280, 720, UHDR_IMG_FMT_24bppYCbCrP010),
-        std::make_tuple("./data/raw_yuv420_image.yuv420", 1280, 720, UHDR_IMG_FMT_12bppYCbCr420),
-        std::make_tuple("./data/raw_yuv420_image.yuv420", 1280, 720, UHDR_IMG_FMT_8bppYCbCr400),
-        std::make_tuple("./data/raw_p010_image.p010", 352, 288, UHDR_IMG_FMT_32bppRGBA1010102),
-        std::make_tuple("./data/raw_p010_image.p010", 352, 288, UHDR_IMG_FMT_64bppRGBAHalfFloat),
-        std::make_tuple("./data/raw_p010_image.p010", 352, 288, UHDR_IMG_FMT_32bppRGBA8888)));
-#endif
+    ::testing::Combine(::testing::Values(INPUT_IMAGE), ::testing::Range(2, 64, 2),
+                       ::testing::Values(64),
+                       ::testing::Values(UHDR_IMG_FMT_24bppYCbCrP010, UHDR_IMG_FMT_12bppYCbCr420,
+                                         UHDR_IMG_FMT_8bppYCbCr400, UHDR_IMG_FMT_32bppRGBA1010102,
+                                         UHDR_IMG_FMT_64bppRGBAHalfFloat,
+                                         UHDR_IMG_FMT_32bppRGBA8888)));
 
 }  // namespace ultrahdr

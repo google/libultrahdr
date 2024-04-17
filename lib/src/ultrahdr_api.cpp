@@ -109,13 +109,15 @@ uhdr_error_info_t apply_effects(uhdr_decoder_private* dec) {
     std::unique_ptr<ultrahdr::uhdr_raw_image_ext_t> gm_img = nullptr;
 
     if (nullptr != dynamic_cast<uhdr_rotate_effect_t*>(it)) {
-      int degree = (dynamic_cast<ultrahdr::uhdr_rotate_effect_t*>(it))->m_degree;
-      disp_img = apply_rotate(dec->m_decoded_img_buffer.get(), degree);
-      gm_img = apply_rotate(dec->m_gainmap_img_buffer.get(), degree);
+      disp_img =
+          apply_rotate(dynamic_cast<uhdr_rotate_effect_t*>(it), dec->m_decoded_img_buffer.get());
+      gm_img =
+          apply_rotate(dynamic_cast<uhdr_rotate_effect_t*>(it), dec->m_gainmap_img_buffer.get());
     } else if (nullptr != dynamic_cast<uhdr_mirror_effect_t*>(it)) {
-      uhdr_mirror_direction_t direction = (dynamic_cast<uhdr_mirror_effect_t*>(it))->m_direction;
-      disp_img = apply_mirror(dec->m_decoded_img_buffer.get(), direction);
-      gm_img = apply_mirror(dec->m_gainmap_img_buffer.get(), direction);
+      disp_img =
+          apply_mirror(dynamic_cast<uhdr_mirror_effect_t*>(it), dec->m_decoded_img_buffer.get());
+      gm_img =
+          apply_mirror(dynamic_cast<uhdr_mirror_effect_t*>(it), dec->m_gainmap_img_buffer.get());
     } else if (nullptr != dynamic_cast<uhdr_crop_effect_t*>(it)) {
       auto crop_effect = dynamic_cast<uhdr_crop_effect_t*>(it);
       uhdr_raw_image_t* disp = dec->m_decoded_img_buffer.get();
@@ -145,15 +147,23 @@ uhdr_error_info_t apply_effects(uhdr_decoder_private* dec) {
       auto resize_effect = dynamic_cast<uhdr_resize_effect_t*>(it);
       int dst_w = resize_effect->m_width;
       int dst_h = resize_effect->m_height;
-      if (dst_w == 0 || dst_h == 0) {
+      float wd_ratio =
+          ((float)dec->m_decoded_img_buffer.get()->w) / dec->m_gainmap_img_buffer.get()->w;
+      float ht_ratio =
+          ((float)dec->m_decoded_img_buffer.get()->h) / dec->m_gainmap_img_buffer.get()->h;
+      int dst_gm_w = dst_w / wd_ratio;
+      int dst_gm_h = dst_h / ht_ratio;
+      if (dst_w == 0 || dst_h == 0 || dst_gm_w == 0 || dst_gm_h == 0) {
         uhdr_error_info_t status;
         status.error_code = UHDR_CODEC_INVALID_PARAM;
         snprintf(status.detail, sizeof status.detail,
                  "destination width or destination height cannot be zero");
         return status;
       }
-      disp_img = apply_resize(dec->m_decoded_img_buffer.get(), dst_w, dst_h);
-      gm_img = apply_resize(dec->m_gainmap_img_buffer.get(), dst_w, dst_h);
+      disp_img = apply_resize(dynamic_cast<uhdr_resize_effect_t*>(it),
+                              dec->m_decoded_img_buffer.get(), dst_w, dst_h);
+      gm_img = apply_resize(dynamic_cast<uhdr_resize_effect_t*>(it),
+                            dec->m_gainmap_img_buffer.get(), dst_gm_w, dst_gm_h);
     }
 
     if (disp_img == nullptr || gm_img == nullptr) {
