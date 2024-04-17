@@ -38,7 +38,7 @@ typedef struct uhdr_effect_desc {
 
 /*!\brief mirror effect descriptor */
 typedef struct uhdr_mirror_effect : uhdr_effect_desc {
-  uhdr_mirror_effect(uhdr_mirror_direction_t direction) : m_direction{direction} {}
+  uhdr_mirror_effect(uhdr_mirror_direction_t direction);
 
   std::string to_string() {
     return "effect : mirror, metadata : direction - " + ((m_direction == UHDR_MIRROR_HORIZONTAL)
@@ -47,17 +47,27 @@ typedef struct uhdr_mirror_effect : uhdr_effect_desc {
   }
 
   uhdr_mirror_direction_t m_direction;
+
+  void (*m_mirror_uint8_t)(uint8_t*, uint8_t*, int, int, int, int, uhdr_mirror_direction_t);
+  void (*m_mirror_uint16_t)(uint16_t*, uint16_t*, int, int, int, int, uhdr_mirror_direction_t);
+  void (*m_mirror_uint32_t)(uint32_t*, uint32_t*, int, int, int, int, uhdr_mirror_direction_t);
+  void (*m_mirror_uint64_t)(uint64_t*, uint64_t*, int, int, int, int, uhdr_mirror_direction_t);
 } uhdr_mirror_effect_t; /**< alias for struct uhdr_mirror_effect */
 
 /*!\brief rotate effect descriptor */
 typedef struct uhdr_rotate_effect : uhdr_effect_desc {
-  uhdr_rotate_effect(int degree) : m_degree{degree} {}
+  uhdr_rotate_effect(int degree);
 
   std::string to_string() {
     return "effect : rotate, metadata : degree - " + std::to_string(m_degree);
   }
 
   int m_degree;
+
+  void (*m_rotate_uint8_t)(uint8_t*, uint8_t*, int, int, int, int, int);
+  void (*m_rotate_uint16_t)(uint16_t*, uint16_t*, int, int, int, int, int);
+  void (*m_rotate_uint32_t)(uint32_t*, uint32_t*, int, int, int, int, int);
+  void (*m_rotate_uint64_t)(uint64_t*, uint64_t*, int, int, int, int, int);
 } uhdr_rotate_effect_t; /**< alias for struct uhdr_rotate_effect */
 
 /*!\brief crop effect descriptor */
@@ -78,7 +88,7 @@ typedef struct uhdr_crop_effect : uhdr_effect_desc {
 
 /*!\brief resize effect descriptor */
 typedef struct uhdr_resize_effect : uhdr_effect_desc {
-  uhdr_resize_effect(int width, int height) : m_width{width}, m_height{height} {}
+  uhdr_resize_effect(int width, int height);
 
   std::string to_string() {
     return "effect : resize, metadata : dimensions w, h" + std::to_string(m_width) + " ," +
@@ -87,14 +97,33 @@ typedef struct uhdr_resize_effect : uhdr_effect_desc {
 
   int m_width;
   int m_height;
+
+  void (*m_resize_uint8_t)(uint8_t*, uint8_t*, int, int, int, int, int, int);
+  void (*m_resize_uint16_t)(uint16_t*, uint16_t*, int, int, int, int, int, int);
+  void (*m_resize_uint32_t)(uint32_t*, uint32_t*, int, int, int, int, int, int);
+  void (*m_resize_uint64_t)(uint64_t*, uint64_t*, int, int, int, int, int, int);
 } uhdr_resize_effect_t; /**< alias for struct uhdr_resize_effect */
 
-std::unique_ptr<uhdr_raw_image_ext_t> apply_rotate(uhdr_raw_image_t* src, int degree);
+template <typename T>
+extern void rotate_buffer_clockwise(T* src_buffer, T* dst_buffer, int src_w, int src_h,
+                                    int src_stride, int dst_stride, int degree);
 
-std::unique_ptr<uhdr_raw_image_ext_t> apply_mirror(uhdr_raw_image_t* src,
-                                                   uhdr_mirror_direction_t direction);
+template <typename T>
+extern void mirror_buffer(T* src_buffer, T* dst_buffer, int src_w, int src_h, int src_stride,
+                          int dst_stride, uhdr_mirror_direction_t direction);
 
-std::unique_ptr<uhdr_raw_image_ext_t> apply_resize(uhdr_raw_image* src, int dst_w, int dst_h);
+template <typename T>
+extern void resize_buffer(T* src_buffer, T* dst_buffer, int src_w, int src_h, int dst_w, int dst_h,
+                          int src_stride, int dst_stride);
+
+std::unique_ptr<uhdr_raw_image_ext_t> apply_rotate(ultrahdr::uhdr_rotate_effect_t* desc,
+                                                   uhdr_raw_image_t* src);
+
+std::unique_ptr<uhdr_raw_image_ext_t> apply_mirror(ultrahdr::uhdr_mirror_effect_t* desc,
+                                                   uhdr_raw_image_t* src);
+
+std::unique_ptr<uhdr_raw_image_ext_t> apply_resize(ultrahdr::uhdr_resize_effect_t* desc,
+                                                   uhdr_raw_image* src, int dst_w, int dst_h);
 
 void apply_crop(uhdr_raw_image_t* src, int left, int top, int wd, int ht);
 
