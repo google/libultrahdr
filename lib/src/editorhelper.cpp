@@ -16,6 +16,7 @@
 
 #include <cstring>
 #include <cstdint>
+#include <math.h>
 
 #include "ultrahdr/editorhelper.h"
 
@@ -68,6 +69,7 @@ void mirror_buffer(T* src_buffer, T* dst_buffer, int src_w, int src_h, int src_s
   }
 }
 
+// TODO (dichenzhang): legacy method, need to be removed
 template <typename T>
 void resize_buffer(T* src_buffer, T* dst_buffer, int src_w, int src_h, int dst_w, int dst_h,
                    int src_stride, int dst_stride) {
@@ -75,6 +77,56 @@ void resize_buffer(T* src_buffer, T* dst_buffer, int src_w, int src_h, int dst_w
     for (int j = 0; j < dst_w; j++) {
       dst_buffer[i * dst_stride + j] =
           src_buffer[i * (src_h / dst_h) * src_stride + j * (src_w / dst_w)];
+    }
+  }
+}
+
+// This function performs bicubic interpolation on a 1D signal.
+double bicubic_interpolate(double p0, double p1, double p2, double p3, double x) {
+  // Calculate the weights for the four neighboring points.
+  double w0 = (1 - x) * (1 - x) * (1 - x);
+  double w1 = 3 * x * (1 - x) * (1 - x);
+  double w2 = 3 * x * x * (1 - x);
+  double w3 = x * x * x;
+
+  // Calculate the interpolated value.
+  return w0 * p0 + w1 * p1 + w2 * p2 + w3 * p3;
+}
+
+template <typename T>
+void resize_buffer(T* src_buffer, T* dst_buffer, int src_w, int src_h, int dst_w, int dst_h,
+                   int src_stride, int dst_stride, uhdr_img_fmt_t img_fmt, size_t plane) {
+  double scale_x = (double) src_w / dst_w;
+  double scale_y = (double) src_h / dst_h;
+  for (int y = 0; y < dst_h; y++) {
+    for (int x = 0; x < dst_w; x++) {
+      double ori_x = x * scale_x;
+      double ori_y = y * scale_y;
+      int p0_x = (int) floor(ori_x);
+      int p0_y = (int) floor(ori_y);
+      int p1_x = p0_x + 1;
+      int p1_y = p0_y;
+      int p2_x = p0_x;
+      int p2_y = p0_y + 1;
+      int p3_x = p0_x + 1;
+      int p3_y = p0_y + 1;
+
+      if ((img_fmt == UHDR_IMG_FMT_8bppYCbCr400) ||
+              (img_fmt == UHDR_IMG_FMT_12bppYCbCr420 && plane == UHDR_PLANE_Y) ||
+              (img_fmt == UHDR_IMG_FMT_12bppYCbCr420 && plane == UHDR_PLANE_U) ||
+              (img_fmt == UHDR_IMG_FMT_12bppYCbCr420 && plane == UHDR_PLANE_V)) {
+        double p0 = (double)src_buffer[p0_y * src_stride + p0_x];
+        double p1 = (double)src_buffer[p1_y * src_stride + p1_x];
+        double p2 = (double)src_buffer[p2_y * src_stride + p2_x];
+        double p3 = (double)src_buffer[p3_y * src_stride + p3_x];
+
+        double new_pix_val = bicubic_interpolate(p0, p1, p2, p3, ori_x - p0_x);
+
+        dst_buffer[y * dst_stride + x] = (uint8_t) floor(new_pix_val + 0.5);
+      } else {
+        // Unsupported feature.
+        return;
+      }
     }
   }
 }
@@ -212,13 +264,13 @@ std::unique_ptr<uhdr_raw_image_ext_t> apply_resize(uhdr_raw_image_t* src, int ds
     uint8_t* src_buffer = static_cast<uint8_t*>(src->planes[UHDR_PLANE_Y]);
     uint8_t* dst_buffer = static_cast<uint8_t*>(dst->planes[UHDR_PLANE_Y]);
     resize_buffer(src_buffer, dst_buffer, src->w, src->h, dst->w, dst->h, src->stride[UHDR_PLANE_Y],
-                  dst->stride[UHDR_PLANE_Y]);
+                  dst->stride[UHDR_PLANE_Y], src->fmt, UHDR_PLANE_Y);
     if (src->fmt == UHDR_IMG_FMT_12bppYCbCr420) {
       for (int i = 1; i < 3; i++) {
         src_buffer = static_cast<uint8_t*>(src->planes[i]);
         dst_buffer = static_cast<uint8_t*>(dst->planes[i]);
         resize_buffer(src_buffer, dst_buffer, src->w / 2, src->h / 2, dst->w / 2, dst->h / 2,
-                      src->stride[i], dst->stride[i]);
+                      src->stride[i], dst->stride[i], src->fmt, i);
       }
     }
   } else if (src->fmt == UHDR_IMG_FMT_32bppRGBA1010102 || src->fmt == UHDR_IMG_FMT_32bppRGBA8888) {

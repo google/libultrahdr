@@ -66,21 +66,21 @@ static bool writeFile(std::string prefixName, uhdr_raw_image_t* img) {
 
     if (img->fmt == UHDR_IMG_FMT_24bppYCbCrP010) {
       data = static_cast<char*>(img->planes[UHDR_PLANE_UV]);
-      size_t stride = img->stride[UHDR_PLANE_UV] * bpp;
-      size_t length = img->w * bpp;
+      stride = img->stride[UHDR_PLANE_UV] * bpp;
+      length = img->w * bpp;
       for (int i = 0; i < img->h / 2; i++, data += stride) {
         ofd.write(data, length);
       }
     } else if (img->fmt == UHDR_IMG_FMT_12bppYCbCr420) {
       data = static_cast<char*>(img->planes[UHDR_PLANE_U]);
-      size_t stride = img->stride[UHDR_PLANE_U] * bpp;
-      size_t length = (img->w / 2) * bpp;
+      stride = img->stride[UHDR_PLANE_U] * bpp;
+      length = (img->w / 2) * bpp;
       for (int i = 0; i < img->h / 2; i++, data += stride) {
         ofd.write(data, length);
       }
       data = static_cast<char*>(img->planes[UHDR_PLANE_V]);
-      size_t stride = img->stride[UHDR_PLANE_V] * bpp;
-      size_t length = (img->w / 2) * bpp;
+      stride = img->stride[UHDR_PLANE_V] * bpp;
+      length = (img->w / 2) * bpp;
       for (int i = 0; i < img->h / 2; i++, data += stride) {
         ofd.write(data, length);
       }
