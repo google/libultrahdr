@@ -25,6 +25,7 @@ cc_test {
     name: "ultrahdr_unit_test",
     test_suites: ["device-tests"],
     srcs: [
+        "editorhelper_test.cpp",
         "gainmapmath_test.cpp",
         "icchelper_test.cpp",
         "jpegr_test.cpp",

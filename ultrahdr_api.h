@@ -23,10 +23,25 @@
 #ifndef ULTRAHDR_API_H
 #define ULTRAHDR_API_H
 
-#ifdef __cplusplus
-#define UHDR_EXTERN extern "C"
+#if defined(_WIN32) || defined(__CYGWIN__)
+#if defined(UHDR_BUILDING_SHARED_LIBRARY)
+#define UHDR_API __declspec(dllexport)
+#elif defined(UHDR_USING_SHARED_LIBRARY)
+#define UHDR_API __declspec(dllimport)
 #else
-#define UHDR_EXTERN extern
+#define UHDR_API
+#endif
+#elif defined(__GNUC__) && (__GNUC__ >= 4) && !defined(__APPLE__) && \
+    (defined(UHDR_BUILDING_SHARED_LIBRARY) || defined(UHDR_USING_SHARED_LIBRARY))
+#define UHDR_API __attribute__((visibility("default")))
+#else
+#define UHDR_API
+#endif
+
+#ifdef __cplusplus
+#define UHDR_EXTERN extern "C" UHDR_API
+#else
+#define UHDR_EXTERN extern UHDR_API
 #endif
 
 // ===============================================================================================
@@ -258,9 +273,9 @@ UHDR_EXTERN uhdr_error_info_t uhdr_enc_set_compressed_image(uhdr_codec_private_t
  * \return uhdr_error_info_t #UHDR_CODEC_OK if operation succeeds,
  *                           #UHDR_CODEC_INVALID_PARAM otherwise.
  */
-uhdr_error_info_t uhdr_enc_set_gainmap_image(uhdr_codec_private_t* enc,
-                                             uhdr_compressed_image_t* img,
-                                             uhdr_gainmap_metadata_t* metadata);
+UHDR_EXTERN uhdr_error_info_t uhdr_enc_set_gainmap_image(uhdr_codec_private_t* enc,
+                                                         uhdr_compressed_image_t* img,
+                                                         uhdr_gainmap_metadata_t* metadata);
 
 /*!\brief Set quality for compression
  *
