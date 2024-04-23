@@ -258,9 +258,9 @@ UHDR_EXTERN uhdr_error_info_t uhdr_enc_set_compressed_image(uhdr_codec_private_t
  * \return uhdr_error_info_t #UHDR_CODEC_OK if operation succeeds,
  *                           #UHDR_CODEC_INVALID_PARAM otherwise.
  */
-uhdr_error_info_t uhdr_enc_set_gainmap_image(uhdr_codec_private_t* enc,
-                                             uhdr_compressed_image_t* img,
-                                             uhdr_gainmap_metadata_t* metadata);
+UHDR_EXTERN uhdr_error_info_t uhdr_enc_set_gainmap_image(uhdr_codec_private_t* enc,
+                                                         uhdr_compressed_image_t* img,
+                                                         uhdr_gainmap_metadata_t* metadata);
 
 /*!\brief Set quality for compression
  *
