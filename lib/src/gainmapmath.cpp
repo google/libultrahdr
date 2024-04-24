@@ -501,7 +501,7 @@ Color yuvColorGamutConversion(Color e_gamma, const std::array<float, 9>& coeffs)
                   e_gamma.v * std::get<5>(coeffs);
   const float v = e_gamma.y * std::get<6>(coeffs) + e_gamma.u * std::get<7>(coeffs) +
                   e_gamma.v * std::get<8>(coeffs);
-  return {y, u, v};
+  return {{{y, u, v}}};
 }
 
 void transformYuv420(jr_uncompressed_ptr image, const std::array<float, 9>& coeffs) {
