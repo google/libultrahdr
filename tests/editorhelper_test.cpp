@@ -178,7 +178,7 @@ void compare_planes(void* ref_plane, void* test_plane, int ref_stride, int test_
   const size_t length = width * bpp;
 
   for (int i = 0; i < height; i++, ref += (ref_stride * bpp), test += (test_stride * bpp)) {
-    ASSERT_EQ(0, memcmp(ref, ref, length));
+    ASSERT_EQ(0, memcmp(ref, test, length));
   }
 }
 
@@ -264,7 +264,7 @@ TEST_P(EditorHelperTest, Mirror) {
   auto dst = apply_mirror(&mhorz, &img_a);
   dst = apply_mirror(&mvert, dst.get());
   dst = apply_mirror(&mhorz, dst.get());
-  dst = apply_mirror(&mhorz, dst.get());
+  dst = apply_mirror(&mvert, dst.get());
   ASSERT_NO_FATAL_FAILURE(compareImg(&img_a, dst.get()))
       << "failed for resolution " << width << " x " << height << " format: " << fmt;
 }
@@ -337,6 +337,7 @@ TEST_P(EditorHelperTest, MultipleEffects) {
   auto dst = apply_mirror(&mhorz, &img_a);
   dst = apply_rotate(&r180, dst.get());
   dst = apply_mirror(&mhorz, dst.get());
+  dst = apply_rotate(&r180, dst.get());
   ASSERT_NO_FATAL_FAILURE(compareImg(&img_a, dst.get())) << msg;
 
   dst = apply_mirror(&mhorz, dst.get());
@@ -380,7 +381,7 @@ TEST_P(EditorHelperTest, MultipleEffects) {
 
 INSTANTIATE_TEST_SUITE_P(
     EditorAPIParameterizedTests, EditorHelperTest,
-    ::testing::Combine(::testing::Values(INPUT_IMAGE), ::testing::Range(2, 64, 2),
+    ::testing::Combine(::testing::Values(INPUT_IMAGE), ::testing::Range(2, 80, 2),
                        ::testing::Values(64),
                        ::testing::Values(UHDR_IMG_FMT_24bppYCbCrP010, UHDR_IMG_FMT_12bppYCbCr420,
                                          UHDR_IMG_FMT_8bppYCbCr400, UHDR_IMG_FMT_32bppRGBA1010102,
