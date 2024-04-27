@@ -70,11 +70,16 @@ endif()
 # Options
 ###########################################################
 get_cmake_property(IS_MULTI GENERATOR_IS_MULTI_CONFIG)
-if (NOT IS_MULTI)
-  if (NOT CMAKE_BUILD_TYPE)
+if(NOT IS_MULTI)
+  if(NOT CMAKE_BUILD_TYPE)
     message(STATUS "No build type chosen, selecting Release")
     set(CMAKE_BUILD_TYPE "Release" CACHE STRING "The type of build: Debug Release MinSizeRel RelWithDebInfo." FORCE)
   endif()
+endif()
+
+if(NOT DEFINED BUILD_SHARED_LIBS)
+  message(STATUS "No target type chosen, selecting Shared")
+  option(BUILD_SHARED_LIBS "Build shared libraries" TRUE)
 endif()
 
 function(option_if_not_defined name description default)
@@ -89,28 +94,55 @@ option_if_not_defined(UHDR_BUILD_BENCHMARK "Build benchmark " FALSE)
 option_if_not_defined(UHDR_BUILD_FUZZERS "Build fuzzers " FALSE)
 option_if_not_defined(UHDR_BUILD_DEPS "Build deps and not use pre-installed packages " FALSE)
 option_if_not_defined(UHDR_ENABLE_LOGS "Build with verbose logging " FALSE)
-option_if_not_defined(UHDR_ENABLE_INSTALL "Add install target for ultrahdr package" TRUE)
+option_if_not_defined(UHDR_ENABLE_INSTALL "Add install and uninstall targets for libuhdr package" TRUE)
+
+# pre-requisites
+if(UHDR_BUILD_TESTS AND EMSCRIPTEN)
+  message(FATAL_ERROR "Building tests not supported in Web Assembly Path")
+endif()
 
 if(UHDR_BUILD_BENCHMARK AND WIN32)
-  message(FATAL_ERROR "Building benchmarks on current platform not supported")
+  message(FATAL_ERROR "Building benchmarks not supported in Windows")
+endif()
+
+if(UHDR_BUILD_BENCHMARK AND EMSCRIPTEN)
+  message(FATAL_ERROR "Building benchmarks not supported in Web Assembly Path")
 endif()
 
 # side effects
-if(UHDR_BUILD_FUZZERS OR UHDR_BUILD_DEPS)
-  set(UHDR_ENABLE_INSTALL FALSE) # during fuzz testing dont enable install/uninstall targets
-  set(UHDR_BUILD_DEPS TRUE) # for fuzz testing its best to build all dependencies from source.
-                            # This is to instrument dependencies libs as well
+if(NOT BUILD_SHARED_LIBS AND UHDR_ENABLE_INSTALL)
+  set(UHDR_ENABLE_INSTALL FALSE) # libjpeg dependency is correctly mentioned as Requires.private in libuhdr.pc
+                                 # `pkg-config --libs libuhdr` returns -L/usr/local/lib -luhdr
+                                 # `pkg-config --libs --static libuhdr` returns -L/usr/local/lib -luhdr -ljpeg
+                                 # Not many build systems pass `--static` argument to pkg-config
+                                 # So if pc file to work universally for static and shared libs its best to
+                                 # elevate libjpeg dependency from Requires.private to Requires.
+                                 # But, for now, disable install and uninstall targets if target type is static.
+  message(STATUS "Install and uninstall targets - Disabled")
 endif()
 
-if(UHDR_ENABLE_INSTALL)
-  set(UHDR_BUILD_FUZZERS FALSE) # dont instrument any code
-  set(UHDR_BUILD_DEPS FALSE) # use pre-builts for portability
-  set(UHDR_ENABLE_LOGS FALSE) # no verbose logs
+if(CMAKE_CROSSCOMPILING AND UHDR_ENABLE_INSTALL)
+  set(UHDR_ENABLE_INSTALL FALSE) # disable install and uninstall targets during cross compilation.
+  message(STATUS "Install and uninstall targets - Disabled")
 endif()
 
-if(EMSCRIPTEN)
-  set(UHDR_BUILD_DEPS TRUE) # not using -s USE_LIBJPEG=1, building it ourself
-  set(UHDR_ENABLE_INSTALL FALSE) # not providing install/uninstall targets in emscripten builds?
+if(UHDR_BUILD_FUZZERS AND NOT UHDR_BUILD_DEPS)
+  set(UHDR_BUILD_DEPS TRUE) # For fuzz testing its best to build all dependencies from source.
+                            # This is to instrument dependency libs as well.
+  message(STATUS "Building dependencies from source - Enabled")
+endif()
+
+if(DEFINED UHDR_SANITIZE_OPTIONS AND NOT UHDR_BUILD_DEPS)
+  set(UHDR_BUILD_DEPS TRUE) # If sanitize options are enabled, its best to build all dependencies from source.
+                            # This is to instrument dependency libs as well.
+  message(STATUS "Building dependencies from source - Enabled")
+endif()
+
+if(UHDR_BUILD_DEPS AND UHDR_ENABLE_INSTALL)
+  set(UHDR_ENABLE_INSTALL FALSE) # If dependencies are not chosen from installed packages but are built
+                                 # from source, its best to disallow system wide installation of
+                                 # uhdr to avoid possible abi/api conflicts.
+  message(STATUS "Install and uninstall targets - Disabled")
 endif()
 
 ###########################################################
@@ -119,13 +151,11 @@ endif()
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
-if(NOT EMSCRIPTEN)
+if(BUILD_SHARED_LIBS)
   set(CMAKE_POSITION_INDEPENDENT_CODE ON)
-endif()
-if (UHDR_ENABLE_INSTALL)
-  add_compile_options(-DUHDR_BUILDING_SHARED_LIBRARY)
   set(CMAKE_CXX_VISIBILITY_PRESET hidden)
   set(CMAKE_VISIBILITY_INLINES_HIDDEN YES)
+  add_compile_options(-DUHDR_BUILDING_SHARED_LIBRARY)
 endif()
 
 include(CheckCXXCompilerFlag)
@@ -138,13 +168,18 @@ function(CheckCompilerOption opt res)
   endif()
 endfunction(CheckCompilerOption)
 
+if(DEFINED UHDR_SANITIZE_OPTIONS)
+  CheckCompilerOption("-fsanitize=${UHDR_SANITIZE_OPTIONS}" SUPPORTS_SAN_OPTIONS)
+  add_compile_options(-fsanitize=${UHDR_SANITIZE_OPTIONS})
+  add_link_options(-fsanitize=${UHDR_SANITIZE_OPTIONS})
+endif()
+
+if(UHDR_BUILD_FUZZERS)
+  CheckCompilerOption("-fsanitize=fuzzer-no-link" fuzz)
+  add_compile_options(-fsanitize=fuzzer-no-link)
+endif()
+
 if(MSVC)
-  if(DEFINED UHDR_SANITIZE_OPTIONS)
-    message(FATAL_ERROR "Building with Sanitizer options not supported in MSVC path")
-  endif()
-  if(UHDR_BUILD_FUZZERS)
-    message(FATAL_ERROR "Building fuzzers not supported in MSVC path")
-  endif()
   add_definitions(-D_CRT_SECURE_NO_WARNINGS)
   # Disable specific warnings
   # TODO: None of these should be disabled, but for now, for a warning-free msvc build these are
@@ -155,20 +190,6 @@ if(MSVC)
   add_compile_options(/wd4838) # conversion from 'type1' to 'type2' requires a narrowing conversion
   add_compile_options(/wd26812) # Prefer enum class over enum
 elseif(EMSCRIPTEN)
-  if(UHDR_BUILD_TESTS)
-    message(FATAL_ERROR "Building tests not supported in Web Assembly Path")
-  endif()
-  if(UHDR_BUILD_BENCHMARK)
-    message(FATAL_ERROR "Building benchmark not supported in Web Assembly Path")
-  endif()
-  if(UHDR_BUILD_FUZZERS)
-    message(FATAL_ERROR "Building fuzzers not supported in Web Assembly Path")
-  endif()
-  if(DEFINED UHDR_SANITIZE_OPTIONS)
-    CheckCompilerOption("-fsanitize=${UHDR_SANITIZE_OPTIONS}" SUPPORTS_SAN_OPTIONS)
-    add_compile_options(-fsanitize=${UHDR_SANITIZE_OPTIONS})
-    add_link_options(-fsanitize=${UHDR_SANITIZE_OPTIONS})
-  endif()
 else()
   add_compile_options(-ffunction-sections)
   add_compile_options(-fdata-sections)
@@ -189,17 +210,6 @@ else()
     add_compile_options(-mfpu=vfpv3)
   elseif(ARCH STREQUAL "aarch64")
     add_compile_options(-march=armv8-a)
-  endif()
-
-  if(DEFINED UHDR_SANITIZE_OPTIONS)
-    CheckCompilerOption("-fsanitize=${UHDR_SANITIZE_OPTIONS}" SUPPORTS_SAN_OPTIONS)
-    add_compile_options(-fsanitize=${UHDR_SANITIZE_OPTIONS})
-    add_link_options(-fsanitize=${UHDR_SANITIZE_OPTIONS})
-  endif()
-
-  if(UHDR_BUILD_FUZZERS)
-    CheckCompilerOption("-fsanitize=fuzzer-no-link" fuzz)
-    add_compile_options(-fsanitize=fuzzer-no-link)
   endif()
 endif()
 
@@ -266,7 +276,9 @@ list(APPEND UHDR_CMAKE_ARGS -DCMAKE_CXX_FLAGS_DEBUG=${CMAKE_CXX_FLAGS_DEBUG})
 list(APPEND UHDR_CMAKE_ARGS -DCMAKE_CXX_FLAGS_RELEASE=${CMAKE_CXX_FLAGS_RELEASE})
 list(APPEND UHDR_CMAKE_ARGS -DCMAKE_CXX_FLAGS_MINSIZEREL=${CMAKE_CXX_FLAGS_MINSIZEREL})
 list(APPEND UHDR_CMAKE_ARGS -DCMAKE_CXX_FLAGS_RELWITHDEBINFO=${CMAKE_CXX_FLAGS_RELWITHDEBINFO})
-list(APPEND UHDR_CMAKE_ARGS -DCMAKE_POSITION_INDEPENDENT_CODE=ON)
+if(BUILD_SHARED_LIBS)
+  list(APPEND UHDR_CMAKE_ARGS -DCMAKE_POSITION_INDEPENDENT_CODE=ON)
+endif()
 if(MSVC AND UHDR_BUILD_TESTS)
   list(APPEND UHDR_CMAKE_ARGS "-Dgtest_force_shared_crt=ON")
 endif()
@@ -278,11 +290,11 @@ if(DEFINED UHDR_ANDROID_NDK_PATH)
 endif()
 
 # libjpeg-turbo
-if(UHDR_ENABLE_INSTALL)
-  find_package(JPEG REQUIRED)
-else()
-  if(NOT UHDR_BUILD_DEPS)
-    find_package(JPEG)
+if(NOT UHDR_BUILD_DEPS)
+  find_package(JPEG QUIET)
+  if(NOT JPEG_FOUND)
+    message(FATAL_ERROR "Could NOT find JPEG (missing: JPEG_LIBRARIES JPEG_INCLUDE_DIRS),\
+                         retry after installing JPEG library at sysroot or try 'cmake -DUHDR_BUILD_DEPS=1'")
   endif()
 endif()
 
@@ -538,14 +550,14 @@ if(UHDR_BUILD_FUZZERS)
   target_link_libraries(ultrahdr_dec_fuzzer ${UHDR_CORE_LIB_NAME})
 endif()
 
-if(UHDR_ENABLE_INSTALL)
-  set(UHDR_TARGET_NAME uhdr)
-  add_library(${UHDR_TARGET_NAME} SHARED)
-  add_dependencies(${UHDR_TARGET_NAME} ${UHDR_CORE_LIB_NAME})
-  target_link_libraries(${UHDR_TARGET_NAME} PRIVATE ${JPEG_LIBRARIES})
-  set_target_properties(${UHDR_TARGET_NAME} PROPERTIES PUBLIC_HEADER ultrahdr_api.h)
-  combine_static_libs(${UHDR_CORE_LIB_NAME} ${UHDR_TARGET_NAME})
+set(UHDR_TARGET_NAME uhdr)
+add_library(${UHDR_TARGET_NAME})
+add_dependencies(${UHDR_TARGET_NAME} ${UHDR_CORE_LIB_NAME})
+target_link_libraries(${UHDR_TARGET_NAME} PRIVATE ${JPEG_LIBRARIES})
+set_target_properties(${UHDR_TARGET_NAME} PROPERTIES PUBLIC_HEADER ultrahdr_api.h)
+combine_static_libs(${UHDR_CORE_LIB_NAME} ${UHDR_TARGET_NAME})
 
+if(UHDR_ENABLE_INSTALL)
   if(NOT(WIN32 OR XCODE))
     include(GNUInstallDirs)
 
@@ -555,8 +567,18 @@ if(UHDR_ENABLE_INSTALL)
     install(FILES "${CMAKE_CURRENT_BINARY_DIR}/libuhdr.pc"
             DESTINATION "${CMAKE_INSTALL_LIBDIR}/pkgconfig")
     install(TARGETS ${UHDR_TARGET_NAME}
-            DESTINATION "${CMAKE_INSTALL_LIBDIR}"
+            RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}"
+            LIBRARY DESTINATION "${CMAKE_INSTALL_LIBDIR}"
+            ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}"
             PUBLIC_HEADER DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}")
+    if(BUILD_SHARED_LIBS)
+      if(UNIX AND NOT APPLE)
+        install(CODE "message(STATUS \"You may need to add path \"
+                                     \"${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}/ \"
+                                     \"to LD_LIBRARY_PATH if binaries are unable to load uhdr library \n\"
+                                     \"e.g. export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}/ \")")
+      endif()
+    endif()
 
     add_custom_target(uninstall)
     add_custom_command(TARGET uninstall

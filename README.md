@@ -60,8 +60,6 @@ This will generate the following files under `build_directory`:
 `make install` will install libuhdr.so, ultrahdr_api.h, libuhdr.pc for system-wide usage and
 `make uninstall` will remove the same.
 
-NOTE: you may need to run `ldconfig` after install/uninstall
-
 ### MinGW
 
 NOTE: This assumes that you are building on a Windows machine using the MSYS
@@ -142,7 +140,7 @@ libultrahdr includes two classes of APIs, one to compress and the other to decom
 
 | Scenario  | Hdr intent raw | Sdr intent raw | Sdr intent compressed | Gain map compressed | Quality |   Exif   | Use Case |
 |:---------:| :----------: | :----------: | :---------------------: | :-------------------: | :-------: | :---------: | :-------- |
-| API - 0 | P010 |    No   |  No  |  No  | Optional| Optional | Used if, only hdr raw intent is present. (Experimental).[^1] |
+| API - 0 | P010 |    No   |  No  |  No  | Optional| Optional | Used if, only hdr raw intent is present. [^1] |
 | API - 1 | P010 | YUV420  |  No  |  No  | Optional| Optional | Used if, hdr raw and sdr raw intents are present.[^2] |
 | API - 2 | P010 | YUV420  | Yes  |  No  |    No   |    No    | Used if, hdr raw, sdr raw and sdr compressed intents are present.[^3] |
 | API - 3 | P010 |    No   | Yes  |  No  |    No   |    No    | Used if, hdr raw and sdr compressed intents are present.[^4] |
