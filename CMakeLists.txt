@@ -572,7 +572,12 @@ if(UHDR_ENABLE_INSTALL)
             ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}"
             PUBLIC_HEADER DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}")
     if(BUILD_SHARED_LIBS)
-      if(UNIX AND NOT APPLE)
+      if(APPLE)
+        install(CODE "message(STATUS \"You may need to add path \"
+                                     \"${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}/ \"
+                                     \"to DYLD_FALLBACK_LIBRARY_PATH if binaries are unable to load uhdr library \n\"
+                                     \"e.g. export DYLD_FALLBACK_LIBRARY_PATH=$DYLD_FALLBACK_LIBRARY_PATH:${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}/ \")")
+      elseif(UNIX)
         install(CODE "message(STATUS \"You may need to add path \"
                                      \"${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}/ \"
                                      \"to LD_LIBRARY_PATH if binaries are unable to load uhdr library \n\"
