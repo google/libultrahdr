@@ -1210,16 +1210,27 @@ static void usage(const char* name) {
   fprintf(stderr, "\n## encode api-0 :\n");
   fprintf(stderr,
           "    ultrahdr_app -m 0 -p cosmat_1920x1080_p010.yuv -w 1920 -h 1080 -q 97 -a 0\n");
+  fprintf(stderr,
+          "    ultrahdr_app -m 0 -p cosmat_1920x1080_rgba1010102.raw -w 1920 -h 1080 -q 97 -a 5\n");
   fprintf(
       stderr,
       "    ultrahdr_app -m 0 -p cosmat_1920x1080_p010.yuv -w 1920 -h 1080 -q 97 -C 1 -t 2 -a 0\n");
+  fprintf(stderr,
+          "    ultrahdr_app -m 0 -p cosmat_1920x1080_rgba1010102.raw -w 1920 -h 1080 -q 97 -C 1 "
+          "-t 2 -a 5\n");
   fprintf(stderr, "\n## encode api-1 :\n");
   fprintf(stderr,
           "    ultrahdr_app -m 0 -p cosmat_1920x1080_p010.yuv -y cosmat_1920x1080_420.yuv -w 1920 "
           "-h 1080 -q 97 -a 0 -b 1\n");
   fprintf(stderr,
+          "    ultrahdr_app -m 0 -p cosmat_1920x1080_rgba1010102.raw "
+          "-y cosmat_1920x1080_rgba8888.raw -w 1920 -h 1080 -q 97 -a 5 -b 3\n");
+  fprintf(stderr,
           "    ultrahdr_app -m 0 -p cosmat_1920x1080_p010.yuv -y cosmat_1920x1080_420.yuv -w 1920 "
           "-h 1080 -q 97 -C 2 -c 1 -t 1 -a 0 -b 1\n");
+  fprintf(stderr,
+          "    ultrahdr_app -m 0 -p cosmat_1920x1080_rgba1010102.raw "
+          "-y cosmat_1920x1080_rgba8888.raw -w 1920 -h 1080 -q 97 -C 2 -c 1 -t 1 -a 5 -b 3\n");
   fprintf(stderr,
           "    ultrahdr_app -m 0 -p cosmat_1920x1080_p010.yuv -y cosmat_1920x1080_420.yuv -w 1920 "
           "-h 1080 -q 97 -C 2 -c 1 -t 1 -e 1 -a 0 -b 1\n");
@@ -1227,10 +1238,16 @@ static void usage(const char* name) {
   fprintf(stderr,
           "    ultrahdr_app -m 0 -p cosmat_1920x1080_p010.yuv -y cosmat_1920x1080_420.yuv -i "
           "cosmat_1920x1080_420_8bit.jpg -w 1920 -h 1080 -t 1 -o 3 -O 3 -e 1 -a 0 -b 1\n");
+  fprintf(stderr,
+          "    ultrahdr_app -m 0 -p cosmat_1920x1080_rgba1010102.raw -y cosmat_1920x1080_420.yuv "
+          "-i cosmat_1920x1080_420_8bit.jpg -w 1920 -h 1080 -t 1 -o 3 -O 3 -e 1 -a 5 -b 1\n");
   fprintf(stderr, "\n## encode api-3 :\n");
   fprintf(stderr,
           "    ultrahdr_app -m 0 -p cosmat_1920x1080_p010.yuv -i cosmat_1920x1080_420_8bit.jpg -w "
           "1920 -h 1080 -t 1 -o 1 -O 5 -e 1 -a 0\n");
+  fprintf(stderr,
+          "    ultrahdr_app -m 0 -p cosmat_1920x1080_rgba1010102.raw "
+          "-i cosmat_1920x1080_420_8bit.jpg -w 1920 -h 1080 -t 1 -o 1 -O 5 -e 1 -a 5\n");
   fprintf(stderr, "\n## encode api-4 :\n");
   fprintf(stderr,
           "    ultrahdr_app -m 0 -i cosmat_1920x1080_420_8bit.jpg -g cosmat_1920x1080_420_8bit.jpg "
