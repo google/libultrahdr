@@ -40,6 +40,7 @@ cc_library {
         "lib/include",
     ],
     local_include_dirs: ["lib/include"],
+    cflags: ["-DUHDR_ENABLE_INTRINSICS"],
 
     srcs: [
         "lib/src/icc.cpp",
@@ -59,6 +60,15 @@ cc_library {
         "liblog",
     ],
     rtti: true,
+
+    arch: {
+        arm: {
+            srcs: ["lib/src/dsp/arm/editorhelper_neon.cpp",],
+        },
+        arm64: {
+            srcs: ["lib/src/dsp/arm/editorhelper_neon.cpp",],
+        },
+    },
 }
 
 cc_library {
