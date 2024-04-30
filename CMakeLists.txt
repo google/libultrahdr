@@ -295,6 +295,8 @@ if(NOT UHDR_BUILD_DEPS)
   if(NOT JPEG_FOUND)
     message(FATAL_ERROR "Could NOT find JPEG (missing: JPEG_LIBRARIES JPEG_INCLUDE_DIRS),\
                          retry after installing JPEG library at sysroot or try 'cmake -DUHDR_BUILD_DEPS=1'")
+  else()
+    message(STATUS "Found JPEG: ${JPEG_LIBRARIES} (found version \"${JPEG_VERSION}\")")
   endif()
 endif()
 
@@ -558,11 +560,11 @@ set_target_properties(${UHDR_TARGET_NAME} PROPERTIES PUBLIC_HEADER ultrahdr_api.
 combine_static_libs(${UHDR_CORE_LIB_NAME} ${UHDR_TARGET_NAME})
 
 if(UHDR_ENABLE_INSTALL)
-  if(NOT(WIN32 OR XCODE))
+  if(NOT(MSVC OR XCODE))
     include(GNUInstallDirs)
 
     # pkg-config: libuhdr.pc
-    configure_file("${CMAKE_CURRENT_SOURCE_DIR}/libuhdr.pc.template"
+    configure_file("${CMAKE_CURRENT_SOURCE_DIR}/cmake/libuhdr.pc.in"
                    "${CMAKE_CURRENT_BINARY_DIR}/libuhdr.pc" @ONLY NEWLINE_STYLE UNIX)
     install(FILES "${CMAKE_CURRENT_BINARY_DIR}/libuhdr.pc"
             DESTINATION "${CMAKE_INSTALL_LIBDIR}/pkgconfig")
@@ -585,9 +587,9 @@ if(UHDR_ENABLE_INSTALL)
       endif()
     endif()
 
-    add_custom_target(uninstall)
-    add_custom_command(TARGET uninstall
-      POST_BUILD
-      COMMAND xargs rm -vf < install_manifest.txt)
+    configure_file("${CMAKE_CURRENT_SOURCE_DIR}/cmake/cmake_uninstall.cmake.in"
+                   "${CMAKE_CURRENT_BINARY_DIR}/cmake_uninstall.cmake" IMMEDIATE @ONLY)
+    add_custom_target(uninstall
+      COMMAND ${CMAKE_COMMAND} -P ${CMAKE_CURRENT_BINARY_DIR}/cmake_uninstall.cmake)
   endif()
 endif()
