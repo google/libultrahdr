@@ -95,6 +95,7 @@ option_if_not_defined(UHDR_BUILD_FUZZERS "Build fuzzers " FALSE)
 option_if_not_defined(UHDR_BUILD_DEPS "Build deps and not use pre-installed packages " FALSE)
 option_if_not_defined(UHDR_ENABLE_LOGS "Build with verbose logging " FALSE)
 option_if_not_defined(UHDR_ENABLE_INSTALL "Add install and uninstall targets for libuhdr package" TRUE)
+option_if_not_defined(UHDR_ENABLE_INTRINSICS "Build with intrinsics " TRUE)
 
 # pre-requisites
 if(UHDR_BUILD_TESTS AND EMSCRIPTEN)
@@ -157,6 +158,12 @@ if(BUILD_SHARED_LIBS)
   set(CMAKE_VISIBILITY_INLINES_HIDDEN YES)
   add_compile_options(-DUHDR_BUILDING_SHARED_LIBRARY)
 endif()
+if(UHDR_ENABLE_LOGS)
+  add_compile_options(-DLOG_NDEBUG)
+endif()
+if(UHDR_ENABLE_INTRINSICS)
+  add_compile_options(-DUHDR_ENABLE_INTRINSICS)
+endif()
 
 include(CheckCXXCompilerFlag)
 function(CheckCompilerOption opt res)
@@ -211,10 +218,6 @@ else()
   elseif(ARCH STREQUAL "aarch64")
     add_compile_options(-march=armv8-a)
   endif()
-endif()
-
-if(UHDR_ENABLE_LOGS)
-  add_compile_options(-DLOG_NDEBUG)
 endif()
 
 ###########################################################
@@ -410,6 +413,12 @@ set_property(DIRECTORY PROPERTY ADDITIONAL_MAKE_CLEAN_FILES
 # File Lists
 ###########################################################
 file(GLOB UHDR_CORE_SRCS_LIST "${SOURCE_DIR}/src/*.cpp")
+if(UHDR_ENABLE_INTRINSICS)
+  if(ARCH STREQUAL "arm" OR ARCH STREQUAL "aarch64")
+    file(GLOB UHDR_CORE_NEON_SRCS_LIST "${SOURCE_DIR}/src/dsp/arm/*.cpp")
+    list(APPEND UHDR_CORE_SRCS_LIST ${UHDR_CORE_NEON_SRCS_LIST})
+  endif()
+endif()
 file(GLOB UHDR_TEST_SRCS_LIST "${TESTS_DIR}/*.cpp")
 file(GLOB UHDR_BM_SRCS_LIST "${BENCHMARK_DIR}/*.cpp")
 file(GLOB IMAGE_IO_SRCS_LIST "${THIRD_PARTY_DIR}/image_io/src/**/*.cc")

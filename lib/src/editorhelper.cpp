@@ -151,17 +151,31 @@ template void resize_buffer<uint32_t>(uint32_t*, uint32_t*, int, int, int, int, 
 template void resize_buffer<uint64_t>(uint64_t*, uint64_t*, int, int, int, int, int, int);
 
 uhdr_mirror_effect::uhdr_mirror_effect(uhdr_mirror_direction_t direction) : m_direction{direction} {
+#if (defined(UHDR_ENABLE_INTRINSICS) && (defined(__ARM_NEON__) || defined(__ARM_NEON)))
+  m_mirror_uint8_t = mirror_buffer_neon<uint8_t>;
+  m_mirror_uint16_t = mirror_buffer_neon<uint16_t>;
+  m_mirror_uint32_t = mirror_buffer_neon<uint32_t>;
+  m_mirror_uint64_t = mirror_buffer_neon<uint64_t>;
+#else
   m_mirror_uint8_t = mirror_buffer<uint8_t>;
   m_mirror_uint16_t = mirror_buffer<uint16_t>;
   m_mirror_uint32_t = mirror_buffer<uint32_t>;
   m_mirror_uint64_t = mirror_buffer<uint64_t>;
+#endif
 }
 
 uhdr_rotate_effect::uhdr_rotate_effect(int degree) : m_degree{degree} {
+#if (defined(UHDR_ENABLE_INTRINSICS) && (defined(__ARM_NEON__) || defined(__ARM_NEON)))
+  m_rotate_uint8_t = rotate_buffer_clockwise_neon<uint8_t>;
+  m_rotate_uint16_t = rotate_buffer_clockwise_neon<uint16_t>;
+  m_rotate_uint32_t = rotate_buffer_clockwise_neon<uint32_t>;
+  m_rotate_uint64_t = rotate_buffer_clockwise_neon<uint64_t>;
+#else
   m_rotate_uint8_t = rotate_buffer_clockwise<uint8_t>;
   m_rotate_uint16_t = rotate_buffer_clockwise<uint16_t>;
   m_rotate_uint32_t = rotate_buffer_clockwise<uint32_t>;
   m_rotate_uint64_t = rotate_buffer_clockwise<uint64_t>;
+#endif
 }
 
 uhdr_resize_effect::uhdr_resize_effect(int width, int height) : m_width{width}, m_height{height} {

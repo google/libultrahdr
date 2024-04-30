@@ -116,6 +116,16 @@ template <typename T>
 extern void resize_buffer(T* src_buffer, T* dst_buffer, int src_w, int src_h, int dst_w, int dst_h,
                           int src_stride, int dst_stride);
 
+#if (defined(UHDR_ENABLE_INTRINSICS) && (defined(__ARM_NEON__) || defined(__ARM_NEON)))
+template <typename T>
+extern void mirror_buffer_neon(T* src_buffer, T* dst_buffer, int src_w, int src_h, int src_stride,
+                               int dst_stride, uhdr_mirror_direction_t direction);
+
+template <typename T>
+extern void rotate_buffer_clockwise_neon(T* src_buffer, T* dst_buffer, int src_w, int src_h,
+                                         int src_stride, int dst_stride, int degrees);
+#endif
+
 std::unique_ptr<uhdr_raw_image_ext_t> apply_rotate(ultrahdr::uhdr_rotate_effect_t* desc,
                                                    uhdr_raw_image_t* src);
 
