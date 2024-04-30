@@ -31,7 +31,7 @@
 #else
 #define UHDR_API
 #endif
-#elif defined(__GNUC__) && (__GNUC__ >= 4) && !defined(__APPLE__) && \
+#elif defined(__GNUC__) && (__GNUC__ >= 4) && \
     (defined(UHDR_BUILDING_SHARED_LIBRARY) || defined(UHDR_USING_SHARED_LIBRARY))
 #define UHDR_API __attribute__((visibility("default")))
 #else
