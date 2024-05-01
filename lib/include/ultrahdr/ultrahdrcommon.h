@@ -119,6 +119,14 @@
 
 #define ALIGNM(x, m) ((((x) + ((m)-1)) / (m)) * (m))
 
+#if defined(_MSC_VER)
+#define FORCE_INLINE __forceinline
+#define INLINE __inline
+#else
+#define FORCE_INLINE __inline__ __attribute__((always_inline))
+#define INLINE inline
+#endif
+
 namespace ultrahdr {
 
 // ===============================================================================================
