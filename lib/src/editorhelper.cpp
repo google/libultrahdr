@@ -219,7 +219,7 @@ std::unique_ptr<uhdr_raw_image_ext_t> apply_rotate(ultrahdr::uhdr_rotate_effect_
     desc->m_rotate_uint64_t(src_buffer, dst_buffer, src->w, src->h, src->stride[UHDR_PLANE_PACKED],
                             dst->stride[UHDR_PLANE_PACKED], desc->m_degree);
   }
-  return std::move(dst);
+  return dst;
 }
 
 std::unique_ptr<uhdr_raw_image_ext_t> apply_mirror(ultrahdr::uhdr_mirror_effect_t* desc,
@@ -261,7 +261,7 @@ std::unique_ptr<uhdr_raw_image_ext_t> apply_mirror(ultrahdr::uhdr_mirror_effect_
     desc->m_mirror_uint64_t(src_buffer, dst_buffer, src->w, src->h, src->stride[UHDR_PLANE_PACKED],
                             dst->stride[UHDR_PLANE_PACKED], desc->m_direction);
   }
-  return std::move(dst);
+  return dst;
 }
 
 void apply_crop(uhdr_raw_image_t* src, int left, int top, int wd, int ht) {
@@ -329,7 +329,7 @@ std::unique_ptr<uhdr_raw_image_ext_t> apply_resize(ultrahdr::uhdr_resize_effect_
     desc->m_resize_uint64_t(src_buffer, dst_buffer, src->w, src->h, dst->w, dst->h,
                             src->stride[UHDR_PLANE_PACKED], dst->stride[UHDR_PLANE_PACKED]);
   }
-  return std::move(dst);
+  return dst;
 }
 
 }  // namespace ultrahdr
