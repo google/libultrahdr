@@ -779,9 +779,8 @@ uhdr_error_info_t uhdr_encode(uhdr_codec_private_t* enc) {
       metadata.hdrCapacityMax = handle->m_metadata.hdr_capacity_max;
 
       size_t size = (std::max)((8 * 1024), 2 * (primary_image.length + gainmap_image.length));
-      handle->m_compressed_output_buffer =
-          std::move(std::make_unique<ultrahdr::uhdr_compressed_image_ext_t>(
-              UHDR_CG_UNSPECIFIED, UHDR_CT_UNSPECIFIED, UHDR_CR_UNSPECIFIED, size));
+      handle->m_compressed_output_buffer = std::make_unique<ultrahdr::uhdr_compressed_image_ext_t>(
+          UHDR_CG_UNSPECIFIED, UHDR_CT_UNSPECIFIED, UHDR_CR_UNSPECIFIED, size);
 
       dest.data = handle->m_compressed_output_buffer->data;
       dest.length = 0;
@@ -795,9 +794,8 @@ uhdr_error_info_t uhdr_encode(uhdr_codec_private_t* enc) {
       auto& hdr_raw_entry = handle->m_raw_images.find(UHDR_HDR_IMG)->second;
 
       size_t size = (std::max)((8u * 1024), hdr_raw_entry->w * hdr_raw_entry->h * 3 * 2);
-      handle->m_compressed_output_buffer =
-          std::move(std::make_unique<ultrahdr::uhdr_compressed_image_ext_t>(
-              UHDR_CG_UNSPECIFIED, UHDR_CT_UNSPECIFIED, UHDR_CR_UNSPECIFIED, size));
+      handle->m_compressed_output_buffer = std::make_unique<ultrahdr::uhdr_compressed_image_ext_t>(
+          UHDR_CG_UNSPECIFIED, UHDR_CT_UNSPECIFIED, UHDR_CR_UNSPECIFIED, size);
 
       dest.data = handle->m_compressed_output_buffer->data;
       dest.length = 0;

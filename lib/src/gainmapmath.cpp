@@ -934,7 +934,7 @@ std::unique_ptr<uhdr_raw_image_ext_t> convert_raw_input_to_ycbcr(uhdr_raw_image_
       uv_src += (src->stride[UHDR_PLANE_UV] * bpp);
     }
   }
-  return std::move(dst);
+  return dst;
 }
 
 }  // namespace ultrahdr
