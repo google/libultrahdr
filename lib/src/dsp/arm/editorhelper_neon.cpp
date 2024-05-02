@@ -522,6 +522,13 @@ static INLINE void rotate90_u64_2x2(uint64x2_t* a0, uint64x2_t* a1) {
   *a1 = b1;
 }
 
+static INLINE void rotate270_u64_2x2(uint64x2_t* a0, uint64x2_t* a1) {
+  uint64x2_t b0 = vcombine_u64(vget_low_u64(*a0), vget_low_u64(*a1));
+  uint64x2_t b1 = vcombine_u64(vget_high_u64(*a0), vget_high_u64(*a1));
+  *a0 = b1;
+  *a1 = b0;
+}
+
 static INLINE void load_u8_8x8(const uint8_t* s, const int stride, uint8x8_t* s0, uint8x8_t* s1,
                                uint8x8_t* s2, uint8x8_t* s3, uint8x8_t* s4, uint8x8_t* s5,
                                uint8x8_t* s6, uint8x8_t* s7) {
@@ -792,6 +799,158 @@ static void rotate_buffer_clockwise_90_neon_uint64_t(uint64_t* src_buffer, uint6
   }
 }
 
+static void rotate_buffer_clockwise_270_neon_uint8_t(uint8_t* src_buffer, uint8_t* dst_buffer,
+                                                     int src_w, int src_h, int src_stride,
+                                                     int dst_stride) {
+  const int blk_wd = 8;
+
+  if (src_h < blk_wd || src_w < blk_wd) {
+    rotate_buffer_clockwise(src_buffer, dst_buffer, src_w, src_h, src_stride, dst_stride, 270);
+    return;
+  }
+
+  int sub_img_w = (src_w / blk_wd) * blk_wd;
+  uint8x8_t s[blk_wd];
+  int i = 0;
+
+  while (1) {
+    uint8_t* dst_blk = dst_buffer + i + (src_w - blk_wd) * dst_stride;
+    uint8_t* src_blk = src_buffer + (i * src_stride);
+    int j;
+
+    for (j = 0; j < sub_img_w; j += blk_wd, src_blk += blk_wd, dst_blk -= (blk_wd * dst_stride)) {
+      load_u8_8x8(src_blk, src_stride, &s[0], &s[1], &s[2], &s[3], &s[4], &s[5], &s[6], &s[7]);
+      transpose_u8_8x8(&s[0], &s[1], &s[2], &s[3], &s[4], &s[5], &s[6], &s[7]);
+      store_u8_8x8(dst_blk, dst_stride, s[7], s[6], s[5], s[4], s[3], s[2], s[1], s[0]);
+    }
+    if (sub_img_w < src_w) {
+      dst_blk += (blk_wd - 1) * dst_stride;
+      for (int k = 0; k < blk_wd; k++) {
+        for (int l = 0; l < (src_w - sub_img_w); l++) {
+          dst_blk[-l * dst_stride + k] = src_blk[k * src_stride + l];
+        }
+      }
+    }
+    i += blk_wd;
+    if (i == src_h) break;
+    if (i + blk_wd > src_h) i = src_h - blk_wd;
+  }
+}
+
+static void rotate_buffer_clockwise_270_neon_uint16_t(uint16_t* src_buffer, uint16_t* dst_buffer,
+                                                      int src_w, int src_h, int src_stride,
+                                                      int dst_stride) {
+  const int blk_wd = 8;
+
+  if (src_h < blk_wd || src_w < blk_wd) {
+    rotate_buffer_clockwise(src_buffer, dst_buffer, src_w, src_h, src_stride, dst_stride, 270);
+    return;
+  }
+
+  int sub_img_w = (src_w / blk_wd) * blk_wd;
+  uint16x8_t s[blk_wd];
+  int i = 0;
+
+  while (1) {
+    uint16_t* dst_blk = dst_buffer + i + (src_w - blk_wd) * dst_stride;
+    uint16_t* src_blk = src_buffer + (i * src_stride);
+    int j;
+
+    for (j = 0; j < sub_img_w; j += blk_wd, src_blk += blk_wd, dst_blk -= (blk_wd * dst_stride)) {
+      load_u16_8x8(src_blk, src_stride, &s[0], &s[1], &s[2], &s[3], &s[4], &s[5], &s[6], &s[7]);
+      transpose_u16_8x8(&s[0], &s[1], &s[2], &s[3], &s[4], &s[5], &s[6], &s[7]);
+      store_u16_8x8(dst_blk, dst_stride, s[7], s[6], s[5], s[4], s[3], s[2], s[1], s[0]);
+    }
+    if (sub_img_w < src_w) {
+      dst_blk += (blk_wd - 1) * dst_stride;
+      for (int k = 0; k < blk_wd; k++) {
+        for (int l = 0; l < (src_w - sub_img_w); l++) {
+          dst_blk[-l * dst_stride + k] = src_blk[k * src_stride + l];
+        }
+      }
+    }
+    i += blk_wd;
+    if (i == src_h) break;
+    if (i + blk_wd > src_h) i = src_h - blk_wd;
+  }
+}
+
+static void rotate_buffer_clockwise_270_neon_uint32_t(uint32_t* src_buffer, uint32_t* dst_buffer,
+                                                      int src_w, int src_h, int src_stride,
+                                                      int dst_stride) {
+  const int blk_wd = 4;
+
+  if (src_h < blk_wd || src_w < blk_wd) {
+    rotate_buffer_clockwise(src_buffer, dst_buffer, src_w, src_h, src_stride, dst_stride, 270);
+    return;
+  }
+
+  int sub_img_w = (src_w / blk_wd) * blk_wd;
+  uint32x4_t s[blk_wd];
+  int i = 0;
+
+  while (1) {
+    uint32_t* dst_blk = dst_buffer + i + (src_w - blk_wd) * dst_stride;
+    uint32_t* src_blk = src_buffer + (i * src_stride);
+    int j;
+
+    for (j = 0; j < sub_img_w; j += blk_wd, src_blk += blk_wd, dst_blk -= (blk_wd * dst_stride)) {
+      load_u32_4x4(src_blk, src_stride, &s[0], &s[1], &s[2], &s[3]);
+      transpose_u32_4x4(&s[0], &s[1], &s[2], &s[3]);
+      store_u32_4x4(dst_blk, dst_stride, s[3], s[2], s[1], s[0]);
+    }
+    if (sub_img_w < src_w) {
+      dst_blk += (blk_wd - 1) * dst_stride;
+      for (int k = 0; k < blk_wd; k++) {
+        for (int l = 0; l < (src_w - sub_img_w); l++) {
+          dst_blk[-l * dst_stride + k] = src_blk[k * src_stride + l];
+        }
+      }
+    }
+    i += blk_wd;
+    if (i == src_h) break;
+    if (i + blk_wd > src_h) i = src_h - blk_wd;
+  }
+}
+
+static void rotate_buffer_clockwise_270_neon_uint64_t(uint64_t* src_buffer, uint64_t* dst_buffer,
+                                                      int src_w, int src_h, int src_stride,
+                                                      int dst_stride) {
+  const int blk_wd = 2;
+
+  if (src_h < blk_wd || src_w < blk_wd) {
+    rotate_buffer_clockwise(src_buffer, dst_buffer, src_w, src_h, src_stride, dst_stride, 270);
+    return;
+  }
+
+  int sub_img_w = (src_w / blk_wd) * blk_wd;
+  uint64x2_t s[blk_wd];
+  int i = 0;
+
+  while (1) {
+    uint64_t* dst_blk = dst_buffer + i + (src_w - blk_wd) * dst_stride;
+    uint64_t* src_blk = src_buffer + (i * src_stride);
+    int j;
+
+    for (j = 0; j < sub_img_w; j += blk_wd, src_blk += blk_wd, dst_blk -= (blk_wd * dst_stride)) {
+      load_u64_2x2(src_blk, src_stride, &s[0], &s[1]);
+      rotate270_u64_2x2(&s[0], &s[1]);
+      store_u64_2x2(dst_blk, dst_stride, s[0], s[1]);
+    }
+    if (sub_img_w < src_w) {
+      dst_blk += (blk_wd - 1) * dst_stride;
+      for (int k = 0; k < blk_wd; k++) {
+        for (int l = 0; l < (src_w - sub_img_w); l++) {
+          dst_blk[-l * dst_stride + k] = src_blk[k * src_stride + l];
+        }
+      }
+    }
+    i += blk_wd;
+    if (i == src_h) break;
+    if (i + blk_wd > src_h) i = src_h - blk_wd;
+  }
+}
+
 template <typename T>
 void mirror_buffer_neon(T* src_buffer, T* dst_buffer, int src_w, int src_h, int src_stride,
                         int dst_stride, uhdr_mirror_direction_t direction) {
@@ -864,6 +1023,24 @@ void rotate_buffer_clockwise_90_neon(T* src_buffer, T* dst_buffer, int src_w, in
 }
 
 template <typename T>
+void rotate_buffer_clockwise_270_neon(T* src_buffer, T* dst_buffer, int src_w, int src_h,
+                                      int src_stride, int dst_stride) {
+  if constexpr (sizeof(T) == 1) {
+    rotate_buffer_clockwise_270_neon_uint8_t(src_buffer, dst_buffer, src_w, src_h, src_stride,
+                                             dst_stride);
+  } else if constexpr (sizeof(T) == 2) {
+    rotate_buffer_clockwise_270_neon_uint16_t(src_buffer, dst_buffer, src_w, src_h, src_stride,
+                                              dst_stride);
+  } else if constexpr (sizeof(T) == 4) {
+    rotate_buffer_clockwise_270_neon_uint32_t(src_buffer, dst_buffer, src_w, src_h, src_stride,
+                                              dst_stride);
+  } else if constexpr (sizeof(T) == 8) {
+    rotate_buffer_clockwise_270_neon_uint64_t(src_buffer, dst_buffer, src_w, src_h, src_stride,
+                                              dst_stride);
+  }
+}
+
+template <typename T>
 void rotate_buffer_clockwise_neon(T* src_buffer, T* dst_buffer, int src_w, int src_h,
                                   int src_stride, int dst_stride, int degrees) {
   if (degrees == 90) {
@@ -871,7 +1048,7 @@ void rotate_buffer_clockwise_neon(T* src_buffer, T* dst_buffer, int src_w, int s
   } else if (degrees == 180) {
     rotate_buffer_clockwise_180_neon(src_buffer, dst_buffer, src_w, src_h, src_stride, dst_stride);
   } else if (degrees == 270) {
-    rotate_buffer_clockwise(src_buffer, dst_buffer, src_w, src_h, src_stride, dst_stride, 270);
+    rotate_buffer_clockwise_270_neon(src_buffer, dst_buffer, src_w, src_h, src_stride, dst_stride);
   }
 }
 
