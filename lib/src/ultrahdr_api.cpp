@@ -33,37 +33,37 @@ uhdr_memory_block::uhdr_memory_block(size_t capacity) {
   m_capacity = capacity;
 }
 
-uhdr_raw_image_ext::uhdr_raw_image_ext(uhdr_img_fmt_t fmt, uhdr_color_gamut_t cg,
-                                       uhdr_color_transfer_t ct, uhdr_color_range_t range,
-                                       unsigned w, unsigned h, unsigned align_stride_to) {
-  this->fmt = fmt;
-  this->cg = cg;
-  this->ct = ct;
-  this->range = range;
+uhdr_raw_image_ext::uhdr_raw_image_ext(uhdr_img_fmt_t fmt_, uhdr_color_gamut_t cg_,
+                                       uhdr_color_transfer_t ct_, uhdr_color_range_t range_,
+                                       unsigned w_, unsigned h_, unsigned align_stride_to) {
+  this->fmt = fmt_;
+  this->cg = cg_;
+  this->ct = ct_;
+  this->range = range_;
 
-  this->w = w;
-  this->h = h;
+  this->w = w_;
+  this->h = h_;
 
-  int aligned_width = ALIGNM(w, align_stride_to);
+  int aligned_width = ALIGNM(w_, align_stride_to);
 
   int bpp = 1;
-  if (fmt == UHDR_IMG_FMT_24bppYCbCrP010) {
+  if (fmt_ == UHDR_IMG_FMT_24bppYCbCrP010) {
     bpp = 2;
-  } else if (fmt == UHDR_IMG_FMT_32bppRGBA8888 || fmt == UHDR_IMG_FMT_32bppRGBA1010102) {
+  } else if (fmt_ == UHDR_IMG_FMT_32bppRGBA8888 || fmt_ == UHDR_IMG_FMT_32bppRGBA1010102) {
     bpp = 4;
-  } else if (fmt == UHDR_IMG_FMT_64bppRGBAHalfFloat) {
+  } else if (fmt_ == UHDR_IMG_FMT_64bppRGBAHalfFloat) {
     bpp = 8;
   }
 
-  size_t plane_1_sz = bpp * aligned_width * h;
+  size_t plane_1_sz = bpp * aligned_width * h_;
   size_t plane_2_sz;
   size_t plane_3_sz;
-  if (fmt == UHDR_IMG_FMT_24bppYCbCrP010) {
-    plane_2_sz = (2 /* planes */ * ((aligned_width / 2) * (h / 2) * bpp));
+  if (fmt_ == UHDR_IMG_FMT_24bppYCbCrP010) {
+    plane_2_sz = (2 /* planes */ * ((aligned_width / 2) * (h_ / 2) * bpp));
     plane_3_sz = 0;
-  } else if (fmt == UHDR_IMG_FMT_12bppYCbCr420) {
-    plane_2_sz = (((aligned_width / 2) * (h / 2) * bpp));
-    plane_3_sz = (((aligned_width / 2) * (h / 2) * bpp));
+  } else if (fmt_ == UHDR_IMG_FMT_12bppYCbCr420) {
+    plane_2_sz = (((aligned_width / 2) * (h_ / 2) * bpp));
+    plane_3_sz = (((aligned_width / 2) * (h_ / 2) * bpp));
   } else {
     plane_2_sz = 0;
     plane_3_sz = 0;
@@ -74,12 +74,12 @@ uhdr_raw_image_ext::uhdr_raw_image_ext(uhdr_img_fmt_t fmt, uhdr_color_gamut_t cg
   uint8_t* data = this->m_block->m_buffer.get();
   this->planes[UHDR_PLANE_Y] = data;
   this->stride[UHDR_PLANE_Y] = aligned_width;
-  if (fmt == UHDR_IMG_FMT_24bppYCbCrP010) {
+  if (fmt_ == UHDR_IMG_FMT_24bppYCbCrP010) {
     this->planes[UHDR_PLANE_UV] = data + plane_1_sz;
     this->stride[UHDR_PLANE_UV] = aligned_width;
     this->planes[UHDR_PLANE_V] = nullptr;
     this->stride[UHDR_PLANE_V] = 0;
-  } else if (fmt == UHDR_IMG_FMT_12bppYCbCr420) {
+  } else if (fmt_ == UHDR_IMG_FMT_12bppYCbCr420) {
     this->planes[UHDR_PLANE_U] = data + plane_1_sz;
     this->stride[UHDR_PLANE_U] = aligned_width / 2;
     this->planes[UHDR_PLANE_V] = data + plane_1_sz + plane_2_sz;
@@ -92,16 +92,16 @@ uhdr_raw_image_ext::uhdr_raw_image_ext(uhdr_img_fmt_t fmt, uhdr_color_gamut_t cg
   }
 }
 
-uhdr_compressed_image_ext::uhdr_compressed_image_ext(uhdr_color_gamut_t cg,
-                                                     uhdr_color_transfer_t ct,
-                                                     uhdr_color_range_t range, unsigned size) {
+uhdr_compressed_image_ext::uhdr_compressed_image_ext(uhdr_color_gamut_t cg_,
+                                                     uhdr_color_transfer_t ct_,
+                                                     uhdr_color_range_t range_, unsigned size) {
   this->m_block = std::make_unique<uhdr_memory_block_t>(size);
   this->data = this->m_block->m_buffer.get();
   this->capacity = size;
   this->data_sz = 0;
-  this->cg = cg;
-  this->ct = ct;
-  this->range = range;
+  this->cg = cg_;
+  this->ct = ct_;
+  this->range = range_;
 }
 
 uhdr_error_info_t apply_effects(uhdr_decoder_private* dec) {
@@ -1284,7 +1284,6 @@ uhdr_error_info_t uhdr_decode(uhdr_codec_private_t* dec) {
   ultrahdr::ultrahdr_output_format outputFormat =
       map_ct_fmt_to_internal_output_fmt(handle->m_output_ct, handle->m_output_fmt);
   if (outputFormat == ultrahdr::ultrahdr_output_format::ULTRAHDR_OUTPUT_UNSPECIFIED) {
-    uhdr_error_info_t status;
     status.error_code = UHDR_CODEC_INVALID_PARAM;
     status.has_detail = 1;
     snprintf(status.detail, sizeof status.detail,

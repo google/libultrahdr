@@ -432,7 +432,9 @@ add_library(${UHDR_CORE_LIB_NAME} STATIC ${UHDR_CORE_SRCS_LIST})
 if(NOT JPEG_FOUND)
   add_dependencies(${UHDR_CORE_LIB_NAME} ${JPEGTURBO_TARGET_NAME})
 endif()
-#target_compile_options(${UHDR_CORE_LIB_NAME} PRIVATE -Wall -Wextra -Wpedantic)
+if(NOT MSVC)
+  target_compile_options(${UHDR_CORE_LIB_NAME} PRIVATE -Wall -Wextra -Wshadow)
+endif()
 target_include_directories(${UHDR_CORE_LIB_NAME} PRIVATE
   ${PRIVATE_INCLUDE_DIR}
   "${THIRD_PARTY_DIR}/image_io/includes/"

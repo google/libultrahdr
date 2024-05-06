@@ -31,7 +31,6 @@ const uint32_t kAPP0Marker = JPEG_APP0;      // JFIF
 const uint32_t kAPP1Marker = JPEG_APP0 + 1;  // EXIF, XMP
 const uint32_t kAPP2Marker = JPEG_APP0 + 2;  // ICC
 
-constexpr uint32_t kICCMarkerHeaderSize = 14;
 constexpr uint8_t kICCSig[] = {
     'I', 'C', 'C', '_', 'P', 'R', 'O', 'F', 'I', 'L', 'E', '\0',
 };
@@ -188,7 +187,6 @@ bool JpegDecoderHelper::extractEXIF(const void* image, int length) {
 }
 
 bool JpegDecoderHelper::decode(const void* image, int length, decode_mode_t decodeTo) {
-  bool status = true;
   jpeg_decompress_struct cinfo;
   jpegrerror_mgr myerr;
   cinfo.err = jpeg_std_error(&myerr.pub);
@@ -249,6 +247,7 @@ bool JpegDecoderHelper::decode(const void* image, int length, decode_mode_t deco
     }
   }
 
+  bool status = true;
   mWidth = cinfo.image_width;
   mHeight = cinfo.image_height;
   if (mWidth > kMaxWidth || mHeight > kMaxHeight) {

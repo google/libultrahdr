@@ -155,7 +155,7 @@ Color srgbInvOetf(Color e_gamma) {
 
 // See IEC 61966-2-1, Equations F.5 and F.6.
 float srgbInvOetfLUT(float e_gamma) {
-  uint32_t value = static_cast<uint32_t>(e_gamma * (kSrgbInvOETFNumEntries - 1) + 0.5);
+  int32_t value = static_cast<int32_t>(e_gamma * (kSrgbInvOETFNumEntries - 1) + 0.5);
   // TODO() : Remove once conversion modules have appropriate clamping in place
   value = CLIP3(value, 0, kSrgbInvOETFNumEntries - 1);
   return kSrgbInvOETF[value];
@@ -275,7 +275,7 @@ float hlgOetf(float e) {
 Color hlgOetf(Color e) { return {{{hlgOetf(e.r), hlgOetf(e.g), hlgOetf(e.b)}}}; }
 
 float hlgOetfLUT(float e) {
-  uint32_t value = static_cast<uint32_t>(e * (kHlgOETFNumEntries - 1) + 0.5);
+  int32_t value = static_cast<int32_t>(e * (kHlgOETFNumEntries - 1) + 0.5);
   // TODO() : Remove once conversion modules have appropriate clamping in place
   value = CLIP3(value, 0, kHlgOETFNumEntries - 1);
 
@@ -298,7 +298,7 @@ Color hlgInvOetf(Color e_gamma) {
 }
 
 float hlgInvOetfLUT(float e_gamma) {
-  uint32_t value = static_cast<uint32_t>(e_gamma * (kHlgInvOETFNumEntries - 1) + 0.5);
+  int32_t value = static_cast<int32_t>(e_gamma * (kHlgInvOETFNumEntries - 1) + 0.5);
   // TODO() : Remove once conversion modules have appropriate clamping in place
   value = CLIP3(value, 0, kHlgInvOETFNumEntries - 1);
 
@@ -322,7 +322,7 @@ float pqOetf(float e) {
 Color pqOetf(Color e) { return {{{pqOetf(e.r), pqOetf(e.g), pqOetf(e.b)}}}; }
 
 float pqOetfLUT(float e) {
-  uint32_t value = static_cast<uint32_t>(e * (kPqOETFNumEntries - 1) + 0.5);
+  int32_t value = static_cast<int32_t>(e * (kPqOETFNumEntries - 1) + 0.5);
   // TODO() : Remove once conversion modules have appropriate clamping in place
   value = CLIP3(value, 0, kPqOETFNumEntries - 1);
 
@@ -350,7 +350,7 @@ Color pqInvOetf(Color e_gamma) {
 }
 
 float pqInvOetfLUT(float e_gamma) {
-  uint32_t value = static_cast<uint32_t>(e_gamma * (kPqInvOETFNumEntries - 1) + 0.5);
+  int32_t value = static_cast<int32_t>(e_gamma * (kPqInvOETFNumEntries - 1) + 0.5);
   // TODO() : Remove once conversion modules have appropriate clamping in place
   value = CLIP3(value, 0, kPqInvOETFNumEntries - 1);
 

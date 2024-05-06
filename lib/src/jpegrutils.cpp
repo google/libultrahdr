@@ -92,7 +92,7 @@ bool DataStruct::write(const void* src, int size) {
 /*
  * Helper function used for writing data to destination.
  */
-status_t Write(jr_compressed_ptr destination, const void* source, size_t length, int& position) {
+status_t Write(jr_compressed_ptr destination, const void* source, int length, int& position) {
   if (position + length > destination->maxLength) {
     return ERROR_JPEGR_BUFFER_TOO_SMALL;
   }
@@ -455,7 +455,7 @@ bool getMetadataFromXMP(uint8_t* xmp_data, size_t xmp_size, ultrahdr_metadata_st
   // parser. if there is no packet header, do nothing otherwise go to the position of '<' without
   // '?' after it.
   int offset = 0;
-  for (int i = 0; i < xmp_size; ++i) {
+  for (unsigned i = 0; i < xmp_size; ++i) {
     if (xmp_data[i] == '<') {
       if (xmp_data[i + 1] != '?') {
         offset = i;
