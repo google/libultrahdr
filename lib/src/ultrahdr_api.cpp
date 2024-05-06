@@ -104,6 +104,114 @@ uhdr_compressed_image_ext::uhdr_compressed_image_ext(uhdr_color_gamut_t cg,
   this->range = range;
 }
 
+uhdr_error_info_t apply_effects(uhdr_encoder_private* enc) {
+  for (auto& it : enc->m_effects) {
+    std::unique_ptr<ultrahdr::uhdr_raw_image_ext_t> hdr_img = nullptr;
+    std::unique_ptr<ultrahdr::uhdr_raw_image_ext_t> sdr_img = nullptr;
+
+    if (nullptr != dynamic_cast<uhdr_rotate_effect_t*>(it)) {
+      auto& hdr_raw_entry = enc->m_raw_images.find(UHDR_HDR_IMG)->second;
+      hdr_img = apply_rotate(dynamic_cast<uhdr_rotate_effect_t*>(it), hdr_raw_entry.get());
+      if (enc->m_raw_images.find(UHDR_SDR_IMG) != enc->m_raw_images.end()) {
+        auto& sdr_raw_entry = enc->m_raw_images.find(UHDR_SDR_IMG)->second;
+        sdr_img = apply_rotate(dynamic_cast<uhdr_rotate_effect_t*>(it), sdr_raw_entry.get());
+      }
+    } else if (nullptr != dynamic_cast<uhdr_mirror_effect_t*>(it)) {
+      auto& hdr_raw_entry = enc->m_raw_images.find(UHDR_HDR_IMG)->second;
+      hdr_img = apply_mirror(dynamic_cast<uhdr_mirror_effect_t*>(it), hdr_raw_entry.get());
+      if (enc->m_raw_images.find(UHDR_SDR_IMG) != enc->m_raw_images.end()) {
+        auto& sdr_raw_entry = enc->m_raw_images.find(UHDR_SDR_IMG)->second;
+        sdr_img = apply_mirror(dynamic_cast<uhdr_mirror_effect_t*>(it), sdr_raw_entry.get());
+      }
+    } else if (nullptr != dynamic_cast<uhdr_crop_effect_t*>(it)) {
+      auto crop_effect = dynamic_cast<uhdr_crop_effect_t*>(it);
+      auto& hdr_raw_entry = enc->m_raw_images.find(UHDR_HDR_IMG)->second;
+      int left = (std::max)(0, crop_effect->m_left);
+      int right = (std::min)((int)hdr_raw_entry->w, crop_effect->m_right);
+      int crop_width = right - left;
+      if (crop_width <= 0 || (crop_width % 2 != 0)) {
+        uhdr_error_info_t status;
+        status.error_code = UHDR_CODEC_INVALID_PARAM;
+        status.has_detail = 1;
+        snprintf(status.detail, sizeof status.detail,
+                 "unexpected crop dimensions. crop width is expected to be > 0 and even, crop "
+                 "width is %d",
+                 crop_width);
+        return status;
+      }
+
+      int top = (std::max)(0, crop_effect->m_top);
+      int bottom = (std::min)((int)hdr_raw_entry->h, crop_effect->m_bottom);
+      int crop_height = bottom - top;
+      if (crop_height <= 0 || (crop_height % 2 != 0)) {
+        uhdr_error_info_t status;
+        status.error_code = UHDR_CODEC_INVALID_PARAM;
+        status.has_detail = 1;
+        snprintf(status.detail, sizeof status.detail,
+                 "unexpected crop dimensions. crop height is expected to be > 0 and even, crop "
+                 "height is %d",
+                 crop_height);
+        return status;
+      }
+      apply_crop(hdr_raw_entry.get(), left, top, crop_width, crop_height);
+      if (enc->m_raw_images.find(UHDR_SDR_IMG) != enc->m_raw_images.end()) {
+        auto& sdr_raw_entry = enc->m_raw_images.find(UHDR_SDR_IMG)->second;
+        apply_crop(sdr_raw_entry.get(), left, top, crop_width, crop_height);
+      }
+      continue;
+    } else if (nullptr != dynamic_cast<uhdr_resize_effect_t*>(it)) {
+      auto resize_effect = dynamic_cast<uhdr_resize_effect_t*>(it);
+      int dst_w = resize_effect->m_width;
+      int dst_h = resize_effect->m_height;
+      if (dst_w == 0 || dst_h == 0 || dst_w % 2 != 0 || dst_h % 2 != 0) {
+        uhdr_error_info_t status;
+        status.error_code = UHDR_CODEC_INVALID_PARAM;
+        snprintf(status.detail, sizeof status.detail,
+                 "destination dimension cannot be zero or odd. dest image width is %d, dest image "
+                 "height is %d",
+                 dst_w, dst_h);
+        return status;
+      }
+      auto& hdr_raw_entry = enc->m_raw_images.find(UHDR_HDR_IMG)->second;
+      hdr_img =
+          apply_resize(dynamic_cast<uhdr_resize_effect_t*>(it), hdr_raw_entry.get(), dst_w, dst_h);
+      if (enc->m_raw_images.find(UHDR_SDR_IMG) != enc->m_raw_images.end()) {
+        auto& sdr_raw_entry = enc->m_raw_images.find(UHDR_SDR_IMG)->second;
+        sdr_img = apply_resize(dynamic_cast<uhdr_resize_effect_t*>(it), sdr_raw_entry.get(), dst_w,
+                               dst_h);
+      }
+    }
+
+    if (hdr_img == nullptr ||
+        (enc->m_raw_images.find(UHDR_SDR_IMG) != enc->m_raw_images.end() && sdr_img == nullptr)) {
+      uhdr_error_info_t status;
+      status.error_code = UHDR_CODEC_UNKNOWN_ERROR;
+      status.has_detail = 1;
+      snprintf(status.detail, sizeof status.detail,
+               "encountered unknown error while applying effect %s", it->to_string().c_str());
+      return status;
+    }
+    enc->m_raw_images.insert_or_assign(UHDR_HDR_IMG, std::move(hdr_img));
+    if (sdr_img != nullptr) {
+      enc->m_raw_images.insert_or_assign(UHDR_SDR_IMG, std::move(sdr_img));
+    }
+  }
+  if (enc->m_effects.size() > 0) {
+    auto it = enc->m_effects.back();
+    if (nullptr != dynamic_cast<uhdr_crop_effect_t*>(it) &&
+        enc->m_raw_images.find(UHDR_SDR_IMG) != enc->m_raw_images.end()) {
+      // As cropping is handled via pointer arithmetic as opposed to buffer copy, u and v data of
+      // yuv420 inputs are no longer contiguous. As the library does not accept distinct buffer
+      // pointers for u and v for 420 input, copy the sdr intent to a contiguous buffer
+      auto& sdr_raw_entry = enc->m_raw_images.find(UHDR_SDR_IMG)->second;
+      enc->m_raw_images.insert_or_assign(UHDR_SDR_IMG,
+                                         convert_raw_input_to_ycbcr(sdr_raw_entry.get()));
+    }
+  }
+
+  return g_no_error;
+}
+
 uhdr_error_info_t apply_effects(uhdr_decoder_private* dec) {
   for (auto& it : dec->m_effects) {
     std::unique_ptr<ultrahdr::uhdr_raw_image_ext_t> disp_img = nullptr;
@@ -125,24 +233,60 @@ uhdr_error_info_t apply_effects(uhdr_decoder_private* dec) {
       uhdr_raw_image_t* gm = dec->m_gainmap_img_buffer.get();
       int left = (std::max)(0, crop_effect->m_left);
       int right = (std::min)((int)disp->w, crop_effect->m_right);
-      int top = (std::max)(0, crop_effect->m_top);
-      int bottom = (std::min)((int)disp->h, crop_effect->m_bottom);
-      int scale_factor = disp->w / gm->w;
-
-      if (right - left <= scale_factor || bottom - top <= scale_factor) {
+      if (right <= left) {
         uhdr_error_info_t status;
-        status.error_code = UHDR_CODEC_UNKNOWN_ERROR;
+        status.error_code = UHDR_CODEC_INVALID_PARAM;
         status.has_detail = 1;
-        snprintf(status.detail, sizeof status.detail,
-                 "After crop image dimensions are <= 0, display image dimensions %dx%d, gain map "
-                 "image dimensions %dx%d",
-                 right - left, bottom - top, (right - left) / scale_factor,
-                 (bottom - top) / scale_factor);
+        snprintf(
+            status.detail, sizeof status.detail,
+            "unexpected crop dimensions. crop right is <= crop left, after crop image width is %d",
+            right - left);
         return status;
       }
+
+      int top = (std::max)(0, crop_effect->m_top);
+      int bottom = (std::min)((int)disp->h, crop_effect->m_bottom);
+      if (bottom <= top) {
+        uhdr_error_info_t status;
+        status.error_code = UHDR_CODEC_INVALID_PARAM;
+        status.has_detail = 1;
+        snprintf(
+            status.detail, sizeof status.detail,
+            "unexpected crop dimensions. crop bottom is <= crop top, after crop image height is %d",
+            bottom - top);
+        return status;
+      }
+
+      float wd_ratio = ((float)disp->w) / gm->w;
+      float ht_ratio = ((float)disp->h) / gm->h;
+      int gm_left = left / wd_ratio;
+      int gm_right = right / wd_ratio;
+      if (gm_right <= gm_left) {
+        uhdr_error_info_t status;
+        status.error_code = UHDR_CODEC_INVALID_PARAM;
+        status.has_detail = 1;
+        snprintf(status.detail, sizeof status.detail,
+                 "unexpected crop dimensions. crop right is <= crop left for gainmap image, after "
+                 "crop gainmap image width is %d",
+                 gm_right - gm_left);
+        return status;
+      }
+
+      int gm_top = top / ht_ratio;
+      int gm_bottom = bottom / ht_ratio;
+      if (gm_bottom <= gm_top) {
+        uhdr_error_info_t status;
+        status.error_code = UHDR_CODEC_INVALID_PARAM;
+        status.has_detail = 1;
+        snprintf(status.detail, sizeof status.detail,
+                 "unexpected crop dimensions. crop bottom is <= crop top for gainmap image, after "
+                 "crop gainmap image height is %d",
+                 gm_bottom - gm_top);
+        return status;
+      }
+
       apply_crop(disp, left, top, right - left, bottom - top);
-      apply_crop(gm, left / scale_factor, top / scale_factor, (right - left) / scale_factor,
-                 (bottom - top) / scale_factor);
+      apply_crop(gm, gm_left, gm_top, (gm_right - gm_left), (gm_bottom - gm_top));
       continue;
     } else if (nullptr != dynamic_cast<uhdr_resize_effect_t*>(it)) {
       auto resize_effect = dynamic_cast<uhdr_resize_effect_t*>(it);
@@ -158,7 +302,9 @@ uhdr_error_info_t apply_effects(uhdr_decoder_private* dec) {
         uhdr_error_info_t status;
         status.error_code = UHDR_CODEC_INVALID_PARAM;
         snprintf(status.detail, sizeof status.detail,
-                 "destination width or destination height cannot be zero");
+                 "destination dimension cannot be zero. dest image width is %d, dest image height "
+                 "is %d, dest gainmap width is %d, dest gainmap height is %d",
+                 dst_w, dst_h, dst_gm_w, dst_gm_h);
         return status;
       }
       disp_img = apply_resize(dynamic_cast<uhdr_resize_effect_t*>(it),
@@ -737,11 +883,49 @@ uhdr_error_info_t uhdr_encode(uhdr_codec_private_t* enc) {
 
   uhdr_error_info_t& status = handle->m_encode_call_status;
 
-  if (handle->m_effects.size() != 0) {
-    status.error_code = UHDR_CODEC_INVALID_PARAM;
-    status.has_detail = 1;
-    snprintf(status.detail, sizeof status.detail, "image effects are not currently enabled");
-    return status;
+  if (handle->m_compressed_images.find(UHDR_BASE_IMG) != handle->m_compressed_images.end() &&
+      handle->m_compressed_images.find(UHDR_GAIN_MAP_IMG) != handle->m_compressed_images.end()) {
+    if (handle->m_effects.size() != 0) {
+      status.error_code = UHDR_CODEC_INVALID_OPERATION;
+      status.has_detail = 1;
+      snprintf(status.detail, sizeof status.detail,
+               "image effects are not enabled for inputs with compressed intent");
+      return status;
+    }
+  } else if (handle->m_raw_images.find(UHDR_HDR_IMG) != handle->m_raw_images.end()) {
+    if (handle->m_compressed_images.find(UHDR_SDR_IMG) == handle->m_compressed_images.end() &&
+        handle->m_raw_images.find(UHDR_SDR_IMG) == handle->m_raw_images.end()) {
+      // api - 0
+      if (handle->m_effects.size() != 0) {
+        status = ultrahdr::apply_effects(handle);
+        if (status.error_code != UHDR_CODEC_OK) return status;
+      }
+    } else if (handle->m_compressed_images.find(UHDR_SDR_IMG) !=
+                   handle->m_compressed_images.end() &&
+               handle->m_raw_images.find(UHDR_SDR_IMG) == handle->m_raw_images.end()) {
+      if (handle->m_effects.size() != 0) {
+        status.error_code = UHDR_CODEC_INVALID_OPERATION;
+        status.has_detail = 1;
+        snprintf(status.detail, sizeof status.detail,
+                 "image effects are not enabled for inputs with compressed intent");
+        return status;
+      }
+    } else if (handle->m_raw_images.find(UHDR_SDR_IMG) != handle->m_raw_images.end()) {
+      if (handle->m_compressed_images.find(UHDR_SDR_IMG) == handle->m_compressed_images.end()) {
+        if (handle->m_effects.size() != 0) {
+          status = ultrahdr::apply_effects(handle);
+          if (status.error_code != UHDR_CODEC_OK) return status;
+        }
+      } else {
+        if (handle->m_effects.size() != 0) {
+          status.error_code = UHDR_CODEC_INVALID_OPERATION;
+          status.has_detail = 1;
+          snprintf(status.detail, sizeof status.detail,
+                   "image effects are not enabled for inputs with compressed intent");
+          return status;
+        }
+      }
+    }
   }
 
   ultrahdr::status_t internal_status = ultrahdr::JPEGR_NO_ERROR;
