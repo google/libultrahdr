@@ -62,10 +62,10 @@ struct Color {
 typedef Color (*ColorTransformFn)(Color);
 typedef float (*ColorCalculationFn)(Color);
 
-static float clampPixelFloat(float value) {
+static inline float clampPixelFloat(float value) {
   return (value < 0.0f) ? 0.0f : (value > kMaxPixelFloat) ? kMaxPixelFloat : value;
 }
-static Color clampPixelFloat(Color e) {
+static inline Color clampPixelFloat(Color e) {
   return {{{clampPixelFloat(e.r), clampPixelFloat(e.g), clampPixelFloat(e.b)}}};
 }
 
@@ -149,9 +149,16 @@ inline Color operator/(const Color& lhs, const float rhs) {
   return temp /= rhs;
 }
 
+union FloatUIntUnion {
+  uint32_t fUInt;
+  float fFloat;
+};
+
 inline uint16_t floatToHalf(float f) {
+  FloatUIntUnion floatUnion;
+  floatUnion.fFloat = f;
   // round-to-nearest-even: add last bit after truncated mantissa
-  const uint32_t b = *((uint32_t*)&f) + 0x00001000;
+  const uint32_t b = floatUnion.fUInt + 0x00001000;
 
   const int32_t e = (b & 0x7F800000) >> 23;  // exponent
   const uint32_t m = b & 0x007FFFFF;         // mantissa
@@ -162,11 +169,11 @@ inline uint16_t floatToHalf(float f) {
          (e > 143) * 0x7FFF;
 }
 
-constexpr size_t kGainFactorPrecision = 10;
-constexpr size_t kGainFactorNumEntries = 1 << kGainFactorPrecision;
+constexpr int32_t kGainFactorPrecision = 10;
+constexpr int32_t kGainFactorNumEntries = 1 << kGainFactorPrecision;
 struct GainLUT {
   GainLUT(ultrahdr_metadata_ptr metadata) {
-    for (size_t idx = 0; idx < kGainFactorNumEntries; idx++) {
+    for (int32_t idx = 0; idx < kGainFactorNumEntries; idx++) {
       float value = static_cast<float>(idx) / static_cast<float>(kGainFactorNumEntries - 1);
       float logBoost = log2(metadata->minContentBoost) * (1.0f - value) +
                        log2(metadata->maxContentBoost) * value;
@@ -176,7 +183,7 @@ struct GainLUT {
 
   GainLUT(ultrahdr_metadata_ptr metadata, float displayBoost) {
     float boostFactor = displayBoost > 0 ? displayBoost / metadata->maxContentBoost : 1.0f;
-    for (size_t idx = 0; idx < kGainFactorNumEntries; idx++) {
+    for (int32_t idx = 0; idx < kGainFactorNumEntries; idx++) {
       float value = static_cast<float>(idx) / static_cast<float>(kGainFactorNumEntries - 1);
       float logBoost = log2(metadata->minContentBoost) * (1.0f - value) +
                        log2(metadata->maxContentBoost) * value;
@@ -187,7 +194,7 @@ struct GainLUT {
   ~GainLUT() {}
 
   float getGainFactor(float gain) {
-    uint32_t idx = static_cast<uint32_t>(gain * (kGainFactorNumEntries - 1) + 0.5);
+    int32_t idx = static_cast<int32_t>(gain * (kGainFactorNumEntries - 1) + 0.5);
     // TODO() : Remove once conversion modules have appropriate clamping in place
     idx = CLIP3(idx, 0, kGainFactorNumEntries - 1);
     return mGainTable[idx];
@@ -289,8 +296,8 @@ Color srgbInvOetfLUT(Color e_gamma);
 float srgbOetf(float e);
 Color srgbOetf(Color e);
 
-constexpr size_t kSrgbInvOETFPrecision = 10;
-constexpr size_t kSrgbInvOETFNumEntries = 1 << kSrgbInvOETFPrecision;
+constexpr int32_t kSrgbInvOETFPrecision = 10;
+constexpr int32_t kSrgbInvOETFNumEntries = 1 << kSrgbInvOETFPrecision;
 
 ////////////////////////////////////////////////////////////////////////////////
 // Display-P3 transformations
@@ -350,8 +357,8 @@ Color hlgOetf(Color e);
 float hlgOetfLUT(float e);
 Color hlgOetfLUT(Color e);
 
-constexpr size_t kHlgOETFPrecision = 16;
-constexpr size_t kHlgOETFNumEntries = 1 << kHlgOETFPrecision;
+constexpr int32_t kHlgOETFPrecision = 16;
+constexpr int32_t kHlgOETFNumEntries = 1 << kHlgOETFPrecision;
 
 /*
  * Convert from HLG to scene luminance.
@@ -363,8 +370,8 @@ Color hlgInvOetf(Color e_gamma);
 float hlgInvOetfLUT(float e_gamma);
 Color hlgInvOetfLUT(Color e_gamma);
 
-constexpr size_t kHlgInvOETFPrecision = 12;
-constexpr size_t kHlgInvOETFNumEntries = 1 << kHlgInvOETFPrecision;
+constexpr int32_t kHlgInvOETFPrecision = 12;
+constexpr int32_t kHlgInvOETFNumEntries = 1 << kHlgInvOETFPrecision;
 
 /*
  * Convert from scene luminance to PQ.
@@ -376,8 +383,8 @@ Color pqOetf(Color e);
 float pqOetfLUT(float e);
 Color pqOetfLUT(Color e);
 
-constexpr size_t kPqOETFPrecision = 16;
-constexpr size_t kPqOETFNumEntries = 1 << kPqOETFPrecision;
+constexpr int32_t kPqOETFPrecision = 16;
+constexpr int32_t kPqOETFNumEntries = 1 << kPqOETFPrecision;
 
 /*
  * Convert from PQ to scene luminance in nits.
@@ -389,8 +396,8 @@ Color pqInvOetf(Color e_gamma);
 float pqInvOetfLUT(float e_gamma);
 Color pqInvOetfLUT(Color e_gamma);
 
-constexpr size_t kPqInvOETFPrecision = 12;
-constexpr size_t kPqInvOETFNumEntries = 1 << kPqInvOETFPrecision;
+constexpr int32_t kPqInvOETFPrecision = 12;
+constexpr int32_t kPqInvOETFNumEntries = 1 << kPqInvOETFPrecision;
 
 ////////////////////////////////////////////////////////////////////////////////
 // Color space conversions

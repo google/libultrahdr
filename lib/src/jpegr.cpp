@@ -611,23 +611,15 @@ status_t JpegR::getJPEGRInfo(jr_compressed_ptr jpegr_image_ptr, jr_info_ptr jpeg
   }
 
   jpegr_compressed_struct primary_image, gainmap_image;
-  status_t status = extractPrimaryImageAndGainMap(jpegr_image_ptr, &primary_image, &gainmap_image);
-  if (status != JPEGR_NO_ERROR) {
-    return status;
-  }
-  status = parseJpegInfo(&primary_image, jpegr_image_info_ptr->primaryImgInfo,
-                         &jpegr_image_info_ptr->width, &jpegr_image_info_ptr->height);
-  if (status != JPEGR_NO_ERROR) {
-    return status;
-  }
+  JPEGR_CHECK(extractPrimaryImageAndGainMap(jpegr_image_ptr, &primary_image, &gainmap_image))
+
+  JPEGR_CHECK(parseJpegInfo(&primary_image, jpegr_image_info_ptr->primaryImgInfo,
+                            &jpegr_image_info_ptr->width, &jpegr_image_info_ptr->height))
   if (jpegr_image_info_ptr->gainmapImgInfo != nullptr) {
-    status = parseJpegInfo(&gainmap_image, jpegr_image_info_ptr->gainmapImgInfo);
-    if (status != JPEGR_NO_ERROR) {
-      return status;
-    }
+    JPEGR_CHECK(parseJpegInfo(&gainmap_image, jpegr_image_info_ptr->gainmapImgInfo))
   }
 
-  return status;
+  return JPEGR_NO_ERROR;
 }
 
 /* Decode API */
@@ -661,12 +653,8 @@ status_t JpegR::decodeJPEGR(jr_compressed_ptr jpegr_image_ptr, jr_uncompressed_p
   }
 
   jpegr_compressed_struct primary_jpeg_image, gainmap_jpeg_image;
-  status_t status =
-      extractPrimaryImageAndGainMap(jpegr_image_ptr, &primary_jpeg_image, &gainmap_jpeg_image);
-  if (status != JPEGR_NO_ERROR) {
-    ALOGE("received invalid compressed jpegr image");
-    return status;
-  }
+  JPEGR_CHECK(
+      extractPrimaryImageAndGainMap(jpegr_image_ptr, &primary_jpeg_image, &gainmap_jpeg_image))
 
   JpegDecoderHelper jpeg_dec_obj_yuv420;
   if (!jpeg_dec_obj_yuv420.decompressImage(
@@ -1663,8 +1651,8 @@ status_t JpegR::toneMap(jr_uncompressed_ptr src, jr_uncompressed_ptr dest,
 
   float u_max = 0.0f;
 
-  for (int y = 0; y < height; y += 2) {
-    for (int x = 0; x < width; x += 2) {
+  for (unsigned y = 0; y < height; y += 2) {
+    for (unsigned x = 0; x < width; x += 2) {
       // We assume the input is P010, and output is YUV420
       float sdr_u_gamma = 0.0f;
       float sdr_v_gamma = 0.0f;
