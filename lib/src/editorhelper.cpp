@@ -177,10 +177,10 @@ std::unique_ptr<uhdr_raw_image_ext_t> apply_rotate(ultrahdr::uhdr_rotate_effect_
 
   if (desc->m_degree == 90 || desc->m_degree == 270) {
     dst = std::make_unique<uhdr_raw_image_ext_t>(src->fmt, src->cg, src->ct, src->range, src->h,
-                                                 src->w, 1);
+                                                 src->w, 64);
   } else if (desc->m_degree == 180) {
     dst = std::make_unique<uhdr_raw_image_ext_t>(src->fmt, src->cg, src->ct, src->range, src->w,
-                                                 src->h, 1);
+                                                 src->h, 64);
   } else {
     return nullptr;
   }
@@ -225,7 +225,7 @@ std::unique_ptr<uhdr_raw_image_ext_t> apply_rotate(ultrahdr::uhdr_rotate_effect_
 std::unique_ptr<uhdr_raw_image_ext_t> apply_mirror(ultrahdr::uhdr_mirror_effect_t* desc,
                                                    uhdr_raw_image_t* src) {
   std::unique_ptr<uhdr_raw_image_ext_t> dst = std::make_unique<uhdr_raw_image_ext_t>(
-      src->fmt, src->cg, src->ct, src->range, src->w, src->h, 1);
+      src->fmt, src->cg, src->ct, src->range, src->w, src->h, 64);
 
   if (src->fmt == UHDR_IMG_FMT_24bppYCbCrP010) {
     uint16_t* src_buffer = static_cast<uint16_t*>(src->planes[UHDR_PLANE_Y]);
@@ -276,6 +276,7 @@ void apply_crop(uhdr_raw_image_t* src, int left, int top, int wd, int ht) {
     src->planes[UHDR_PLANE_Y] = &src_buffer[top * src->stride[UHDR_PLANE_Y] + left];
     if (src->fmt == UHDR_IMG_FMT_12bppYCbCr420) {
       for (int i = 1; i < 3; i++) {
+        src_buffer = static_cast<uint8_t*>(src->planes[i]);
         src->planes[i] = &src_buffer[(top / 2) * src->stride[i] + (left / 2)];
       }
     }
@@ -293,7 +294,7 @@ void apply_crop(uhdr_raw_image_t* src, int left, int top, int wd, int ht) {
 std::unique_ptr<uhdr_raw_image_ext_t> apply_resize(ultrahdr::uhdr_resize_effect_t* desc,
                                                    uhdr_raw_image_t* src, int dst_w, int dst_h) {
   std::unique_ptr<uhdr_raw_image_ext_t> dst = std::make_unique<uhdr_raw_image_ext_t>(
-      src->fmt, src->cg, src->ct, src->range, dst_w, dst_h, 1);
+      src->fmt, src->cg, src->ct, src->range, dst_w, dst_h, 64);
 
   if (src->fmt == UHDR_IMG_FMT_24bppYCbCrP010) {
     uint16_t* src_buffer = static_cast<uint16_t*>(src->planes[UHDR_PLANE_Y]);
