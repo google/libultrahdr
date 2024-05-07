@@ -243,7 +243,7 @@ class UltraHdrAppInput {
                    const char* gainmapMetadataCfgFile, size_t width, size_t height,
                    uhdr_img_fmt_t hdrCf = UHDR_IMG_FMT_UNSPECIFIED,
                    uhdr_img_fmt_t sdrCf = UHDR_IMG_FMT_UNSPECIFIED,
-                   uhdr_color_gamut_t hdrCg = UHDR_CG_BT_709,
+                   uhdr_color_gamut_t hdrCg = UHDR_CG_BT_2100,
                    uhdr_color_gamut_t sdrCg = UHDR_CG_BT_709,
                    uhdr_color_transfer_t hdrTf = UHDR_CT_HLG, int quality = 100,
                    uhdr_color_transfer_t oTf = UHDR_CT_HLG,

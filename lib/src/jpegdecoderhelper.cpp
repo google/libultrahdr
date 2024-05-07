@@ -29,7 +29,7 @@ namespace ultrahdr {
 
 const uint32_t kAPP0Marker = JPEG_APP0;      // JFIF
 const uint32_t kAPP1Marker = JPEG_APP0 + 1;  // EXIF, XMP
-const uint32_t kAPP2Marker = JPEG_APP0 + 2;  // ICC
+const uint32_t kAPP2Marker = JPEG_APP0 + 2;  // ICC, iso metadata
 
 constexpr uint32_t kICCMarkerHeaderSize = 14;
 constexpr uint8_t kICCSig[] = {
@@ -41,6 +41,11 @@ constexpr uint8_t kXmpNameSpace[] = {
 };
 constexpr uint8_t kExifIdCode[] = {
     'E', 'x', 'i', 'f', '\0', '\0',
+};
+
+constexpr uint8_t kIsoMetadataNameSpace[] = {
+    'u', 'r', 'n', ':', 'i', 's', 'o', ':', 's', 't', 'd', ':', 'i', 's', 'o',
+    ':', 't', 's', ':', '2', '1', '4', '9', '6', ':', '-', '1', '\0',
 };
 
 struct jpegr_source_mgr : jpeg_source_mgr {
@@ -134,6 +139,10 @@ void* JpegDecoderHelper::getICCPtr() { return mICCBuffer.data(); }
 
 size_t JpegDecoderHelper::getICCSize() { return mICCBuffer.size(); }
 
+void* JpegDecoderHelper::getIsoMetadataPtr() { return mIsoMetadataBuffer.data(); }
+
+size_t JpegDecoderHelper::getIsoMetadataSize() { return mIsoMetadataBuffer.size(); }
+
 size_t JpegDecoderHelper::getDecompressedImageWidth() { return mWidth; }
 
 size_t JpegDecoderHelper::getDecompressedImageHeight() { return mHeight; }
@@ -213,14 +222,15 @@ bool JpegDecoderHelper::decode(const void* image, int length, decode_mode_t deco
     return false;
   }
 
-  // Save XMP data, EXIF data, and ICC data.
-  // Here we only handle the first XMP / EXIF / ICC package.
+  // Save XMP data, EXIF data, iso metadata, and ICC data.
+  // Here we only handle the first XMP / EXIF / iso metadata / ICC package.
   // We assume that all packages are starting with two bytes marker (eg FF E1 for EXIF package),
   // two bytes of package length which is stored in marker->original_length, and the real data
   // which is stored in marker->data.
   bool exifAppears = false;
   bool xmpAppears = false;
   bool iccAppears = false;
+  bool isoMetadataAppears = false;
   size_t pos = 2;  // position after SOI
   for (jpeg_marker_struct* marker = cinfo.marker_list;
        marker && !(exifAppears && xmpAppears && iccAppears); marker = marker->next) {
@@ -246,6 +256,11 @@ bool JpegDecoderHelper::decode(const void* image, int length, decode_mode_t deco
       mICCBuffer.resize(len, 0);
       memcpy(static_cast<void*>(mICCBuffer.data()), marker->data, len);
       iccAppears = true;
+    } else if (!isoMetadataAppears && len > sizeof(kIsoMetadataNameSpace) &&
+               !memcmp(marker->data, kIsoMetadataNameSpace, sizeof(kIsoMetadataNameSpace))) {
+      mIsoMetadataBuffer.resize(len, 0);
+      memcpy(static_cast<void*>(mIsoMetadataBuffer.data()), marker->data, len);
+      isoMetadataAppears = true;
     }
   }
 

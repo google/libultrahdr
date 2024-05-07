@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+#include <cmath>
 #include "ultrahdr/gainmapmath.h"
 
 namespace ultrahdr {
@@ -935,6 +936,73 @@ std::unique_ptr<uhdr_raw_image_ext_t> convert_raw_input_to_ycbcr(uhdr_raw_image_
     }
   }
   return dst;
+}
+
+static bool floatToUnsignedFractionImpl(float v, uint32_t maxNumerator,
+                                        uint32_t * numerator, uint32_t * denominator) {
+  if (std::isnan(v) || v < 0 || v > maxNumerator) {
+    return false;
+  }
+
+  // Maximum denominator: makes sure that the numerator is <= maxNumerator and the denominator
+  // is <= UINT32_MAX.
+  const uint64_t maxD = (v <= 1) ? UINT32_MAX : (uint64_t)floor(maxNumerator / v);
+
+  // Find the best approximation of v as a fraction using continued fractions, see
+  // https://en.wikipedia.org/wiki/Continued_fraction
+  *denominator = 1;
+  uint32_t previousD = 0;
+  float currentV = v - floor(v);
+  int iter = 0;
+  // Set a maximum number of iterations to be safe. Most numbers should
+  // converge in less than ~20 iterations.
+  // The golden ratio is the worst case and takes 39 iterations.
+  const int maxIter = 39;
+  while (iter < maxIter) {
+    const float numeratorFloat = (float)(*denominator) * v;
+    if (numeratorFloat > maxNumerator) {
+      return false;
+    }
+    *numerator = (uint32_t)round(numeratorFloat);
+    if (fabs(numeratorFloat - (*numerator)) == 0.0) {
+      return true;
+    }
+    currentV = 1.0 / currentV;
+    const float newD = previousD + floor(currentV) * (*denominator);
+    if (newD > maxD) {
+      // This is the best we can do with a denominator <= max_d.
+      return true;
+    }
+    previousD = *denominator;
+    if (newD > (float) UINT32_MAX) {
+      return false;
+    }
+    *denominator = (uint32_t)newD;
+    currentV -= floor(currentV);
+    ++iter;
+  }
+  // Maximum number of iterations reached, return what we've found.
+  // For max_iter >= 39 we shouldn't get here. max_iter can be set
+  // to a lower value to speed up the algorithm if needed.
+  *numerator = (uint32_t)round((float)(*denominator) * v);
+  return true;
+}
+
+bool floatToSignedFraction(float v, int32_t* numerator, uint32_t* denominator) {
+  uint32_t positive_numerator;
+  if (!floatToUnsignedFractionImpl(fabs(v), INT32_MAX, &positive_numerator, denominator)) {
+      return false;
+  }
+  *numerator = (int32_t)positive_numerator;
+  if (v < 0) {
+      *numerator *= -1;
+  }
+  return true;
+}
+
+bool floatToUnsignedFraction(float v, uint32_t* numerator, uint32_t* denominator) {
+
+  return floatToUnsignedFractionImpl(v, UINT32_MAX, numerator, denominator);
 }
 
 }  // namespace ultrahdr

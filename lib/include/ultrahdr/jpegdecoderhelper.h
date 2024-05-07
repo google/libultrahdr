@@ -122,6 +122,15 @@ class JpegDecoderHelper {
    */
   size_t getICCSize();
   /*
+   * Returns the iso metadata from the image.
+   */
+  void* getIsoMetadataPtr();
+  /*
+   * Returns the decompressed iso metadata buffer size. This method must be called only after
+   * calling decompressImage() or getCompressedImageParameters().
+   */
+  size_t getIsoMetadataSize();
+  /*
    * Decompresses metadata of the image. All vectors are owned by the caller.
    */
   bool getCompressedImageParameters(const void* image, int length);
@@ -144,6 +153,8 @@ class JpegDecoderHelper {
   std::vector<JOCTET> mEXIFBuffer;
   // The buffer that holds ICC Data.
   std::vector<JOCTET> mICCBuffer;
+  // The buffer that holds iso metadata.
+  std::vector<JOCTET> mIsoMetadataBuffer;
 
   // Resolution of the decompressed image.
   size_t mWidth;

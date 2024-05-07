@@ -525,6 +525,12 @@ uint64_t colorToRgbaF16(Color e_gamma);
  */
 std::unique_ptr<uhdr_raw_image_ext_t> convert_raw_input_to_ycbcr(uhdr_raw_image_t* src);
 
+/*
+ * Helper for converting float to fraction
+ */
+bool floatToSignedFraction(float v, int32_t* numerator, uint32_t* denominator);
+bool floatToUnsignedFraction(float v, uint32_t* numerator, uint32_t* denominator);
+
 }  // namespace ultrahdr
 
 #endif  // ULTRAHDR_GAINMAPMATH_H

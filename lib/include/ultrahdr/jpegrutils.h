@@ -20,6 +20,10 @@
 #include "ultrahdr/ultrahdr.h"
 #include "ultrahdr/jpegr.h"
 
+// TODO (dichenzhang): This is old version metadata, new version can be foundin in
+// https://drive.google.com/file/d/1yUGmjGytRuBa2vpr9eM5Uu8CVhyyddjp/view?resourcekey=0-HGzFrzPQzu5FNYLRAJXQBA
+// and in gainmapmetadata.h/.cpp
+// This file is kept in order to keep the backward compatibility.
 namespace ultrahdr {
 
 static constexpr uint32_t EndianSwap32(uint32_t value) {
@@ -119,6 +123,7 @@ std::string generateXmpForPrimaryImage(int secondary_image_length,
 
 /*
  * This method generates XMP metadata for the recovery map image.
+ * Link: https://developer.android.com/media/platform/hdr-image-format#XMP-attributes
  *
  * below is an example of the XMP metadata that this function generates where
  * max_content_boost = 8.0
