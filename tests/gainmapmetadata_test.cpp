@@ -73,11 +73,5 @@ TEST_F(GainMapMetadataTest, encodeMetadataThenDecode) {
   EXPECT_EQ(expected.hdrCapacityMin, decodedUHdrMetadata.hdrCapacityMin);
   EXPECT_EQ(expected.hdrCapacityMax, decodedUHdrMetadata.hdrCapacityMax);
 
-
-//  const std::string kIsoNameSpace = "urn:iso:std:iso:ts:21496:-1";
-//  printf("[dichenzhang] sizeof(kIsoNameSpace)=%zu\n", sizeof(kIsoNameSpace));
-
-
-  printf("[dichenzhang] sizefdasof(kIso)=%zu\n", kIso.size());
 }
 }  // namespace ultrahdr
