@@ -29,10 +29,12 @@ namespace ultrahdr {
 #define ALIGNED_IMAGE "/data/local/tmp/minnie-320x240.yu12"
 #define SINGLE_CHANNEL_IMAGE "/data/local/tmp/minnie-320x240.y"
 #define UNALIGNED_IMAGE "/data/local/tmp/minnie-318x240.yu12"
+#define RGB_IMAGE "/data/local/tmp/minnie-320x240.rgb"
 #else
 #define ALIGNED_IMAGE "./data/minnie-320x240.yu12"
 #define SINGLE_CHANNEL_IMAGE "./data/minnie-320x240.y"
 #define UNALIGNED_IMAGE "./data/minnie-318x240.yu12"
+#define RGB_IMAGE "./data/minnie-320x240.rgb"
 #endif
 #define ALIGNED_IMAGE_WIDTH 320
 #define ALIGNED_IMAGE_HEIGHT 240
@@ -56,7 +58,7 @@ class JpegEncoderHelperTest : public testing::Test {
   virtual void SetUp();
   virtual void TearDown();
 
-  Image mAlignedImage, mUnalignedImage, mSingleChannelImage;
+  Image mAlignedImage, mUnalignedImage, mSingleChannelImage, mRgbImage;
 };
 
 JpegEncoderHelperTest::JpegEncoderHelperTest() {}
@@ -92,6 +94,11 @@ void JpegEncoderHelperTest::SetUp() {
   }
   mSingleChannelImage.width = SINGLE_CHANNEL_IMAGE_WIDTH;
   mSingleChannelImage.height = SINGLE_CHANNEL_IMAGE_HEIGHT;
+  if (!loadFile(RGB_IMAGE, &mRgbImage)) {
+    FAIL() << "Load file " << RGB_IMAGE << " failed";
+  }
+  mRgbImage.width = ALIGNED_IMAGE_WIDTH;
+  mRgbImage.height = ALIGNED_IMAGE_HEIGHT;
 }
 
 void JpegEncoderHelperTest::TearDown() {}
@@ -120,6 +127,13 @@ TEST_F(JpegEncoderHelperTest, encodeSingleChannelImage) {
   EXPECT_TRUE(encoder.compressImage(mSingleChannelImage.buffer.get(), nullptr,
                                     mSingleChannelImage.width, mSingleChannelImage.height,
                                     mSingleChannelImage.width, 0, JPEG_QUALITY, NULL, 0));
+  ASSERT_GT(encoder.getCompressedImageSize(), static_cast<uint32_t>(0));
+}
+
+TEST_F(JpegEncoderHelperTest, encodeRGBImage) {
+  JpegEncoderHelper encoder;
+  EXPECT_TRUE(encoder.compressImage(mRgbImage.buffer.get(), mRgbImage.width,
+      mRgbImage.height, JPEG_QUALITY, NULL, 0));
   ASSERT_GT(encoder.getCompressedImageSize(), static_cast<uint32_t>(0));
 }
 

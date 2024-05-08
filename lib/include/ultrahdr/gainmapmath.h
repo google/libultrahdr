@@ -473,6 +473,18 @@ Color applyGain(Color e, float gain, ultrahdr_metadata_ptr metadata, float displ
 Color applyGainLUT(Color e, float gain, GainLUT& gainLUT);
 
 /*
+ * Apply gain in R, G and B channels, with the given hdr ratio, to the given sdr input
+ * in the range [0, 1].
+ *
+ * Note: similar to encodeGain(), this function only supports gamma 1.0,
+ * offsetSdr 0.0, offsetHdr 0.0, hdrCapacityMin 1.0, and hdrCapacityMax equal to
+ * gainMapMax, as this library encodes.
+ */
+Color applyGain(Color e, Color gain, ultrahdr_metadata_ptr metadata);
+Color applyGain(Color e, Color gain, ultrahdr_metadata_ptr metadata, float displayBoost);
+Color applyGainLUT(Color e, Color gain, GainLUT& gainLUT);
+
+/*
  * Helper for sampling from YUV 420 images.
  */
 Color getYuv420Pixel(jr_uncompressed_ptr image, size_t x, size_t y);
@@ -505,6 +517,10 @@ Color sampleP010(jr_uncompressed_ptr map, size_t map_scale_factor, size_t x, siz
 float sampleMap(jr_uncompressed_ptr map, float map_scale_factor, size_t x, size_t y);
 float sampleMap(jr_uncompressed_ptr map, size_t map_scale_factor, size_t x, size_t y,
                 ShepardsIDW& weightTables);
+Color sampleMap3Channel(jr_uncompressed_ptr map, float map_scale_factor, size_t x, size_t y,
+                        bool has_alpha);
+Color sampleMap3Channel(jr_uncompressed_ptr map, size_t map_scale_factor, size_t x, size_t y,
+                        ShepardsIDW& weightTables, bool has_alpha);
 
 /*
  * Convert from Color to RGBA1010102.

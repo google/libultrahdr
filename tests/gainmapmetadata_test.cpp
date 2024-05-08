@@ -1,5 +1,5 @@
 /*
- * Copyright 2022 The Android Open Source Project
+ * Copyright 2024 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -44,8 +44,8 @@ const std::string kIso = "urn:iso:std:iso:ts:21496:-1";
 TEST_F(GainMapMetadataTest, encodeMetadataThenDecode) {
   ultrahdr_metadata_struct expected;
   expected.version = "1.0";
-  expected.maxContentBoost = 100.0f;
-  expected.minContentBoost = 1.0f;
+  expected.maxContentBoost = 100.5f;
+  expected.minContentBoost = 1.5f;
   expected.gamma = 1.0f;
   expected.offsetSdr = 0.0f;
   expected.offsetHdr = 0.0f;
@@ -54,7 +54,7 @@ TEST_F(GainMapMetadataTest, encodeMetadataThenDecode) {
 
   gain_map_metadata metadata;
   gain_map_metadata::gainmapMetadataFloatToFraction(&expected, &metadata);
-//  metadata.dump();
+  metadata.dump();
 
   std::vector<uint8_t> data;
   gain_map_metadata::encodeGainmapMetadata(&metadata, data);

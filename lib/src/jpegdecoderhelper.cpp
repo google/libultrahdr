@@ -294,6 +294,7 @@ bool JpegDecoderHelper::decode(const void* image, int length, decode_mode_t deco
     mResultBuffer.resize(cinfo.image_width * cinfo.image_height * 3);
     cinfo.out_color_space = JCS_RGB;
 #endif
+
   } else if (decodeTo == DECODE_TO_YCBCR) {
     if (cinfo.jpeg_color_space == JCS_YCbCr) {
       if (cinfo.comp_info[0].h_samp_factor != 2 || cinfo.comp_info[0].v_samp_factor != 2 ||
@@ -313,6 +314,25 @@ bool JpegDecoderHelper::decode(const void* image, int length, decode_mode_t deco
     }
     cinfo.out_color_space = cinfo.jpeg_color_space;
     cinfo.raw_data_out = TRUE;
+  } else if (decodeTo == DECODE_TO_GAIN_MAP) {
+    if (cinfo.jpeg_color_space == JCS_GRAYSCALE) {
+      mResultBuffer.resize(cinfo.image_width * cinfo.image_height, 0);
+      cinfo.out_color_space = cinfo.jpeg_color_space;
+      cinfo.raw_data_out = TRUE;
+    } else {
+      mResultBuffer.resize(cinfo.image_width * cinfo.image_height * 4);
+#ifdef JCS_ALPHA_EXTENSIONS
+      cinfo.out_color_space = JCS_EXT_RGBA;
+#else
+      cinfo.out_color_space = JCS_RGB;
+#endif
+      cinfo.dct_method = JDCT_ISLOW;
+      jpeg_start_decompress(&cinfo);
+      if (!decompressRGBA(&cinfo, static_cast<const uint8_t*>(mResultBuffer.data()))) {
+         status = false;
+      }
+      goto CleanUp;
+    }
   } else {
     status = decodeTo == PARSE_ONLY;
     jpeg_destroy_decompress(&cinfo);

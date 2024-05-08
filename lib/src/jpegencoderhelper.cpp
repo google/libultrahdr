@@ -47,6 +47,16 @@ bool JpegEncoderHelper::compressImage(const uint8_t* yBuffer, const uint8_t* uvB
   return true;
 }
 
+bool JpegEncoderHelper::compressImage(const uint8_t* buffer, int width, int height, int quality,
+                                      const void* iccBuffer, unsigned int iccSize) {
+  mResultBuffer.clear();
+  if (!encode(buffer, width, height, quality, iccBuffer, iccSize)) {
+    return false;
+  }
+  ALOGV("Compressed JPEG: [%dx%d] -> %zu bytes", width, height, mResultBuffer.size());
+  return true;
+}
+
 void* JpegEncoderHelper::getCompressedImagePtr() { return mResultBuffer.data(); }
 
 size_t JpegEncoderHelper::getCompressedImageSize() { return mResultBuffer.size(); }
@@ -93,7 +103,8 @@ bool JpegEncoderHelper::encode(const uint8_t* yBuffer, const uint8_t* uvBuffer, 
   cinfo.err->output_message = &outputErrorMessage;
   jpeg_create_compress(&cinfo);
   setJpegDestination(&cinfo);
-  setJpegCompressStruct(width, height, quality, &cinfo, uvBuffer == nullptr);
+  setJpegCompressStruct(width, height, quality, &cinfo,
+          uvBuffer == nullptr ? ENCODE_TO_SINGLE_CHANNEL : ENCODE_TO_YCBCR);
   jpeg_start_compress(&cinfo, TRUE);
   if (iccBuffer != nullptr && iccSize > 0) {
     jpeg_write_marker(&cinfo, JPEG_APP0 + 2, static_cast<const JOCTET*>(iccBuffer), iccSize);
@@ -107,6 +118,33 @@ bool JpegEncoderHelper::encode(const uint8_t* yBuffer, const uint8_t* uvBuffer, 
   return status;
 }
 
+bool JpegEncoderHelper::encode(const uint8_t* buffer, int width, int height, int quality,
+                               const void* iccBuffer, unsigned int iccSize) {
+  jpeg_compress_struct cinfo;
+  jpeg_error_mgr jerr;
+
+  cinfo.err = jpeg_std_error(&jerr);
+  cinfo.err->output_message = &outputErrorMessage;
+  jpeg_create_compress(&cinfo);
+  setJpegDestination(&cinfo);
+  setJpegCompressStruct(width, height, quality, &cinfo, ENCODE_TO_RGB);
+  jpeg_start_compress(&cinfo, TRUE);
+  if (iccBuffer != nullptr && iccSize > 0) {
+    jpeg_write_marker(&cinfo, JPEG_APP0 + 2, static_cast<const JOCTET*>(iccBuffer), iccSize);
+  }
+
+  while (cinfo.next_scanline < cinfo.image_height) {
+    JSAMPROW row_pointer[1];
+    row_pointer[0] = const_cast<JSAMPROW>(&buffer[cinfo.next_scanline * width * 3]);
+    (void) jpeg_write_scanlines(&cinfo, row_pointer, 1);
+  }
+
+  jpeg_finish_compress(&cinfo);
+  jpeg_destroy_compress(&cinfo);
+
+  return true;
+}
+
 void JpegEncoderHelper::setJpegDestination(jpeg_compress_struct* cinfo) {
   destination_mgr* dest = static_cast<struct destination_mgr*>(
       (*cinfo->mem->alloc_small)((j_common_ptr)cinfo, JPOOL_PERMANENT, sizeof(destination_mgr)));
@@ -118,20 +156,33 @@ void JpegEncoderHelper::setJpegDestination(jpeg_compress_struct* cinfo) {
 }
 
 void JpegEncoderHelper::setJpegCompressStruct(int width, int height, int quality,
-                                              jpeg_compress_struct* cinfo, bool isSingleChannel) {
+                                              jpeg_compress_struct* cinfo, encode_mode_t encodeMode) {
   cinfo->image_width = width;
   cinfo->image_height = height;
-  cinfo->input_components = isSingleChannel ? 1 : 3;
-  cinfo->in_color_space = isSingleChannel ? JCS_GRAYSCALE : JCS_YCbCr;
+
+  if (encodeMode == ENCODE_TO_SINGLE_CHANNEL) {
+    cinfo->input_components = 1;
+    cinfo->in_color_space = JCS_GRAYSCALE;
+  } else if (encodeMode == ENCODE_TO_YCBCR) {
+    cinfo->input_components = 3;
+    cinfo->in_color_space = JCS_YCbCr;
+  } else {
+    cinfo->input_components = 3;
+    cinfo->in_color_space = JCS_RGB;
+  }
+
   jpeg_set_defaults(cinfo);
   jpeg_set_quality(cinfo, quality, TRUE);
-  cinfo->raw_data_in = TRUE;
-  cinfo->dct_method = JDCT_ISLOW;
-  cinfo->comp_info[0].h_samp_factor = cinfo->in_color_space == JCS_GRAYSCALE ? 1 : 2;
-  cinfo->comp_info[0].v_samp_factor = cinfo->in_color_space == JCS_GRAYSCALE ? 1 : 2;
-  for (int i = 1; i < cinfo->num_components; i++) {
-    cinfo->comp_info[i].h_samp_factor = 1;
-    cinfo->comp_info[i].v_samp_factor = 1;
+
+  if (encodeMode == ENCODE_TO_SINGLE_CHANNEL || encodeMode == ENCODE_TO_YCBCR) {
+    cinfo->raw_data_in = TRUE;
+    cinfo->dct_method = JDCT_ISLOW;
+    cinfo->comp_info[0].h_samp_factor = cinfo->in_color_space == JCS_GRAYSCALE ? 1 : 2;
+    cinfo->comp_info[0].v_samp_factor = cinfo->in_color_space == JCS_GRAYSCALE ? 1 : 2;
+    for (int i = 1; i < cinfo->num_components; i++) {
+      cinfo->comp_info[i].h_samp_factor = 1;
+      cinfo->comp_info[i].v_samp_factor = 1;
+    }
   }
 }
 

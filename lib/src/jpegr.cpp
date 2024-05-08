@@ -66,6 +66,9 @@ static const int kMapCompressQuality = 85;
 static const bool kWriteXmpMetadata = true;
 static const bool kWriteIso21496_1Metadata = false;
 
+// Gain map calculation
+static const bool kUseMultiChannelGainMap = false;
+
 int GetCPUCoreCount() {
   int cpuCoreCount = 1;
 
@@ -716,13 +719,21 @@ status_t JpegR::decodeJPEGR(jr_compressed_ptr jpegr_image_ptr, jr_uncompressed_p
   JpegDecoderHelper jpeg_dec_obj_gm;
   jpegr_uncompressed_struct gainmap_image;
   if (gainmap_image_ptr != nullptr || output_format != ULTRAHDR_OUTPUT_SDR) {
-    if (!jpeg_dec_obj_gm.decompressImage(gainmap_jpeg_image.data, gainmap_jpeg_image.length)) {
+    if (!jpeg_dec_obj_gm.decompressImage(
+            gainmap_jpeg_image.data, gainmap_jpeg_image.length, DECODE_TO_GAIN_MAP)) {
       return ERROR_JPEGR_DECODE_ERROR;
     }
-    if ((jpeg_dec_obj_gm.getDecompressedImageWidth() *
-         jpeg_dec_obj_gm.getDecompressedImageHeight()) >
-        jpeg_dec_obj_gm.getDecompressedImageSize()) {
-      return ERROR_JPEGR_DECODE_ERROR;
+    int gain_map_width = jpeg_dec_obj_gm.getDecompressedImageWidth();
+    int gain_map_height = jpeg_dec_obj_gm.getDecompressedImageHeight();
+    int gain_map_size = jpeg_dec_obj_gm.getDecompressedImageSize();
+    if (gain_map_width * gain_map_height * 4 == gain_map_size) {
+      gainmap_image.pixelFormat = ULTRAHDR_PIX_FMT_RGBA8888;
+    } else if (gain_map_width * gain_map_height * 3 == gain_map_size) {
+      gainmap_image.pixelFormat = ULTRAHDR_PIX_FMT_RGB888;
+    } else if (gain_map_width * gain_map_height == gain_map_size) {
+      gainmap_image.pixelFormat = ULTRAHDR_PIX_FMT_MONOCHROME;
+    } else {
+      return ERROR_JPEGR_GAIN_MAP_SIZE_ERROR;
     }
     gainmap_image.data = jpeg_dec_obj_gm.getDecompressedImagePtr();
     gainmap_image.width = jpeg_dec_obj_gm.getDecompressedImageWidth();
@@ -731,6 +742,7 @@ status_t JpegR::decodeJPEGR(jr_compressed_ptr jpegr_image_ptr, jr_uncompressed_p
     if (gainmap_image_ptr != nullptr) {
       gainmap_image_ptr->width = gainmap_image.width;
       gainmap_image_ptr->height = gainmap_image.height;
+      gainmap_image_ptr->pixelFormat = gainmap_image.pixelFormat;
       memcpy(gainmap_image_ptr->data, gainmap_image.data,
              gainmap_image_ptr->width * gainmap_image_ptr->height);
     }
@@ -814,12 +826,20 @@ status_t JpegR::compressGainMap(jr_uncompressed_ptr gainmap_image_ptr,
     return ERROR_JPEGR_BAD_PTR;
   }
 
-  // Don't need to convert YUV to Bt601 since single channel
-  if (!jpeg_enc_obj_ptr->compressImage(reinterpret_cast<uint8_t*>(gainmap_image_ptr->data), nullptr,
-                                       gainmap_image_ptr->width, gainmap_image_ptr->height,
-                                       gainmap_image_ptr->luma_stride, 0, kMapCompressQuality,
-                                       nullptr, 0)) {
-    return ERROR_JPEGR_ENCODE_ERROR;
+  if (kUseMultiChannelGainMap) {
+    if (!jpeg_enc_obj_ptr->compressImage(reinterpret_cast<uint8_t*>(gainmap_image_ptr->data),
+                                         gainmap_image_ptr->width, gainmap_image_ptr->height,
+                                         kMapCompressQuality, nullptr, 0)) {
+      return ERROR_JPEGR_ENCODE_ERROR;
+    }
+  } else {
+    // Don't need to convert YUV to Bt601 since single channel
+    if (!jpeg_enc_obj_ptr->compressImage(reinterpret_cast<uint8_t*>(gainmap_image_ptr->data), nullptr,
+                                         gainmap_image_ptr->width, gainmap_image_ptr->height,
+                                         gainmap_image_ptr->luma_stride, 0, kMapCompressQuality,
+                                         nullptr, 0)) {
+      return ERROR_JPEGR_ENCODE_ERROR;
+    }
   }
 
   return JPEGR_NO_ERROR;
@@ -887,6 +907,13 @@ status_t JpegR::generateGainMap(jr_uncompressed_ptr yuv420_image_ptr,
                                 jr_uncompressed_ptr p010_image_ptr,
                                 ultrahdr_transfer_function hdr_tf, ultrahdr_metadata_ptr metadata,
                                 jr_uncompressed_ptr dest, bool sdr_is_601) {
+//  if (kUseMultiChannelGainMap) {
+//    static_assert(kWriteIso21496_1Metadata && !kWriteXmpMetadata,
+//            "Multi-channel gain map now is only supported for ISO 21496-1 metadata");
+//  }
+
+  const size_t gainMapChannelCount = kUseMultiChannelGainMap ? 3 : 1;
+
   if (yuv420_image_ptr == nullptr || p010_image_ptr == nullptr || metadata == nullptr ||
       dest == nullptr || yuv420_image_ptr->data == nullptr ||
       yuv420_image_ptr->chroma_data == nullptr || p010_image_ptr->data == nullptr ||
@@ -907,7 +934,7 @@ status_t JpegR::generateGainMap(jr_uncompressed_ptr yuv420_image_ptr,
   size_t map_width = image_width / kMapDimensionScaleFactor;
   size_t map_height = image_height / kMapDimensionScaleFactor;
 
-  dest->data = new uint8_t[map_width * map_height];
+  dest->data = new uint8_t[map_width * map_height * gainMapChannelCount];
   dest->width = map_width;
   dest->height = map_height;
   dest->colorGamut = ULTRAHDR_COLORGAMUT_UNSPECIFIED;
@@ -1003,56 +1030,99 @@ status_t JpegR::generateGainMap(jr_uncompressed_ptr yuv420_image_ptr,
   const int threads = (std::min)(GetCPUCoreCount(), 4);
   size_t rowStep = threads == 1 ? image_height : kJobSzInRows;
   JobQueue jobQueue;
+  std::function<void()> generateMap;
 
-  std::function<void()> generateMap = [yuv420_image_ptr, p010_image_ptr, metadata, dest, hdrInvOetf,
-                                       hdrGamutConversionFn, luminanceFn, sdrYuvToRgbFn,
-                                       hdrYuvToRgbFn, hdr_white_nits, log2MinBoost, log2MaxBoost,
-                                       &jobQueue]() -> void {
-    size_t rowStart, rowEnd;
-    while (jobQueue.dequeueJob(rowStart, rowEnd)) {
-      for (size_t y = rowStart; y < rowEnd; ++y) {
-        for (size_t x = 0; x < dest->width; ++x) {
-          Color sdr_yuv_gamma = sampleYuv420(yuv420_image_ptr, kMapDimensionScaleFactor, x, y);
-          Color sdr_rgb_gamma = sdrYuvToRgbFn(sdr_yuv_gamma);
-          // We are assuming the SDR input is always sRGB transfer.
+  if (kUseMultiChannelGainMap) {
+    generateMap = [yuv420_image_ptr, p010_image_ptr, metadata, dest, hdrInvOetf,
+                   hdrGamutConversionFn, sdrYuvToRgbFn, gainMapChannelCount, hdrYuvToRgbFn,
+                   hdr_white_nits, log2MinBoost, log2MaxBoost, &jobQueue]() -> void {
+      size_t rowStart, rowEnd;
+      while (jobQueue.dequeueJob(rowStart, rowEnd)) {
+        for (size_t y = rowStart; y < rowEnd; ++y) {
+          for (size_t x = 0; x < dest->width; ++x) {
+            Color sdr_yuv_gamma = sampleYuv420(yuv420_image_ptr, kMapDimensionScaleFactor, x, y);
+            Color sdr_rgb_gamma = sdrYuvToRgbFn(sdr_yuv_gamma);
+            // We are assuming the SDR input is always sRGB transfer.
 #if USE_SRGB_INVOETF_LUT
-          Color sdr_rgb = srgbInvOetfLUT(sdr_rgb_gamma);
+            Color sdr_rgb = srgbInvOetfLUT(sdr_rgb_gamma);
 #else
-          Color sdr_rgb = srgbInvOetf(sdr_rgb_gamma);
+            Color sdr_rgb = srgbInvOetf(sdr_rgb_gamma);
 #endif
-          float sdr_y_nits = luminanceFn(sdr_rgb) * kSdrWhiteNits;
+            Color sdr_rgb_nits = sdr_rgb * kSdrWhiteNits;
 
-          Color hdr_yuv_gamma = sampleP010(p010_image_ptr, kMapDimensionScaleFactor, x, y);
-          Color hdr_rgb_gamma = hdrYuvToRgbFn(hdr_yuv_gamma);
-          Color hdr_rgb = hdrInvOetf(hdr_rgb_gamma);
-          hdr_rgb = hdrGamutConversionFn(hdr_rgb);
-          float hdr_y_nits = luminanceFn(hdr_rgb) * hdr_white_nits;
+            Color hdr_yuv_gamma = sampleP010(p010_image_ptr, kMapDimensionScaleFactor, x, y);
+            Color hdr_rgb_gamma = hdrYuvToRgbFn(hdr_yuv_gamma);
+            Color hdr_rgb = hdrInvOetf(hdr_rgb_gamma);
+            hdr_rgb = hdrGamutConversionFn(hdr_rgb);
+            Color hdr_rgb_nits = hdr_rgb * hdr_white_nits;
 
-          size_t pixel_idx = x + y * dest->width;
-          reinterpret_cast<uint8_t*>(dest->data)[pixel_idx] =
-              encodeGain(sdr_y_nits, hdr_y_nits, metadata, log2MinBoost, log2MaxBoost);
+            size_t pixel_idx = (x + y * dest->width) * gainMapChannelCount;
+
+            // R
+            reinterpret_cast<uint8_t*>(dest->data)[pixel_idx] =
+                    encodeGain(sdr_rgb_nits.r, hdr_rgb_nits.r, metadata, log2MinBoost, log2MaxBoost);
+            // G
+            reinterpret_cast<uint8_t*>(dest->data)[pixel_idx + 1] =
+                    encodeGain(sdr_rgb_nits.g, hdr_rgb_nits.g, metadata, log2MinBoost, log2MaxBoost);
+            // B
+            reinterpret_cast<uint8_t*>(dest->data)[pixel_idx + 2] =
+                    encodeGain(sdr_rgb_nits.b, hdr_rgb_nits.b, metadata, log2MinBoost, log2MaxBoost);
+          }
         }
       }
+    };
+  } else {
+    generateMap = [yuv420_image_ptr, p010_image_ptr, metadata, dest, hdrInvOetf,
+                   hdrGamutConversionFn, luminanceFn, sdrYuvToRgbFn,
+                   hdrYuvToRgbFn, hdr_white_nits, log2MinBoost, log2MaxBoost,
+                   &jobQueue]() -> void {
+      size_t rowStart, rowEnd;
+      while (jobQueue.dequeueJob(rowStart, rowEnd)) {
+        for (size_t y = rowStart; y < rowEnd; ++y) {
+          for (size_t x = 0; x < dest->width; ++x) {
+            Color sdr_yuv_gamma = sampleYuv420(yuv420_image_ptr, kMapDimensionScaleFactor, x, y);
+            Color sdr_rgb_gamma = sdrYuvToRgbFn(sdr_yuv_gamma);
+            // We are assuming the SDR input is always sRGB transfer.
+#if USE_SRGB_INVOETF_LUT
+            Color sdr_rgb = srgbInvOetfLUT(sdr_rgb_gamma);
+#else
+            Color sdr_rgb = srgbInvOetf(sdr_rgb_gamma);
+#endif
+            float sdr_y_nits = luminanceFn(sdr_rgb) * kSdrWhiteNits;
+
+            Color hdr_yuv_gamma = sampleP010(p010_image_ptr, kMapDimensionScaleFactor, x, y);
+            Color hdr_rgb_gamma = hdrYuvToRgbFn(hdr_yuv_gamma);
+            Color hdr_rgb = hdrInvOetf(hdr_rgb_gamma);
+            hdr_rgb = hdrGamutConversionFn(hdr_rgb);
+            float hdr_y_nits = luminanceFn(hdr_rgb) * hdr_white_nits;
+
+            size_t pixel_idx = x + y * dest->width;
+            reinterpret_cast<uint8_t*>(dest->data)[pixel_idx] =
+                   encodeGain(sdr_y_nits, hdr_y_nits, metadata, log2MinBoost, log2MaxBoost);
+          }
+        }
+      }
+    };
+  }
+
+    // generate map
+    std::vector<std::thread> workers;
+    for (int th = 0; th < threads - 1; th++) {
+      workers.push_back(std::thread(generateMap));
     }
-  };
 
-  // generate map
-  std::vector<std::thread> workers;
-  for (int th = 0; th < threads - 1; th++) {
-    workers.push_back(std::thread(generateMap));
-  }
-
-  rowStep = (threads == 1 ? image_height : kJobSzInRows) / kMapDimensionScaleFactor;
-  for (size_t rowStart = 0; rowStart < map_height;) {
-    size_t rowEnd = (std::min)(rowStart + rowStep, map_height);
-    jobQueue.enqueueJob(rowStart, rowEnd);
-    rowStart = rowEnd;
-  }
-  jobQueue.markQueueForEnd();
-  generateMap();
-  std::for_each(workers.begin(), workers.end(), [](std::thread& t) { t.join(); });
+    rowStep = (threads == 1 ? image_height : kJobSzInRows) / kMapDimensionScaleFactor;
+    for (size_t rowStart = 0; rowStart < map_height;) {
+      size_t rowEnd = (std::min)(rowStart + rowStep, map_height);
+      jobQueue.enqueueJob(rowStart, rowEnd);
+      rowStart = rowEnd;
+    }
+    jobQueue.markQueueForEnd();
+    generateMap();
+    std::for_each(workers.begin(), workers.end(), [](std::thread& t) { t.join(); });
 
   map_data.release();
+
   return JPEGR_NO_ERROR;
 }
 
@@ -1133,19 +1203,39 @@ status_t JpegR::applyGainMap(jr_uncompressed_ptr yuv420_image_ptr,
 #else
           Color rgb_sdr = srgbInvOetf(rgb_gamma_sdr);
 #endif
-          float gain;
-          // TODO: If map_scale_factor is guaranteed to be an integer, then remove the following.
-          if (map_scale_factor != floorf(map_scale_factor)) {
-            gain = sampleMap(gainmap_image_ptr, map_scale_factor, x, y);
-          } else {
-            gain = sampleMap(gainmap_image_ptr, map_scale_factor, x, y, idwTable);
-          }
+          Color rgb_hdr;
+          if (gainmap_image_ptr->pixelFormat == ULTRAHDR_PIX_FMT_MONOCHROME) {
+            float gain;
+            // TODO: If map_scale_factor is guaranteed to be an integer, then remove the following.
+            if (map_scale_factor != floorf(map_scale_factor)) {
+              gain = sampleMap(gainmap_image_ptr, map_scale_factor, x, y);
+            } else {
+              gain = sampleMap(gainmap_image_ptr, map_scale_factor, x, y, idwTable);
+            }
 
 #if USE_APPLY_GAIN_LUT
-          Color rgb_hdr = applyGainLUT(rgb_sdr, gain, gainLUT);
+            rgb_hdr = applyGainLUT(rgb_sdr, gain, gainLUT);
 #else
-          Color rgb_hdr = applyGain(rgb_sdr, gain, metadata, display_boost);
+            rgb_hdr = applyGain(rgb_sdr, gain, metadata, display_boost);
 #endif
+          } else {
+            Color gain;
+            // TODO: If map_scale_factor is guaranteed to be an integer, then remove the following.
+            if (map_scale_factor != floorf(map_scale_factor)) {
+              gain = sampleMap3Channel(gainmap_image_ptr, map_scale_factor, x, y,
+                      gainmap_image_ptr->pixelFormat == ULTRAHDR_PIX_FMT_RGBA8888);
+            } else {
+              gain = sampleMap3Channel(gainmap_image_ptr, map_scale_factor, x, y, idwTable,
+                      gainmap_image_ptr->pixelFormat == ULTRAHDR_PIX_FMT_RGBA8888);
+            }
+
+#if USE_APPLY_GAIN_LUT
+            rgb_hdr = applyGainLUT(rgb_sdr, gain, gainLUT);
+#else
+            rgb_hdr = applyGain(rgb_sdr, gain, metadata, display_boost);
+#endif
+          }
+
           rgb_hdr = rgb_hdr / display_boost;
           size_t pixel_idx = x + y * width;
 

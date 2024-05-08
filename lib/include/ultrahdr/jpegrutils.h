@@ -20,7 +20,7 @@
 #include "ultrahdr/ultrahdr.h"
 #include "ultrahdr/jpegr.h"
 
-// TODO (dichenzhang): This is old version metadata, new version can be foundin in
+// TODO (dichenzhang): This is old version metadata, new version can be found in
 // https://drive.google.com/file/d/1yUGmjGytRuBa2vpr9eM5Uu8CVhyyddjp/view?resourcekey=0-HGzFrzPQzu5FNYLRAJXQBA
 // and in gainmapmetadata.h/.cpp
 // This file is kept in order to keep the backward compatibility.

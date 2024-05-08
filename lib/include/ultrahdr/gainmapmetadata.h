@@ -1,5 +1,5 @@
 /*
- * Copyright 2022 The Android Open Source Project
+ * Copyright 2024 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,6 +17,7 @@
 #ifndef ULTRAHDR_GAINMAPMETADATA_H
 #define ULTRAHDR_GAINMAPMETADATA_H
 
+#include "ultrahdr/ultrahdrcommon.h"
 #include "ultrahdr/ultrahdr.h"
 
 #include <memory>
@@ -59,38 +60,38 @@ namespace ultrahdr {
                                                    gain_map_metadata* to);
 
     void dump() const {
-      printf("GAIN MAP METADATA: \n");
-      printf("min numerator:                       %d, %d, %d\n",
+      ALOGD("GAIN MAP METADATA: \n");
+      ALOGD("min numerator:                       %d, %d, %d\n",
               gainMapMinN[0], gainMapMinN[1], gainMapMinN[2]);
-      printf("min denominator:                     %d, %d, %d\n",
+      ALOGD("min denominator:                     %d, %d, %d\n",
               gainMapMinD[0], gainMapMinD[1], gainMapMinD[2]);
-      printf("max numerator:                       %d, %d, %d\n",
+      ALOGD("max numerator:                       %d, %d, %d\n",
               gainMapMaxN[0], gainMapMaxN[1], gainMapMaxN[2]);
-      printf("max denominator:                     %d, %d, %d\n",
+      ALOGD("max denominator:                     %d, %d, %d\n",
               gainMapMaxD[0], gainMapMaxD[1], gainMapMaxD[2]);
-      printf("gamma numerator:                     %d, %d, %d\n",
+      ALOGD("gamma numerator:                     %d, %d, %d\n",
               gainMapGammaN[0], gainMapGammaN[1], gainMapGammaN[2]);
-      printf("gamma denominator:                   %d, %d, %d\n",
+      ALOGD("gamma denominator:                   %d, %d, %d\n",
               gainMapGammaD[0], gainMapGammaD[1], gainMapGammaD[2]);
-      printf("SDR offset numerator:                %d, %d, %d\n",
+      ALOGD("SDR offset numerator:                %d, %d, %d\n",
               baseOffsetN[0], baseOffsetN[1], baseOffsetN[2]);
-      printf("SDR offset denominator:              %d, %d, %d\n",
+      ALOGD("SDR offset denominator:              %d, %d, %d\n",
               baseOffsetD[0], baseOffsetD[1], baseOffsetD[2]);
-      printf("HDR offset numerator:                %d, %d, %d\n",
+      ALOGD("HDR offset numerator:                %d, %d, %d\n",
               alternateOffsetN[0], alternateOffsetN[1], alternateOffsetN[2]);
-      printf("HDR offset denominator:              %d, %d, %d\n",
+      ALOGD("HDR offset denominator:              %d, %d, %d\n",
               alternateOffsetD[0], alternateOffsetD[1], alternateOffsetD[2]);
-      printf("base HDR head room numerator:        %d\n",
+      ALOGD("base HDR head room numerator:        %d\n",
               baseHdrHeadroomN);
-      printf("base HDR head room denominator:      %d\n",
+      ALOGD("base HDR head room denominator:      %d\n",
               baseHdrHeadroomD);
-      printf("alternate HDR head room numerator:   %d\n",
+      ALOGD("alternate HDR head room numerator:   %d\n",
               alternateHdrHeadroomN);
-      printf("alternate HDR head room denominator: %d\n",
+      ALOGD("alternate HDR head room denominator: %d\n",
               alternateHdrHeadroomD);
-      printf("backwardDirection:                   %s\n",
+      ALOGD("backwardDirection:                   %s\n",
               backwardDirection ? "true" : "false");
-      printf("use base color space:                %s\n",
+      ALOGD("use base color space:                %s\n",
               useBaseColorSpace ? "true" : "false");
     }
   };

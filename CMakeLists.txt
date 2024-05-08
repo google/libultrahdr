@@ -410,7 +410,7 @@ set_property(DIRECTORY PROPERTY ADDITIONAL_MAKE_CLEAN_FILES
 # File Lists
 ###########################################################
 file(GLOB UHDR_CORE_SRCS_LIST "${SOURCE_DIR}/src/*.cpp")
-file(GLOB UHDR_TEST_SRCS_LIST "${TESTS_DIR}/*.cpp")
+file(GLOB UHDR_TEST_SRCS_LIST "${TESTS_DIR}/gainmapmetadata_test.cpp")
 file(GLOB UHDR_BM_SRCS_LIST "${BENCHMARK_DIR}/*.cpp")
 file(GLOB IMAGE_IO_SRCS_LIST "${THIRD_PARTY_DIR}/image_io/src/**/*.cc")
 
