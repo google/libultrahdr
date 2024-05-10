@@ -36,6 +36,12 @@ extern "C" {
 
 namespace ultrahdr {
 
+typedef enum {
+  ENCODE_TO_YCBCR = 0,
+  ENCODE_TO_RGB = 1,
+  ENCODE_TO_SINGLE_CHANNEL = 2,
+} encode_mode_t;
+
 /*
  * Encapsulates a converter from raw image (YUV420planer or grey-scale) to JPEG format.
  * This class is not thread-safe.
@@ -55,6 +61,16 @@ class JpegEncoderHelper {
   bool compressImage(const uint8_t* yBuffer, const uint8_t* uvBuffer, int width, int height,
                      int lumaStride, int chromaStride, int quality, const void* iccBuffer,
                      unsigned int iccSize);
+
+  /*
+   * Compresses RGB interleaved image to JPEG format. After calling this method, call
+   * getCompressedImage() to get the image. |quality| is the jpeg image quality parameter to use.
+   * It ranges from 1 (poorest quality) to 100 (highest quality). |iccBuffer| is the buffer of
+   * ICC segment which will be added to the compressed image.
+   * Returns false if errors occur during compression.
+   */
+  bool compressImage(const uint8_t* buffer, int width, int height, int quality,
+                     const void* iccBuffer, unsigned int iccSize);
 
   /*
    * Returns the compressed JPEG buffer pointer. This method must be called only after calling
@@ -86,9 +102,11 @@ class JpegEncoderHelper {
   bool encode(const uint8_t* yBuffer, const uint8_t* uvBuffer, int width, int height,
               int lumaStride, int chromaStride, int quality, const void* iccBuffer,
               unsigned int iccSize);
+  bool encode(const uint8_t* buffer, int width, int height, int quality, const void* iccBuffer,
+              unsigned int iccSize);
   void setJpegDestination(jpeg_compress_struct* cinfo);
   void setJpegCompressStruct(int width, int height, int quality, jpeg_compress_struct* cinfo,
-                             bool isSingleChannel);
+                             encode_mode_t encodeMode);
   // Returns false if errors occur.
   bool compressYuv(jpeg_compress_struct* cinfo, const uint8_t* yBuffer, const uint8_t* uvBuffer,
                    int lumaStride, int chromaStride);

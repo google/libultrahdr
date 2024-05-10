@@ -2263,6 +2263,8 @@ TEST(JpegRTest, ProfileGainMapFuncs) {
   map.width = 0;
   map.height = 0;
   map.colorGamut = ULTRAHDR_COLORGAMUT_UNSPECIFIED;
+  map.pixelFormat = ULTRAHDR_PIX_FMT_MONOCHROME;
+
   {
     auto rawImg = rawImgP010.getImageHandle();
     if (rawImg->luma_stride == 0) rawImg->luma_stride = rawImg->width;

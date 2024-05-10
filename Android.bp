@@ -46,6 +46,7 @@ cc_library {
         "lib/src/icc.cpp",
         "lib/src/jpegr.cpp",
         "lib/src/gainmapmath.cpp",
+        "lib/src/gainmapmetadata.cpp",
         "lib/src/jpegrutils.cpp",
         "lib/src/multipictureformat.cpp",
         "lib/src/editorhelper.cpp",

@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+#include <cmath>
 #include "ultrahdr/gainmapmath.h"
 
 namespace ultrahdr {
@@ -586,6 +587,39 @@ Color applyGainLUT(Color e, float gain, GainLUT& gainLUT) {
   return e * gainFactor;
 }
 
+Color applyGain(Color e, Color gain, ultrahdr_metadata_ptr metadata) {
+  float logBoostR =
+      log2(metadata->minContentBoost) * (1.0f - gain.r) + log2(metadata->maxContentBoost) * gain.r;
+  float logBoostG =
+      log2(metadata->minContentBoost) * (1.0f - gain.g) + log2(metadata->maxContentBoost) * gain.g;
+  float logBoostB =
+      log2(metadata->minContentBoost) * (1.0f - gain.b) + log2(metadata->maxContentBoost) * gain.b;
+  float gainFactorR = exp2(logBoostR);
+  float gainFactorG = exp2(logBoostG);
+  float gainFactorB = exp2(logBoostB);
+  return {{{e.r * gainFactorR, e.g * gainFactorG, e.b * gainFactorB}}};
+}
+
+Color applyGain(Color e, Color gain, ultrahdr_metadata_ptr metadata, float displayBoost) {
+  float logBoostR =
+      log2(metadata->minContentBoost) * (1.0f - gain.r) + log2(metadata->maxContentBoost) * gain.r;
+  float logBoostG =
+      log2(metadata->minContentBoost) * (1.0f - gain.g) + log2(metadata->maxContentBoost) * gain.g;
+  float logBoostB =
+      log2(metadata->minContentBoost) * (1.0f - gain.b) + log2(metadata->maxContentBoost) * gain.b;
+  float gainFactorR = exp2(logBoostR * displayBoost / metadata->maxContentBoost);
+  float gainFactorG = exp2(logBoostG * displayBoost / metadata->maxContentBoost);
+  float gainFactorB = exp2(logBoostB * displayBoost / metadata->maxContentBoost);
+  return {{{e.r * gainFactorR, e.g * gainFactorG, e.b * gainFactorB}}};
+}
+
+Color applyGainLUT(Color e, Color gain, GainLUT& gainLUT) {
+  float gainFactorR = gainLUT.getGainFactor(gain.r);
+  float gainFactorG = gainLUT.getGainFactor(gain.g);
+  float gainFactorB = gainLUT.getGainFactor(gain.b);
+  return {{{e.r * gainFactorR, e.g * gainFactorG, e.b * gainFactorB}}};
+}
+
 Color getYuv420Pixel(jr_uncompressed_ptr image, size_t x, size_t y) {
   uint8_t* luma_data = reinterpret_cast<uint8_t*>(image->data);
   size_t luma_stride = image->luma_stride;
@@ -744,6 +778,148 @@ float sampleMap(jr_uncompressed_ptr map, size_t map_scale_factor, size_t x, size
   weights += offset_y * map_scale_factor * 4 + offset_x * 4;
 
   return e1 * weights[0] + e2 * weights[1] + e3 * weights[2] + e4 * weights[3];
+}
+
+Color sampleMap3Channel(jr_uncompressed_ptr map, float map_scale_factor, size_t x, size_t y,
+                        bool has_alpha) {
+  float x_map = static_cast<float>(x) / map_scale_factor;
+  float y_map = static_cast<float>(y) / map_scale_factor;
+
+  size_t x_lower = static_cast<size_t>(floor(x_map));
+  size_t x_upper = x_lower + 1;
+  size_t y_lower = static_cast<size_t>(floor(y_map));
+  size_t y_upper = y_lower + 1;
+
+  x_lower = std::min(x_lower, map->width - 1);
+  x_upper = std::min(x_upper, map->width - 1);
+  y_lower = std::min(y_lower, map->height - 1);
+  y_upper = std::min(y_upper, map->height - 1);
+
+  int factor = has_alpha ? 4 : 3;
+
+  float r1 = mapUintToFloat(
+      reinterpret_cast<uint8_t*>(map->data)[(x_lower + y_lower * map->width) * factor]);
+  float r2 = mapUintToFloat(
+      reinterpret_cast<uint8_t*>(map->data)[(x_lower + y_upper * map->width) * factor]);
+  float r3 = mapUintToFloat(
+      reinterpret_cast<uint8_t*>(map->data)[(x_upper + y_lower * map->width) * factor]);
+  float r4 = mapUintToFloat(
+      reinterpret_cast<uint8_t*>(map->data)[(x_upper + y_upper * map->width) * factor]);
+
+  float g1 = mapUintToFloat(
+      reinterpret_cast<uint8_t*>(map->data)[(x_lower + y_lower * map->width) * factor + 1]);
+  float g2 = mapUintToFloat(
+      reinterpret_cast<uint8_t*>(map->data)[(x_lower + y_upper * map->width) * factor + 1]);
+  float g3 = mapUintToFloat(
+      reinterpret_cast<uint8_t*>(map->data)[(x_upper + y_lower * map->width) * factor + 1]);
+  float g4 = mapUintToFloat(
+      reinterpret_cast<uint8_t*>(map->data)[(x_upper + y_upper * map->width) * factor + 1]);
+
+  float b1 = mapUintToFloat(
+      reinterpret_cast<uint8_t*>(map->data)[(x_lower + y_lower * map->width) * factor + 2]);
+  float b2 = mapUintToFloat(
+      reinterpret_cast<uint8_t*>(map->data)[(x_lower + y_upper * map->width) * factor + 2]);
+  float b3 = mapUintToFloat(
+      reinterpret_cast<uint8_t*>(map->data)[(x_upper + y_lower * map->width) * factor + 2]);
+  float b4 = mapUintToFloat(
+      reinterpret_cast<uint8_t*>(map->data)[(x_upper + y_upper * map->width) * factor + 2]);
+
+  Color rgb1 = {{{r1, g1, b1}}};
+  Color rgb2 = {{{r2, g2, b2}}};
+  Color rgb3 = {{{r3, g3, b3}}};
+  Color rgb4 = {{{r4, g4, b4}}};
+
+  // Use Shepard's method for inverse distance weighting. For more information:
+  // en.wikipedia.org/wiki/Inverse_distance_weighting#Shepard's_method
+  float e1_dist =
+      pythDistance(x_map - static_cast<float>(x_lower), y_map - static_cast<float>(y_lower));
+  if (e1_dist == 0.0f) return rgb1;
+
+  float e2_dist =
+      pythDistance(x_map - static_cast<float>(x_lower), y_map - static_cast<float>(y_upper));
+  if (e2_dist == 0.0f) return rgb2;
+
+  float e3_dist =
+      pythDistance(x_map - static_cast<float>(x_upper), y_map - static_cast<float>(y_lower));
+  if (e3_dist == 0.0f) return rgb3;
+
+  float e4_dist =
+      pythDistance(x_map - static_cast<float>(x_upper), y_map - static_cast<float>(y_upper));
+  if (e4_dist == 0.0f) return rgb4;
+
+  float e1_weight = 1.0f / e1_dist;
+  float e2_weight = 1.0f / e2_dist;
+  float e3_weight = 1.0f / e3_dist;
+  float e4_weight = 1.0f / e4_dist;
+  float total_weight = e1_weight + e2_weight + e3_weight + e4_weight;
+
+  return rgb1 * (e1_weight / total_weight) + rgb2 * (e2_weight / total_weight) +
+         rgb3 * (e3_weight / total_weight) + rgb4 * (e4_weight / total_weight);
+}
+
+Color sampleMap3Channel(jr_uncompressed_ptr map, size_t map_scale_factor, size_t x, size_t y,
+                        ShepardsIDW& weightTables, bool has_alpha) {
+  // TODO: If map_scale_factor is guaranteed to be an integer power of 2, then optimize the
+  // following by computing log2(map_scale_factor) once and then using >> log2(map_scale_factor)
+  size_t x_lower = x / map_scale_factor;
+  size_t x_upper = x_lower + 1;
+  size_t y_lower = y / map_scale_factor;
+  size_t y_upper = y_lower + 1;
+
+  x_lower = std::min(x_lower, map->width - 1);
+  x_upper = std::min(x_upper, map->width - 1);
+  y_lower = std::min(y_lower, map->height - 1);
+  y_upper = std::min(y_upper, map->height - 1);
+
+  int factor = has_alpha ? 4 : 3;
+
+  float r1 = mapUintToFloat(
+      reinterpret_cast<uint8_t*>(map->data)[(x_lower + y_lower * map->width) * factor]);
+  float r2 = mapUintToFloat(
+      reinterpret_cast<uint8_t*>(map->data)[(x_lower + y_upper * map->width) * factor]);
+  float r3 = mapUintToFloat(
+      reinterpret_cast<uint8_t*>(map->data)[(x_upper + y_lower * map->width) * factor]);
+  float r4 = mapUintToFloat(
+      reinterpret_cast<uint8_t*>(map->data)[(x_upper + y_upper * map->width) * factor]);
+
+  float g1 = mapUintToFloat(
+      reinterpret_cast<uint8_t*>(map->data)[(x_lower + y_lower * map->width) * factor + 1]);
+  float g2 = mapUintToFloat(
+      reinterpret_cast<uint8_t*>(map->data)[(x_lower + y_upper * map->width) * factor + 1]);
+  float g3 = mapUintToFloat(
+      reinterpret_cast<uint8_t*>(map->data)[(x_upper + y_lower * map->width) * factor + 1]);
+  float g4 = mapUintToFloat(
+      reinterpret_cast<uint8_t*>(map->data)[(x_upper + y_upper * map->width) * factor + 1]);
+
+  float b1 = mapUintToFloat(
+      reinterpret_cast<uint8_t*>(map->data)[(x_lower + y_lower * map->width) * factor + 2]);
+  float b2 = mapUintToFloat(
+      reinterpret_cast<uint8_t*>(map->data)[(x_lower + y_upper * map->width) * factor + 2]);
+  float b3 = mapUintToFloat(
+      reinterpret_cast<uint8_t*>(map->data)[(x_upper + y_lower * map->width) * factor + 2]);
+  float b4 = mapUintToFloat(
+      reinterpret_cast<uint8_t*>(map->data)[(x_upper + y_upper * map->width) * factor + 2]);
+
+  Color rgb1 = {{{r1, g1, b1}}};
+  Color rgb2 = {{{r2, g2, b2}}};
+  Color rgb3 = {{{r3, g3, b3}}};
+  Color rgb4 = {{{r4, g4, b4}}};
+
+  // TODO: If map_scale_factor is guaranteed to be an integer power of 2, then optimize the
+  // following by using & (map_scale_factor - 1)
+  int offset_x = x % map_scale_factor;
+  int offset_y = y % map_scale_factor;
+
+  float* weights = weightTables.mWeights;
+  if (x_lower == x_upper && y_lower == y_upper)
+    weights = weightTables.mWeightsC;
+  else if (x_lower == x_upper)
+    weights = weightTables.mWeightsNR;
+  else if (y_lower == y_upper)
+    weights = weightTables.mWeightsNB;
+  weights += offset_y * map_scale_factor * 4 + offset_x * 4;
+
+  return rgb1 * weights[0] + rgb2 * weights[1] + rgb3 * weights[2] + rgb4 * weights[3];
 }
 
 uint32_t colorToRgba1010102(Color e_gamma) {
@@ -935,6 +1111,72 @@ std::unique_ptr<uhdr_raw_image_ext_t> convert_raw_input_to_ycbcr(uhdr_raw_image_
     }
   }
   return dst;
+}
+// Use double type for intermediate results for better precision.
+static bool floatToUnsignedFractionImpl(float v, uint32_t maxNumerator, uint32_t* numerator,
+                                        uint32_t* denominator) {
+  if (std::isnan(v) || v < 0 || v > maxNumerator) {
+    return false;
+  }
+
+  // Maximum denominator: makes sure that the numerator is <= maxNumerator and the denominator
+  // is <= UINT32_MAX.
+  const uint64_t maxD = (v <= 1) ? UINT32_MAX : (uint64_t)floor(maxNumerator / v);
+
+  // Find the best approximation of v as a fraction using continued fractions, see
+  // https://en.wikipedia.org/wiki/Continued_fraction
+  *denominator = 1;
+  uint32_t previousD = 0;
+  double currentV = (double) v - floor(v);
+  int iter = 0;
+  // Set a maximum number of iterations to be safe. Most numbers should
+  // converge in less than ~20 iterations.
+  // The golden ratio is the worst case and takes 39 iterations.
+  const int maxIter = 39;
+  while (iter < maxIter) {
+    const double numeratorDouble = (double)(*denominator) * v;
+    if (numeratorDouble > maxNumerator) {
+      return false;
+    }
+    *numerator = (uint32_t)round(numeratorDouble);
+    if (fabs(numeratorDouble - (*numerator)) == 0.0) {
+      return true;
+    }
+    currentV = 1.0 / currentV;
+    const double newD = previousD + floor(currentV) * (*denominator);
+    if (newD > maxD) {
+      // This is the best we can do with a denominator <= max_d.
+      return true;
+    }
+    previousD = *denominator;
+    if (newD > (double)UINT32_MAX) {
+      return false;
+    }
+    *denominator = (uint32_t)newD;
+    currentV -= floor(currentV);
+    ++iter;
+  }
+  // Maximum number of iterations reached, return what we've found.
+  // For max_iter >= 39 we shouldn't get here. max_iter can be set
+  // to a lower value to speed up the algorithm if needed.
+  *numerator = (uint32_t)round((double)(*denominator) * v);
+  return true;
+}
+
+bool floatToSignedFraction(float v, int32_t* numerator, uint32_t* denominator) {
+  uint32_t positive_numerator;
+  if (!floatToUnsignedFractionImpl(fabs(v), INT32_MAX, &positive_numerator, denominator)) {
+    return false;
+  }
+  *numerator = (int32_t)positive_numerator;
+  if (v < 0) {
+    *numerator *= -1;
+  }
+  return true;
+}
+
+bool floatToUnsignedFraction(float v, uint32_t* numerator, uint32_t* denominator) {
+  return floatToUnsignedFractionImpl(v, UINT32_MAX, numerator, denominator);
 }
 
 }  // namespace ultrahdr

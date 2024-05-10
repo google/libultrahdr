@@ -29,14 +29,17 @@ namespace ultrahdr {
 // minnie-320x240-yuv-icc.jpg has icc
 #ifdef __ANDROID__
 #define YUV_IMAGE "/data/local/tmp/minnie-320x240-yuv.jpg"
+#define RGB_IMAGE "/data/local/tmp/minnie-320x240-rgb.jpg"
 #define YUV_ICC_IMAGE "/data/local/tmp/minnie-320x240-yuv-icc.jpg"
 #define GREY_IMAGE "/data/local/tmp/minnie-320x240-y.jpg"
 #else
 #define YUV_IMAGE "./data/minnie-320x240-yuv.jpg"
+#define RGB_IMAGE "./data/minnie-320x240-rgb.jpg"
 #define YUV_ICC_IMAGE "./data/minnie-320x240-yuv-icc.jpg"
 #define GREY_IMAGE "./data/minnie-320x240-y.jpg"
 #endif
 #define YUV_IMAGE_SIZE 20193
+#define RGB_IMAGE_SIZE 20200
 #define YUV_ICC_IMAGE_SIZE 34266
 #define GREY_IMAGE_SIZE 20193
 #define IMAGE_WIDTH 320
@@ -55,7 +58,7 @@ class JpegDecoderHelperTest : public testing::Test {
   virtual void SetUp();
   virtual void TearDown();
 
-  Image mYuvImage, mYuvIccImage, mGreyImage;
+  Image mYuvImage, mYuvIccImage, mGreyImage, mRgbImage;
 };
 
 JpegDecoderHelperTest::JpegDecoderHelperTest() {}
@@ -88,6 +91,10 @@ void JpegDecoderHelperTest::SetUp() {
     FAIL() << "Load file " << GREY_IMAGE << " failed";
   }
   mGreyImage.size = GREY_IMAGE_SIZE;
+  if (!loadFile(RGB_IMAGE, &mRgbImage)) {
+    FAIL() << "Load file " << RGB_IMAGE << " failed";
+  }
+  mRgbImage.size = RGB_IMAGE_SIZE;
 }
 
 void JpegDecoderHelperTest::TearDown() {}
@@ -95,6 +102,14 @@ void JpegDecoderHelperTest::TearDown() {}
 TEST_F(JpegDecoderHelperTest, decodeYuvImage) {
   JpegDecoderHelper decoder;
   EXPECT_TRUE(decoder.decompressImage(mYuvImage.buffer.get(), mYuvImage.size));
+  ASSERT_GT(decoder.getDecompressedImageSize(), static_cast<uint32_t>(0));
+  EXPECT_EQ(IccHelper::readIccColorGamut(decoder.getICCPtr(), decoder.getICCSize()),
+            ULTRAHDR_COLORGAMUT_UNSPECIFIED);
+}
+
+TEST_F(JpegDecoderHelperTest, decodeYuvImageToRgba) {
+  JpegDecoderHelper decoder;
+  EXPECT_TRUE(decoder.decompressImage(mYuvImage.buffer.get(), mYuvImage.size, DECODE_TO_RGBA));
   ASSERT_GT(decoder.getDecompressedImageSize(), static_cast<uint32_t>(0));
   EXPECT_EQ(IccHelper::readIccColorGamut(decoder.getICCPtr(), decoder.getICCSize()),
             ULTRAHDR_COLORGAMUT_UNSPECIFIED);
@@ -112,6 +127,18 @@ TEST_F(JpegDecoderHelperTest, decodeGreyImage) {
   JpegDecoderHelper decoder;
   EXPECT_TRUE(decoder.decompressImage(mGreyImage.buffer.get(), mGreyImage.size));
   ASSERT_GT(decoder.getDecompressedImageSize(), static_cast<uint32_t>(0));
+  EXPECT_TRUE(decoder.decompressImage(mGreyImage.buffer.get(), mGreyImage.size,
+          DECODE_TO_GAIN_MAP));
+  ASSERT_GT(decoder.getDecompressedImageSize(), static_cast<uint32_t>(0));
+}
+
+TEST_F(JpegDecoderHelperTest, decodeRgbImageToRgba) {
+  JpegDecoderHelper decoder;
+  EXPECT_TRUE(decoder.decompressImage(mRgbImage.buffer.get(), mRgbImage.size,
+          DECODE_TO_GAIN_MAP));
+  ASSERT_GT(decoder.getDecompressedImageSize(), static_cast<uint32_t>(0));
+  EXPECT_EQ(IccHelper::readIccColorGamut(decoder.getICCPtr(), decoder.getICCSize()),
+            ULTRAHDR_COLORGAMUT_UNSPECIFIED);
 }
 
 TEST_F(JpegDecoderHelperTest, getCompressedImageParameters) {

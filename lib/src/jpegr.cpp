@@ -27,6 +27,7 @@
 #include <mutex>
 #include <thread>
 
+#include "ultrahdr/gainmapmetadata.h"
 #include "ultrahdr/ultrahdrcommon.h"
 #include "ultrahdr/jpegr.h"
 #include "ultrahdr/icc.h"
@@ -61,6 +62,13 @@ namespace ultrahdr {
 // JPEG compress quality (0 ~ 100) for gain map
 static const int kMapCompressQuality = 85;
 
+// Gain map metadata
+static const bool kWriteXmpMetadata = true;
+static const bool kWriteIso21496_1Metadata = false;
+
+// Gain map calculation
+static const bool kUseMultiChannelGainMap = false;
+
 int GetCPUCoreCount() {
   int cpuCoreCount = 1;
 
@@ -90,6 +98,9 @@ class AlogMessageWriter : public MessageWriter {
     ALOGD("%s", log.c_str());
   }
 };
+
+const string kXmpNameSpace = "http://ns.adobe.com/xap/1.0/";
+const string kIsoNameSpace = "urn:iso:std:iso:ts:21496:-1";
 
 /*
  * Helper function copies the JPEG image from without EXIF.
@@ -696,13 +707,21 @@ status_t JpegR::decodeJPEGR(jr_compressed_ptr jpegr_image_ptr, jr_uncompressed_p
   JpegDecoderHelper jpeg_dec_obj_gm;
   jpegr_uncompressed_struct gainmap_image;
   if (gainmap_image_ptr != nullptr || output_format != ULTRAHDR_OUTPUT_SDR) {
-    if (!jpeg_dec_obj_gm.decompressImage(gainmap_jpeg_image.data, gainmap_jpeg_image.length)) {
+    if (!jpeg_dec_obj_gm.decompressImage(
+            gainmap_jpeg_image.data, gainmap_jpeg_image.length, DECODE_TO_GAIN_MAP)) {
       return ERROR_JPEGR_DECODE_ERROR;
     }
-    if ((jpeg_dec_obj_gm.getDecompressedImageWidth() *
-         jpeg_dec_obj_gm.getDecompressedImageHeight()) >
-        jpeg_dec_obj_gm.getDecompressedImageSize()) {
-      return ERROR_JPEGR_DECODE_ERROR;
+    int gain_map_width = jpeg_dec_obj_gm.getDecompressedImageWidth();
+    int gain_map_height = jpeg_dec_obj_gm.getDecompressedImageHeight();
+    int gain_map_size = jpeg_dec_obj_gm.getDecompressedImageSize();
+    if (gain_map_width * gain_map_height * 4 == gain_map_size) {
+      gainmap_image.pixelFormat = ULTRAHDR_PIX_FMT_RGBA8888;
+    } else if (gain_map_width * gain_map_height * 3 == gain_map_size) {
+      gainmap_image.pixelFormat = ULTRAHDR_PIX_FMT_RGB888;
+    } else if (gain_map_width * gain_map_height == gain_map_size) {
+      gainmap_image.pixelFormat = ULTRAHDR_PIX_FMT_MONOCHROME;
+    } else {
+      return ERROR_JPEGR_GAIN_MAP_SIZE_ERROR;
     }
     gainmap_image.data = jpeg_dec_obj_gm.getDecompressedImagePtr();
     gainmap_image.width = jpeg_dec_obj_gm.getDecompressedImageWidth();
@@ -711,6 +730,7 @@ status_t JpegR::decodeJPEGR(jr_compressed_ptr jpegr_image_ptr, jr_uncompressed_p
     if (gainmap_image_ptr != nullptr) {
       gainmap_image_ptr->width = gainmap_image.width;
       gainmap_image_ptr->height = gainmap_image.height;
+      gainmap_image_ptr->pixelFormat = gainmap_image.pixelFormat;
       memcpy(gainmap_image_ptr->data, gainmap_image.data,
              gainmap_image_ptr->width * gainmap_image_ptr->height);
     }
@@ -718,9 +738,27 @@ status_t JpegR::decodeJPEGR(jr_compressed_ptr jpegr_image_ptr, jr_uncompressed_p
 
   ultrahdr_metadata_struct uhdr_metadata;
   if (metadata != nullptr || output_format != ULTRAHDR_OUTPUT_SDR) {
-    if (!getMetadataFromXMP(static_cast<uint8_t*>(jpeg_dec_obj_gm.getXMPPtr()),
-                            jpeg_dec_obj_gm.getXMPSize(), &uhdr_metadata)) {
-      return ERROR_JPEGR_METADATA_ERROR;
+    uint8_t* iso_ptr = static_cast<uint8_t*>(jpeg_dec_obj_gm.getIsoMetadataPtr());
+    if (iso_ptr != nullptr) {
+      int iso_size = jpeg_dec_obj_gm.getIsoMetadataSize();
+      if (iso_size < kIsoNameSpace.size() + 1) {
+        return ERROR_JPEGR_METADATA_ERROR;
+      }
+      gain_map_metadata decodedMetadata;
+      std::vector<uint8_t> iso_vec;
+      for (int i = kIsoNameSpace.size() + 1; i < iso_size; i++) {
+        iso_vec.push_back(iso_ptr[i]);
+      }
+
+      JPEGR_CHECK(gain_map_metadata::decodeGainmapMetadata(iso_vec,
+                                                           &decodedMetadata));
+      JPEGR_CHECK(gain_map_metadata::gainmapMetadataFractionToFloat(&decodedMetadata,
+                                                                    &uhdr_metadata));
+    } else {
+      if (!getMetadataFromXMP(static_cast<uint8_t*>(jpeg_dec_obj_gm.getXMPPtr()),
+                              jpeg_dec_obj_gm.getXMPSize(), &uhdr_metadata)) {
+        return ERROR_JPEGR_METADATA_ERROR;
+      }
     }
     if (metadata != nullptr) {
       metadata->version = uhdr_metadata.version;
@@ -776,12 +814,20 @@ status_t JpegR::compressGainMap(jr_uncompressed_ptr gainmap_image_ptr,
     return ERROR_JPEGR_BAD_PTR;
   }
 
-  // Don't need to convert YUV to Bt601 since single channel
-  if (!jpeg_enc_obj_ptr->compressImage(reinterpret_cast<uint8_t*>(gainmap_image_ptr->data), nullptr,
-                                       gainmap_image_ptr->width, gainmap_image_ptr->height,
-                                       gainmap_image_ptr->luma_stride, 0, kMapCompressQuality,
-                                       nullptr, 0)) {
-    return ERROR_JPEGR_ENCODE_ERROR;
+  if (kUseMultiChannelGainMap) {
+    if (!jpeg_enc_obj_ptr->compressImage(reinterpret_cast<uint8_t*>(gainmap_image_ptr->data),
+                                         gainmap_image_ptr->width, gainmap_image_ptr->height,
+                                         kMapCompressQuality, nullptr, 0)) {
+      return ERROR_JPEGR_ENCODE_ERROR;
+    }
+  } else {
+    // Don't need to convert YUV to Bt601 since single channel
+    if (!jpeg_enc_obj_ptr->compressImage(reinterpret_cast<uint8_t*>(gainmap_image_ptr->data), nullptr,
+                                         gainmap_image_ptr->width, gainmap_image_ptr->height,
+                                         gainmap_image_ptr->luma_stride, 0, kMapCompressQuality,
+                                         nullptr, 0)) {
+      return ERROR_JPEGR_ENCODE_ERROR;
+    }
   }
 
   return JPEGR_NO_ERROR;
@@ -849,6 +895,13 @@ status_t JpegR::generateGainMap(jr_uncompressed_ptr yuv420_image_ptr,
                                 jr_uncompressed_ptr p010_image_ptr,
                                 ultrahdr_transfer_function hdr_tf, ultrahdr_metadata_ptr metadata,
                                 jr_uncompressed_ptr dest, bool sdr_is_601) {
+//  if (kUseMultiChannelGainMap) {
+//    static_assert(kWriteIso21496_1Metadata && !kWriteXmpMetadata,
+//            "Multi-channel gain map now is only supported for ISO 21496-1 metadata");
+//  }
+
+  const size_t gainMapChannelCount = kUseMultiChannelGainMap ? 3 : 1;
+
   if (yuv420_image_ptr == nullptr || p010_image_ptr == nullptr || metadata == nullptr ||
       dest == nullptr || yuv420_image_ptr->data == nullptr ||
       yuv420_image_ptr->chroma_data == nullptr || p010_image_ptr->data == nullptr ||
@@ -869,7 +922,7 @@ status_t JpegR::generateGainMap(jr_uncompressed_ptr yuv420_image_ptr,
   size_t map_width = image_width / kMapDimensionScaleFactor;
   size_t map_height = image_height / kMapDimensionScaleFactor;
 
-  dest->data = new uint8_t[map_width * map_height];
+  dest->data = new uint8_t[map_width * map_height * gainMapChannelCount];
   dest->width = map_width;
   dest->height = map_height;
   dest->colorGamut = ULTRAHDR_COLORGAMUT_UNSPECIFIED;
@@ -965,56 +1018,99 @@ status_t JpegR::generateGainMap(jr_uncompressed_ptr yuv420_image_ptr,
   const int threads = (std::min)(GetCPUCoreCount(), 4);
   size_t rowStep = threads == 1 ? image_height : kJobSzInRows;
   JobQueue jobQueue;
+  std::function<void()> generateMap;
 
-  std::function<void()> generateMap = [yuv420_image_ptr, p010_image_ptr, metadata, dest, hdrInvOetf,
-                                       hdrGamutConversionFn, luminanceFn, sdrYuvToRgbFn,
-                                       hdrYuvToRgbFn, hdr_white_nits, log2MinBoost, log2MaxBoost,
-                                       &jobQueue]() -> void {
-    size_t rowStart, rowEnd;
-    while (jobQueue.dequeueJob(rowStart, rowEnd)) {
-      for (size_t y = rowStart; y < rowEnd; ++y) {
-        for (size_t x = 0; x < dest->width; ++x) {
-          Color sdr_yuv_gamma = sampleYuv420(yuv420_image_ptr, kMapDimensionScaleFactor, x, y);
-          Color sdr_rgb_gamma = sdrYuvToRgbFn(sdr_yuv_gamma);
-          // We are assuming the SDR input is always sRGB transfer.
+  if (kUseMultiChannelGainMap) {
+    generateMap = [yuv420_image_ptr, p010_image_ptr, metadata, dest, hdrInvOetf,
+                   hdrGamutConversionFn, sdrYuvToRgbFn, gainMapChannelCount, hdrYuvToRgbFn,
+                   hdr_white_nits, log2MinBoost, log2MaxBoost, &jobQueue]() -> void {
+      size_t rowStart, rowEnd;
+      while (jobQueue.dequeueJob(rowStart, rowEnd)) {
+        for (size_t y = rowStart; y < rowEnd; ++y) {
+          for (size_t x = 0; x < dest->width; ++x) {
+            Color sdr_yuv_gamma = sampleYuv420(yuv420_image_ptr, kMapDimensionScaleFactor, x, y);
+            Color sdr_rgb_gamma = sdrYuvToRgbFn(sdr_yuv_gamma);
+            // We are assuming the SDR input is always sRGB transfer.
 #if USE_SRGB_INVOETF_LUT
-          Color sdr_rgb = srgbInvOetfLUT(sdr_rgb_gamma);
+            Color sdr_rgb = srgbInvOetfLUT(sdr_rgb_gamma);
 #else
-          Color sdr_rgb = srgbInvOetf(sdr_rgb_gamma);
+            Color sdr_rgb = srgbInvOetf(sdr_rgb_gamma);
 #endif
-          float sdr_y_nits = luminanceFn(sdr_rgb) * kSdrWhiteNits;
+            Color sdr_rgb_nits = sdr_rgb * kSdrWhiteNits;
 
-          Color hdr_yuv_gamma = sampleP010(p010_image_ptr, kMapDimensionScaleFactor, x, y);
-          Color hdr_rgb_gamma = hdrYuvToRgbFn(hdr_yuv_gamma);
-          Color hdr_rgb = hdrInvOetf(hdr_rgb_gamma);
-          hdr_rgb = hdrGamutConversionFn(hdr_rgb);
-          float hdr_y_nits = luminanceFn(hdr_rgb) * hdr_white_nits;
+            Color hdr_yuv_gamma = sampleP010(p010_image_ptr, kMapDimensionScaleFactor, x, y);
+            Color hdr_rgb_gamma = hdrYuvToRgbFn(hdr_yuv_gamma);
+            Color hdr_rgb = hdrInvOetf(hdr_rgb_gamma);
+            hdr_rgb = hdrGamutConversionFn(hdr_rgb);
+            Color hdr_rgb_nits = hdr_rgb * hdr_white_nits;
 
-          size_t pixel_idx = x + y * dest->width;
-          reinterpret_cast<uint8_t*>(dest->data)[pixel_idx] =
-              encodeGain(sdr_y_nits, hdr_y_nits, metadata, log2MinBoost, log2MaxBoost);
+            size_t pixel_idx = (x + y * dest->width) * gainMapChannelCount;
+
+            // R
+            reinterpret_cast<uint8_t*>(dest->data)[pixel_idx] =
+                    encodeGain(sdr_rgb_nits.r, hdr_rgb_nits.r, metadata, log2MinBoost, log2MaxBoost);
+            // G
+            reinterpret_cast<uint8_t*>(dest->data)[pixel_idx + 1] =
+                    encodeGain(sdr_rgb_nits.g, hdr_rgb_nits.g, metadata, log2MinBoost, log2MaxBoost);
+            // B
+            reinterpret_cast<uint8_t*>(dest->data)[pixel_idx + 2] =
+                    encodeGain(sdr_rgb_nits.b, hdr_rgb_nits.b, metadata, log2MinBoost, log2MaxBoost);
+          }
         }
       }
+    };
+  } else {
+    generateMap = [yuv420_image_ptr, p010_image_ptr, metadata, dest, hdrInvOetf,
+                   hdrGamutConversionFn, luminanceFn, sdrYuvToRgbFn,
+                   hdrYuvToRgbFn, hdr_white_nits, log2MinBoost, log2MaxBoost,
+                   &jobQueue]() -> void {
+      size_t rowStart, rowEnd;
+      while (jobQueue.dequeueJob(rowStart, rowEnd)) {
+        for (size_t y = rowStart; y < rowEnd; ++y) {
+          for (size_t x = 0; x < dest->width; ++x) {
+            Color sdr_yuv_gamma = sampleYuv420(yuv420_image_ptr, kMapDimensionScaleFactor, x, y);
+            Color sdr_rgb_gamma = sdrYuvToRgbFn(sdr_yuv_gamma);
+            // We are assuming the SDR input is always sRGB transfer.
+#if USE_SRGB_INVOETF_LUT
+            Color sdr_rgb = srgbInvOetfLUT(sdr_rgb_gamma);
+#else
+            Color sdr_rgb = srgbInvOetf(sdr_rgb_gamma);
+#endif
+            float sdr_y_nits = luminanceFn(sdr_rgb) * kSdrWhiteNits;
+
+            Color hdr_yuv_gamma = sampleP010(p010_image_ptr, kMapDimensionScaleFactor, x, y);
+            Color hdr_rgb_gamma = hdrYuvToRgbFn(hdr_yuv_gamma);
+            Color hdr_rgb = hdrInvOetf(hdr_rgb_gamma);
+            hdr_rgb = hdrGamutConversionFn(hdr_rgb);
+            float hdr_y_nits = luminanceFn(hdr_rgb) * hdr_white_nits;
+
+            size_t pixel_idx = x + y * dest->width;
+            reinterpret_cast<uint8_t*>(dest->data)[pixel_idx] =
+                   encodeGain(sdr_y_nits, hdr_y_nits, metadata, log2MinBoost, log2MaxBoost);
+          }
+        }
+      }
+    };
+  }
+
+    // generate map
+    std::vector<std::thread> workers;
+    for (int th = 0; th < threads - 1; th++) {
+      workers.push_back(std::thread(generateMap));
     }
-  };
 
-  // generate map
-  std::vector<std::thread> workers;
-  for (int th = 0; th < threads - 1; th++) {
-    workers.push_back(std::thread(generateMap));
-  }
-
-  rowStep = (threads == 1 ? image_height : kJobSzInRows) / kMapDimensionScaleFactor;
-  for (size_t rowStart = 0; rowStart < map_height;) {
-    size_t rowEnd = (std::min)(rowStart + rowStep, map_height);
-    jobQueue.enqueueJob(rowStart, rowEnd);
-    rowStart = rowEnd;
-  }
-  jobQueue.markQueueForEnd();
-  generateMap();
-  std::for_each(workers.begin(), workers.end(), [](std::thread& t) { t.join(); });
+    rowStep = (threads == 1 ? image_height : kJobSzInRows) / kMapDimensionScaleFactor;
+    for (size_t rowStart = 0; rowStart < map_height;) {
+      size_t rowEnd = (std::min)(rowStart + rowStep, map_height);
+      jobQueue.enqueueJob(rowStart, rowEnd);
+      rowStart = rowEnd;
+    }
+    jobQueue.markQueueForEnd();
+    generateMap();
+    std::for_each(workers.begin(), workers.end(), [](std::thread& t) { t.join(); });
 
   map_data.release();
+
   return JPEGR_NO_ERROR;
 }
 
@@ -1095,19 +1191,39 @@ status_t JpegR::applyGainMap(jr_uncompressed_ptr yuv420_image_ptr,
 #else
           Color rgb_sdr = srgbInvOetf(rgb_gamma_sdr);
 #endif
-          float gain;
-          // TODO: If map_scale_factor is guaranteed to be an integer, then remove the following.
-          if (map_scale_factor != floorf(map_scale_factor)) {
-            gain = sampleMap(gainmap_image_ptr, map_scale_factor, x, y);
-          } else {
-            gain = sampleMap(gainmap_image_ptr, map_scale_factor, x, y, idwTable);
-          }
+          Color rgb_hdr;
+          if (gainmap_image_ptr->pixelFormat == ULTRAHDR_PIX_FMT_MONOCHROME) {
+            float gain;
+            // TODO: If map_scale_factor is guaranteed to be an integer, then remove the following.
+            if (map_scale_factor != floorf(map_scale_factor)) {
+              gain = sampleMap(gainmap_image_ptr, map_scale_factor, x, y);
+            } else {
+              gain = sampleMap(gainmap_image_ptr, map_scale_factor, x, y, idwTable);
+            }
 
 #if USE_APPLY_GAIN_LUT
-          Color rgb_hdr = applyGainLUT(rgb_sdr, gain, gainLUT);
+            rgb_hdr = applyGainLUT(rgb_sdr, gain, gainLUT);
 #else
-          Color rgb_hdr = applyGain(rgb_sdr, gain, metadata, display_boost);
+            rgb_hdr = applyGain(rgb_sdr, gain, metadata, display_boost);
 #endif
+          } else {
+            Color gain;
+            // TODO: If map_scale_factor is guaranteed to be an integer, then remove the following.
+            if (map_scale_factor != floorf(map_scale_factor)) {
+              gain = sampleMap3Channel(gainmap_image_ptr, map_scale_factor, x, y,
+                      gainmap_image_ptr->pixelFormat == ULTRAHDR_PIX_FMT_RGBA8888);
+            } else {
+              gain = sampleMap3Channel(gainmap_image_ptr, map_scale_factor, x, y, idwTable,
+                      gainmap_image_ptr->pixelFormat == ULTRAHDR_PIX_FMT_RGBA8888);
+            }
+
+#if USE_APPLY_GAIN_LUT
+            rgb_hdr = applyGainLUT(rgb_sdr, gain, gainLUT);
+#else
+            rgb_hdr = applyGain(rgb_sdr, gain, metadata, display_boost);
+#endif
+          }
+
           rgb_hdr = rgb_hdr / display_boost;
           size_t pixel_idx = x + y * width;
 
@@ -1273,6 +1389,12 @@ status_t JpegR::parseJpegInfo(jr_compressed_ptr jpeg_image_ptr, j_info_ptr jpeg_
 // name space ("http://ns.adobe.com/xap/1.0/\0")
 // XMP
 //
+// (Required, ISO 21496-1 metadata, version only) APP2 (ff e2)
+// 2 bytes of length
+// name space (""urn:iso:std:iso:ts:21496:-1\0")
+// 2 bytes minimum_version: (00 00)
+// 2 bytes writer_version: (00 00)
+//
 // (Required, MPF package) APP2 (ff e2)
 // 2 bytes of length
 // MPF
@@ -1286,6 +1408,11 @@ status_t JpegR::parseJpegInfo(jr_compressed_ptr jpeg_image_ptr, j_info_ptr jpeg_
 // name space ("http://ns.adobe.com/xap/1.0/\0")
 // XMP
 //
+// (Required, ISO 21496-1 metadata) APP2 (ff e2)
+// 2 bytes of length
+// name space (""urn:iso:std:iso:ts:21496:-1\0")
+// metadata
+//
 // (Required) secondary image (the gain map, without the first two bytes (SOI))
 //
 // Metadata versions we are using:
@@ -1297,6 +1424,8 @@ status_t JpegR::appendGainMap(jr_compressed_ptr primary_jpg_image_ptr,
                               jr_compressed_ptr gainmap_jpg_image_ptr, jr_exif_ptr pExif,
                               void* pIcc, size_t icc_size, ultrahdr_metadata_ptr metadata,
                               jr_compressed_ptr dest) {
+  static_assert(kWriteXmpMetadata || kWriteIso21496_1Metadata,
+          "Must write gain map metadata in XMP format, or iso 21496-1 format, or both.");
   if (primary_jpg_image_ptr == nullptr || gainmap_jpg_image_ptr == nullptr || metadata == nullptr ||
       dest == nullptr) {
     return ERROR_JPEGR_BAD_PTR;
@@ -1324,22 +1453,35 @@ status_t JpegR::appendGainMap(jr_compressed_ptr primary_jpg_image_ptr,
     return ERROR_JPEGR_BAD_METADATA;
   }
 
-  const string nameSpace = "http://ns.adobe.com/xap/1.0/";
-  const int nameSpaceLength = nameSpace.size() + 1;  // need to count the null terminator
+  const int xmpNameSpaceLength = kXmpNameSpace.size() + 1;  // need to count the null terminator
+  const int isoNameSpaceLength = kIsoNameSpace.size() + 1; // need to count the null terminator
 
-  // calculate secondary image length first, because the length will be written into the primary
-  // image xmp
+  /////////////////////////////////////////////////////////////////////////////////////////////////
+  // calculate secondary image length first, because the length will be written into the primary //
+  // image xmp                                                                                   //
+  /////////////////////////////////////////////////////////////////////////////////////////////////
+  // XMP
   const string xmp_secondary = generateXmpForSecondaryImage(*metadata);
   // xmp_secondary_length = 2 bytes representing the length of the package +
-  //  + nameSpaceLength = 29 bytes length
+  //  + xmpNameSpaceLength = 29 bytes length
   //  + length of xmp packet = xmp_secondary.size()
-  const int xmp_secondary_length = 2 + nameSpaceLength + xmp_secondary.size();
-  const int secondary_image_size = 2 /* 2 bytes length of APP1 sign */
-                                   + xmp_secondary_length + gainmap_jpg_image_ptr->length;
-  // primary image
-  const string xmp_primary = generateXmpForPrimaryImage(secondary_image_size, *metadata);
-  // same as primary
-  const int xmp_primary_length = 2 + nameSpaceLength + xmp_primary.size();
+  const int xmp_secondary_length = 2 + xmpNameSpaceLength + xmp_secondary.size();
+  // ISO
+  gain_map_metadata iso_secondary_metadata;
+  std::vector<uint8_t> iso_secondary_data;
+  gain_map_metadata::gainmapMetadataFloatToFraction(metadata, &iso_secondary_metadata);
+
+  gain_map_metadata::encodeGainmapMetadata(&iso_secondary_metadata, iso_secondary_data);
+
+  // iso_secondary_length = 2 bytes representing the length of the package +
+  //  + isoNameSpaceLength = 28 bytes length
+  //  + length of iso metadata packet = iso_secondary_data.size()
+  const int iso_secondary_length = 2 + isoNameSpaceLength + iso_secondary_data.size();
+
+  int secondary_image_size = 2 /* 2 bytes length of APP1 sign */ +
+                                   gainmap_jpg_image_ptr->length;
+  if (kWriteXmpMetadata) { secondary_image_size += xmp_secondary_length; }
+  if (kWriteIso21496_1Metadata) { secondary_image_size += iso_secondary_length; }
 
   // Check if EXIF package presents in the JPEG input.
   // If so, extract and remove the EXIF package.
@@ -1391,15 +1533,16 @@ status_t JpegR::appendGainMap(jr_compressed_ptr primary_jpg_image_ptr,
   }
 
   // Prepare and write XMP
-  {
-    const int length = xmp_primary_length;
+  if (kWriteXmpMetadata) {
+    const string xmp_primary = generateXmpForPrimaryImage(secondary_image_size, *metadata);
+    const int length = 2 + xmpNameSpaceLength + xmp_primary.size();
     const uint8_t lengthH = ((length >> 8) & 0xff);
     const uint8_t lengthL = (length & 0xff);
     JPEGR_CHECK(Write(dest, &photos_editing_formats::image_io::JpegMarker::kStart, 1, pos));
     JPEGR_CHECK(Write(dest, &photos_editing_formats::image_io::JpegMarker::kAPP1, 1, pos));
     JPEGR_CHECK(Write(dest, &lengthH, 1, pos));
     JPEGR_CHECK(Write(dest, &lengthL, 1, pos));
-    JPEGR_CHECK(Write(dest, (void*)nameSpace.c_str(), nameSpaceLength, pos));
+    JPEGR_CHECK(Write(dest, (void*)kXmpNameSpace.c_str(), xmpNameSpaceLength, pos));
     JPEGR_CHECK(Write(dest, (void*)xmp_primary.c_str(), xmp_primary.size(), pos));
   }
 
@@ -1413,6 +1556,23 @@ status_t JpegR::appendGainMap(jr_compressed_ptr primary_jpg_image_ptr,
     JPEGR_CHECK(Write(dest, &lengthH, 1, pos));
     JPEGR_CHECK(Write(dest, &lengthL, 1, pos));
     JPEGR_CHECK(Write(dest, pIcc, icc_size, pos));
+  }
+
+  // Prepare and write ISO 21496-1 metadata
+  if (kWriteIso21496_1Metadata) {
+    const int length = 2 + isoNameSpaceLength + 4;
+    uint8_t zero = 0;
+    const uint8_t lengthH = ((length >> 8) & 0xff);
+    const uint8_t lengthL = (length & 0xff);
+    JPEGR_CHECK(Write(dest, &photos_editing_formats::image_io::JpegMarker::kStart, 1, pos));
+    JPEGR_CHECK(Write(dest, &photos_editing_formats::image_io::JpegMarker::kAPP2, 1, pos));
+    JPEGR_CHECK(Write(dest, &lengthH, 1, pos));
+    JPEGR_CHECK(Write(dest, &lengthL, 1, pos));
+    JPEGR_CHECK(Write(dest, (void*)kIsoNameSpace.c_str(), isoNameSpaceLength, pos));
+    JPEGR_CHECK(Write(dest, &zero, 1, pos));
+    JPEGR_CHECK(Write(dest, &zero, 1, pos)); // 2 bytes minimum_version: (00 00)
+    JPEGR_CHECK(Write(dest, &zero, 1, pos));
+    JPEGR_CHECK(Write(dest, &zero, 1, pos)); // 2 bytes writer_version: (00 00)
   }
 
   // Prepare and write MPF
@@ -1446,7 +1606,7 @@ status_t JpegR::appendGainMap(jr_compressed_ptr primary_jpg_image_ptr,
   JPEGR_CHECK(Write(dest, &photos_editing_formats::image_io::JpegMarker::kSOI, 1, pos));
 
   // Prepare and write XMP
-  {
+  if (kWriteXmpMetadata) {
     const int length = xmp_secondary_length;
     const uint8_t lengthH = ((length >> 8) & 0xff);
     const uint8_t lengthL = (length & 0xff);
@@ -1454,8 +1614,21 @@ status_t JpegR::appendGainMap(jr_compressed_ptr primary_jpg_image_ptr,
     JPEGR_CHECK(Write(dest, &photos_editing_formats::image_io::JpegMarker::kAPP1, 1, pos));
     JPEGR_CHECK(Write(dest, &lengthH, 1, pos));
     JPEGR_CHECK(Write(dest, &lengthL, 1, pos));
-    JPEGR_CHECK(Write(dest, (void*)nameSpace.c_str(), nameSpaceLength, pos));
+    JPEGR_CHECK(Write(dest, (void*)kXmpNameSpace.c_str(), xmpNameSpaceLength, pos));
     JPEGR_CHECK(Write(dest, (void*)xmp_secondary.c_str(), xmp_secondary.size(), pos));
+  }
+
+  // Prepare and write ISO 21496-1 metadata
+  if (kWriteIso21496_1Metadata) {
+    const int length = iso_secondary_length;
+    const uint8_t lengthH = ((length >> 8) & 0xff);
+    const uint8_t lengthL = (length & 0xff);
+    JPEGR_CHECK(Write(dest, &photos_editing_formats::image_io::JpegMarker::kStart, 1, pos));
+    JPEGR_CHECK(Write(dest, &photos_editing_formats::image_io::JpegMarker::kAPP2, 1, pos));
+    JPEGR_CHECK(Write(dest, &lengthH, 1, pos));
+    JPEGR_CHECK(Write(dest, &lengthL, 1, pos));
+    JPEGR_CHECK(Write(dest, (void*)kIsoNameSpace.c_str(), isoNameSpaceLength, pos));
+    JPEGR_CHECK(Write(dest, (void*)iso_secondary_data.data(), iso_secondary_data.size(), pos));
   }
 
   // Write secondary image
