@@ -466,9 +466,9 @@ static INLINE uint32x4x2_t vtrnq_u64_to_u32(uint32x4_t a0, uint32x4_t a1) {
   uint32x4x2_t b0;
 #if (defined(__arm64__) && defined(__APPLE__)) || defined(__aarch64__)
   b0.val[0] =
-      vreinterpretq_s32_s64(vtrn1q_u64(vreinterpretq_u64_u32(a0), vreinterpretq_u64_u32(a1)));
+      vreinterpretq_u32_u64(vtrn1q_u64(vreinterpretq_u64_u32(a0), vreinterpretq_u64_u32(a1)));
   b0.val[1] =
-      vreinterpretq_s32_s64(vtrn2q_u64(vreinterpretq_u64_u32(a0), vreinterpretq_u64_u32(a1)));
+      vreinterpretq_u32_u64(vtrn2q_u64(vreinterpretq_u64_u32(a0), vreinterpretq_u64_u32(a1)));
 #else
   b0.val[0] = vcombine_u32(vget_low_u32(a0), vget_low_u32(a1));
   b0.val[1] = vcombine_u32(vget_high_u32(a0), vget_high_u32(a1));
@@ -638,7 +638,7 @@ static INLINE void store_u32_4x4(uint32_t* s, int stride, uint32x4_t s1, uint32x
   vst1q_u32(s, s4);
 }
 
-static INLINE void store_u64_2x2(uint64_t* s, int stride, uint32x4_t s1, uint32x4_t s2) {
+static INLINE void store_u64_2x2(uint64_t* s, int stride, uint64x2_t s1, uint64x2_t s2) {
   vst1q_u64(s, s1);
   s += stride;
   vst1q_u64(s, s2);
