@@ -54,7 +54,7 @@ TEST_F(GainMapMetadataTest, encodeMetadataThenDecode) {
 
   gain_map_metadata metadata;
   gain_map_metadata::gainmapMetadataFloatToFraction(&expected, &metadata);
-  metadata.dump();
+//  metadata.dump();
 
   std::vector<uint8_t> data;
   gain_map_metadata::encodeGainmapMetadata(&metadata, data);
