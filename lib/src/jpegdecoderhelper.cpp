@@ -43,8 +43,8 @@ constexpr uint8_t kExifIdCode[] = {
 };
 
 constexpr uint8_t kIsoMetadataNameSpace[] = {
-    'u', 'r', 'n', ':', 'i', 's', 'o', ':', 's', 't', 'd', ':', 'i', 's', 'o',
-    ':', 't', 's', ':', '2', '1', '4', '9', '6', ':', '-', '1', '\0',
+    'u', 'r', 'n', ':', 'i', 's', 'o', ':', 's', 't', 'd', ':', 'i', 's',
+    'o', ':', 't', 's', ':', '2', '1', '4', '9', '6', ':', '-', '1', '\0',
 };
 
 struct jpegr_source_mgr : jpeg_source_mgr {
@@ -328,7 +328,7 @@ bool JpegDecoderHelper::decode(const void* image, int length, decode_mode_t deco
       cinfo.dct_method = JDCT_ISLOW;
       jpeg_start_decompress(&cinfo);
       if (!decompressRGBA(&cinfo, static_cast<const uint8_t*>(mResultBuffer.data()))) {
-         status = false;
+        status = false;
       }
       goto CleanUp;
     }

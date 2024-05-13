@@ -127,15 +127,14 @@ TEST_F(JpegDecoderHelperTest, decodeGreyImage) {
   JpegDecoderHelper decoder;
   EXPECT_TRUE(decoder.decompressImage(mGreyImage.buffer.get(), mGreyImage.size));
   ASSERT_GT(decoder.getDecompressedImageSize(), static_cast<uint32_t>(0));
-  EXPECT_TRUE(decoder.decompressImage(mGreyImage.buffer.get(), mGreyImage.size,
-          DECODE_TO_GAIN_MAP));
+  EXPECT_TRUE(
+      decoder.decompressImage(mGreyImage.buffer.get(), mGreyImage.size, DECODE_TO_GAIN_MAP));
   ASSERT_GT(decoder.getDecompressedImageSize(), static_cast<uint32_t>(0));
 }
 
 TEST_F(JpegDecoderHelperTest, decodeRgbImageToRgba) {
   JpegDecoderHelper decoder;
-  EXPECT_TRUE(decoder.decompressImage(mRgbImage.buffer.get(), mRgbImage.size,
-          DECODE_TO_GAIN_MAP));
+  EXPECT_TRUE(decoder.decompressImage(mRgbImage.buffer.get(), mRgbImage.size, DECODE_TO_GAIN_MAP));
   ASSERT_GT(decoder.getDecompressedImageSize(), static_cast<uint32_t>(0));
   EXPECT_EQ(IccHelper::readIccColorGamut(decoder.getICCPtr(), decoder.getICCSize()),
             ULTRAHDR_COLORGAMUT_UNSPECIFIED);

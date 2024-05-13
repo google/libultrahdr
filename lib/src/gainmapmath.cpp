@@ -1127,7 +1127,7 @@ static bool floatToUnsignedFractionImpl(float v, uint32_t maxNumerator, uint32_t
   // https://en.wikipedia.org/wiki/Continued_fraction
   *denominator = 1;
   uint32_t previousD = 0;
-  double currentV = (double) v - floor(v);
+  double currentV = (double)v - floor(v);
   int iter = 0;
   // Set a maximum number of iterations to be safe. Most numbers should
   // converge in less than ~20 iterations.

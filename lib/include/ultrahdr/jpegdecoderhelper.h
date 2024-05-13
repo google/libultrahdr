@@ -43,14 +43,14 @@ static const int kMaxWidth = 8192;
 static const int kMaxHeight = 8192;
 
 typedef enum {
-  PARSE_ONLY = 0,           // Dont decode. Parse for dimensions, EXIF, ICC, XMP
-  DECODE_TO_RGBA = 1,       // Parse and decode to rgba
-  DECODE_TO_YCBCR = 2,      // Parse and decode to YCBCR or Grayscale
-                            // if input has 1 channel, decode to Grayscale
-                            // if input has 3 channels, decode to YCBCR
-  DECODE_TO_GAIN_MAP = 3,   // parse and decode gain map.
-                            // if input has 1 channel, decode to Grayscale
-                            // if input has 3 channels, decode to RGBA
+  PARSE_ONLY = 0,          // Dont decode. Parse for dimensions, EXIF, ICC, XMP
+  DECODE_TO_RGBA = 1,      // Parse and decode to rgba
+  DECODE_TO_YCBCR = 2,     // Parse and decode to YCBCR or Grayscale
+                           // if input has 1 channel, decode to Grayscale
+                           // if input has 3 channels, decode to YCBCR
+  DECODE_TO_GAIN_MAP = 3,  // parse and decode gain map.
+                           // if input has 1 channel, decode to Grayscale
+                           // if input has 3 channels, decode to RGBA
 } decode_mode_t;
 
 /*

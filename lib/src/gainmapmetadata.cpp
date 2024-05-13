@@ -252,15 +252,15 @@ status_t gain_map_metadata::gainmapMetadataFractionToFloat(const gain_map_metada
     CHECK_NOT_ZERO(from->alternateOffsetD[i]);
   }
   to->version = kGainMapVersion;
-  to->maxContentBoost = (float) from->gainMapMaxN[0] / from->gainMapMaxD[0];
-  to->minContentBoost = (float) from->gainMapMinN[0] / from->gainMapMinD[0];
-  to->gamma = (float) from->gainMapGammaN[0] / from->gainMapGammaD[0];
+  to->maxContentBoost = (float)from->gainMapMaxN[0] / from->gainMapMaxD[0];
+  to->minContentBoost = (float)from->gainMapMinN[0] / from->gainMapMinD[0];
+  to->gamma = (float)from->gainMapGammaN[0] / from->gainMapGammaD[0];
 
   // BaseRenditionIsHDR is false
-  to->offsetSdr = (float) from->baseOffsetN[0] / from->baseOffsetD[0];
-  to->offsetHdr = (float) from->alternateOffsetN[0] / from->alternateOffsetD[0];
-  to->hdrCapacityMax = (float) from->alternateHdrHeadroomN / from->alternateHdrHeadroomD;
-  to->hdrCapacityMin = (float) from->baseHdrHeadroomN / from->baseHdrHeadroomD;
+  to->offsetSdr = (float)from->baseOffsetN[0] / from->baseOffsetD[0];
+  to->offsetHdr = (float)from->alternateOffsetN[0] / from->alternateOffsetD[0];
+  to->hdrCapacityMax = (float)from->alternateHdrHeadroomN / from->alternateHdrHeadroomD;
+  to->hdrCapacityMin = (float)from->baseHdrHeadroomN / from->baseHdrHeadroomD;
 
   return JPEGR_NO_ERROR;
 }

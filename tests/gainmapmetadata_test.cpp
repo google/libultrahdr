@@ -54,7 +54,7 @@ TEST_F(GainMapMetadataTest, encodeMetadataThenDecode) {
 
   gain_map_metadata metadata;
   gain_map_metadata::gainmapMetadataFloatToFraction(&expected, &metadata);
-//  metadata.dump();
+  //  metadata.dump();
 
   std::vector<uint8_t> data;
   gain_map_metadata::encodeGainmapMetadata(&metadata, data);
@@ -72,6 +72,5 @@ TEST_F(GainMapMetadataTest, encodeMetadataThenDecode) {
   EXPECT_EQ(expected.offsetHdr, decodedUHdrMetadata.offsetHdr);
   EXPECT_EQ(expected.hdrCapacityMin, decodedUHdrMetadata.hdrCapacityMin);
   EXPECT_EQ(expected.hdrCapacityMax, decodedUHdrMetadata.hdrCapacityMax);
-
 }
 }  // namespace ultrahdr
