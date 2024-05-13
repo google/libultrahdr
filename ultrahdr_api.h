@@ -537,7 +537,7 @@ UHDR_EXTERN uhdr_mem_block_t* uhdr_dec_get_icc(uhdr_codec_private_t* dec);
  *
  * \param[in]  dec  decoder instance.
  *
- * \return nullptr if decoded process call is unsuccessful, gainmap metadata descriptor otherwise
+ * \return nullptr if probe process call is unsuccessful, gainmap metadata descriptor otherwise
  */
 UHDR_EXTERN uhdr_gainmap_metadata_t* uhdr_dec_get_gain_map_metadata(uhdr_codec_private_t* dec);
 
