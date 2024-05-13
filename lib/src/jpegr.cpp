@@ -51,14 +51,6 @@ namespace ultrahdr {
 #define USE_PQ_INVOETF_LUT 1
 #define USE_APPLY_GAIN_LUT 1
 
-#define JPEGR_CHECK(x)                \
-  {                                   \
-    status_t status = (x);            \
-    if ((status) != JPEGR_NO_ERROR) { \
-      return status;                  \
-    }                                 \
-  }
-
 // JPEG compress quality (0 ~ 100) for gain map
 static const int kMapCompressQuality = 85;
 

@@ -24,6 +24,15 @@
 #include <vector>
 
 namespace ultrahdr {
+
+#define JPEGR_CHECK(x)                \
+  {                                   \
+    status_t status = (x);            \
+    if ((status) != JPEGR_NO_ERROR) { \
+      return status;                  \
+    }                                 \
+  }
+
 // Gain map metadata, for tone mapping between SDR and HDR.
 // This is the fraction version of {@code ultrahdr_metadata_struct}.
 struct gain_map_metadata {

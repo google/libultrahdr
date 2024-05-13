@@ -151,16 +151,17 @@ status_t gain_map_metadata::decodeGainmapMetadata(const std::vector<uint8_t> &da
   if (out_metadata == nullptr) {
     return ERROR_JPEGR_BAD_PTR;
   }
+
   size_t pos = 0;
   uint8_t version = 0xff;
-  streamReadU8(data, version, pos);
+  JPEGR_CHECK(streamReadU8(data, version, pos))
 
   if (version != 0) {
     return ERROR_JPEGR_UNSUPPORTED_FEATURE;
   }
 
   uint8_t flags = 0xff;
-  streamReadU8(data, flags, pos);
+  JPEGR_CHECK(streamReadU8(data, flags, pos))
 
   uint8_t channelCount = (flags & 1) * 2 + 1;
 
@@ -173,41 +174,41 @@ status_t gain_map_metadata::decodeGainmapMetadata(const std::vector<uint8_t> &da
 
   if (useCommonDenominator) {
     uint32_t commonDenominator;
-    streamReadU32(data, commonDenominator, pos);
+    JPEGR_CHECK(streamReadU32(data, commonDenominator, pos))
 
-    streamReadU32(data, out_metadata->baseHdrHeadroomN, pos);
+    JPEGR_CHECK(streamReadU32(data, out_metadata->baseHdrHeadroomN, pos))
     out_metadata->baseHdrHeadroomD = commonDenominator;
-    streamReadU32(data, out_metadata->alternateHdrHeadroomN, pos);
+    JPEGR_CHECK(streamReadU32(data, out_metadata->alternateHdrHeadroomN, pos))
     out_metadata->alternateHdrHeadroomD = commonDenominator;
 
     for (int c = 0; c < channelCount; ++c) {
-      streamReadU32(data, out_metadata->gainMapMinN[c], pos);
+      JPEGR_CHECK(streamReadU32(data, out_metadata->gainMapMinN[c], pos))
       out_metadata->gainMapMinD[c] = commonDenominator;
-      streamReadU32(data, out_metadata->gainMapMaxN[c], pos);
+      JPEGR_CHECK(streamReadU32(data, out_metadata->gainMapMaxN[c], pos))
       out_metadata->gainMapMaxD[c] = commonDenominator;
-      streamReadU32(data, out_metadata->gainMapGammaN[c], pos);
+      JPEGR_CHECK(streamReadU32(data, out_metadata->gainMapGammaN[c], pos))
       out_metadata->gainMapGammaD[c] = commonDenominator;
-      streamReadU32(data, out_metadata->baseOffsetN[c], pos);
+      JPEGR_CHECK(streamReadU32(data, out_metadata->baseOffsetN[c], pos))
       out_metadata->baseOffsetD[c] = commonDenominator;
-      streamReadU32(data, out_metadata->alternateOffsetN[c], pos);
+      JPEGR_CHECK(streamReadU32(data, out_metadata->alternateOffsetN[c], pos))
       out_metadata->alternateOffsetD[c] = commonDenominator;
     }
   } else {
-    streamReadU32(data, out_metadata->baseHdrHeadroomN, pos);
-    streamReadU32(data, out_metadata->baseHdrHeadroomD, pos);
-    streamReadU32(data, out_metadata->alternateHdrHeadroomN, pos);
-    streamReadU32(data, out_metadata->alternateHdrHeadroomD, pos);
+    JPEGR_CHECK(streamReadU32(data, out_metadata->baseHdrHeadroomN, pos))
+    JPEGR_CHECK(streamReadU32(data, out_metadata->baseHdrHeadroomD, pos))
+    JPEGR_CHECK(streamReadU32(data, out_metadata->alternateHdrHeadroomN, pos))
+    JPEGR_CHECK(streamReadU32(data, out_metadata->alternateHdrHeadroomD, pos))
     for (int c = 0; c < channelCount; ++c) {
-      streamReadU32(data, out_metadata->gainMapMinN[c], pos);
-      streamReadU32(data, out_metadata->gainMapMinD[c], pos);
-      streamReadU32(data, out_metadata->gainMapMaxN[c], pos);
-      streamReadU32(data, out_metadata->gainMapMaxD[c], pos);
-      streamReadU32(data, out_metadata->gainMapGammaN[c], pos);
-      streamReadU32(data, out_metadata->gainMapGammaD[c], pos);
-      streamReadU32(data, out_metadata->baseOffsetN[c], pos);
-      streamReadU32(data, out_metadata->baseOffsetD[c], pos);
-      streamReadU32(data, out_metadata->alternateOffsetN[c], pos);
-      streamReadU32(data, out_metadata->alternateOffsetD[c], pos);
+      JPEGR_CHECK(streamReadU32(data, out_metadata->gainMapMinN[c], pos))
+      JPEGR_CHECK(streamReadU32(data, out_metadata->gainMapMinD[c], pos))
+      JPEGR_CHECK(streamReadU32(data, out_metadata->gainMapMaxN[c], pos))
+      JPEGR_CHECK(streamReadU32(data, out_metadata->gainMapMaxD[c], pos))
+      JPEGR_CHECK(streamReadU32(data, out_metadata->gainMapGammaN[c], pos))
+      JPEGR_CHECK(streamReadU32(data, out_metadata->gainMapGammaD[c], pos))
+      JPEGR_CHECK(streamReadU32(data, out_metadata->baseOffsetN[c], pos))
+      JPEGR_CHECK(streamReadU32(data, out_metadata->baseOffsetD[c], pos))
+      JPEGR_CHECK(streamReadU32(data, out_metadata->alternateOffsetN[c], pos))
+      JPEGR_CHECK(streamReadU32(data, out_metadata->alternateOffsetD[c], pos))
     }
   }
 
