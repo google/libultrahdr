@@ -132,8 +132,8 @@ TEST_F(JpegEncoderHelperTest, encodeSingleChannelImage) {
 
 TEST_F(JpegEncoderHelperTest, encodeRGBImage) {
   JpegEncoderHelper encoder;
-  EXPECT_TRUE(encoder.compressImage(mRgbImage.buffer.get(), mRgbImage.width,
-      mRgbImage.height, JPEG_QUALITY, NULL, 0));
+  EXPECT_TRUE(encoder.compressImage(mRgbImage.buffer.get(), mRgbImage.width, mRgbImage.height,
+                                    JPEG_QUALITY, NULL, 0));
   ASSERT_GT(encoder.getCompressedImageSize(), static_cast<uint32_t>(0));
 }
 

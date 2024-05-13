@@ -104,7 +104,7 @@ bool JpegEncoderHelper::encode(const uint8_t* yBuffer, const uint8_t* uvBuffer, 
   jpeg_create_compress(&cinfo);
   setJpegDestination(&cinfo);
   setJpegCompressStruct(width, height, quality, &cinfo,
-          uvBuffer == nullptr ? ENCODE_TO_SINGLE_CHANNEL : ENCODE_TO_YCBCR);
+                        uvBuffer == nullptr ? ENCODE_TO_SINGLE_CHANNEL : ENCODE_TO_YCBCR);
   jpeg_start_compress(&cinfo, TRUE);
   if (iccBuffer != nullptr && iccSize > 0) {
     jpeg_write_marker(&cinfo, JPEG_APP0 + 2, static_cast<const JOCTET*>(iccBuffer), iccSize);
@@ -136,7 +136,7 @@ bool JpegEncoderHelper::encode(const uint8_t* buffer, int width, int height, int
   while (cinfo.next_scanline < cinfo.image_height) {
     JSAMPROW row_pointer[1];
     row_pointer[0] = const_cast<JSAMPROW>(&buffer[cinfo.next_scanline * width * 3]);
-    (void) jpeg_write_scanlines(&cinfo, row_pointer, 1);
+    (void)jpeg_write_scanlines(&cinfo, row_pointer, 1);
   }
 
   jpeg_finish_compress(&cinfo);
@@ -156,7 +156,8 @@ void JpegEncoderHelper::setJpegDestination(jpeg_compress_struct* cinfo) {
 }
 
 void JpegEncoderHelper::setJpegCompressStruct(int width, int height, int quality,
-                                              jpeg_compress_struct* cinfo, encode_mode_t encodeMode) {
+                                              jpeg_compress_struct* cinfo,
+                                              encode_mode_t encodeMode) {
   cinfo->image_width = width;
   cinfo->image_height = height;
 

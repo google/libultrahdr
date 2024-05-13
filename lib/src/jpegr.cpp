@@ -707,8 +707,8 @@ status_t JpegR::decodeJPEGR(jr_compressed_ptr jpegr_image_ptr, jr_uncompressed_p
   JpegDecoderHelper jpeg_dec_obj_gm;
   jpegr_uncompressed_struct gainmap_image;
   if (gainmap_image_ptr != nullptr || output_format != ULTRAHDR_OUTPUT_SDR) {
-    if (!jpeg_dec_obj_gm.decompressImage(
-            gainmap_jpeg_image.data, gainmap_jpeg_image.length, DECODE_TO_GAIN_MAP)) {
+    if (!jpeg_dec_obj_gm.decompressImage(gainmap_jpeg_image.data, gainmap_jpeg_image.length,
+                                         DECODE_TO_GAIN_MAP)) {
       return ERROR_JPEGR_DECODE_ERROR;
     }
     int gain_map_width = jpeg_dec_obj_gm.getDecompressedImageWidth();
@@ -750,10 +750,9 @@ status_t JpegR::decodeJPEGR(jr_compressed_ptr jpegr_image_ptr, jr_uncompressed_p
         iso_vec.push_back(iso_ptr[i]);
       }
 
-      JPEGR_CHECK(gain_map_metadata::decodeGainmapMetadata(iso_vec,
-                                                           &decodedMetadata));
-      JPEGR_CHECK(gain_map_metadata::gainmapMetadataFractionToFloat(&decodedMetadata,
-                                                                    &uhdr_metadata));
+      JPEGR_CHECK(gain_map_metadata::decodeGainmapMetadata(iso_vec, &decodedMetadata));
+      JPEGR_CHECK(
+          gain_map_metadata::gainmapMetadataFractionToFloat(&decodedMetadata, &uhdr_metadata));
     } else {
       if (!getMetadataFromXMP(static_cast<uint8_t*>(jpeg_dec_obj_gm.getXMPPtr()),
                               jpeg_dec_obj_gm.getXMPSize(), &uhdr_metadata)) {
@@ -822,10 +821,10 @@ status_t JpegR::compressGainMap(jr_uncompressed_ptr gainmap_image_ptr,
     }
   } else {
     // Don't need to convert YUV to Bt601 since single channel
-    if (!jpeg_enc_obj_ptr->compressImage(reinterpret_cast<uint8_t*>(gainmap_image_ptr->data), nullptr,
-                                         gainmap_image_ptr->width, gainmap_image_ptr->height,
-                                         gainmap_image_ptr->luma_stride, 0, kMapCompressQuality,
-                                         nullptr, 0)) {
+    if (!jpeg_enc_obj_ptr->compressImage(reinterpret_cast<uint8_t*>(gainmap_image_ptr->data),
+                                         nullptr, gainmap_image_ptr->width,
+                                         gainmap_image_ptr->height, gainmap_image_ptr->luma_stride,
+                                         0, kMapCompressQuality, nullptr, 0)) {
       return ERROR_JPEGR_ENCODE_ERROR;
     }
   }
@@ -895,10 +894,10 @@ status_t JpegR::generateGainMap(jr_uncompressed_ptr yuv420_image_ptr,
                                 jr_uncompressed_ptr p010_image_ptr,
                                 ultrahdr_transfer_function hdr_tf, ultrahdr_metadata_ptr metadata,
                                 jr_uncompressed_ptr dest, bool sdr_is_601) {
-//  if (kUseMultiChannelGainMap) {
-//    static_assert(kWriteIso21496_1Metadata && !kWriteXmpMetadata,
-//            "Multi-channel gain map now is only supported for ISO 21496-1 metadata");
-//  }
+  //  if (kUseMultiChannelGainMap) {
+  //    static_assert(kWriteIso21496_1Metadata && !kWriteXmpMetadata,
+  //            "Multi-channel gain map now is only supported for ISO 21496-1 metadata");
+  //  }
 
   const size_t gainMapChannelCount = kUseMultiChannelGainMap ? 3 : 1;
 
@@ -1048,22 +1047,21 @@ status_t JpegR::generateGainMap(jr_uncompressed_ptr yuv420_image_ptr,
 
             // R
             reinterpret_cast<uint8_t*>(dest->data)[pixel_idx] =
-                    encodeGain(sdr_rgb_nits.r, hdr_rgb_nits.r, metadata, log2MinBoost, log2MaxBoost);
+                encodeGain(sdr_rgb_nits.r, hdr_rgb_nits.r, metadata, log2MinBoost, log2MaxBoost);
             // G
             reinterpret_cast<uint8_t*>(dest->data)[pixel_idx + 1] =
-                    encodeGain(sdr_rgb_nits.g, hdr_rgb_nits.g, metadata, log2MinBoost, log2MaxBoost);
+                encodeGain(sdr_rgb_nits.g, hdr_rgb_nits.g, metadata, log2MinBoost, log2MaxBoost);
             // B
             reinterpret_cast<uint8_t*>(dest->data)[pixel_idx + 2] =
-                    encodeGain(sdr_rgb_nits.b, hdr_rgb_nits.b, metadata, log2MinBoost, log2MaxBoost);
+                encodeGain(sdr_rgb_nits.b, hdr_rgb_nits.b, metadata, log2MinBoost, log2MaxBoost);
           }
         }
       }
     };
   } else {
     generateMap = [yuv420_image_ptr, p010_image_ptr, metadata, dest, hdrInvOetf,
-                   hdrGamutConversionFn, luminanceFn, sdrYuvToRgbFn,
-                   hdrYuvToRgbFn, hdr_white_nits, log2MinBoost, log2MaxBoost,
-                   &jobQueue]() -> void {
+                   hdrGamutConversionFn, luminanceFn, sdrYuvToRgbFn, hdrYuvToRgbFn, hdr_white_nits,
+                   log2MinBoost, log2MaxBoost, &jobQueue]() -> void {
       size_t rowStart, rowEnd;
       while (jobQueue.dequeueJob(rowStart, rowEnd)) {
         for (size_t y = rowStart; y < rowEnd; ++y) {
@@ -1086,28 +1084,28 @@ status_t JpegR::generateGainMap(jr_uncompressed_ptr yuv420_image_ptr,
 
             size_t pixel_idx = x + y * dest->width;
             reinterpret_cast<uint8_t*>(dest->data)[pixel_idx] =
-                   encodeGain(sdr_y_nits, hdr_y_nits, metadata, log2MinBoost, log2MaxBoost);
+                encodeGain(sdr_y_nits, hdr_y_nits, metadata, log2MinBoost, log2MaxBoost);
           }
         }
       }
     };
   }
 
-    // generate map
-    std::vector<std::thread> workers;
-    for (int th = 0; th < threads - 1; th++) {
-      workers.push_back(std::thread(generateMap));
-    }
+  // generate map
+  std::vector<std::thread> workers;
+  for (int th = 0; th < threads - 1; th++) {
+    workers.push_back(std::thread(generateMap));
+  }
 
-    rowStep = (threads == 1 ? image_height : kJobSzInRows) / kMapDimensionScaleFactor;
-    for (size_t rowStart = 0; rowStart < map_height;) {
-      size_t rowEnd = (std::min)(rowStart + rowStep, map_height);
-      jobQueue.enqueueJob(rowStart, rowEnd);
-      rowStart = rowEnd;
-    }
-    jobQueue.markQueueForEnd();
-    generateMap();
-    std::for_each(workers.begin(), workers.end(), [](std::thread& t) { t.join(); });
+  rowStep = (threads == 1 ? image_height : kJobSzInRows) / kMapDimensionScaleFactor;
+  for (size_t rowStart = 0; rowStart < map_height;) {
+    size_t rowEnd = (std::min)(rowStart + rowStep, map_height);
+    jobQueue.enqueueJob(rowStart, rowEnd);
+    rowStart = rowEnd;
+  }
+  jobQueue.markQueueForEnd();
+  generateMap();
+  std::for_each(workers.begin(), workers.end(), [](std::thread& t) { t.join(); });
 
   map_data.release();
 
@@ -1211,10 +1209,10 @@ status_t JpegR::applyGainMap(jr_uncompressed_ptr yuv420_image_ptr,
             // TODO: If map_scale_factor is guaranteed to be an integer, then remove the following.
             if (map_scale_factor != floorf(map_scale_factor)) {
               gain = sampleMap3Channel(gainmap_image_ptr, map_scale_factor, x, y,
-                      gainmap_image_ptr->pixelFormat == ULTRAHDR_PIX_FMT_RGBA8888);
+                                       gainmap_image_ptr->pixelFormat == ULTRAHDR_PIX_FMT_RGBA8888);
             } else {
               gain = sampleMap3Channel(gainmap_image_ptr, map_scale_factor, x, y, idwTable,
-                      gainmap_image_ptr->pixelFormat == ULTRAHDR_PIX_FMT_RGBA8888);
+                                       gainmap_image_ptr->pixelFormat == ULTRAHDR_PIX_FMT_RGBA8888);
             }
 
 #if USE_APPLY_GAIN_LUT
@@ -1425,7 +1423,7 @@ status_t JpegR::appendGainMap(jr_compressed_ptr primary_jpg_image_ptr,
                               void* pIcc, size_t icc_size, ultrahdr_metadata_ptr metadata,
                               jr_compressed_ptr dest) {
   static_assert(kWriteXmpMetadata || kWriteIso21496_1Metadata,
-          "Must write gain map metadata in XMP format, or iso 21496-1 format, or both.");
+                "Must write gain map metadata in XMP format, or iso 21496-1 format, or both.");
   if (primary_jpg_image_ptr == nullptr || gainmap_jpg_image_ptr == nullptr || metadata == nullptr ||
       dest == nullptr) {
     return ERROR_JPEGR_BAD_PTR;
@@ -1454,7 +1452,7 @@ status_t JpegR::appendGainMap(jr_compressed_ptr primary_jpg_image_ptr,
   }
 
   const int xmpNameSpaceLength = kXmpNameSpace.size() + 1;  // need to count the null terminator
-  const int isoNameSpaceLength = kIsoNameSpace.size() + 1; // need to count the null terminator
+  const int isoNameSpaceLength = kIsoNameSpace.size() + 1;  // need to count the null terminator
 
   /////////////////////////////////////////////////////////////////////////////////////////////////
   // calculate secondary image length first, because the length will be written into the primary //
@@ -1478,10 +1476,13 @@ status_t JpegR::appendGainMap(jr_compressed_ptr primary_jpg_image_ptr,
   //  + length of iso metadata packet = iso_secondary_data.size()
   const int iso_secondary_length = 2 + isoNameSpaceLength + iso_secondary_data.size();
 
-  int secondary_image_size = 2 /* 2 bytes length of APP1 sign */ +
-                                   gainmap_jpg_image_ptr->length;
-  if (kWriteXmpMetadata) { secondary_image_size += xmp_secondary_length; }
-  if (kWriteIso21496_1Metadata) { secondary_image_size += iso_secondary_length; }
+  int secondary_image_size = 2 /* 2 bytes length of APP1 sign */ + gainmap_jpg_image_ptr->length;
+  if (kWriteXmpMetadata) {
+    secondary_image_size += xmp_secondary_length;
+  }
+  if (kWriteIso21496_1Metadata) {
+    secondary_image_size += iso_secondary_length;
+  }
 
   // Check if EXIF package presents in the JPEG input.
   // If so, extract and remove the EXIF package.
@@ -1570,9 +1571,9 @@ status_t JpegR::appendGainMap(jr_compressed_ptr primary_jpg_image_ptr,
     JPEGR_CHECK(Write(dest, &lengthL, 1, pos));
     JPEGR_CHECK(Write(dest, (void*)kIsoNameSpace.c_str(), isoNameSpaceLength, pos));
     JPEGR_CHECK(Write(dest, &zero, 1, pos));
-    JPEGR_CHECK(Write(dest, &zero, 1, pos)); // 2 bytes minimum_version: (00 00)
+    JPEGR_CHECK(Write(dest, &zero, 1, pos));  // 2 bytes minimum_version: (00 00)
     JPEGR_CHECK(Write(dest, &zero, 1, pos));
-    JPEGR_CHECK(Write(dest, &zero, 1, pos)); // 2 bytes writer_version: (00 00)
+    JPEGR_CHECK(Write(dest, &zero, 1, pos));  // 2 bytes writer_version: (00 00)
   }
 
   // Prepare and write MPF
