@@ -740,13 +740,13 @@ status_t JpegR::decodeJPEGR(jr_compressed_ptr jpegr_image_ptr, jr_uncompressed_p
   if (metadata != nullptr || output_format != ULTRAHDR_OUTPUT_SDR) {
     uint8_t* iso_ptr = static_cast<uint8_t*>(jpeg_dec_obj_gm.getIsoMetadataPtr());
     if (iso_ptr != nullptr) {
-      int iso_size = jpeg_dec_obj_gm.getIsoMetadataSize();
+      size_t iso_size = jpeg_dec_obj_gm.getIsoMetadataSize();
       if (iso_size < kIsoNameSpace.size() + 1) {
         return ERROR_JPEGR_METADATA_ERROR;
       }
       gain_map_metadata decodedMetadata;
       std::vector<uint8_t> iso_vec;
-      for (int i = kIsoNameSpace.size() + 1; i < iso_size; i++) {
+      for (size_t i = kIsoNameSpace.size() + 1; i < iso_size; i++) {
         iso_vec.push_back(iso_ptr[i]);
       }
 
@@ -894,12 +894,12 @@ status_t JpegR::generateGainMap(jr_uncompressed_ptr yuv420_image_ptr,
                                 jr_uncompressed_ptr p010_image_ptr,
                                 ultrahdr_transfer_function hdr_tf, ultrahdr_metadata_ptr metadata,
                                 jr_uncompressed_ptr dest, bool sdr_is_601) {
-  //  if (kUseMultiChannelGainMap) {
-  //    static_assert(kWriteIso21496_1Metadata && !kWriteXmpMetadata,
-  //            "Multi-channel gain map now is only supported for ISO 21496-1 metadata");
-  //  }
+  /*if (kUseMultiChannelGainMap) {
+    static_assert(kWriteIso21496_1Metadata && !kWriteXmpMetadata,
+                  "Multi-channel gain map now is only supported for ISO 21496-1 metadata");
+  }*/
 
-  const size_t gainMapChannelCount = kUseMultiChannelGainMap ? 3 : 1;
+  int gainMapChannelCount = kUseMultiChannelGainMap ? 3 : 1;
 
   if (yuv420_image_ptr == nullptr || p010_image_ptr == nullptr || metadata == nullptr ||
       dest == nullptr || yuv420_image_ptr->data == nullptr ||

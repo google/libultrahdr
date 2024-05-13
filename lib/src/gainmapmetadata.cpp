@@ -241,7 +241,6 @@ status_t gain_map_metadata::gainmapMetadataFractionToFloat(const gain_map_metada
     return ERROR_JPEGR_BAD_PTR;
   }
 
-  bool success = true;
   CHECK_NOT_ZERO(from->baseHdrHeadroomD);
   CHECK_NOT_ZERO(from->alternateHdrHeadroomD);
   for (int i = 0; i < 3; ++i) {
