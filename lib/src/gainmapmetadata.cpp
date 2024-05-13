@@ -41,7 +41,7 @@ status_t streamReadU8(const std::vector<uint8_t> &data, uint8_t &value, size_t &
 }
 
 status_t streamReadU32(const std::vector<uint8_t> &data, uint32_t &value, size_t &pos) {
-  if (pos >= data.size() - 3) {
+  if (pos + 3 >= data.size()) {
     return ERROR_JPEGR_METADATA_ERROR;
   }
   value = (data[pos] << 24 | data[pos + 1] << 16 | data[pos + 2] << 8 | data[pos + 3]);
