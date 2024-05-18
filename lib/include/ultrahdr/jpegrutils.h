@@ -76,7 +76,7 @@ status_t Write(jr_compressed_ptr destination, const void* source, int length, in
  * @param metadata place to store HDR metadata values
  * @return true if metadata is successfully retrieved, false otherwise
  */
-bool getMetadataFromXMP(uint8_t* xmp_data, size_t xmp_size, ultrahdr_metadata_struct* metadata);
+bool getMetadataFromXMP(uint8_t* xmp_data, int xmp_size, ultrahdr_metadata_struct* metadata);
 
 /*
  * This method generates XMP metadata for the primary image.

@@ -109,7 +109,7 @@ TEST_F(JpegDecoderHelperTest, decodeYuvImage) {
 
 TEST_F(JpegDecoderHelperTest, decodeYuvImageToRgba) {
   JpegDecoderHelper decoder;
-  EXPECT_TRUE(decoder.decompressImage(mYuvImage.buffer.get(), mYuvImage.size, DECODE_TO_RGBA));
+  EXPECT_TRUE(decoder.decompressImage(mYuvImage.buffer.get(), mYuvImage.size, DECODE_TO_RGB_CS));
   ASSERT_GT(decoder.getDecompressedImageSize(), static_cast<uint32_t>(0));
   EXPECT_EQ(IccHelper::readIccColorGamut(decoder.getICCPtr(), decoder.getICCSize()),
             ULTRAHDR_COLORGAMUT_UNSPECIFIED);
@@ -127,14 +127,13 @@ TEST_F(JpegDecoderHelperTest, decodeGreyImage) {
   JpegDecoderHelper decoder;
   EXPECT_TRUE(decoder.decompressImage(mGreyImage.buffer.get(), mGreyImage.size));
   ASSERT_GT(decoder.getDecompressedImageSize(), static_cast<uint32_t>(0));
-  EXPECT_TRUE(
-      decoder.decompressImage(mGreyImage.buffer.get(), mGreyImage.size, DECODE_TO_GAIN_MAP));
+  EXPECT_TRUE(decoder.decompressImage(mGreyImage.buffer.get(), mGreyImage.size, DECODE_STREAM));
   ASSERT_GT(decoder.getDecompressedImageSize(), static_cast<uint32_t>(0));
 }
 
 TEST_F(JpegDecoderHelperTest, decodeRgbImageToRgba) {
   JpegDecoderHelper decoder;
-  EXPECT_TRUE(decoder.decompressImage(mRgbImage.buffer.get(), mRgbImage.size, DECODE_TO_GAIN_MAP));
+  EXPECT_TRUE(decoder.decompressImage(mRgbImage.buffer.get(), mRgbImage.size, DECODE_STREAM));
   ASSERT_GT(decoder.getDecompressedImageSize(), static_cast<uint32_t>(0));
   EXPECT_EQ(IccHelper::readIccColorGamut(decoder.getICCPtr(), decoder.getICCSize()),
             ULTRAHDR_COLORGAMUT_UNSPECIFIED);
@@ -142,7 +141,7 @@ TEST_F(JpegDecoderHelperTest, decodeRgbImageToRgba) {
 
 TEST_F(JpegDecoderHelperTest, getCompressedImageParameters) {
   JpegDecoderHelper decoder;
-  EXPECT_TRUE(decoder.getCompressedImageParameters(mYuvImage.buffer.get(), mYuvImage.size));
+  EXPECT_TRUE(decoder.parseImage(mYuvImage.buffer.get(), mYuvImage.size));
   EXPECT_EQ(IMAGE_WIDTH, decoder.getDecompressedImageWidth());
   EXPECT_EQ(IMAGE_HEIGHT, decoder.getDecompressedImageHeight());
   EXPECT_EQ(decoder.getICCSize(), 0);
@@ -151,7 +150,7 @@ TEST_F(JpegDecoderHelperTest, getCompressedImageParameters) {
 
 TEST_F(JpegDecoderHelperTest, getCompressedImageParametersIcc) {
   JpegDecoderHelper decoder;
-  EXPECT_TRUE(decoder.getCompressedImageParameters(mYuvIccImage.buffer.get(), mYuvIccImage.size));
+  EXPECT_TRUE(decoder.parseImage(mYuvIccImage.buffer.get(), mYuvIccImage.size));
   EXPECT_EQ(IMAGE_WIDTH, decoder.getDecompressedImageWidth());
   EXPECT_EQ(IMAGE_HEIGHT, decoder.getDecompressedImageHeight());
   EXPECT_GT(decoder.getICCSize(), 0);

@@ -260,8 +260,8 @@ class UltraHdrAppInput {
         mSdrIntentCompressedFile(sdrIntentCompressedFile),
         mGainMapCompressedFile(gainmapCompressedFile),
         mGainMapMetadataCfgFile(gainmapMetadataCfgFile),
-        mOutputFile(outputFile),
         mUhdrFile(nullptr),
+        mOutputFile(outputFile),
         mWidth(width),
         mHeight(height),
         mHdrCf(hdrCf),
@@ -1384,13 +1384,10 @@ int main(int argc, char* argv[]) {
       std::cerr << "did not receive raw resources for encoding." << std::endl;
       return -1;
     }
-    if (output_file == nullptr) {
-      output_file = "out.jpeg";
-    }
     UltraHdrAppInput appInput(hdr_intent_raw_file, sdr_intent_raw_file, sdr_intent_compressed_file,
-                              gainmap_compressed_file, gainmap_metadata_cfg_file, output_file,
-                              width, height, hdr_cf, sdr_cf, hdr_cg, sdr_cg, hdr_tf, quality,
-                              out_tf, out_cf);
+                              gainmap_compressed_file, gainmap_metadata_cfg_file,
+                              output_file ? output_file : "out.jpeg", width, height, hdr_cf, sdr_cf,
+                              hdr_cg, sdr_cg, hdr_tf, quality, out_tf, out_cf);
     if (!appInput.encode()) return -1;
     if (compute_psnr == 1) {
       if (!appInput.decode()) return -1;
@@ -1421,10 +1418,7 @@ int main(int argc, char* argv[]) {
       std::cerr << "did not receive resources for decoding " << std::endl;
       return -1;
     }
-    if (output_file == nullptr) {
-      output_file = "outrgb.raw";
-    }
-    UltraHdrAppInput appInput(uhdr_file, output_file, out_tf, out_cf);
+    UltraHdrAppInput appInput(uhdr_file, output_file ? output_file : "outrgb.raw", out_tf, out_cf);
     if (!appInput.decode()) return -1;
   } else {
     std::cerr << "unrecognized input mode " << mode << std::endl;
