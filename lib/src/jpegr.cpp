@@ -579,8 +579,7 @@ status_t JpegR::encodeJPEGR(jr_compressed_ptr yuv420jpg_image_ptr,
   // We just want to check if ICC is present, so don't do a full decode. Note,
   // this doesn't verify that the ICC is valid.
   JpegDecoderHelper decoder;
-  if (!decoder.getCompressedImageParameters(yuv420jpg_image_ptr->data,
-                                            yuv420jpg_image_ptr->length)) {
+  if (!decoder.parseImage(yuv420jpg_image_ptr->data, yuv420jpg_image_ptr->length)) {
     return ERROR_JPEGR_DECODE_ERROR;
   }
 
@@ -662,7 +661,7 @@ status_t JpegR::decodeJPEGR(jr_compressed_ptr jpegr_image_ptr, jr_uncompressed_p
   JpegDecoderHelper jpeg_dec_obj_yuv420;
   if (!jpeg_dec_obj_yuv420.decompressImage(
           primary_jpeg_image.data, primary_jpeg_image.length,
-          (output_format == ULTRAHDR_OUTPUT_SDR) ? DECODE_TO_RGBA : DECODE_TO_YCBCR)) {
+          (output_format == ULTRAHDR_OUTPUT_SDR) ? DECODE_TO_RGB_CS : DECODE_TO_YCBCR_CS)) {
     return ERROR_JPEGR_DECODE_ERROR;
   }
 
@@ -700,18 +699,15 @@ status_t JpegR::decodeJPEGR(jr_compressed_ptr jpegr_image_ptr, jr_uncompressed_p
   jpegr_uncompressed_struct gainmap_image;
   if (gainmap_image_ptr != nullptr || output_format != ULTRAHDR_OUTPUT_SDR) {
     if (!jpeg_dec_obj_gm.decompressImage(gainmap_jpeg_image.data, gainmap_jpeg_image.length,
-                                         DECODE_TO_GAIN_MAP)) {
+                                         DECODE_STREAM)) {
       return ERROR_JPEGR_DECODE_ERROR;
     }
-    int gain_map_width = jpeg_dec_obj_gm.getDecompressedImageWidth();
-    int gain_map_height = jpeg_dec_obj_gm.getDecompressedImageHeight();
-    int gain_map_size = jpeg_dec_obj_gm.getDecompressedImageSize();
-    if (gain_map_width * gain_map_height * 4 == gain_map_size) {
-      gainmap_image.pixelFormat = ULTRAHDR_PIX_FMT_RGBA8888;
-    } else if (gain_map_width * gain_map_height * 3 == gain_map_size) {
-      gainmap_image.pixelFormat = ULTRAHDR_PIX_FMT_RGB888;
-    } else if (gain_map_width * gain_map_height == gain_map_size) {
+    if (jpeg_dec_obj_gm.getDecompressedImageFormat() == JpegDecoderHelper::GRAYSCALE) {
       gainmap_image.pixelFormat = ULTRAHDR_PIX_FMT_MONOCHROME;
+    } else if (jpeg_dec_obj_gm.getDecompressedImageFormat() == JpegDecoderHelper::RGB) {
+      gainmap_image.pixelFormat = ULTRAHDR_PIX_FMT_RGB888;
+    } else if (jpeg_dec_obj_gm.getDecompressedImageFormat() == JpegDecoderHelper::RGBA) {
+      gainmap_image.pixelFormat = ULTRAHDR_PIX_FMT_RGBA8888;
     } else {
       return ERROR_JPEGR_GAIN_MAP_SIZE_ERROR;
     }
@@ -1329,7 +1325,7 @@ status_t JpegR::extractPrimaryImageAndGainMap(jr_compressed_ptr jpegr_image_ptr,
 status_t JpegR::parseJpegInfo(jr_compressed_ptr jpeg_image_ptr, j_info_ptr jpeg_image_info_ptr,
                               size_t* img_width, size_t* img_height) {
   JpegDecoderHelper jpeg_dec_obj;
-  if (!jpeg_dec_obj.getCompressedImageParameters(jpeg_image_ptr->data, jpeg_image_ptr->length)) {
+  if (!jpeg_dec_obj.parseImage(jpeg_image_ptr->data, jpeg_image_ptr->length)) {
     return ERROR_JPEGR_DECODE_ERROR;
   }
   size_t imgWidth, imgHeight;
@@ -1479,7 +1475,7 @@ status_t JpegR::appendGainMap(jr_compressed_ptr primary_jpg_image_ptr,
   // Check if EXIF package presents in the JPEG input.
   // If so, extract and remove the EXIF package.
   JpegDecoderHelper decoder;
-  if (!decoder.extractEXIF(primary_jpg_image_ptr->data, primary_jpg_image_ptr->length)) {
+  if (!decoder.parseImage(primary_jpg_image_ptr->data, primary_jpg_image_ptr->length)) {
     return ERROR_JPEGR_DECODE_ERROR;
   }
   jpegr_exif_struct exif_from_jpg;

@@ -433,10 +433,10 @@ const string XMPXmlHandler::hdrCapacityMinAttrName = kMapHDRCapacityMin;
 const string XMPXmlHandler::hdrCapacityMaxAttrName = kMapHDRCapacityMax;
 const string XMPXmlHandler::baseRenditionIsHdrAttrName = kMapBaseRenditionIsHDR;
 
-bool getMetadataFromXMP(uint8_t* xmp_data, size_t xmp_size, ultrahdr_metadata_struct* metadata) {
+bool getMetadataFromXMP(uint8_t* xmp_data, int xmp_size, ultrahdr_metadata_struct* metadata) {
   string nameSpace = "http://ns.adobe.com/xap/1.0/\0";
 
-  if (xmp_size < nameSpace.size() + 2) {
+  if (xmp_size < (int)nameSpace.size() + 2) {
     // Data too short
     return false;
   }
@@ -455,7 +455,7 @@ bool getMetadataFromXMP(uint8_t* xmp_data, size_t xmp_size, ultrahdr_metadata_st
   // parser. if there is no packet header, do nothing otherwise go to the position of '<' without
   // '?' after it.
   int offset = 0;
-  for (unsigned i = 0; i < xmp_size; ++i) {
+  for (int i = 0; i < xmp_size - 1; ++i) {
     if (xmp_data[i] == '<') {
       if (xmp_data[i + 1] != '?') {
         offset = i;
