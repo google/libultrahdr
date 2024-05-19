@@ -225,7 +225,7 @@ status_t JpegR::encodeJPEGR(jr_uncompressed_ptr p010_image_ptr, ultrahdr_transfe
     p010_image.chroma_stride = p010_image.luma_stride;
   }
 
-  const size_t yu420_luma_stride = ALIGNM(p010_image.width, JpegEncoderHelper::kCompressBatchSize);
+  const size_t yu420_luma_stride = ALIGNM(p010_image.width, 16);
   unique_ptr<uint8_t[]> yuv420_image_data =
       make_unique<uint8_t[]>(yu420_luma_stride * p010_image.height * 3 / 2);
   jpegr_uncompressed_struct yuv420_image;
@@ -269,11 +269,15 @@ status_t JpegR::encodeJPEGR(jr_uncompressed_ptr p010_image_ptr, ultrahdr_transfe
 
   // compress 420 image
   JpegEncoderHelper jpeg_enc_obj_yuv420;
-  if (!jpeg_enc_obj_yuv420.compressImage(reinterpret_cast<uint8_t*>(yuv420_image.data),
-                                         reinterpret_cast<uint8_t*>(yuv420_image.chroma_data),
-                                         yuv420_image.width, yuv420_image.height,
-                                         yuv420_image.luma_stride, yuv420_image.chroma_stride,
-                                         quality, icc->getData(), icc->getLength())) {
+  const uint8_t* planes[3]{reinterpret_cast<uint8_t*>(yuv420_image.data),
+                           reinterpret_cast<uint8_t*>(yuv420_image.chroma_data),
+                           reinterpret_cast<uint8_t*>(yuv420_image.chroma_data) +
+                               yuv420_image.chroma_stride * yuv420_image.height / 2};
+  const size_t strides[3]{yuv420_image.luma_stride, yuv420_image.chroma_stride,
+                          yuv420_image.chroma_stride};
+  if (!jpeg_enc_obj_yuv420.compressImage(planes, strides, yuv420_image.width, yuv420_image.height,
+                                         JpegEncoderHelper::YUV420, quality, icc->getData(),
+                                         icc->getLength())) {
     return ERROR_JPEGR_ENCODE_ERROR;
   }
   jpegr_compressed_struct jpeg;
@@ -344,8 +348,7 @@ status_t JpegR::encodeJPEGR(jr_uncompressed_ptr p010_image_ptr,
   unique_ptr<uint8_t[]> yuv_420_bt601_data;
   // Convert to bt601 YUV encoding for JPEG encode
   if (yuv420_image.colorGamut != ULTRAHDR_COLORGAMUT_P3) {
-    const size_t yuv_420_bt601_luma_stride =
-        ALIGNM(yuv420_image.width, JpegEncoderHelper::kCompressBatchSize);
+    const size_t yuv_420_bt601_luma_stride = ALIGNM(yuv420_image.width, 16);
     yuv_420_bt601_data =
         make_unique<uint8_t[]>(yuv_420_bt601_luma_stride * yuv420_image.height * 3 / 2);
     yuv420_bt601_image.data = yuv_420_bt601_data.get();
@@ -405,11 +408,15 @@ status_t JpegR::encodeJPEGR(jr_uncompressed_ptr p010_image_ptr,
 
   // compress 420 image
   JpegEncoderHelper jpeg_enc_obj_yuv420;
-  if (!jpeg_enc_obj_yuv420.compressImage(
-          reinterpret_cast<uint8_t*>(yuv420_bt601_image.data),
-          reinterpret_cast<uint8_t*>(yuv420_bt601_image.chroma_data), yuv420_bt601_image.width,
-          yuv420_bt601_image.height, yuv420_bt601_image.luma_stride,
-          yuv420_bt601_image.chroma_stride, quality, icc->getData(), icc->getLength())) {
+  const uint8_t* planes[3]{reinterpret_cast<uint8_t*>(yuv420_bt601_image.data),
+                           reinterpret_cast<uint8_t*>(yuv420_bt601_image.chroma_data),
+                           reinterpret_cast<uint8_t*>(yuv420_bt601_image.chroma_data) +
+                               yuv420_bt601_image.chroma_stride * yuv420_bt601_image.height / 2};
+  const size_t strides[3]{yuv420_bt601_image.luma_stride, yuv420_bt601_image.chroma_stride,
+                          yuv420_bt601_image.chroma_stride};
+  if (!jpeg_enc_obj_yuv420.compressImage(planes, strides, yuv420_bt601_image.width,
+                                         yuv420_bt601_image.height, JpegEncoderHelper::YUV420,
+                                         quality, icc->getData(), icc->getLength())) {
     return ERROR_JPEGR_ENCODE_ERROR;
   }
 
@@ -801,18 +808,20 @@ status_t JpegR::compressGainMap(jr_uncompressed_ptr gainmap_image_ptr,
     return ERROR_JPEGR_BAD_PTR;
   }
 
+  const uint8_t* planes[]{reinterpret_cast<uint8_t*>(gainmap_image_ptr->data)};
   if (kUseMultiChannelGainMap) {
-    if (!jpeg_enc_obj_ptr->compressImage(reinterpret_cast<uint8_t*>(gainmap_image_ptr->data),
-                                         gainmap_image_ptr->width, gainmap_image_ptr->height,
+    const size_t strides[]{gainmap_image_ptr->width * 3};
+    if (!jpeg_enc_obj_ptr->compressImage(planes, strides, gainmap_image_ptr->width,
+                                         gainmap_image_ptr->height, JpegEncoderHelper::RGB,
                                          kMapCompressQuality, nullptr, 0)) {
       return ERROR_JPEGR_ENCODE_ERROR;
     }
   } else {
+    const size_t strides[]{gainmap_image_ptr->width};
     // Don't need to convert YUV to Bt601 since single channel
-    if (!jpeg_enc_obj_ptr->compressImage(reinterpret_cast<uint8_t*>(gainmap_image_ptr->data),
-                                         nullptr, gainmap_image_ptr->width,
-                                         gainmap_image_ptr->height, gainmap_image_ptr->luma_stride,
-                                         0, kMapCompressQuality, nullptr, 0)) {
+    if (!jpeg_enc_obj_ptr->compressImage(planes, strides, gainmap_image_ptr->width,
+                                         gainmap_image_ptr->height, JpegEncoderHelper::GRAYSCALE,
+                                         kMapCompressQuality, nullptr, 0)) {
       return ERROR_JPEGR_ENCODE_ERROR;
     }
   }
