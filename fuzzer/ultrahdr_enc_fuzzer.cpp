@@ -242,11 +242,14 @@ void UltraHdrEncFuzzer::process() {
         yuv420ImgCopy.chroma_stride = yuv420Img.luma_stride >> 1;
       }
 
-      if (encoder.compressImage(reinterpret_cast<uint8_t*>(yuv420ImgCopy.data),
-                                reinterpret_cast<uint8_t*>(yuv420ImgCopy.chroma_data),
-                                yuv420ImgCopy.width, yuv420ImgCopy.height,
-                                yuv420ImgCopy.luma_stride, yuv420ImgCopy.chroma_stride, quality,
-                                nullptr, 0)) {
+      const uint8_t* planes[3]{reinterpret_cast<uint8_t*>(yuv420ImgCopy.data),
+                               reinterpret_cast<uint8_t*>(yuv420ImgCopy.chroma_data),
+                               reinterpret_cast<uint8_t*>(yuv420ImgCopy.chroma_data) +
+                                   yuv420ImgCopy.chroma_stride * yuv420ImgCopy.height / 2};
+      const size_t strides[3]{yuv420ImgCopy.luma_stride, yuv420ImgCopy.chroma_stride,
+                              yuv420ImgCopy.chroma_stride};
+      if (encoder.compressImage(planes, strides, yuv420ImgCopy.width, yuv420ImgCopy.height,
+                                JpegEncoderHelper::YUV420, quality, nullptr, 0)) {
         jpegImg.length = encoder.getCompressedImageSize();
         jpegImg.maxLength = jpegImg.length;
         jpegImg.data = encoder.getCompressedImagePtr();
@@ -261,9 +264,10 @@ void UltraHdrEncFuzzer::process() {
         } else if (muxSwitch == 4) {  // api 4
           jpegImgR.length = 0;
           JpegEncoderHelper gainMapEncoder;
-          if (gainMapEncoder.compressImage(reinterpret_cast<uint8_t*>(grayImg.data), nullptr,
-                                           grayImg.width, grayImg.height, grayImg.width, 0, quality,
-                                           nullptr, 0)) {
+          const uint8_t* planeGm[1]{reinterpret_cast<uint8_t*>(grayImg.data)};
+          const size_t strideGm[1]{grayImg.width};
+          if (gainMapEncoder.compressImage(planeGm, strideGm, grayImg.width, grayImg.height,
+                                           JpegEncoderHelper::GRAYSCALE, quality, nullptr, 0)) {
             jpegGainMap.length = gainMapEncoder.getCompressedImageSize();
             jpegGainMap.maxLength = jpegImg.length;
             jpegGainMap.data = gainMapEncoder.getCompressedImagePtr();

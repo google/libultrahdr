@@ -36,87 +36,79 @@ extern "C" {
 
 namespace ultrahdr {
 
-typedef enum {
-  ENCODE_TO_YCBCR = 0,
-  ENCODE_TO_RGB = 1,
-  ENCODE_TO_SINGLE_CHANNEL = 2,
-} encode_mode_t;
+/*!\brief module for managing output */
+struct destination_mgr_impl : jpeg_destination_mgr {
+  static const int kBlockSize = 16384;  // result buffer resize step
+  std::vector<JOCTET> mResultBuffer;    // buffer to store encoded data
+};
 
-/*
- * Encapsulates a converter from raw image (YUV420planer or grey-scale) to JPEG format.
- * This class is not thread-safe.
- */
+/*!\brief Encapsulates a converter from raw to jpg image format. This class is not thread-safe */
 class JpegEncoderHelper {
  public:
-  JpegEncoderHelper();
-  ~JpegEncoderHelper();
+  // ===============================================================================================
+  // Enum Definitions
+  // ===============================================================================================
 
-  /*
-   * Compresses YUV420Planer image to JPEG format. After calling this method, call
-   * getCompressedImage() to get the image. |quality| is the jpeg image quality parameter to use.
-   * It ranges from 1 (poorest quality) to 100 (highest quality). |iccBuffer| is the buffer of
-   * ICC segment which will be added to the compressed image.
-   * Returns false if errors occur during compression.
-   */
-  bool compressImage(const uint8_t* yBuffer, const uint8_t* uvBuffer, int width, int height,
-                     int lumaStride, int chromaStride, int quality, const void* iccBuffer,
-                     unsigned int iccSize);
+  /*!\brief list of jpg encoder input formats */
+  typedef enum {
+    GRAYSCALE,
+    YUV444,
+    YUV440,
+    YUV422,
+    YUV420,
+    YUV411,
+    YUV410,
+    RGB,
+  } jpg_inp_fmt_t;
 
-  /*
-   * Compresses RGB interleaved image to JPEG format. After calling this method, call
-   * getCompressedImage() to get the image. |quality| is the jpeg image quality parameter to use.
-   * It ranges from 1 (poorest quality) to 100 (highest quality). |iccBuffer| is the buffer of
-   * ICC segment which will be added to the compressed image.
-   * Returns false if errors occur during compression.
-   */
-  bool compressImage(const uint8_t* buffer, int width, int height, int quality,
-                     const void* iccBuffer, unsigned int iccSize);
+  JpegEncoderHelper() = default;
+  ~JpegEncoderHelper() = default;
 
-  /*
-   * Returns the compressed JPEG buffer pointer. This method must be called only after calling
-   * compressImage().
+  /*!\brief This function encodes the raw image that is passed to it and stores the results
+   * internally. The result is accessible via getter functions.
+   *
+   * \param[in]  planes     pointers of all planes of input image
+   * \param[in]  strides    strides of all planes of input image
+   * \param[in]  width      image width
+   * \param[in]  height     image height
+   * \param[in]  format     input raw image format
+   * \param[in]  qfactor    quality factor [1 - 100, 1 being poorest and 100 being best quality]
+   * \param[in]  iccBuffer  pointer to icc segment that needs to be added to the compressed image
+   * \param[in]  iccSize    size of icc segment
+   *
+   * \returns true if operation succeeds, false otherwise.
    */
-  void* getCompressedImagePtr();
+  bool compressImage(const uint8_t* planes[3], const size_t strides[3], const int width,
+                     const int height, const jpg_inp_fmt_t format, const int qfactor,
+                     const void* iccBuffer, const unsigned int iccSize);
 
-  /*
-   * Returns the compressed JPEG buffer size. This method must be called only after calling
-   * compressImage().
-   */
-  size_t getCompressedImageSize();
+  /*! Below public methods are only effective if a call to compressImage() is made and it returned
+   * true. */
 
-  /*
-   * Process 16 lines of Y and 16 lines of U/V each time.
-   * We must pass at least 16 scanlines according to libjpeg documentation.
-   */
-  static const int kCompressBatchSize = 16;
+  /*!\brief returns pointer to compressed image output */
+  void* getCompressedImagePtr() { return mDestMgr.mResultBuffer.data(); }
+
+  /*!\brief returns size of compressed image */
+  size_t getCompressedImageSize() { return mDestMgr.mResultBuffer.size(); }
 
  private:
-  // initDestination(), emptyOutputBuffer() and emptyOutputBuffer() are callback functions to be
-  // passed into jpeg library.
-  static void initDestination(j_compress_ptr cinfo);
-  static boolean emptyOutputBuffer(j_compress_ptr cinfo);
-  static void terminateDestination(j_compress_ptr cinfo);
-  static void outputErrorMessage(j_common_ptr cinfo);
+  // max number of components supported
+  static constexpr int kMaxNumComponents = 3;
 
-  // Returns false if errors occur.
-  bool encode(const uint8_t* yBuffer, const uint8_t* uvBuffer, int width, int height,
-              int lumaStride, int chromaStride, int quality, const void* iccBuffer,
-              unsigned int iccSize);
-  bool encode(const uint8_t* buffer, int width, int height, int quality, const void* iccBuffer,
-              unsigned int iccSize);
-  void setJpegDestination(jpeg_compress_struct* cinfo);
-  void setJpegCompressStruct(int width, int height, int quality, jpeg_compress_struct* cinfo,
-                             encode_mode_t encodeMode);
-  // Returns false if errors occur.
-  bool compressYuv(jpeg_compress_struct* cinfo, const uint8_t* yBuffer, const uint8_t* uvBuffer,
-                   int lumaStride, int chromaStride);
-  bool compressY(jpeg_compress_struct* cinfo, const uint8_t* yBuffer, int lumaStride);
+  bool encode(const uint8_t* planes[3], const size_t strides[3], const int width, const int height,
+              const jpg_inp_fmt_t format, const int qfactor, const void* iccBuffer,
+              const unsigned int iccSize);
 
-  // The block size for encoded jpeg image buffer.
-  static const int kBlockSize = 16384;
+  bool compressYCbCr(jpeg_compress_struct* cinfo, const uint8_t* planes[3],
+                     const size_t strides[3]);
 
-  // The buffer that holds the compressed result.
-  std::vector<JOCTET> mResultBuffer;
+  destination_mgr_impl mDestMgr;  // object for managing output
+
+  // temporary storage
+  std::unique_ptr<uint8_t[]> mPlanesMCURow[kMaxNumComponents];
+
+  size_t mPlaneWidth[kMaxNumComponents];
+  size_t mPlaneHeight[kMaxNumComponents];
 };
 
 } /* namespace ultrahdr  */
