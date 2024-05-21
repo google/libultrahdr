@@ -558,7 +558,7 @@ UHDR_EXTERN uhdr_gainmap_metadata_t* uhdr_dec_get_gain_map_metadata(uhdr_codec_p
  *   - uhdr_dec_set_out_color_transfer()
  * - If the application wants to control the output display boost,
  *   - uhdr_dec_set_out_max_display_boost()
- * - The program calls uhdr_decompress() to decode uhdr stream. This call would initiate the process
+ * - The program calls uhdr_decode() to decode uhdr stream. This call would initiate the process
  * of decoding base image and gain map image. These two are combined to give the final rendition
  * image.
  * - The program can access the decoded output with uhdr_get_decoded_image().
