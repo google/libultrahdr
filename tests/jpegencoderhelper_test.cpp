@@ -111,7 +111,7 @@ TEST_F(JpegEncoderHelperTest, encodeAlignedImage) {
   const uint8_t* planes[3]{yPlane, uPlane, vPlane};
   const size_t strides[3]{mAlignedImage.width, mAlignedImage.width / 2, mAlignedImage.width / 2};
   EXPECT_TRUE(encoder.compressImage(planes, strides, mAlignedImage.width, mAlignedImage.height,
-                                    JpegEncoderHelper::YUV420, JPEG_QUALITY, NULL, 0));
+                                    UHDR_IMG_FMT_12bppYCbCr420, JPEG_QUALITY, NULL, 0));
   ASSERT_GT(encoder.getCompressedImageSize(), static_cast<uint32_t>(0));
 }
 
@@ -124,7 +124,7 @@ TEST_F(JpegEncoderHelperTest, encodeUnalignedImage) {
   const size_t strides[3]{mUnalignedImage.width, mUnalignedImage.width / 2,
                           mUnalignedImage.width / 2};
   EXPECT_TRUE(encoder.compressImage(planes, strides, mUnalignedImage.width, mUnalignedImage.height,
-                                    JpegEncoderHelper::YUV420, JPEG_QUALITY, NULL, 0));
+                                    UHDR_IMG_FMT_12bppYCbCr420, JPEG_QUALITY, NULL, 0));
   ASSERT_GT(encoder.getCompressedImageSize(), static_cast<uint32_t>(0));
 }
 
@@ -134,7 +134,7 @@ TEST_F(JpegEncoderHelperTest, encodeSingleChannelImage) {
   const uint8_t* planes[1]{yPlane};
   const size_t strides[1]{mSingleChannelImage.width};
   EXPECT_TRUE(encoder.compressImage(planes, strides, mSingleChannelImage.width,
-                                    mSingleChannelImage.height, JpegEncoderHelper::GRAYSCALE,
+                                    mSingleChannelImage.height, UHDR_IMG_FMT_8bppYCbCr400,
                                     JPEG_QUALITY, NULL, 0));
   ASSERT_GT(encoder.getCompressedImageSize(), static_cast<uint32_t>(0));
 }
@@ -145,7 +145,7 @@ TEST_F(JpegEncoderHelperTest, encodeRGBImage) {
   const uint8_t* planes[1]{rgbPlane};
   const size_t strides[1]{mRgbImage.width * 3};
   EXPECT_TRUE(encoder.compressImage(planes, strides, mRgbImage.width, mRgbImage.height,
-                                    JpegEncoderHelper::RGB, JPEG_QUALITY, NULL, 0));
+                                    UHDR_IMG_FMT_24bppRGB888, JPEG_QUALITY, NULL, 0));
   ASSERT_GT(encoder.getCompressedImageSize(), static_cast<uint32_t>(0));
 }
 

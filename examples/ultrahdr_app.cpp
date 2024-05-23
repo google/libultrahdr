@@ -61,7 +61,6 @@ const float BT2020RGBtoYUVMatrix[9] = {0.2627,
                                        (-0.0593 / 1.4746)};
 
 // remove these once introduced in ultrahdr_api.h
-const int UHDR_IMG_FMT_24bppYCbCr444 = 100;
 const int UHDR_IMG_FMT_48bppYCbCr444 = 101;
 
 int optind_s = 1;

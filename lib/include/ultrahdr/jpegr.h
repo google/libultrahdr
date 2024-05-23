@@ -90,7 +90,7 @@ struct jpegr_uncompressed_struct {
   // chroma_data is derived from luma ptr, chroma stride is derived from luma stride.
   size_t chroma_stride = 0;
   // Pixel format.
-  ultrahdr_pixel_format pixelFormat = ULTRAHDR_PIX_FMT_UNSPECIFIED;
+  uhdr_img_fmt_t pixelFormat = UHDR_IMG_FMT_UNSPECIFIED;
 };
 
 /*

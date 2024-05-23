@@ -35,6 +35,8 @@ extern "C" {
 #include <memory>
 #include <vector>
 
+#include "ultrahdr_api.h"
+
 namespace ultrahdr {
 
 // constraint on max width and max height is only due to device alloc constraints
@@ -54,23 +56,6 @@ typedef enum {
 /*!\brief Encapsulates a converter from JPEG to raw image format. This class is not thread-safe */
 class JpegDecoderHelper {
  public:
-  // ===============================================================================================
-  // Enum Definitions
-  // ===============================================================================================
-
-  /*!\brief list of jpg decoder output formats */
-  typedef enum {
-    UNKNOWN,
-    GRAYSCALE,
-    YUV444,
-    YUV440,
-    YUV422,
-    YUV420,
-    YUV411,
-    YUV410,
-    RGB,
-    RGBA,
-  } jpg_out_fmt_t;
 
   JpegDecoderHelper() = default;
   ~JpegDecoderHelper() = default;
@@ -109,7 +94,7 @@ class JpegDecoderHelper {
   size_t getDecompressedImageSize() { return mResultBuffer.size(); }
 
   /*!\brief returns format of decompressed image */
-  jpg_out_fmt_t getDecompressedImageFormat() { return mOutFormat; }
+  uhdr_img_fmt_t getDecompressedImageFormat() { return mOutFormat; }
 
   /*! Below public methods are only effective if a call to parseImage() or decompressImage() is made
    * and it returned true. */
@@ -169,7 +154,7 @@ class JpegDecoderHelper {
   std::vector<JOCTET> mIsoMetadataBuffer;  // buffer to store iso data
 
   // image attributes
-  jpg_out_fmt_t mOutFormat;
+  uhdr_img_fmt_t mOutFormat;
   size_t mPlaneWidth[kMaxNumComponents];
   size_t mPlaneHeight[kMaxNumComponents];
 

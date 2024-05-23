@@ -249,7 +249,7 @@ void UltraHdrEncFuzzer::process() {
       const size_t strides[3]{yuv420ImgCopy.luma_stride, yuv420ImgCopy.chroma_stride,
                               yuv420ImgCopy.chroma_stride};
       if (encoder.compressImage(planes, strides, yuv420ImgCopy.width, yuv420ImgCopy.height,
-                                JpegEncoderHelper::YUV420, quality, nullptr, 0)) {
+                                UHDR_IMG_FMT_12bppYCbCr420, quality, nullptr, 0)) {
         jpegImg.length = encoder.getCompressedImageSize();
         jpegImg.maxLength = jpegImg.length;
         jpegImg.data = encoder.getCompressedImagePtr();
@@ -267,7 +267,7 @@ void UltraHdrEncFuzzer::process() {
           const uint8_t* planeGm[1]{reinterpret_cast<uint8_t*>(grayImg.data)};
           const size_t strideGm[1]{grayImg.width};
           if (gainMapEncoder.compressImage(planeGm, strideGm, grayImg.width, grayImg.height,
-                                           JpegEncoderHelper::GRAYSCALE, quality, nullptr, 0)) {
+                                           UHDR_IMG_FMT_8bppYCbCr400, quality, nullptr, 0)) {
             jpegGainMap.length = gainMapEncoder.getCompressedImageSize();
             jpegGainMap.maxLength = jpegImg.length;
             jpegGainMap.data = gainMapEncoder.getCompressedImagePtr();
