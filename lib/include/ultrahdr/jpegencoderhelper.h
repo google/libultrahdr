@@ -34,6 +34,8 @@ extern "C" {
 #include <cstdint>
 #include <vector>
 
+#include "ultrahdr_api.h"
+
 namespace ultrahdr {
 
 /*!\brief module for managing output */
@@ -45,21 +47,6 @@ struct destination_mgr_impl : jpeg_destination_mgr {
 /*!\brief Encapsulates a converter from raw to jpg image format. This class is not thread-safe */
 class JpegEncoderHelper {
  public:
-  // ===============================================================================================
-  // Enum Definitions
-  // ===============================================================================================
-
-  /*!\brief list of jpg encoder input formats */
-  typedef enum {
-    GRAYSCALE,
-    YUV444,
-    YUV440,
-    YUV422,
-    YUV420,
-    YUV411,
-    YUV410,
-    RGB,
-  } jpg_inp_fmt_t;
 
   JpegEncoderHelper() = default;
   ~JpegEncoderHelper() = default;
@@ -79,7 +66,7 @@ class JpegEncoderHelper {
    * \returns true if operation succeeds, false otherwise.
    */
   bool compressImage(const uint8_t* planes[3], const size_t strides[3], const int width,
-                     const int height, const jpg_inp_fmt_t format, const int qfactor,
+                     const int height, const uhdr_img_fmt_t format, const int qfactor,
                      const void* iccBuffer, const unsigned int iccSize);
 
   /*! Below public methods are only effective if a call to compressImage() is made and it returned
@@ -96,7 +83,7 @@ class JpegEncoderHelper {
   static constexpr int kMaxNumComponents = 3;
 
   bool encode(const uint8_t* planes[3], const size_t strides[3], const int width, const int height,
-              const jpg_inp_fmt_t format, const int qfactor, const void* iccBuffer,
+              const uhdr_img_fmt_t format, const int qfactor, const void* iccBuffer,
               const unsigned int iccSize);
 
   bool compressYCbCr(jpeg_compress_struct* cinfo, const uint8_t* planes[3],
