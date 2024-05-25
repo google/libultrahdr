@@ -15,6 +15,7 @@
  */
 
 #include <cstring>
+#include <cmath>
 
 #include "ultrahdr/ultrahdrcommon.h"
 #include "ultrahdr/icc.h"
@@ -601,15 +602,44 @@ std::shared_ptr<DataStruct> IccHelper::writeIccProfile(ultrahdr_transfer_functio
 
 bool IccHelper::tagsEqualToMatrix(const Matrix3x3& matrix, const uint8_t* red_tag,
                                   const uint8_t* green_tag, const uint8_t* blue_tag) {
-  std::shared_ptr<DataStruct> red_tag_test =
-      write_xyz_tag(matrix.vals[0][0], matrix.vals[1][0], matrix.vals[2][0]);
-  std::shared_ptr<DataStruct> green_tag_test =
-      write_xyz_tag(matrix.vals[0][1], matrix.vals[1][1], matrix.vals[2][1]);
-  std::shared_ptr<DataStruct> blue_tag_test =
-      write_xyz_tag(matrix.vals[0][2], matrix.vals[1][2], matrix.vals[2][2]);
-  return memcmp(red_tag, red_tag_test->getData(), kColorantTagSize) == 0 &&
-         memcmp(green_tag, green_tag_test->getData(), kColorantTagSize) == 0 &&
-         memcmp(blue_tag, blue_tag_test->getData(), kColorantTagSize) == 0;
+  const float tolerance = 0.001;
+  Fixed r_x_fixed = Endian_SwapBE32(reinterpret_cast<int32_t*>(const_cast<uint8_t*>(red_tag))[2]);
+  Fixed r_y_fixed = Endian_SwapBE32(reinterpret_cast<int32_t*>(const_cast<uint8_t*>(red_tag))[3]);
+  Fixed r_z_fixed = Endian_SwapBE32(reinterpret_cast<int32_t*>(const_cast<uint8_t*>(red_tag))[4]);
+  float r_x = FixedToFloat(r_x_fixed);
+  float r_y = FixedToFloat(r_y_fixed);
+  float r_z = FixedToFloat(r_z_fixed);
+  if (fabs(r_x - matrix.vals[0][0]) > tolerance ||
+          fabs(r_y - matrix.vals[1][0]) > tolerance ||
+          fabs(r_z - matrix.vals[2][0]) > tolerance) {
+    return false;
+  }
+
+  Fixed g_x_fixed = Endian_SwapBE32(reinterpret_cast<int32_t*>(const_cast<uint8_t*>(green_tag))[2]);
+  Fixed g_y_fixed = Endian_SwapBE32(reinterpret_cast<int32_t*>(const_cast<uint8_t*>(green_tag))[3]);
+  Fixed g_z_fixed = Endian_SwapBE32(reinterpret_cast<int32_t*>(const_cast<uint8_t*>(green_tag))[4]);
+  float g_x = FixedToFloat(g_x_fixed);
+  float g_y = FixedToFloat(g_y_fixed);
+  float g_z = FixedToFloat(g_z_fixed);
+  if (fabs(g_x - matrix.vals[0][1]) > tolerance ||
+          fabs(g_y - matrix.vals[1][1]) > tolerance ||
+          fabs(g_z - matrix.vals[2][1]) > tolerance) {
+    return false;
+  }
+
+  Fixed b_x_fixed = Endian_SwapBE32(reinterpret_cast<int32_t*>(const_cast<uint8_t*>(blue_tag))[2]);
+  Fixed b_y_fixed = Endian_SwapBE32(reinterpret_cast<int32_t*>(const_cast<uint8_t*>(blue_tag))[3]);
+  Fixed b_z_fixed = Endian_SwapBE32(reinterpret_cast<int32_t*>(const_cast<uint8_t*>(blue_tag))[4]);
+  float b_x = FixedToFloat(b_x_fixed);
+  float b_y = FixedToFloat(b_y_fixed);
+  float b_z = FixedToFloat(b_z_fixed);
+  if (fabs(b_x - matrix.vals[0][2]) > tolerance ||
+          fabs(b_y - matrix.vals[1][2]) > tolerance ||
+          fabs(b_z - matrix.vals[2][2]) > tolerance) {
+    return false;
+  }
+
+  return true;
 }
 
 ultrahdr_color_gamut IccHelper::readIccColorGamut(void* icc_data, size_t icc_size) {
