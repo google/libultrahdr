@@ -62,6 +62,12 @@ cc_library {
     ],
     rtti: true,
 
+    target: {
+        windows: {
+            enabled: true,
+        },
+    },
+
     arch: {
         arm: {
             srcs: ["lib/src/dsp/arm/editorhelper_neon.cpp",],
@@ -87,6 +93,12 @@ cc_library {
     srcs: [
         "lib/src/jpegencoderhelper.cpp",
     ],
+
+    target: {
+        windows: {
+            enabled: true,
+        },
+    },
 }
 
 cc_library {
@@ -104,4 +116,10 @@ cc_library {
     srcs: [
         "lib/src/jpegdecoderhelper.cpp",
     ],
+
+    target: {
+        windows: {
+            enabled: true,
+        },
+    },
 }

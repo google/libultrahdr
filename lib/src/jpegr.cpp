@@ -15,7 +15,7 @@
  */
 
 #ifdef _WIN32
-#include <Windows.h>
+#include <windows.h>
 #include <sysinfoapi.h>
 #else
 #include <unistd.h>
