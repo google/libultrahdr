@@ -529,32 +529,17 @@ bool UltraHdrAppInput::fillUhdrImageHandle() {
 }
 
 bool UltraHdrAppInput::encode() {
-#define RET_IF_ERR(x)                            \
-  {                                              \
-    uhdr_error_info_t status = (x);              \
-    if (status.error_code != UHDR_CODEC_OK) {    \
-      if (status.has_detail) {                   \
-        std::cerr << status.detail << std::endl; \
-      }                                          \
-      uhdr_release_encoder(handle);              \
-      return false;                              \
-    }                                            \
-  }
-
-  uhdr_codec_private_t* handle = uhdr_create_encoder();
   if (mHdrIntentRawFile != nullptr) {
     if (mHdrCf == UHDR_IMG_FMT_24bppYCbCrP010) {
       if (!fillP010ImageHandle()) {
         std::cerr << " failed to load file " << mHdrIntentRawFile << std::endl;
         return false;
       }
-      RET_IF_ERR(uhdr_enc_set_raw_image(handle, &mRawP010Image, UHDR_HDR_IMG))
     } else if (mHdrCf == UHDR_IMG_FMT_32bppRGBA1010102) {
       if (!fillRGBA1010102ImageHandle()) {
         std::cerr << " failed to load file " << mHdrIntentRawFile << std::endl;
         return false;
       }
-      RET_IF_ERR(uhdr_enc_set_raw_image(handle, &mRawRgba1010102Image, UHDR_HDR_IMG))
     } else {
       std::cerr << " invalid hdr intent color format " << mHdrCf << std::endl;
       return false;
@@ -566,13 +551,11 @@ bool UltraHdrAppInput::encode() {
         std::cerr << " failed to load file " << mSdrIntentRawFile << std::endl;
         return false;
       }
-      RET_IF_ERR(uhdr_enc_set_raw_image(handle, &mRawYuv420Image, UHDR_SDR_IMG))
     } else if (mSdrCf == UHDR_IMG_FMT_32bppRGBA8888) {
       if (!fillRGBA8888ImageHandle()) {
         std::cerr << " failed to load file " << mSdrIntentRawFile << std::endl;
         return false;
       }
-      RET_IF_ERR(uhdr_enc_set_raw_image(handle, &mRawRgba8888Image, UHDR_SDR_IMG))
     } else {
       std::cerr << " invalid sdr intent color format " << mSdrCf << std::endl;
       return false;
@@ -583,10 +566,6 @@ bool UltraHdrAppInput::encode() {
       std::cerr << " failed to load file " << mSdrIntentCompressedFile << std::endl;
       return false;
     }
-    RET_IF_ERR(uhdr_enc_set_compressed_image(
-        handle, &mSdrIntentCompressedImage,
-        (mGainMapCompressedFile != nullptr && mGainMapMetadataCfgFile != nullptr) ? UHDR_BASE_IMG
-                                                                                  : UHDR_SDR_IMG))
   }
   if (mGainMapCompressedFile != nullptr && mGainMapMetadataCfgFile != nullptr) {
     if (!fillGainMapCompressedImageHandle()) {
@@ -597,6 +576,41 @@ bool UltraHdrAppInput::encode() {
       std::cerr << " failed to read config file " << mGainMapMetadataCfgFile << std::endl;
       return false;
     }
+  }
+
+#define RET_IF_ERR(x)                            \
+  {                                              \
+    uhdr_error_info_t status = (x);              \
+    if (status.error_code != UHDR_CODEC_OK) {    \
+      if (status.has_detail) {                   \
+        std::cerr << status.detail << std::endl; \
+      }                                          \
+      uhdr_release_encoder(handle);              \
+      return false;                              \
+    }                                            \
+  }
+  uhdr_codec_private_t* handle = uhdr_create_encoder();
+  if (mHdrIntentRawFile != nullptr) {
+    if (mHdrCf == UHDR_IMG_FMT_24bppYCbCrP010) {
+      RET_IF_ERR(uhdr_enc_set_raw_image(handle, &mRawP010Image, UHDR_HDR_IMG))
+    } else if (mHdrCf == UHDR_IMG_FMT_32bppRGBA1010102) {
+      RET_IF_ERR(uhdr_enc_set_raw_image(handle, &mRawRgba1010102Image, UHDR_HDR_IMG))
+    }
+  }
+  if (mSdrIntentRawFile != nullptr) {
+    if (mSdrCf == UHDR_IMG_FMT_12bppYCbCr420) {
+      RET_IF_ERR(uhdr_enc_set_raw_image(handle, &mRawYuv420Image, UHDR_SDR_IMG))
+    } else if (mSdrCf == UHDR_IMG_FMT_32bppRGBA8888) {
+      RET_IF_ERR(uhdr_enc_set_raw_image(handle, &mRawRgba8888Image, UHDR_SDR_IMG))
+    }
+  }
+  if (mSdrIntentCompressedFile != nullptr) {
+    RET_IF_ERR(uhdr_enc_set_compressed_image(
+        handle, &mSdrIntentCompressedImage,
+        (mGainMapCompressedFile != nullptr && mGainMapMetadataCfgFile != nullptr) ? UHDR_BASE_IMG
+                                                                                  : UHDR_SDR_IMG))
+  }
+  if (mGainMapCompressedFile != nullptr && mGainMapMetadataCfgFile != nullptr) {
     RET_IF_ERR(uhdr_enc_set_gainmap_image(handle, &mGainMapCompressedImage, &mGainMapMetadata))
   }
   RET_IF_ERR(uhdr_enc_set_quality(handle, mQuality, UHDR_BASE_IMG))
