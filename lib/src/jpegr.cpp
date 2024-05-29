@@ -726,7 +726,7 @@ status_t JpegR::decodeJPEGR(jr_compressed_ptr jpegr_image_ptr, jr_uncompressed_p
     if (gainmap_image_ptr != nullptr) {
       gainmap_image_ptr->pixelFormat = gainmap_image.pixelFormat;
       if (jpeg_dec_obj_yuv420.getDecompressedImageWidth() % gainmap_image.width == 0 &&
-          jpeg_dec_obj_yuv420.getDecompressedImageHeight() % gainmap_image.width == 0) {
+          jpeg_dec_obj_yuv420.getDecompressedImageHeight() % gainmap_image.height == 0) {
         gainmap_image_ptr->width = gainmap_image.width;
         gainmap_image_ptr->height = gainmap_image.height;
 
