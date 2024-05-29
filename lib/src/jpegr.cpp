@@ -709,16 +709,13 @@ status_t JpegR::decodeJPEGR(jr_compressed_ptr jpegr_image_ptr, jr_uncompressed_p
                                          DECODE_STREAM)) {
       return ERROR_JPEGR_DECODE_ERROR;
     }
-    auto gainmap_components = 0;
+
     if (jpeg_dec_obj_gm.getDecompressedImageFormat() == JpegDecoderHelper::GRAYSCALE) {
       gainmap_image.pixelFormat = ULTRAHDR_PIX_FMT_MONOCHROME;
-      gainmap_components = 1;
     } else if (jpeg_dec_obj_gm.getDecompressedImageFormat() == JpegDecoderHelper::RGB) {
       gainmap_image.pixelFormat = ULTRAHDR_PIX_FMT_RGB888;
-      gainmap_components = 3;
     } else if (jpeg_dec_obj_gm.getDecompressedImageFormat() == JpegDecoderHelper::RGBA) {
       gainmap_image.pixelFormat = ULTRAHDR_PIX_FMT_RGBA8888;
-      gainmap_components = 4;
     } else {
       return ERROR_JPEGR_GAIN_MAP_SIZE_ERROR;
     }
