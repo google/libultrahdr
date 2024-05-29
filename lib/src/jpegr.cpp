@@ -709,12 +709,16 @@ status_t JpegR::decodeJPEGR(jr_compressed_ptr jpegr_image_ptr, jr_uncompressed_p
                                          DECODE_STREAM)) {
       return ERROR_JPEGR_DECODE_ERROR;
     }
+    auto gainmap_components = 0;
     if (jpeg_dec_obj_gm.getDecompressedImageFormat() == JpegDecoderHelper::GRAYSCALE) {
       gainmap_image.pixelFormat = ULTRAHDR_PIX_FMT_MONOCHROME;
+      gainmap_components = 1;
     } else if (jpeg_dec_obj_gm.getDecompressedImageFormat() == JpegDecoderHelper::RGB) {
       gainmap_image.pixelFormat = ULTRAHDR_PIX_FMT_RGB888;
+      gainmap_components = 3;
     } else if (jpeg_dec_obj_gm.getDecompressedImageFormat() == JpegDecoderHelper::RGBA) {
       gainmap_image.pixelFormat = ULTRAHDR_PIX_FMT_RGBA8888;
+      gainmap_components = 4;
     } else {
       return ERROR_JPEGR_GAIN_MAP_SIZE_ERROR;
     }
@@ -723,11 +727,43 @@ status_t JpegR::decodeJPEGR(jr_compressed_ptr jpegr_image_ptr, jr_uncompressed_p
     gainmap_image.height = jpeg_dec_obj_gm.getDecompressedImageHeight();
 
     if (gainmap_image_ptr != nullptr) {
-      gainmap_image_ptr->width = gainmap_image.width;
-      gainmap_image_ptr->height = gainmap_image.height;
       gainmap_image_ptr->pixelFormat = gainmap_image.pixelFormat;
-      memcpy(gainmap_image_ptr->data, gainmap_image.data,
-             gainmap_image_ptr->width * gainmap_image_ptr->height);
+      if (jpeg_dec_obj_yuv420.getDecompressedImageWidth() % gainmap_image.width == 0 &&
+          jpeg_dec_obj_yuv420.getDecompressedImageHeight() % gainmap_image.width == 0) {
+        gainmap_image_ptr->width = gainmap_image.width;
+        gainmap_image_ptr->height = gainmap_image.height;
+
+        memcpy(gainmap_image_ptr->data, gainmap_image.data,
+               gainmap_image_ptr->width * gainmap_image_ptr->height);
+      } 
+      else {
+        // Gain map dimensions scale factor value is not an integer
+        // So upscale gainmap to same dimensions as image
+        // 
+        // todo: ensure same ratio as SDR image or handle different ratio
+        // todo: handle or check for downsampling
+        // todo: smoother upsampling
+
+        const auto scaled = (unsigned char*)gainmap_image_ptr->data;
+        const auto src = (unsigned char*)gainmap_image.data;
+        const auto scaled_width = jpeg_dec_obj_yuv420.getDecompressedImageWidth();
+        const auto scaled_height = jpeg_dec_obj_yuv420.getDecompressedImageHeight();
+        const auto src_width = gainmap_image.width;
+        const auto src_height = gainmap_image.height;
+        
+        gainmap_image.width = gainmap_image_ptr->width = scaled_width;
+        gainmap_image.height = gainmap_image_ptr->height = scaled_height;
+
+        for (int dy = 0; dy < scaled_height; dy++) {
+          for (int dx = 0; dx < scaled_width; dx++) {
+            scaled[dx + dy * scaled_width] = src[(dx * src_width / scaled_width) +
+                                             (dy * src_height / scaled_height) * src_width];
+          }
+        }
+
+        gainmap_image.width = gainmap_image_ptr->width = scaled_width;
+        gainmap_image.height = gainmap_image_ptr->height = scaled_height;
+      }
     }
   }
 
@@ -797,7 +833,7 @@ status_t JpegR::decodeJPEGR(jr_compressed_ptr jpegr_image_ptr, jr_uncompressed_p
   yuv420_image.chroma_data = data + yuv420_image.luma_stride * yuv420_image.height;
   yuv420_image.chroma_stride = yuv420_image.width >> 1;
 
-  JPEGR_CHECK(applyGainMap(&yuv420_image, &gainmap_image, &uhdr_metadata, output_format,
+  JPEGR_CHECK(applyGainMap(&yuv420_image, gainmap_image_ptr, &uhdr_metadata, output_format,
                            max_display_boost, dest));
   return JPEGR_NO_ERROR;
 }

@@ -1488,9 +1488,21 @@ uhdr_error_info_t uhdr_decode(uhdr_codec_private_t* dec) {
   dest.data = handle->m_decoded_img_buffer->planes[UHDR_PLANE_PACKED];
   dest.colorGamut = ultrahdr::ULTRAHDR_COLORGAMUT_UNSPECIFIED;
 
-  handle->m_gainmap_img_buffer = std::make_unique<ultrahdr::uhdr_raw_image_ext_t>(
-      UHDR_IMG_FMT_8bppYCbCr400, UHDR_CG_UNSPECIFIED, UHDR_CT_UNSPECIFIED, UHDR_CR_UNSPECIFIED,
-      handle->m_gainmap_wd, handle->m_gainmap_ht, 1);
+  if (handle->m_img_wd % handle->m_gainmap_wd == 0 && handle->m_img_ht % handle->m_gainmap_ht == 0) {
+    // no problem, proceed as normal
+    handle->m_gainmap_img_buffer = std::make_unique<ultrahdr::uhdr_raw_image_ext_t>(
+        UHDR_IMG_FMT_8bppYCbCr400, UHDR_CG_UNSPECIFIED, UHDR_CT_UNSPECIFIED, UHDR_CR_UNSPECIFIED,
+        handle->m_gainmap_wd, handle->m_gainmap_ht, 1);
+
+  } 
+  else {
+    // Gain map dimensions scale factor value is not an integer
+    // So we will upscale gainmap to same dimensions as image
+    handle->m_gainmap_img_buffer = std::make_unique<ultrahdr::uhdr_raw_image_ext_t>(
+        UHDR_IMG_FMT_8bppYCbCr400, UHDR_CG_UNSPECIFIED, UHDR_CT_UNSPECIFIED, UHDR_CR_UNSPECIFIED,
+        handle->m_img_wd, handle->m_img_ht, 1);
+  }
+
   // alias
   ultrahdr::jpegr_uncompressed_struct dest_gainmap;
   dest_gainmap.data = handle->m_gainmap_img_buffer->planes[UHDR_PLANE_Y];
