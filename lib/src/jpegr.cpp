@@ -1838,7 +1838,7 @@ status_t JpegR::toneMap(jr_uncompressed_ptr src, jr_uncompressed_ptr dest,
           sdr_rgb = clampPixelFloat(sdr_rgb);
 
           Color sdr_rgb_gamma = srgbOetf(sdr_rgb);
-          Color sdr_yuv_gamma = srgbRgbToYuv(sdr_rgb_gamma);
+          Color sdr_yuv_gamma = p3RgbToYuv(sdr_rgb_gamma);
 
           sdr_yuv_gamma += {{{0.0f, 0.5f, 0.5f}}};
 
