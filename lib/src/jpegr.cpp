@@ -1129,18 +1129,8 @@ status_t JpegR::applyGainMap(jr_uncompressed_ptr yuv420_image_ptr,
     return ERROR_JPEGR_BAD_METADATA;
   }
 
-  if (yuv420_image_ptr->width % gainmap_image_ptr->width != 0 ||
-      yuv420_image_ptr->height % gainmap_image_ptr->height != 0) {
-    ALOGE(
-        "gain map dimensions scale factor value is not an integer, primary image resolution is "
-        "%zux%zu, received gain map resolution is %zux%zu",
-        yuv420_image_ptr->width, yuv420_image_ptr->height, gainmap_image_ptr->width,
-        gainmap_image_ptr->height);
-    return ERROR_JPEGR_UNSUPPORTED_MAP_SCALE_FACTOR;
-  }
-
-  if (yuv420_image_ptr->width * gainmap_image_ptr->height !=
-      yuv420_image_ptr->height * gainmap_image_ptr->width) {
+  if (fabs(((float) yuv420_image_ptr->width / yuv420_image_ptr->height * gainmap_image_ptr->height
+          - gainmap_image_ptr->width)) > 1.0f) {
     ALOGE(
         "gain map dimensions scale factor values for height and width are different, \n primary "
         "image resolution is %zux%zu, received gain map resolution is %zux%zu",
@@ -1148,14 +1138,14 @@ status_t JpegR::applyGainMap(jr_uncompressed_ptr yuv420_image_ptr,
         gainmap_image_ptr->height);
     return ERROR_JPEGR_UNSUPPORTED_MAP_SCALE_FACTOR;
   }
-  // TODO: Currently map_scale_factor is of type size_t, but it could be changed to a float
-  // later.
-  size_t map_scale_factor = yuv420_image_ptr->width / gainmap_image_ptr->width;
+
+  float map_scale_factor = (float) yuv420_image_ptr->width / gainmap_image_ptr->width;
 
   dest->width = yuv420_image_ptr->width;
   dest->height = yuv420_image_ptr->height;
   dest->colorGamut = yuv420_image_ptr->colorGamut;
-  ShepardsIDW idwTable(map_scale_factor);
+  // Table will only be used when map scale factor is integer.
+  ShepardsIDW idwTable(static_cast<int>(map_scale_factor));
   float display_boost = (std::min)(max_display_boost, metadata->maxContentBoost);
   GainLUT gainLUT(metadata, display_boost);
 
@@ -1181,7 +1171,7 @@ status_t JpegR::applyGainMap(jr_uncompressed_ptr yuv420_image_ptr,
           Color rgb_hdr;
           if (gainmap_image_ptr->pixelFormat == UHDR_IMG_FMT_8bppYCbCr400) {
             float gain;
-            // TODO: If map_scale_factor is guaranteed to be an integer, then remove the following.
+
             if (map_scale_factor != floorf(map_scale_factor)) {
               gain = sampleMap(gainmap_image_ptr, map_scale_factor, x, y);
             } else {
@@ -1195,7 +1185,7 @@ status_t JpegR::applyGainMap(jr_uncompressed_ptr yuv420_image_ptr,
 #endif
           } else {
             Color gain;
-            // TODO: If map_scale_factor is guaranteed to be an integer, then remove the following.
+
             if (map_scale_factor != floorf(map_scale_factor)) {
               gain =
                   sampleMap3Channel(gainmap_image_ptr, map_scale_factor, x, y,
