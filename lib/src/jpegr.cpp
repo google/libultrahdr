@@ -1129,14 +1129,20 @@ status_t JpegR::applyGainMap(jr_uncompressed_ptr yuv420_image_ptr,
     return ERROR_JPEGR_BAD_METADATA;
   }
 
-  if (fabs(((float) yuv420_image_ptr->width / yuv420_image_ptr->height * gainmap_image_ptr->height
-          - gainmap_image_ptr->width)) > 1.0f) {
-    ALOGE(
-        "gain map dimensions scale factor values for height and width are different, \n primary "
-        "image resolution is %zux%zu, received gain map resolution is %zux%zu",
-        yuv420_image_ptr->width, yuv420_image_ptr->height, gainmap_image_ptr->width,
-        gainmap_image_ptr->height);
-    return ERROR_JPEGR_UNSUPPORTED_MAP_SCALE_FACTOR;
+  {
+    float primary_aspect_ratio = (float) yuv420_image_ptr->width / yuv420_image_ptr->height;
+    float gainmap_aspect_ratio = (float) gainmap_image_ptr->width / gainmap_image_ptr->height;
+    float delta_aspect_ratio = fabs(primary_aspect_ratio - gainmap_aspect_ratio);
+    // Allow 1% delta
+    const float delta_tolerance = 0.01;
+    if (delta_aspect_ratio / primary_aspect_ratio > delta_tolerance) {
+      ALOGE(
+          "gain map dimensions scale factor values for height and width are different, \n primary "
+          "image resolution is %zux%zu, received gain map resolution is %zux%zu",
+          yuv420_image_ptr->width, yuv420_image_ptr->height, gainmap_image_ptr->width,
+          gainmap_image_ptr->height);
+      return ERROR_JPEGR_UNSUPPORTED_MAP_SCALE_FACTOR;
+    }
   }
 
   float map_scale_factor = (float) yuv420_image_ptr->width / gainmap_image_ptr->width;
