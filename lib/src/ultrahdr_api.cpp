@@ -445,8 +445,7 @@ void map_internal_error_status_to_error_info(ultrahdr::status_t internal_status,
       status.error_code = UHDR_CODEC_UNSUPPORTED_FEATURE;
       snprintf(status.detail, sizeof status.detail,
                "say base image wd to gain map image wd ratio is 'k1' and base image ht to gain map "
-               "image ht ratio is 'k2'. Either k1 is fractional or k2 is fractional or k1 != k2. "
-               "currently the library does not handle these scenarios");
+               "image ht ratio is 'k2', we found k1 != k2.");
     } else {
       status.error_code = UHDR_CODEC_UNKNOWN_ERROR;
       status.has_detail = 0;
