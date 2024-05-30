@@ -1138,7 +1138,7 @@ status_t JpegR::applyGainMap(jr_uncompressed_ptr yuv420_image_ptr,
   }
 
   if (fabs(((float) yuv420_image_ptr->width / yuv420_image_ptr->height * gainmap_image_ptr->height
-          - gainmap_image_ptr->width)) > 1.0f) {
+          / gainmap_image_ptr->width)) > 1.0f) {
     ALOGE(
         "gain map dimensions scale factor values for height and width are different, \n primary "
         "image resolution is %zux%zu, received gain map resolution is %zux%zu",
