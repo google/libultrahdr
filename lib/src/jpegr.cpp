@@ -1759,7 +1759,6 @@ status_t JpegR::toneMap(jr_uncompressed_ptr src, jr_uncompressed_ptr dest,
 
   dest->colorGamut = ULTRAHDR_COLORGAMUT_P3;
 
-  size_t width = src->width;
   size_t height = src->height;
 
   ColorTransformFn hdrYuvToRgbFn = nullptr;
@@ -1810,51 +1809,73 @@ status_t JpegR::toneMap(jr_uncompressed_ptr src, jr_uncompressed_ptr dest,
   uint8_t* luma_data = reinterpret_cast<uint8_t*>(dest->data);
   uint8_t* chroma_data = reinterpret_cast<uint8_t*>(dest->chroma_data);
 
-  float u_max = 0.0f;
+  const int threads = (std::min)(GetCPUCoreCount(), 4);
+  size_t rowStep = threads == 1 ? height : kJobSzInRows;
+  JobQueue jobQueue;
+  std::function<void()> toneMapInternal;
 
-  for (unsigned y = 0; y < height; y += 2) {
-    for (unsigned x = 0; x < width; x += 2) {
-      // We assume the input is P010, and output is YUV420
-      float sdr_u_gamma = 0.0f;
-      float sdr_v_gamma = 0.0f;
-      for (int i = 0; i < 2; i++) {
-        for (int j = 0; j < 2; j++) {
-          Color hdr_yuv_gamma = getP010Pixel(src, x + j, y + i);
-          Color hdr_rgb_gamma = hdrYuvToRgbFn(hdr_yuv_gamma);
+  toneMapInternal = [src, dest, luma_data, chroma_data, hdrInvOetf, hdrGamutConversionFn,
+                     hdrYuvToRgbFn, luma_stride, chroma_stride, &jobQueue]() -> void {
+    size_t rowStart, rowEnd;
+    while (jobQueue.dequeueJob(rowStart, rowEnd)) {
+      for (size_t y = rowStart; y < rowEnd; y += 2) {
+        for (size_t x = 0; x < dest->width; x += 2) {
+          // We assume the input is P010, and output is YUV420
+          float sdr_u_gamma = 0.0f;
+          float sdr_v_gamma = 0.0f;
+          for (int i = 0; i < 2; i++) {
+            for (int j = 0; j < 2; j++) {
+              Color hdr_yuv_gamma = getP010Pixel(src, x + j, y + i);
+              Color hdr_rgb_gamma = hdrYuvToRgbFn(hdr_yuv_gamma);
 
-          Color hdr_rgb = hdrInvOetf(hdr_rgb_gamma);
+              Color hdr_rgb = hdrInvOetf(hdr_rgb_gamma);
 
-          GlobalTonemapOutputs tonemap_outputs =
-              hlgGlobalTonemap({hdr_rgb.r, hdr_rgb.g, hdr_rgb.b}, kHlgHeadroom);
-          Color sdr_rgb_linear_bt2100 = {{{tonemap_outputs.rgb_out[0], tonemap_outputs.rgb_out[1],
-                                           tonemap_outputs.rgb_out[2]}}};
-          Color sdr_rgb = hdrGamutConversionFn(sdr_rgb_linear_bt2100);
+              GlobalTonemapOutputs tonemap_outputs =
+                  hlgGlobalTonemap({hdr_rgb.r, hdr_rgb.g, hdr_rgb.b}, kHlgHeadroom);
+              Color sdr_rgb_linear_bt2100 = {{{tonemap_outputs.rgb_out[0],
+                                               tonemap_outputs.rgb_out[1],
+                                               tonemap_outputs.rgb_out[2]}}};
+              Color sdr_rgb = hdrGamutConversionFn(sdr_rgb_linear_bt2100);
 
-          // Hard clip out-of-gamut values;
-          sdr_rgb = clampPixelFloat(sdr_rgb);
+              // Hard clip out-of-gamut values;
+              sdr_rgb = clampPixelFloat(sdr_rgb);
 
-          Color sdr_rgb_gamma = srgbOetf(sdr_rgb);
-          Color sdr_yuv_gamma = p3RgbToYuv(sdr_rgb_gamma);
+              Color sdr_rgb_gamma = srgbOetf(sdr_rgb);
+              Color sdr_yuv_gamma = srgbRgbToYuv(sdr_rgb_gamma);
 
-          sdr_yuv_gamma += {{{0.0f, 0.5f, 0.5f}}};
+              sdr_yuv_gamma += {{{0.0f, 0.5f, 0.5f}}};
 
-          if (u_max < hdr_yuv_gamma.u) {
-            u_max = hdr_yuv_gamma.u;
+              size_t out_y_idx = (y + i) * luma_stride + x + j;
+              luma_data[out_y_idx] = ScaleTo8Bit(sdr_yuv_gamma.y);
+
+              sdr_u_gamma += sdr_yuv_gamma.u * 0.25f;
+              sdr_v_gamma += sdr_yuv_gamma.v * 0.25f;
+            }
           }
-
-          size_t out_y_idx = (y + i) * luma_stride + x + j;
-          luma_data[out_y_idx] = ScaleTo8Bit(sdr_yuv_gamma.y);
-
-          sdr_u_gamma += sdr_yuv_gamma.u * 0.25f;
-          sdr_v_gamma += sdr_yuv_gamma.v * 0.25f;
+          size_t out_chroma_idx = x / 2 + (y / 2) * chroma_stride;
+          size_t offset_cr = chroma_stride * (dest->height / 2);
+          chroma_data[out_chroma_idx] = ScaleTo8Bit(sdr_u_gamma);
+          chroma_data[out_chroma_idx + offset_cr] = ScaleTo8Bit(sdr_v_gamma);
         }
       }
-      size_t out_chroma_idx = x / 2 + (y / 2) * chroma_stride;
-      size_t offset_cr = chroma_stride * (dest->height / 2);
-      chroma_data[out_chroma_idx] = ScaleTo8Bit(sdr_u_gamma);
-      chroma_data[out_chroma_idx + offset_cr] = ScaleTo8Bit(sdr_v_gamma);
     }
+  };
+
+  // tone map
+  std::vector<std::thread> workers;
+  for (int th = 0; th < threads - 1; th++) {
+    workers.push_back(std::thread(toneMapInternal));
   }
+
+  rowStep = (threads == 1 ? height : kJobSzInRows) / kMapDimensionScaleFactor;
+  for (size_t rowStart = 0; rowStart < height;) {
+    size_t rowEnd = (std::min)(rowStart + rowStep, height);
+    jobQueue.enqueueJob(rowStart, rowEnd);
+    rowStart = rowEnd;
+  }
+  jobQueue.markQueueForEnd();
+  toneMapInternal();
+  std::for_each(workers.begin(), workers.end(), [](std::thread& t) { t.join(); });
 
   return JPEGR_NO_ERROR;
 }
