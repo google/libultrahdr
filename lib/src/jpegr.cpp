@@ -276,7 +276,7 @@ status_t JpegR::encodeJPEGR(jr_uncompressed_ptr p010_image_ptr, ultrahdr_transfe
   const size_t strides[3]{yuv420_image.luma_stride, yuv420_image.chroma_stride,
                           yuv420_image.chroma_stride};
   if (!jpeg_enc_obj_yuv420.compressImage(planes, strides, yuv420_image.width, yuv420_image.height,
-                                         JpegEncoderHelper::YUV420, quality, icc->getData(),
+                                         UHDR_IMG_FMT_12bppYCbCr420, quality, icc->getData(),
                                          icc->getLength())) {
     return ERROR_JPEGR_ENCODE_ERROR;
   }
@@ -415,7 +415,7 @@ status_t JpegR::encodeJPEGR(jr_uncompressed_ptr p010_image_ptr,
   const size_t strides[3]{yuv420_bt601_image.luma_stride, yuv420_bt601_image.chroma_stride,
                           yuv420_bt601_image.chroma_stride};
   if (!jpeg_enc_obj_yuv420.compressImage(planes, strides, yuv420_bt601_image.width,
-                                         yuv420_bt601_image.height, JpegEncoderHelper::YUV420,
+                                         yuv420_bt601_image.height, UHDR_IMG_FMT_12bppYCbCr420,
                                          quality, icc->getData(), icc->getLength())) {
     return ERROR_JPEGR_ENCODE_ERROR;
   }
@@ -709,18 +709,10 @@ status_t JpegR::decodeJPEGR(jr_compressed_ptr jpegr_image_ptr, jr_uncompressed_p
                                          DECODE_STREAM)) {
       return ERROR_JPEGR_DECODE_ERROR;
     }
-    if (jpeg_dec_obj_gm.getDecompressedImageFormat() == JpegDecoderHelper::GRAYSCALE) {
-      gainmap_image.pixelFormat = ULTRAHDR_PIX_FMT_MONOCHROME;
-    } else if (jpeg_dec_obj_gm.getDecompressedImageFormat() == JpegDecoderHelper::RGB) {
-      gainmap_image.pixelFormat = ULTRAHDR_PIX_FMT_RGB888;
-    } else if (jpeg_dec_obj_gm.getDecompressedImageFormat() == JpegDecoderHelper::RGBA) {
-      gainmap_image.pixelFormat = ULTRAHDR_PIX_FMT_RGBA8888;
-    } else {
-      return ERROR_JPEGR_GAIN_MAP_SIZE_ERROR;
-    }
     gainmap_image.data = jpeg_dec_obj_gm.getDecompressedImagePtr();
     gainmap_image.width = jpeg_dec_obj_gm.getDecompressedImageWidth();
     gainmap_image.height = jpeg_dec_obj_gm.getDecompressedImageHeight();
+    gainmap_image.pixelFormat = jpeg_dec_obj_gm.getDecompressedImageFormat();
 
     if (gainmap_image_ptr != nullptr) {
       gainmap_image_ptr->width = gainmap_image.width;
@@ -812,7 +804,7 @@ status_t JpegR::compressGainMap(jr_uncompressed_ptr gainmap_image_ptr,
   if (kUseMultiChannelGainMap) {
     const size_t strides[]{gainmap_image_ptr->width * 3};
     if (!jpeg_enc_obj_ptr->compressImage(planes, strides, gainmap_image_ptr->width,
-                                         gainmap_image_ptr->height, JpegEncoderHelper::RGB,
+                                         gainmap_image_ptr->height, UHDR_IMG_FMT_24bppRGB888,
                                          kMapCompressQuality, nullptr, 0)) {
       return ERROR_JPEGR_ENCODE_ERROR;
     }
@@ -820,7 +812,7 @@ status_t JpegR::compressGainMap(jr_uncompressed_ptr gainmap_image_ptr,
     const size_t strides[]{gainmap_image_ptr->width};
     // Don't need to convert YUV to Bt601 since single channel
     if (!jpeg_enc_obj_ptr->compressImage(planes, strides, gainmap_image_ptr->width,
-                                         gainmap_image_ptr->height, JpegEncoderHelper::GRAYSCALE,
+                                         gainmap_image_ptr->height, UHDR_IMG_FMT_8bppYCbCr400,
                                          kMapCompressQuality, nullptr, 0)) {
       return ERROR_JPEGR_ENCODE_ERROR;
     }
@@ -1137,33 +1129,29 @@ status_t JpegR::applyGainMap(jr_uncompressed_ptr yuv420_image_ptr,
     return ERROR_JPEGR_BAD_METADATA;
   }
 
-  if (yuv420_image_ptr->width % gainmap_image_ptr->width != 0 ||
-      yuv420_image_ptr->height % gainmap_image_ptr->height != 0) {
-    ALOGE(
-        "gain map dimensions scale factor value is not an integer, primary image resolution is "
-        "%zux%zu, received gain map resolution is %zux%zu",
-        yuv420_image_ptr->width, yuv420_image_ptr->height, gainmap_image_ptr->width,
-        gainmap_image_ptr->height);
-    return ERROR_JPEGR_UNSUPPORTED_MAP_SCALE_FACTOR;
+  {
+    float primary_aspect_ratio = (float) yuv420_image_ptr->width / yuv420_image_ptr->height;
+    float gainmap_aspect_ratio = (float) gainmap_image_ptr->width / gainmap_image_ptr->height;
+    float delta_aspect_ratio = fabs(primary_aspect_ratio - gainmap_aspect_ratio);
+    // Allow 1% delta
+    const float delta_tolerance = 0.01;
+    if (delta_aspect_ratio / primary_aspect_ratio > delta_tolerance) {
+      ALOGE(
+          "gain map dimensions scale factor values for height and width are different, \n primary "
+          "image resolution is %zux%zu, received gain map resolution is %zux%zu",
+          yuv420_image_ptr->width, yuv420_image_ptr->height, gainmap_image_ptr->width,
+          gainmap_image_ptr->height);
+      return ERROR_JPEGR_UNSUPPORTED_MAP_SCALE_FACTOR;
+    }
   }
 
-  if (yuv420_image_ptr->width * gainmap_image_ptr->height !=
-      yuv420_image_ptr->height * gainmap_image_ptr->width) {
-    ALOGE(
-        "gain map dimensions scale factor values for height and width are different, \n primary "
-        "image resolution is %zux%zu, received gain map resolution is %zux%zu",
-        yuv420_image_ptr->width, yuv420_image_ptr->height, gainmap_image_ptr->width,
-        gainmap_image_ptr->height);
-    return ERROR_JPEGR_UNSUPPORTED_MAP_SCALE_FACTOR;
-  }
-  // TODO: Currently map_scale_factor is of type size_t, but it could be changed to a float
-  // later.
-  size_t map_scale_factor = yuv420_image_ptr->width / gainmap_image_ptr->width;
+  float map_scale_factor = (float) yuv420_image_ptr->width / gainmap_image_ptr->width;
 
   dest->width = yuv420_image_ptr->width;
   dest->height = yuv420_image_ptr->height;
   dest->colorGamut = yuv420_image_ptr->colorGamut;
-  ShepardsIDW idwTable(map_scale_factor);
+  // Table will only be used when map scale factor is integer.
+  ShepardsIDW idwTable(static_cast<int>(map_scale_factor));
   float display_boost = (std::min)(max_display_boost, metadata->maxContentBoost);
   GainLUT gainLUT(metadata, display_boost);
 
@@ -1187,9 +1175,9 @@ status_t JpegR::applyGainMap(jr_uncompressed_ptr yuv420_image_ptr,
           Color rgb_sdr = srgbInvOetf(rgb_gamma_sdr);
 #endif
           Color rgb_hdr;
-          if (gainmap_image_ptr->pixelFormat == ULTRAHDR_PIX_FMT_MONOCHROME) {
+          if (gainmap_image_ptr->pixelFormat == UHDR_IMG_FMT_8bppYCbCr400) {
             float gain;
-            // TODO: If map_scale_factor is guaranteed to be an integer, then remove the following.
+
             if (map_scale_factor != floorf(map_scale_factor)) {
               gain = sampleMap(gainmap_image_ptr, map_scale_factor, x, y);
             } else {
@@ -1203,13 +1191,15 @@ status_t JpegR::applyGainMap(jr_uncompressed_ptr yuv420_image_ptr,
 #endif
           } else {
             Color gain;
-            // TODO: If map_scale_factor is guaranteed to be an integer, then remove the following.
+
             if (map_scale_factor != floorf(map_scale_factor)) {
-              gain = sampleMap3Channel(gainmap_image_ptr, map_scale_factor, x, y,
-                                       gainmap_image_ptr->pixelFormat == ULTRAHDR_PIX_FMT_RGBA8888);
+              gain =
+                  sampleMap3Channel(gainmap_image_ptr, map_scale_factor, x, y,
+                                    gainmap_image_ptr->pixelFormat == UHDR_IMG_FMT_32bppRGBA8888);
             } else {
-              gain = sampleMap3Channel(gainmap_image_ptr, map_scale_factor, x, y, idwTable,
-                                       gainmap_image_ptr->pixelFormat == ULTRAHDR_PIX_FMT_RGBA8888);
+              gain =
+                  sampleMap3Channel(gainmap_image_ptr, map_scale_factor, x, y, idwTable,
+                                    gainmap_image_ptr->pixelFormat == UHDR_IMG_FMT_32bppRGBA8888);
             }
 
 #if USE_APPLY_GAIN_LUT

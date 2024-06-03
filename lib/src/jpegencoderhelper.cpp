@@ -30,22 +30,22 @@
 namespace ultrahdr {
 
 /*!\brief map of sub sampling format and jpeg h_samp_factor, v_samp_factor */
-std::map<JpegEncoderHelper::jpg_inp_fmt_t, std::vector<int>> sample_factors = {
-    {JpegEncoderHelper::GRAYSCALE,
+std::map<uhdr_img_fmt_t, std::vector<int>> sample_factors = {
+    {UHDR_IMG_FMT_8bppYCbCr400,
      {1 /*h0*/, 1 /*v0*/, 0 /*h1*/, 0 /*v1*/, 0 /*h2*/, 0 /*v2*/, 1 /*maxh*/, 1 /*maxv*/}},
-    {JpegEncoderHelper::YUV444,
+    {UHDR_IMG_FMT_24bppYCbCr444,
      {1 /*h0*/, 1 /*v0*/, 1 /*h1*/, 1 /*v1*/, 1 /*h2*/, 1 /*v2*/, 1 /*maxh*/, 1 /*maxv*/}},
-    {JpegEncoderHelper::YUV440,
+    {UHDR_IMG_FMT_16bppYCbCr440,
      {1 /*h0*/, 2 /*v0*/, 1 /*h1*/, 1 /*v1*/, 1 /*h2*/, 1 /*v2*/, 1 /*maxh*/, 2 /*maxv*/}},
-    {JpegEncoderHelper::YUV422,
+    {UHDR_IMG_FMT_16bppYCbCr422,
      {2 /*h0*/, 1 /*v0*/, 1 /*h1*/, 1 /*v1*/, 1 /*h2*/, 1 /*v2*/, 2 /*maxh*/, 1 /*maxv*/}},
-    {JpegEncoderHelper::YUV420,
+    {UHDR_IMG_FMT_12bppYCbCr420,
      {2 /*h0*/, 2 /*v0*/, 1 /*h1*/, 1 /*v1*/, 1 /*h2*/, 1 /*v2*/, 2 /*maxh*/, 2 /*maxv*/}},
-    {JpegEncoderHelper::YUV411,
+    {UHDR_IMG_FMT_12bppYCbCr411,
      {4 /*h0*/, 1 /*v0*/, 1 /*h1*/, 1 /*v1*/, 1 /*h2*/, 1 /*v2*/, 4 /*maxh*/, 1 /*maxv*/}},
-    {JpegEncoderHelper::YUV410,
+    {UHDR_IMG_FMT_10bppYCbCr410,
      {4 /*h0*/, 2 /*v0*/, 1 /*h1*/, 1 /*v1*/, 1 /*h2*/, 1 /*v2*/, 4 /*maxh*/, 2 /*maxv*/}},
-    {JpegEncoderHelper::RGB,
+    {UHDR_IMG_FMT_24bppRGB888,
      {1 /*h0*/, 1 /*v0*/, 1 /*h1*/, 1 /*v1*/, 1 /*h2*/, 1 /*v2*/, 1 /*maxh*/, 1 /*maxv*/}},
 };
 
@@ -106,14 +106,14 @@ static void outputErrorMessage(j_common_ptr cinfo) {
 }
 
 bool JpegEncoderHelper::compressImage(const uint8_t* planes[3], const size_t strides[3],
-                                      const int width, const int height, const jpg_inp_fmt_t format,
+                                      const int width, const int height, const uhdr_img_fmt_t format,
                                       const int qfactor, const void* iccBuffer,
                                       const unsigned int iccSize) {
   return encode(planes, strides, width, height, format, qfactor, iccBuffer, iccSize);
 }
 
 bool JpegEncoderHelper::encode(const uint8_t* planes[3], const size_t strides[3], const int width,
-                               const int height, const jpg_inp_fmt_t format, const int qfactor,
+                               const int height, const uhdr_img_fmt_t format, const int qfactor,
                                const void* iccBuffer, const unsigned int iccSize) {
   jpeg_compress_struct cinfo;
   jpeg_error_mgr_impl myerr;
@@ -138,14 +138,14 @@ bool JpegEncoderHelper::encode(const uint8_t* planes[3], const size_t strides[3]
     mDestMgr.mResultBuffer.clear();
     cinfo.dest = reinterpret_cast<struct jpeg_destination_mgr*>(&mDestMgr);
 
-    // initialize confiurations parameters
+    // initialize configuration parameters
     cinfo.image_width = width;
     cinfo.image_height = height;
-    if (format == RGB) {
+    if (format == UHDR_IMG_FMT_24bppRGB888) {
       cinfo.input_components = 3;
       cinfo.in_color_space = JCS_RGB;
     } else {
-      if (format == GRAYSCALE) {
+      if (format == UHDR_IMG_FMT_8bppYCbCr400) {
         cinfo.input_components = 1;
         cinfo.in_color_space = JCS_GRAYSCALE;
       } else {
@@ -163,7 +163,7 @@ bool JpegEncoderHelper::encode(const uint8_t* planes[3], const size_t strides[3]
       mPlaneHeight[i] =
           std::ceil(((float)cinfo.image_height * cinfo.comp_info[i].v_samp_factor) / factors[7]);
     }
-    if (format != RGB) cinfo.raw_data_in = TRUE;
+    if (format != UHDR_IMG_FMT_24bppRGB888) cinfo.raw_data_in = TRUE;
     cinfo.dct_method = JDCT_ISLOW;
 
     // start compress
@@ -171,7 +171,7 @@ bool JpegEncoderHelper::encode(const uint8_t* planes[3], const size_t strides[3]
     if (iccBuffer != nullptr && iccSize > 0) {
       jpeg_write_marker(&cinfo, JPEG_APP0 + 2, static_cast<const JOCTET*>(iccBuffer), iccSize);
     }
-    if (format == RGB) {
+    if (format == UHDR_IMG_FMT_24bppRGB888) {
       while (cinfo.next_scanline < cinfo.image_height) {
         JSAMPROW row_pointer[]{const_cast<JSAMPROW>(&planes[0][cinfo.next_scanline * strides[0]])};
         JDIMENSION processed = jpeg_write_scanlines(&cinfo, row_pointer, 1);

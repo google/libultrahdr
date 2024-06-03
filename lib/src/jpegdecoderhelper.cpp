@@ -131,26 +131,26 @@ static void jpeg_extract_marker_payload(const j_decompress_ptr cinfo, const uint
   }
 }
 
-static JpegDecoderHelper::jpg_out_fmt_t getOutputSamplingFormat(const j_decompress_ptr cinfo) {
+static uhdr_img_fmt_t getOutputSamplingFormat(const j_decompress_ptr cinfo) {
   if (cinfo->num_components == 1)
-    return JpegDecoderHelper::GRAYSCALE;
+    return UHDR_IMG_FMT_8bppYCbCr400;
   else {
     int a = cinfo->max_h_samp_factor / cinfo->comp_info[1].h_samp_factor;
     int b = cinfo->max_v_samp_factor / cinfo->comp_info[1].v_samp_factor;
     if (a == 1 && b == 1)
-      return JpegDecoderHelper::YUV444;
+      return UHDR_IMG_FMT_24bppYCbCr444;
     else if (a == 1 && b == 2)
-      return JpegDecoderHelper::YUV440;
+      return UHDR_IMG_FMT_16bppYCbCr440;
     else if (a == 2 && b == 1)
-      return JpegDecoderHelper::YUV422;
+      return UHDR_IMG_FMT_16bppYCbCr422;
     else if (a == 2 && b == 2)
-      return JpegDecoderHelper::YUV420;
+      return UHDR_IMG_FMT_12bppYCbCr420;
     else if (a == 4 && b == 1)
-      return JpegDecoderHelper::YUV411;
+      return UHDR_IMG_FMT_12bppYCbCr411;
     else if (a == 4 && b == 2)
-      return JpegDecoderHelper::YUV410;
+      return UHDR_IMG_FMT_10bppYCbCr410;
   }
-  return JpegDecoderHelper::UNKNOWN;
+  return UHDR_IMG_FMT_UNSPECIFIED;
 }
 
 bool JpegDecoderHelper::decompressImage(const void* image, int length, decode_mode_t mode) {
@@ -169,7 +169,7 @@ bool JpegDecoderHelper::decompressImage(const void* image, int length, decode_mo
   mEXIFBuffer.clear();
   mICCBuffer.clear();
   mIsoMetadataBuffer.clear();
-  mOutFormat = UNKNOWN;
+  mOutFormat = UHDR_IMG_FMT_UNSPECIFIED;
   for (int i = 0; i < kMaxNumComponents; i++) {
     mPlanesMCURow[i].reset();
     mPlaneWidth[i] = 0;
@@ -353,11 +353,11 @@ bool JpegDecoderHelper::decode(jpeg_decompress_struct* cinfo, uint8_t* dest) {
       return decodeToCSYCbCr(cinfo, dest);
 #ifdef JCS_ALPHA_EXTENSIONS
     case JCS_EXT_RGBA:
-      mOutFormat = RGBA;
+      mOutFormat = UHDR_IMG_FMT_32bppRGBA8888;
       return decodeToCSRGB(cinfo, dest);
 #endif
     case JCS_RGB:
-      mOutFormat = RGB;
+      mOutFormat = UHDR_IMG_FMT_24bppRGB888;
       return decodeToCSRGB(cinfo, dest);
     default:
       ALOGE("unrecognized output color space %d", cinfo->out_color_space);

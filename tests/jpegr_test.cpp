@@ -2263,7 +2263,7 @@ TEST(JpegRTest, ProfileGainMapFuncs) {
   map.width = 0;
   map.height = 0;
   map.colorGamut = ULTRAHDR_COLORGAMUT_UNSPECIFIED;
-  map.pixelFormat = ULTRAHDR_PIX_FMT_MONOCHROME;
+  map.pixelFormat = UHDR_IMG_FMT_8bppYCbCr400;
 
   {
     auto rawImg = rawImgP010.getImageHandle();

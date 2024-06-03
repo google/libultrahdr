@@ -335,25 +335,6 @@ uhdr_codec_private::~uhdr_codec_private() {
   m_effects.clear();
 }
 
-ultrahdr::ultrahdr_pixel_format map_pix_fmt_to_internal_pix_fmt(uhdr_img_fmt_t fmt) {
-  switch (fmt) {
-    case UHDR_IMG_FMT_12bppYCbCr420:
-      return ultrahdr::ULTRAHDR_PIX_FMT_YUV420;
-    case UHDR_IMG_FMT_24bppYCbCrP010:
-      return ultrahdr::ULTRAHDR_PIX_FMT_P010;
-    case UHDR_IMG_FMT_32bppRGBA1010102:
-      return ultrahdr::ULTRAHDR_PIX_FMT_RGBA1010102;
-    case UHDR_IMG_FMT_32bppRGBA8888:
-      return ultrahdr::ULTRAHDR_PIX_FMT_RGBA8888;
-    case UHDR_IMG_FMT_64bppRGBAHalfFloat:
-      return ultrahdr::ULTRAHDR_PIX_FMT_RGBAF16;
-    case UHDR_IMG_FMT_8bppYCbCr400:
-      return ultrahdr::ULTRAHDR_PIX_FMT_MONOCHROME;
-    default:
-      return ultrahdr::ULTRAHDR_PIX_FMT_UNSPECIFIED;
-  }
-}
-
 ultrahdr::ultrahdr_color_gamut map_cg_to_internal_cg(uhdr_color_gamut_t cg) {
   switch (cg) {
     case UHDR_CG_BT_2100:
@@ -445,8 +426,7 @@ void map_internal_error_status_to_error_info(ultrahdr::status_t internal_status,
       status.error_code = UHDR_CODEC_UNSUPPORTED_FEATURE;
       snprintf(status.detail, sizeof status.detail,
                "say base image wd to gain map image wd ratio is 'k1' and base image ht to gain map "
-               "image ht ratio is 'k2'. Either k1 is fractional or k2 is fractional or k1 != k2. "
-               "currently the library does not handle these scenarios");
+               "image ht ratio is 'k2', we found k1 != k2.");
     } else {
       status.error_code = UHDR_CODEC_UNKNOWN_ERROR;
       status.has_detail = 0;
@@ -994,7 +974,7 @@ uhdr_error_info_t uhdr_encode(uhdr_codec_private_t* enc) {
       p010_image.luma_stride = hdr_raw_entry->stride[UHDR_PLANE_Y];
       p010_image.chroma_data = hdr_raw_entry->planes[UHDR_PLANE_UV];
       p010_image.chroma_stride = hdr_raw_entry->stride[UHDR_PLANE_UV];
-      p010_image.pixelFormat = map_pix_fmt_to_internal_pix_fmt(hdr_raw_entry->fmt);
+      p010_image.pixelFormat = hdr_raw_entry->fmt;
 
       if (handle->m_compressed_images.find(UHDR_SDR_IMG) == handle->m_compressed_images.end() &&
           handle->m_raw_images.find(UHDR_SDR_IMG) == handle->m_raw_images.end()) {
@@ -1025,7 +1005,7 @@ uhdr_error_info_t uhdr_encode(uhdr_codec_private_t* enc) {
         yuv420_image.luma_stride = sdr_raw_entry->stride[UHDR_PLANE_Y];
         yuv420_image.chroma_data = nullptr;
         yuv420_image.chroma_stride = 0;
-        yuv420_image.pixelFormat = map_pix_fmt_to_internal_pix_fmt(sdr_raw_entry->fmt);
+        yuv420_image.pixelFormat = sdr_raw_entry->fmt;
 
         if (handle->m_compressed_images.find(UHDR_SDR_IMG) == handle->m_compressed_images.end()) {
           // api - 1
