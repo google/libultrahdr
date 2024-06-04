@@ -160,7 +160,7 @@ static inline int float_saturate2int(float x) {
   return (int)x;
 }
 
-static Fixed float_round_to_fixed(float x) {
+static inline Fixed float_round_to_fixed(float x) {
   return float_saturate2int((float)floor((double)x * Fixed1 + 0.5));
 }
 
