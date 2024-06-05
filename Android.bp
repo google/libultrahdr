@@ -70,10 +70,15 @@ cc_library {
 
     arch: {
         arm: {
-            srcs: ["lib/src/dsp/arm/editorhelper_neon.cpp",],
+            srcs: [
+                "lib/src/dsp/arm/editorhelper_neon.cpp",
+            ],
         },
         arm64: {
-            srcs: ["lib/src/dsp/arm/editorhelper_neon.cpp",],
+            srcs: [
+                "lib/src/dsp/arm/editorhelper_neon.cpp",
+                "lib/src/dsp/arm/gainmapmath_neon.cpp",
+            ],
         },
     },
 }

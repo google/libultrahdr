@@ -264,7 +264,8 @@ status_t JpegR::encodeJPEGR(jr_uncompressed_ptr p010_image_ptr, ultrahdr_transfe
 
   // convert to Bt601 YUV encoding for JPEG encode
   if (yuv420_image.colorGamut != ULTRAHDR_COLORGAMUT_P3) {
-#if (defined(UHDR_ENABLE_INTRINSICS) && (defined(__ARM_NEON__) || defined(__ARM_NEON)))
+#if (defined(UHDR_ENABLE_INTRINSICS) && (defined(__ARM_NEON__) || defined(__ARM_NEON)) && \
+     defined(__aarch64__))
     JPEGR_CHECK(convertYuv_neon(&yuv420_image, yuv420_image.colorGamut, ULTRAHDR_COLORGAMUT_P3));
 #else
     JPEGR_CHECK(convertYuv(&yuv420_image, yuv420_image.colorGamut, ULTRAHDR_COLORGAMUT_P3));
@@ -408,7 +409,8 @@ status_t JpegR::encodeJPEGR(jr_uncompressed_ptr p010_image_ptr,
       }
     }
 
-#if (defined(UHDR_ENABLE_INTRINSICS) && (defined(__ARM_NEON__) || defined(__ARM_NEON)))
+#if (defined(UHDR_ENABLE_INTRINSICS) && (defined(__ARM_NEON__) || defined(__ARM_NEON)) && \
+     defined(__aarch64__))
     JPEGR_CHECK(
         convertYuv_neon(&yuv420_bt601_image, yuv420_image.colorGamut, ULTRAHDR_COLORGAMUT_P3));
 #else
