@@ -958,7 +958,7 @@ std::unique_ptr<uhdr_raw_image_ext_t> convert_raw_input_to_ycbcr(uhdr_raw_image_
 
   if (src->fmt == UHDR_IMG_FMT_32bppRGBA1010102) {
     dst = std::make_unique<uhdr_raw_image_ext_t>(UHDR_IMG_FMT_24bppYCbCrP010, src->cg, src->ct,
-                                                 UHDR_CR_LIMITED_RANGE, src->w, src->h, 64);
+                                                 UHDR_CR_FULL_RANGE, src->w, src->h, 64);
 
     uint32_t* rgbData = static_cast<uint32_t*>(src->planes[UHDR_PLANE_PACKED]);
     unsigned int srcStride = src->stride[UHDR_PLANE_PACKED];
@@ -988,11 +988,12 @@ std::unique_ptr<uhdr_raw_image_ext_t> convert_raw_input_to_ycbcr(uhdr_raw_image_
         pixel[3].b = float((rgbData[srcStride * (i + 1) + j + 1] >> 20) & 0x3ff);
 
         for (int k = 0; k < 4; k++) {
+          // Now we only support the RGB input being full range
           pixel[k] /= 1023.0f;
           pixel[k] = (*rgbToyuv)(pixel[k]);
 
-          pixel[k].y = (pixel[k].y * 876.0f) + 64.0f + 0.5f;
-          pixel[k].y = CLIP3(pixel[k].y, 64.0f, 940.0f);
+          pixel[k].y = (pixel[k].y * 1023.0f) + 0.5f;
+          pixel[k].y = CLIP3(pixel[k].y, 0.0f, 1023.0f);
         }
 
         yData[dst->stride[UHDR_PLANE_Y] * i + j] = uint16_t(pixel[0].y) << 6;
@@ -1003,11 +1004,11 @@ std::unique_ptr<uhdr_raw_image_ext_t> convert_raw_input_to_ycbcr(uhdr_raw_image_
         pixel[0].u = (pixel[0].u + pixel[1].u + pixel[2].u + pixel[3].u) / 4;
         pixel[0].v = (pixel[0].v + pixel[1].v + pixel[2].v + pixel[3].v) / 4;
 
-        pixel[0].u = (pixel[0].u * 896.0f) + 512.0f + 0.5f;
-        pixel[0].v = (pixel[0].v * 896.0f) + 512.0f + 0.5f;
+        pixel[0].u = (pixel[0].u * 1023.0f) + 512.0f + 0.5f;
+        pixel[0].v = (pixel[0].v * 1023.0f) + 512.0f + 0.5f;
 
-        pixel[0].u = CLIP3(pixel[0].u, 64.0f, 960.0f);
-        pixel[0].v = CLIP3(pixel[0].v, 64.0f, 960.0f);
+        pixel[0].u = CLIP3(pixel[0].u, 0.0f, 1023.0f);
+        pixel[0].v = CLIP3(pixel[0].v, 0.0f, 1023.0f);
 
         uData[dst->stride[UHDR_PLANE_UV] * (i / 2) + j] = uint16_t(pixel[0].u) << 6;
         vData[dst->stride[UHDR_PLANE_UV] * (i / 2) + j] = uint16_t(pixel[0].v) << 6;
@@ -1043,6 +1044,7 @@ std::unique_ptr<uhdr_raw_image_ext_t> convert_raw_input_to_ycbcr(uhdr_raw_image_
         pixel[3].b = float((rgbData[srcStride * (i + 1) + (j + 1)] >> 16) & 0xff);
 
         for (int k = 0; k < 4; k++) {
+          // Now we only support the RGB input being full range
           pixel[k] /= 255.0f;
           pixel[k] = (*rgbToyuv)(pixel[k]);
 

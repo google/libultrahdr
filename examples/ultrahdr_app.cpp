@@ -1246,7 +1246,7 @@ static void usage(const char* name) {
       "          hlg, pq shall be paired with rgba1010102. \n"
       "          linear shall be paired with rgbahalffloat. \n");
   fprintf(stderr,
-      "    -r    color range for the HDR input. [0: narrow-range (default), 1: full-range].\n");
+      "    -R    color range for the HDR YUV input. [0:narrow-range (default), 1:full-range]. \n");
   fprintf(stderr, "\n## common options : \n");
   fprintf(stderr,
           "    -z    output filename, optional. \n"
@@ -1373,9 +1373,13 @@ int main(int argc, char* argv[]) {
       case 'm':
         mode = atoi(optarg_s);
         break;
-      case 'r':
+      case 'R':
         use_full_range_color_hdr = atoi(optarg_s) == 1 ? true : false;
         break;
+      // TODO
+//      case 'r':
+//        use_full_range_color_sdr = atoi(optarg_s) == 1 ? true : false;
+//        break;
       case 'j':
         uhdr_file = optarg_s;
         break;
