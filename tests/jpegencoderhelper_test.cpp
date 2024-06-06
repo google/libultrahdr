@@ -143,7 +143,7 @@ TEST_F(JpegEncoderHelperTest, encodeRGBImage) {
   JpegEncoderHelper encoder;
   const uint8_t* rgbPlane = mRgbImage.buffer.get();
   const uint8_t* planes[1]{rgbPlane};
-  const size_t strides[1]{mRgbImage.width * 3};
+  const size_t strides[1]{mRgbImage.width};
   EXPECT_TRUE(encoder.compressImage(planes, strides, mRgbImage.width, mRgbImage.height,
                                     UHDR_IMG_FMT_24bppRGB888, JPEG_QUALITY, NULL, 0));
   ASSERT_GT(encoder.getCompressedImageSize(), static_cast<uint32_t>(0));
