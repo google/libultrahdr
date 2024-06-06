@@ -814,7 +814,7 @@ status_t JpegR::compressGainMap(jr_uncompressed_ptr gainmap_image_ptr,
 
   const uint8_t* planes[]{reinterpret_cast<uint8_t*>(gainmap_image_ptr->data)};
   if (kUseMultiChannelGainMap) {
-    const size_t strides[]{gainmap_image_ptr->width * 3};
+    const size_t strides[]{gainmap_image_ptr->width};
     if (!jpeg_enc_obj_ptr->compressImage(planes, strides, gainmap_image_ptr->width,
                                          gainmap_image_ptr->height, UHDR_IMG_FMT_24bppRGB888,
                                          kMapCompressQuality, nullptr, 0)) {

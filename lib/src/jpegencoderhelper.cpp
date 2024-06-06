@@ -106,9 +106,9 @@ static void outputErrorMessage(j_common_ptr cinfo) {
 }
 
 bool JpegEncoderHelper::compressImage(const uint8_t* planes[3], const size_t strides[3],
-                                      const int width, const int height, const uhdr_img_fmt_t format,
-                                      const int qfactor, const void* iccBuffer,
-                                      const unsigned int iccSize) {
+                                      const int width, const int height,
+                                      const uhdr_img_fmt_t format, const int qfactor,
+                                      const void* iccBuffer, const unsigned int iccSize) {
   return encode(planes, strides, width, height, format, qfactor, iccBuffer, iccSize);
 }
 
@@ -173,7 +173,8 @@ bool JpegEncoderHelper::encode(const uint8_t* planes[3], const size_t strides[3]
     }
     if (format == UHDR_IMG_FMT_24bppRGB888) {
       while (cinfo.next_scanline < cinfo.image_height) {
-        JSAMPROW row_pointer[]{const_cast<JSAMPROW>(&planes[0][cinfo.next_scanline * strides[0]])};
+        JSAMPROW row_pointer[]{
+            const_cast<JSAMPROW>(&planes[0][cinfo.next_scanline * strides[0] * 3])};
         JDIMENSION processed = jpeg_write_scanlines(&cinfo, row_pointer, 1);
         if (1 != processed) {
           ALOGE("jpeg_read_scanlines returned %d, expected %d", processed, 1);

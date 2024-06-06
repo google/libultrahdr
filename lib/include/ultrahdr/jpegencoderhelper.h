@@ -47,7 +47,6 @@ struct destination_mgr_impl : jpeg_destination_mgr {
 /*!\brief Encapsulates a converter from raw to jpg image format. This class is not thread-safe */
 class JpegEncoderHelper {
  public:
-
   JpegEncoderHelper() = default;
   ~JpegEncoderHelper() = default;
 
