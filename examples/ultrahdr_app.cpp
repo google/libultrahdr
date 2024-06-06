@@ -253,7 +253,8 @@ class UltraHdrAppInput {
                    uhdr_color_gamut_t sdrCg = UHDR_CG_BT_709,
                    uhdr_color_transfer_t hdrTf = UHDR_CT_HLG, int quality = 95,
                    uhdr_color_transfer_t oTf = UHDR_CT_HLG,
-                   uhdr_img_fmt_t oFmt = UHDR_IMG_FMT_32bppRGBA1010102)
+                   uhdr_img_fmt_t oFmt = UHDR_IMG_FMT_32bppRGBA1010102,
+                   bool use_full_range_color_hdr = false)
       : mHdrIntentRawFile(hdrIntentRawFile),
         mSdrIntentRawFile(sdrIntentRawFile),
         mSdrIntentCompressedFile(sdrIntentCompressedFile),
@@ -271,6 +272,7 @@ class UltraHdrAppInput {
         mQuality(quality),
         mOTf(oTf),
         mOfmt(oFmt),
+        mFullRange(use_full_range_color_hdr),
         mMode(0){};
 
   UltraHdrAppInput(const char* uhdrFile, const char* outputFile,
@@ -360,6 +362,7 @@ class UltraHdrAppInput {
   const uhdr_color_transfer_t mOTf;
   const uhdr_img_fmt_t mOfmt;
   const int mMode;
+  bool mFullRange;
 
   uhdr_raw_image_t mRawP010Image{};
   uhdr_raw_image_t mRawRgba1010102Image{};
@@ -380,7 +383,8 @@ bool UltraHdrAppInput::fillP010ImageHandle() {
   mRawP010Image.fmt = UHDR_IMG_FMT_24bppYCbCrP010;
   mRawP010Image.cg = mHdrCg;
   mRawP010Image.ct = mHdrTf;
-  mRawP010Image.range = UHDR_CR_LIMITED_RANGE;
+
+  mRawP010Image.range = mFullRange ? UHDR_CR_FULL_RANGE : UHDR_CR_LIMITED_RANGE;
   mRawP010Image.w = mWidth;
   mRawP010Image.h = mHeight;
   mRawP010Image.planes[UHDR_PLANE_Y] = malloc(mWidth * mHeight * bpp);
@@ -1241,6 +1245,8 @@ static void usage(const char* name) {
       "          srgb output color transfer shall be paired with rgba8888 only. \n"
       "          hlg, pq shall be paired with rgba1010102. \n"
       "          linear shall be paired with rgbahalffloat. \n");
+  fprintf(stderr,
+      "    -r    color range for the HDR input. [0: narrow-range (default), 1: full-range].\n");
   fprintf(stderr, "\n## common options : \n");
   fprintf(stderr,
           "    -z    output filename, optional. \n"
@@ -1300,7 +1306,7 @@ static void usage(const char* name) {
 }
 
 int main(int argc, char* argv[]) {
-  char opt_string[] = "p:y:i:g:f:w:h:C:c:t:q:o:O:m:j:e:a:b:z:";
+  char opt_string[] = "p:y:i:g:f:w:h:C:c:t:q:o:O:m:j:e:a:b:z:r:";
   char *hdr_intent_raw_file = nullptr, *sdr_intent_raw_file = nullptr, *uhdr_file = nullptr,
        *sdr_intent_compressed_file = nullptr, *gainmap_compressed_file = nullptr,
        *gainmap_metadata_cfg_file = nullptr, *output_file = nullptr;
@@ -1316,6 +1322,7 @@ int main(int argc, char* argv[]) {
   int mode = -1;
   int compute_psnr = 0;
   int ch;
+  bool use_full_range_color_hdr = false;
   while ((ch = getopt_s(argc, argv, opt_string)) != -1) {
     switch (ch) {
       case 'a':
@@ -1366,6 +1373,9 @@ int main(int argc, char* argv[]) {
       case 'm':
         mode = atoi(optarg_s);
         break;
+      case 'r':
+        use_full_range_color_hdr = atoi(optarg_s) == 1 ? true : false;
+        break;
       case 'j':
         uhdr_file = optarg_s;
         break;
@@ -1400,7 +1410,8 @@ int main(int argc, char* argv[]) {
     UltraHdrAppInput appInput(hdr_intent_raw_file, sdr_intent_raw_file, sdr_intent_compressed_file,
                               gainmap_compressed_file, gainmap_metadata_cfg_file,
                               output_file ? output_file : "out.jpeg", width, height, hdr_cf, sdr_cf,
-                              hdr_cg, sdr_cg, hdr_tf, quality, out_tf, out_cf);
+                              hdr_cg, sdr_cg, hdr_tf, quality, out_tf, out_cf,
+                              use_full_range_color_hdr);
     if (!appInput.encode()) return -1;
     if (compute_psnr == 1) {
       if (!appInput.decode()) return -1;

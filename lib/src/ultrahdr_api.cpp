@@ -974,6 +974,7 @@ uhdr_error_info_t uhdr_encode(uhdr_codec_private_t* enc) {
       p010_image.luma_stride = hdr_raw_entry->stride[UHDR_PLANE_Y];
       p010_image.chroma_data = hdr_raw_entry->planes[UHDR_PLANE_UV];
       p010_image.chroma_stride = hdr_raw_entry->stride[UHDR_PLANE_UV];
+      p010_image.colorRange = hdr_raw_entry->range;
       p010_image.pixelFormat = hdr_raw_entry->fmt;
 
       if (handle->m_compressed_images.find(UHDR_SDR_IMG) == handle->m_compressed_images.end() &&
