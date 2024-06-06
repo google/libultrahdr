@@ -91,6 +91,8 @@ struct jpegr_uncompressed_struct {
   size_t chroma_stride = 0;
   // Pixel format.
   uhdr_img_fmt_t pixelFormat = UHDR_IMG_FMT_UNSPECIFIED;
+  // Color range.
+  uhdr_color_range_t colorRange = UHDR_CR_UNSPECIFIED;
 };
 
 /*

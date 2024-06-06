@@ -655,6 +655,12 @@ Color getP010Pixel(jr_uncompressed_ptr image, size_t x, size_t y) {
   uint16_t u_uint = chroma_data[pixel_u_idx] >> 6;
   uint16_t v_uint = chroma_data[pixel_v_idx] >> 6;
 
+  if (image->colorRange == UHDR_CR_FULL_RANGE) {
+    return {{{static_cast<float>(y_uint) / 1023.0f,
+              static_cast<float>(u_uint) / 1023.0f - 0.5f,
+              static_cast<float>(v_uint) / 1023.0f - 0.5f }}};
+  }
+
   // Conversions include taking narrow-range into account.
   return {{{static_cast<float>(y_uint - 64) * (1 / 876.0f),
             static_cast<float>(u_uint - 64) * (1 / 896.0f) - 0.5f,
