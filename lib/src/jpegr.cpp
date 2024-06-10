@@ -1860,10 +1860,12 @@ status_t JpegR::toneMap(jr_uncompressed_ptr src, jr_uncompressed_ptr dest,
               size_t out_y_idx = (y + i) * luma_stride + x + j;
               luma_data[out_y_idx] = ScaleTo8Bit(sdr_yuv_gamma.y);
 
-              sdr_u_gamma += sdr_yuv_gamma.u * 0.25f;
-              sdr_v_gamma += sdr_yuv_gamma.v * 0.25f;
+              sdr_u_gamma += sdr_yuv_gamma.u;
+              sdr_v_gamma += sdr_yuv_gamma.v;
             }
           }
+          sdr_u_gamma *= 0.25f;
+          sdr_v_gamma *= 0.25f;
           size_t out_chroma_idx = x / 2 + (y / 2) * chroma_stride;
           size_t offset_cr = chroma_stride * (dest->height / 2);
           chroma_data[out_chroma_idx] = ScaleTo8Bit(sdr_u_gamma);
@@ -1879,7 +1881,7 @@ status_t JpegR::toneMap(jr_uncompressed_ptr src, jr_uncompressed_ptr dest,
     workers.push_back(std::thread(toneMapInternal));
   }
 
-  rowStep = (threads == 1 ? height : kJobSzInRows) / kMapDimensionScaleFactor;
+  rowStep = (threads == 1 ? height : kJobSzInRows);
   for (size_t rowStart = 0; rowStart < height;) {
     size_t rowEnd = (std::min)(rowStart + rowStep, height);
     jobQueue.enqueueJob(rowStart, rowEnd);
