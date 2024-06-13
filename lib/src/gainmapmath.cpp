@@ -561,14 +561,16 @@ uint8_t encodeGain(float y_sdr, float y_hdr, ultrahdr_metadata_ptr metadata,
     gain = y_hdr / y_sdr;
   }
 
-  if (gain < metadata->minContentBoost) gain = metadata->minContentBoost;
-  if (gain > metadata->maxContentBoost) gain = metadata->maxContentBoost;
+  float log2_normalized_gamma_gain = metadata->gamma * log2(gain);
+  log2_normalized_gamma_gain = fmin(log2_normalized_gamma_gain, log2MaxContentBoost);
+  log2_normalized_gamma_gain = fmax(log2_normalized_gamma_gain, log2MinContentBoost);
 
-  return static_cast<uint8_t>((log2(gain) - log2MinContentBoost) /
+  return static_cast<uint8_t>((log2_normalized_gamma_gain - log2MinContentBoost) /
                               (log2MaxContentBoost - log2MinContentBoost) * 255.0f);
 }
 
 Color applyGain(Color e, float gain, ultrahdr_metadata_ptr metadata) {
+  gain = pow(gain, 1.0f / metadata->gamma);
   float logBoost =
       log2(metadata->minContentBoost) * (1.0f - gain) + log2(metadata->maxContentBoost) * gain;
   float gainFactor = exp2(logBoost);
@@ -576,6 +578,7 @@ Color applyGain(Color e, float gain, ultrahdr_metadata_ptr metadata) {
 }
 
 Color applyGain(Color e, float gain, ultrahdr_metadata_ptr metadata, float displayBoost) {
+  gain = pow(gain, 1.0f / metadata->gamma);
   float logBoost =
       log2(metadata->minContentBoost) * (1.0f - gain) + log2(metadata->maxContentBoost) * gain;
   float gainFactor = exp2(logBoost * displayBoost / metadata->maxContentBoost);

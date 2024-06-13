@@ -54,6 +54,9 @@ namespace ultrahdr {
 // JPEG compress quality (0 ~ 100) for gain map
 static const int kMapCompressQuality = 85;
 
+// Default gamma value for gain map
+static const float kGainMapGammaDefault = 1.0f;
+
 // Gain map metadata
 static const bool kWriteXmpMetadata = true;
 static const bool kWriteIso21496_1Metadata = false;
@@ -964,7 +967,7 @@ status_t JpegR::generateGainMap(jr_uncompressed_ptr yuv420_image_ptr,
 
   metadata->maxContentBoost = hdr_white_nits / kSdrWhiteNits;
   metadata->minContentBoost = 1.0f;
-  metadata->gamma = 1.0f;
+  metadata->gamma = kGainMapGammaDefault;
   metadata->offsetSdr = 0.0f;
   metadata->offsetHdr = 0.0f;
   metadata->hdrCapacityMin = 1.0f;
@@ -1124,10 +1127,6 @@ status_t JpegR::applyGainMap(jr_uncompressed_ptr yuv420_image_ptr,
   }
   if (metadata->version.compare(kJpegrVersion)) {
     ALOGE("Unsupported metadata version: %s", metadata->version.c_str());
-    return ERROR_JPEGR_BAD_METADATA;
-  }
-  if (metadata->gamma != 1.0f) {
-    ALOGE("Unsupported metadata gamma: %f", metadata->gamma);
     return ERROR_JPEGR_BAD_METADATA;
   }
   if (metadata->offsetSdr != 0.0f || metadata->offsetHdr != 0.0f) {
