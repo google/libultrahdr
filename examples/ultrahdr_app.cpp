@@ -1319,7 +1319,7 @@ static void usage(const char* name) {
 }
 
 int main(int argc, char* argv[]) {
-  char opt_string[] = "p:y:i:g:f:w:h:C:c:t:q:o:O:m:j:e:a:b:z:r:s:M:Q:";
+  char opt_string[] = "p:y:i:g:f:w:h:C:c:t:q:o:O:m:j:e:a:b:z:R:s:M:Q:";
   char *hdr_intent_raw_file = nullptr, *sdr_intent_raw_file = nullptr, *uhdr_file = nullptr,
        *sdr_intent_compressed_file = nullptr, *gainmap_compressed_file = nullptr,
        *gainmap_metadata_cfg_file = nullptr, *output_file = nullptr;
