@@ -177,6 +177,7 @@ constexpr int32_t kGainFactorPrecision = 10;
 constexpr int32_t kGainFactorNumEntries = 1 << kGainFactorPrecision;
 struct GainLUT {
   GainLUT(ultrahdr_metadata_ptr metadata) {
+    this->mGammaInv = 1.0f / metadata->gamma;
     for (int32_t idx = 0; idx < kGainFactorNumEntries; idx++) {
       float value = static_cast<float>(idx) / static_cast<float>(kGainFactorNumEntries - 1);
       float logBoost = log2(metadata->minContentBoost) * (1.0f - value) +
@@ -186,6 +187,7 @@ struct GainLUT {
   }
 
   GainLUT(ultrahdr_metadata_ptr metadata, float displayBoost) {
+    this->mGammaInv = 1.0f / metadata->gamma;
     float boostFactor = displayBoost > 0 ? displayBoost / metadata->maxContentBoost : 1.0f;
     for (int32_t idx = 0; idx < kGainFactorNumEntries; idx++) {
       float value = static_cast<float>(idx) / static_cast<float>(kGainFactorNumEntries - 1);
@@ -198,6 +200,7 @@ struct GainLUT {
   ~GainLUT() {}
 
   float getGainFactor(float gain) {
+    gain = pow(gain, mGammaInv);
     int32_t idx = static_cast<int32_t>(gain * (kGainFactorNumEntries - 1) + 0.5);
     // TODO() : Remove once conversion modules have appropriate clamping in place
     idx = CLIP3(idx, 0, kGainFactorNumEntries - 1);
@@ -206,6 +209,7 @@ struct GainLUT {
 
  private:
   float mGainTable[kGainFactorNumEntries];
+  float mGammaInv;
 };
 
 struct ShepardsIDW {

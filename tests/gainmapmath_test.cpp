@@ -1068,6 +1068,7 @@ TEST_F(GainMapMathTest, applyGainLUT) {
 
     metadata.minContentBoost = 1.0f / static_cast<float>(boost);
     metadata.maxContentBoost = static_cast<float>(boost);
+    metadata.gamma = 1.0f;
     GainLUT gainLUT(&metadata);
     GainLUT gainLUTWithBoost(&metadata, metadata.maxContentBoost);
     for (size_t idx = 0; idx < kGainFactorNumEntries; idx++) {
@@ -1100,6 +1101,7 @@ TEST_F(GainMapMathTest, applyGainLUT) {
 
     metadata.minContentBoost = 1.0f;
     metadata.maxContentBoost = static_cast<float>(boost);
+    metadata.gamma = 1.0f;
     GainLUT gainLUT(&metadata);
     GainLUT gainLUTWithBoost(&metadata, metadata.maxContentBoost);
     for (size_t idx = 0; idx < kGainFactorNumEntries; idx++) {
@@ -1132,6 +1134,7 @@ TEST_F(GainMapMathTest, applyGainLUT) {
 
     metadata.minContentBoost = 1.0f / powf(static_cast<float>(boost), 1.0f / 3.0f);
     metadata.maxContentBoost = static_cast<float>(boost);
+    metadata.gamma = 1.0f;
     GainLUT gainLUT(&metadata);
     GainLUT gainLUTWithBoost(&metadata, metadata.maxContentBoost);
     for (size_t idx = 0; idx < kGainFactorNumEntries; idx++) {
@@ -1204,6 +1207,7 @@ TEST_F(GainMapMathTest, EncodeGain) {
 
   metadata.minContentBoost = 1.0f / 4.0f;
   metadata.maxContentBoost = 4.0f;
+  metadata.gamma = 1.0f;
 
   EXPECT_EQ(encodeGain(0.0f, 0.0f, &metadata), 127);
   EXPECT_EQ(encodeGain(0.0f, 1.0f, &metadata), 127);
@@ -1264,6 +1268,7 @@ TEST_F(GainMapMathTest, ApplyGain) {
 
   metadata.minContentBoost = 1.0f / 4.0f;
   metadata.maxContentBoost = 4.0f;
+  metadata.gamma = 1.0f;
   float displayBoost = metadata.maxContentBoost;
 
   EXPECT_RGB_NEAR(applyGain(RgbBlack(), 0.0f, &metadata), RgbBlack());
@@ -1557,6 +1562,7 @@ TEST_F(GainMapMathTest, ApplyMap) {
 
   metadata.minContentBoost = 1.0f / 8.0f;
   metadata.maxContentBoost = 8.0f;
+  metadata.gamma = 1.0f;
 
   EXPECT_RGB_EQ(Recover(YuvWhite(), 1.0f, &metadata), RgbWhite() * 8.0f);
   EXPECT_RGB_EQ(Recover(YuvBlack(), 1.0f, &metadata), RgbBlack());
@@ -1598,7 +1604,6 @@ TEST_F(GainMapMathTest, ApplyMap) {
 
   metadata.maxContentBoost = 8.0f;
   metadata.minContentBoost = 0.5f;
-  ;
 
   EXPECT_RGB_EQ(Recover(YuvWhite(), 1.0f, &metadata), RgbWhite() * 8.0f);
   EXPECT_RGB_EQ(Recover(YuvWhite(), 0.75, &metadata), RgbWhite() * 4.0f);
