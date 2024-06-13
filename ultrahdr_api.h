@@ -308,6 +308,29 @@ UHDR_EXTERN uhdr_error_info_t uhdr_enc_set_quality(uhdr_codec_private_t* enc, in
 UHDR_EXTERN uhdr_error_info_t uhdr_enc_set_exif_data(uhdr_codec_private_t* enc,
                                                      uhdr_mem_block_t* exif);
 
+/*!\brief Set flag of using multi-channel gainmap, default to false (use single channel gainmap)
+ *
+ * \param[in]  enc  encoder instance.
+ * \param[in]  use_multi_channel_gainmap  flag of using multi-channel gainmap.
+ *
+ * \return uhdr_error_info_t #UHDR_CODEC_OK if operation succeeds,
+ *                           #UHDR_CODEC_INVALID_PARAM otherwise.
+ */
+UHDR_EXTERN uhdr_error_info_t uhdr_enc_set_using_multi_channel_gainmap(uhdr_codec_private_t* enc,
+                                                                       bool use_multi_channel_gainmap);
+
+/*!\brief Set gain map scaling factor, default value is 4 (gain map dimension is 1/4 width and
+ * 1/4 height in pixels of the primary image)
+ *
+ * \param[in]  enc  encoder instance.
+ * \param[in]  gain_map_scale_factor  gain map scale factor
+ *
+ * \return uhdr_error_info_t #UHDR_CODEC_OK if operation succeeds,
+ *                           #UHDR_CODEC_INVALID_PARAM otherwise.
+ */
+UHDR_EXTERN uhdr_error_info_t uhdr_enc_set_gainmap_scale_factor(uhdr_codec_private_t* enc,
+                                                                int gain_map_scale_factor);
+
 /*!\brief Set output image compression format.
  *
  * \param[in]  enc  encoder instance.

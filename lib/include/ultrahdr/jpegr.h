@@ -26,6 +26,14 @@
 
 namespace ultrahdr {
 
+// Default configurations
+// Map is quarter res / sixteenth size
+static const size_t kMapDimensionScaleFactorDefault = 4;
+// JPEG compress quality (0 ~ 100) for gain map
+static const int kMapCompressQualityDefault = 85;
+// Gain map calculation
+static const bool kUseMultiChannelGainMapDefault = false;
+
 // The current JPEGR version that we encode to
 static const char* const kJpegrVersion = kGainMapVersion;
 
@@ -35,8 +43,8 @@ static const size_t kMapDimensionScaleFactor = 4;
 // Gain Map width is (image_width / kMapDimensionScaleFactor). If we were to
 // compress 420 GainMap in jpeg, then we need at least 2 samples. For Grayscale
 // 1 sample is sufficient. We are using 2 here anyways
-static const int kMinWidth = 2 * kMapDimensionScaleFactor;
-static const int kMinHeight = 2 * kMapDimensionScaleFactor;
+static const int kMinWidth = 2 * kMapDimensionScaleFactorDefault;
+static const int kMinHeight = 2 * kMapDimensionScaleFactorDefault;
 
 /*
  * Holds information of jpeg image
@@ -127,6 +135,10 @@ typedef struct jpegr_info_struct* jr_info_ptr;
 
 class JpegR {
  public:
+   JpegR();
+
+   JpegR(size_t, int, bool);
+
   /*
    * Experimental only
    *
@@ -299,6 +311,27 @@ class JpegR {
    */
   status_t getJPEGRInfo(jr_compressed_ptr jpegr_image_ptr, jr_info_ptr jpeg_image_info_ptr);
 
+  /*
+   * Getting / Setting configurations
+   */
+   void setMapDimensionScaleFactor(size_t mapDimensionScaleFactor) {
+      this->mMapDimensionScaleFactor = mapDimensionScaleFactor;
+   }
+
+   size_t getMapDimensionScaleFactor() { return this->mMapDimensionScaleFactor; }
+
+   void setMapCompressQuality(int mapCompressQuality) {
+      this->mMapCompressQuality = mapCompressQuality;
+   }
+
+   int getMapCompressQuality() { return this->mMapCompressQuality; }
+
+   void setUseMultiChannelGainMap(bool useMultiChannelGainMap) {
+      this->mUseMultiChannelGainMap = useMultiChannelGainMap;
+   }
+
+   bool isUsingMultiChannelGainMap() { return this->mUseMultiChannelGainMap; }
+
  protected:
   /*
    * This method is called in the encoding pipeline. It will take the uncompressed 8-bit and
@@ -465,6 +498,14 @@ class JpegR {
                                   jr_uncompressed_ptr yuv420_image_ptr,
                                   ultrahdr_transfer_function hdr_tf, jr_compressed_ptr dest,
                                   int quality);
+
+  // Configurations
+  // Map is quarter res / sixteenth size
+  size_t mMapDimensionScaleFactor;
+  // JPEG compress quality (0 ~ 100) for gain map
+  int mMapCompressQuality;
+  // Gain map calculation
+  bool mUseMultiChannelGainMap;
 };
 
 struct GlobalTonemapOutputs {
