@@ -254,7 +254,10 @@ class UltraHdrAppInput {
                    uhdr_color_transfer_t hdrTf = UHDR_CT_HLG, int quality = 95,
                    uhdr_color_transfer_t oTf = UHDR_CT_HLG,
                    uhdr_img_fmt_t oFmt = UHDR_IMG_FMT_32bppRGBA1010102,
-                   bool use_full_range_color_hdr = false)
+                   bool use_full_range_color_hdr = false,
+                   int gainmap_scale_factor = 4,
+                   bool use_multi_channel_gainmap = false,
+                   int gainmap_compression_quality = 85)
       : mHdrIntentRawFile(hdrIntentRawFile),
         mSdrIntentRawFile(sdrIntentRawFile),
         mSdrIntentCompressedFile(sdrIntentCompressedFile),
@@ -273,6 +276,9 @@ class UltraHdrAppInput {
         mOTf(oTf),
         mOfmt(oFmt),
         mFullRange(use_full_range_color_hdr),
+        mMapDimensionScaleFactor(gainmap_scale_factor),
+        mMapCompressQuality(gainmap_compression_quality),
+        mUseMultiChannelGainMap(use_multi_channel_gainmap),
         mMode(0){};
 
   UltraHdrAppInput(const char* uhdrFile, const char* outputFile,
@@ -363,6 +369,9 @@ class UltraHdrAppInput {
   const uhdr_img_fmt_t mOfmt;
   const int mMode;
   bool mFullRange;
+  size_t mMapDimensionScaleFactor;
+  int mMapCompressQuality;
+  bool mUseMultiChannelGainMap;
 
   uhdr_raw_image_t mRawP010Image{};
   uhdr_raw_image_t mRawRgba1010102Image{};
@@ -616,7 +625,11 @@ bool UltraHdrAppInput::encode() {
   if (mGainMapCompressedFile != nullptr && mGainMapMetadataCfgFile != nullptr) {
     RET_IF_ERR(uhdr_enc_set_gainmap_image(handle, &mGainMapCompressedImage, &mGainMapMetadata))
   }
+
   RET_IF_ERR(uhdr_enc_set_quality(handle, mQuality, UHDR_BASE_IMG))
+  RET_IF_ERR(uhdr_enc_set_quality(handle, mMapCompressQuality, UHDR_GAIN_MAP_IMG))
+  RET_IF_ERR(uhdr_enc_set_using_multi_channel_gainmap(handle, mUseMultiChannelGainMap))
+  RET_IF_ERR(uhdr_enc_set_gainmap_scale_factor(handle, mMapDimensionScaleFactor))
 #ifdef PROFILE_ENABLE
   const int profileCount = 10;
   Profiler profileEncode;
@@ -1306,7 +1319,7 @@ static void usage(const char* name) {
 }
 
 int main(int argc, char* argv[]) {
-  char opt_string[] = "p:y:i:g:f:w:h:C:c:t:q:o:O:m:j:e:a:b:z:r:";
+  char opt_string[] = "p:y:i:g:f:w:h:C:c:t:q:o:O:m:j:e:a:b:z:r:s:M:Q:";
   char *hdr_intent_raw_file = nullptr, *sdr_intent_raw_file = nullptr, *uhdr_file = nullptr,
        *sdr_intent_compressed_file = nullptr, *gainmap_compressed_file = nullptr,
        *gainmap_metadata_cfg_file = nullptr, *output_file = nullptr;
@@ -1320,9 +1333,12 @@ int main(int argc, char* argv[]) {
   uhdr_color_transfer_t out_tf = UHDR_CT_HLG;
   uhdr_img_fmt_t out_cf = UHDR_IMG_FMT_32bppRGBA1010102;
   int mode = -1;
+  int gainmap_scale_factor = 4;
+  bool use_multi_channel_gainmap = false;
+  bool use_full_range_color_hdr = false;
+  int gainmap_compression_quality = 85;
   int compute_psnr = 0;
   int ch;
-  bool use_full_range_color_hdr = false;
   while ((ch = getopt_s(argc, argv, opt_string)) != -1) {
     switch (ch) {
       case 'a':
@@ -1380,6 +1396,15 @@ int main(int argc, char* argv[]) {
 //      case 'r':
 //        use_full_range_color_sdr = atoi(optarg_s) == 1 ? true : false;
 //        break;
+      case 's':
+        gainmap_scale_factor = atoi(optarg_s);
+        break;
+      case 'M':
+        use_multi_channel_gainmap = atoi(optarg_s) == 1 ? true : false;
+        break;
+      case 'Q':
+        gainmap_compression_quality = atoi(optarg_s);
+        break;
       case 'j':
         uhdr_file = optarg_s;
         break;
@@ -1415,7 +1440,8 @@ int main(int argc, char* argv[]) {
                               gainmap_compressed_file, gainmap_metadata_cfg_file,
                               output_file ? output_file : "out.jpeg", width, height, hdr_cf, sdr_cf,
                               hdr_cg, sdr_cg, hdr_tf, quality, out_tf, out_cf,
-                              use_full_range_color_hdr);
+                              use_full_range_color_hdr, gainmap_scale_factor,
+                              use_multi_channel_gainmap, gainmap_compression_quality);
     if (!appInput.encode()) return -1;
     if (compute_psnr == 1) {
       if (!appInput.decode()) return -1;

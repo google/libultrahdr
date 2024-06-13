@@ -164,7 +164,7 @@ static inline Fixed float_round_to_fixed(float x) {
   return float_saturate2int((float)floor((double)x * Fixed1 + 0.5));
 }
 
-static uint16_t float_round_to_unorm16(float x) {
+static inline uint16_t float_round_to_unorm16(float x) {
   x = x * 65535.f + 0.5;
   if (x > 65535) return 65535;
   if (x < 0) return 0;

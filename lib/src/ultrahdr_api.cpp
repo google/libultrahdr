@@ -495,6 +495,36 @@ void uhdr_release_encoder(uhdr_codec_private_t* enc) {
   }
 }
 
+UHDR_EXTERN uhdr_error_info_t uhdr_enc_set_using_multi_channel_gainmap(uhdr_codec_private_t* enc,
+                                                                       bool use_multi_channel_gainmap) {
+  uhdr_error_info_t status = g_no_error;
+  uhdr_encoder_private* handle = dynamic_cast<uhdr_encoder_private*>(enc);
+  if (handle == nullptr) {
+    status.error_code = UHDR_CODEC_INVALID_PARAM;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail, "received nullptr for uhdr codec instance");
+    return status;
+  }
+
+  handle->m_use_multi_channel_gainmap = use_multi_channel_gainmap;
+  return status;
+}
+
+UHDR_EXTERN uhdr_error_info_t uhdr_enc_set_gainmap_scale_factor(uhdr_codec_private_t* enc,
+                                                                int gainmap_scale_factor) {
+  uhdr_error_info_t status = g_no_error;
+  uhdr_encoder_private* handle = dynamic_cast<uhdr_encoder_private*>(enc);
+  if (handle == nullptr) {
+    status.error_code = UHDR_CODEC_INVALID_PARAM;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail, "received nullptr for uhdr codec instance");
+    return status;
+  }
+
+  handle->m_gainmap_scale_factor = gainmap_scale_factor;
+  return status;
+}
+
 uhdr_error_info_t uhdr_enc_set_raw_image(uhdr_codec_private_t* enc, uhdr_raw_image_t* img,
                                          uhdr_img_label_t intent) {
   uhdr_error_info_t status = g_no_error;
@@ -916,7 +946,9 @@ uhdr_error_info_t uhdr_encode(uhdr_codec_private_t* enc) {
       exif.length = handle->m_exif.size();
     }
 
-    ultrahdr::JpegR jpegr;
+    ultrahdr::JpegR jpegr(handle->m_gainmap_scale_factor,
+                          handle->m_quality.find(UHDR_GAIN_MAP_IMG)->second,
+                          handle->m_use_multi_channel_gainmap);
     ultrahdr::jpegr_compressed_struct dest{};
     if (handle->m_compressed_images.find(UHDR_BASE_IMG) != handle->m_compressed_images.end() &&
         handle->m_compressed_images.find(UHDR_GAIN_MAP_IMG) != handle->m_compressed_images.end()) {
@@ -1069,9 +1101,11 @@ void uhdr_reset_encoder(uhdr_codec_private_t* enc) {
     handle->m_quality.emplace(UHDR_HDR_IMG, 95);
     handle->m_quality.emplace(UHDR_SDR_IMG, 95);
     handle->m_quality.emplace(UHDR_BASE_IMG, 95);
-    handle->m_quality.emplace(UHDR_GAIN_MAP_IMG, 85);
+    handle->m_quality.emplace(UHDR_GAIN_MAP_IMG, ultrahdr::kMapCompressQualityDefault);
     handle->m_exif.clear();
     handle->m_output_format = UHDR_CODEC_JPG;
+    handle->m_gainmap_scale_factor = ultrahdr::kMapDimensionScaleFactorDefault;
+    handle->m_use_multi_channel_gainmap = ultrahdr::kUseMultiChannelGainMapDefault;
 
     handle->m_sailed = false;
     handle->m_compressed_output_buffer.reset();

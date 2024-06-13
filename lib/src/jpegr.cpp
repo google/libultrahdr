@@ -51,15 +51,9 @@ namespace ultrahdr {
 #define USE_PQ_INVOETF_LUT 1
 #define USE_APPLY_GAIN_LUT 1
 
-// JPEG compress quality (0 ~ 100) for gain map
-static const int kMapCompressQuality = 85;
-
 // Gain map metadata
 static const bool kWriteXmpMetadata = true;
 static const bool kWriteIso21496_1Metadata = false;
-
-// Gain map calculation
-static const bool kUseMultiChannelGainMap = false;
 
 int GetCPUCoreCount() {
   int cpuCoreCount = 1;
@@ -204,6 +198,19 @@ status_t JpegR::areInputArgumentsValid(jr_uncompressed_ptr p010_image_ptr,
     return ERROR_JPEGR_INVALID_QUALITY_FACTOR;
   }
   return areInputArgumentsValid(p010_image_ptr, yuv420_image_ptr, hdr_tf, dest_ptr);
+}
+
+JpegR::JpegR() {
+  mMapDimensionScaleFactor = kMapDimensionScaleFactorDefault;
+  mMapCompressQuality = kMapCompressQualityDefault;
+  mUseMultiChannelGainMap = kUseMultiChannelGainMapDefault;
+}
+
+JpegR::JpegR(size_t mapDimensionScaleFactor, int mapCompressQuality,
+             bool useMultiChannelGainMap) {
+  mMapDimensionScaleFactor = mapDimensionScaleFactor;
+  mMapCompressQuality = mapCompressQuality;
+  mUseMultiChannelGainMap = useMultiChannelGainMap;
 }
 
 /* Encode API-0 */
@@ -813,11 +820,11 @@ status_t JpegR::compressGainMap(jr_uncompressed_ptr gainmap_image_ptr,
   }
 
   const uint8_t* planes[]{reinterpret_cast<uint8_t*>(gainmap_image_ptr->data)};
-  if (kUseMultiChannelGainMap) {
+  if (mUseMultiChannelGainMap) {
     const size_t strides[]{gainmap_image_ptr->width};
     if (!jpeg_enc_obj_ptr->compressImage(planes, strides, gainmap_image_ptr->width,
                                          gainmap_image_ptr->height, UHDR_IMG_FMT_24bppRGB888,
-                                         kMapCompressQuality, nullptr, 0)) {
+                                         mMapCompressQuality, nullptr, 0)) {
       return ERROR_JPEGR_ENCODE_ERROR;
     }
   } else {
@@ -825,17 +832,13 @@ status_t JpegR::compressGainMap(jr_uncompressed_ptr gainmap_image_ptr,
     // Don't need to convert YUV to Bt601 since single channel
     if (!jpeg_enc_obj_ptr->compressImage(planes, strides, gainmap_image_ptr->width,
                                          gainmap_image_ptr->height, UHDR_IMG_FMT_8bppYCbCr400,
-                                         kMapCompressQuality, nullptr, 0)) {
+                                         mMapCompressQuality, nullptr, 0)) {
       return ERROR_JPEGR_ENCODE_ERROR;
     }
   }
 
   return JPEGR_NO_ERROR;
 }
-
-const int kJobSzInRows = 16;
-static_assert(kJobSzInRows > 0 && kJobSzInRows % kMapDimensionScaleFactor == 0,
-              "align job size to kMapDimensionScaleFactor");
 
 class JobQueue {
  public:
@@ -895,12 +898,12 @@ status_t JpegR::generateGainMap(jr_uncompressed_ptr yuv420_image_ptr,
                                 jr_uncompressed_ptr p010_image_ptr,
                                 ultrahdr_transfer_function hdr_tf, ultrahdr_metadata_ptr metadata,
                                 jr_uncompressed_ptr dest, bool sdr_is_601) {
-  /*if (kUseMultiChannelGainMap) {
+  /*if (mUseMultiChannelGainMap) {
     static_assert(kWriteIso21496_1Metadata && !kWriteXmpMetadata,
                   "Multi-channel gain map now is only supported for ISO 21496-1 metadata");
   }*/
 
-  int gainMapChannelCount = kUseMultiChannelGainMap ? 3 : 1;
+  int gainMapChannelCount = mUseMultiChannelGainMap ? 3 : 1;
 
   if (yuv420_image_ptr == nullptr || p010_image_ptr == nullptr || metadata == nullptr ||
       dest == nullptr || yuv420_image_ptr->data == nullptr ||
@@ -919,8 +922,8 @@ status_t JpegR::generateGainMap(jr_uncompressed_ptr yuv420_image_ptr,
 
   size_t image_width = yuv420_image_ptr->width;
   size_t image_height = yuv420_image_ptr->height;
-  size_t map_width = image_width / kMapDimensionScaleFactor;
-  size_t map_height = image_height / kMapDimensionScaleFactor;
+  size_t map_width = image_width / mMapDimensionScaleFactor;
+  size_t map_height = image_height / mMapDimensionScaleFactor;
 
   dest->data = new uint8_t[map_width * map_height * gainMapChannelCount];
   dest->width = map_width;
@@ -1016,19 +1019,21 @@ status_t JpegR::generateGainMap(jr_uncompressed_ptr yuv420_image_ptr,
   }
 
   const int threads = (std::min)(GetCPUCoreCount(), 4);
-  size_t rowStep = threads == 1 ? image_height : kJobSzInRows;
+  const int jobSizeInRows = 4;
+  size_t rowStep = threads == 1 ? image_height : jobSizeInRows;
   JobQueue jobQueue;
   std::function<void()> generateMap;
 
-  if (kUseMultiChannelGainMap) {
+  if (mUseMultiChannelGainMap) {
+
     generateMap = [yuv420_image_ptr, p010_image_ptr, metadata, dest, hdrInvOetf,
                    hdrGamutConversionFn, sdrYuvToRgbFn, gainMapChannelCount, hdrYuvToRgbFn,
-                   hdr_white_nits, log2MinBoost, log2MaxBoost, &jobQueue]() -> void {
+                   hdr_white_nits, log2MinBoost, log2MaxBoost, &jobQueue, this]() -> void {
       size_t rowStart, rowEnd;
       while (jobQueue.dequeueJob(rowStart, rowEnd)) {
         for (size_t y = rowStart; y < rowEnd; ++y) {
           for (size_t x = 0; x < dest->width; ++x) {
-            Color sdr_yuv_gamma = sampleYuv420(yuv420_image_ptr, kMapDimensionScaleFactor, x, y);
+            Color sdr_yuv_gamma = sampleYuv420(yuv420_image_ptr, mMapDimensionScaleFactor, x, y);
             Color sdr_rgb_gamma = sdrYuvToRgbFn(sdr_yuv_gamma);
             // We are assuming the SDR input is always sRGB transfer.
 #if USE_SRGB_INVOETF_LUT
@@ -1038,7 +1043,7 @@ status_t JpegR::generateGainMap(jr_uncompressed_ptr yuv420_image_ptr,
 #endif
             Color sdr_rgb_nits = sdr_rgb * kSdrWhiteNits;
 
-            Color hdr_yuv_gamma = sampleP010(p010_image_ptr, kMapDimensionScaleFactor, x, y);
+            Color hdr_yuv_gamma = sampleP010(p010_image_ptr, mMapDimensionScaleFactor, x, y);
             Color hdr_rgb_gamma = hdrYuvToRgbFn(hdr_yuv_gamma);
             Color hdr_rgb = hdrInvOetf(hdr_rgb_gamma);
             hdr_rgb = hdrGamutConversionFn(hdr_rgb);
@@ -1062,12 +1067,12 @@ status_t JpegR::generateGainMap(jr_uncompressed_ptr yuv420_image_ptr,
   } else {
     generateMap = [yuv420_image_ptr, p010_image_ptr, metadata, dest, hdrInvOetf,
                    hdrGamutConversionFn, luminanceFn, sdrYuvToRgbFn, hdrYuvToRgbFn, hdr_white_nits,
-                   log2MinBoost, log2MaxBoost, &jobQueue]() -> void {
+                   log2MinBoost, log2MaxBoost, &jobQueue, this]() -> void {
       size_t rowStart, rowEnd;
       while (jobQueue.dequeueJob(rowStart, rowEnd)) {
         for (size_t y = rowStart; y < rowEnd; ++y) {
           for (size_t x = 0; x < dest->width; ++x) {
-            Color sdr_yuv_gamma = sampleYuv420(yuv420_image_ptr, kMapDimensionScaleFactor, x, y);
+            Color sdr_yuv_gamma = sampleYuv420(yuv420_image_ptr, mMapDimensionScaleFactor, x, y);
             Color sdr_rgb_gamma = sdrYuvToRgbFn(sdr_yuv_gamma);
             // We are assuming the SDR input is always sRGB transfer.
 #if USE_SRGB_INVOETF_LUT
@@ -1077,7 +1082,7 @@ status_t JpegR::generateGainMap(jr_uncompressed_ptr yuv420_image_ptr,
 #endif
             float sdr_y_nits = luminanceFn(sdr_rgb) * kSdrWhiteNits;
 
-            Color hdr_yuv_gamma = sampleP010(p010_image_ptr, kMapDimensionScaleFactor, x, y);
+            Color hdr_yuv_gamma = sampleP010(p010_image_ptr, mMapDimensionScaleFactor, x, y);
             Color hdr_rgb_gamma = hdrYuvToRgbFn(hdr_yuv_gamma);
             Color hdr_rgb = hdrInvOetf(hdr_rgb_gamma);
             hdr_rgb = hdrGamutConversionFn(hdr_rgb);
@@ -1098,7 +1103,6 @@ status_t JpegR::generateGainMap(jr_uncompressed_ptr yuv420_image_ptr,
     workers.push_back(std::thread(generateMap));
   }
 
-  rowStep = (threads == 1 ? image_height : kJobSzInRows) / kMapDimensionScaleFactor;
   for (size_t rowStart = 0; rowStart < map_height;) {
     size_t rowEnd = (std::min)(rowStart + rowStep, map_height);
     jobQueue.enqueueJob(rowStart, rowEnd);
@@ -1822,7 +1826,8 @@ status_t JpegR::toneMap(jr_uncompressed_ptr src, jr_uncompressed_ptr dest,
   uint8_t* chroma_data = reinterpret_cast<uint8_t*>(dest->chroma_data);
 
   const int threads = (std::min)(GetCPUCoreCount(), 4);
-  size_t rowStep = threads == 1 ? height : kJobSzInRows;
+  const int jobSizeInRows = mMapDimensionScaleFactor * 4;
+  size_t rowStep = threads == 1 ? src->height : jobSizeInRows;
   JobQueue jobQueue;
   std::function<void()> toneMapInternal;
 
@@ -1881,7 +1886,6 @@ status_t JpegR::toneMap(jr_uncompressed_ptr src, jr_uncompressed_ptr dest,
     workers.push_back(std::thread(toneMapInternal));
   }
 
-  rowStep = (threads == 1 ? height : kJobSzInRows);
   for (size_t rowStart = 0; rowStart < height;) {
     size_t rowEnd = (std::min)(rowStart + rowStep, height);
     jobQueue.enqueueJob(rowStart, rowEnd);

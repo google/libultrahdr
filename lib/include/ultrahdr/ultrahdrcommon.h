@@ -186,6 +186,8 @@ struct uhdr_encoder_private : uhdr_codec_private {
 
   // internal data
   bool m_sailed;
+  int m_gainmap_scale_factor;
+  bool m_use_multi_channel_gainmap;
   std::unique_ptr<ultrahdr::uhdr_compressed_image_ext_t> m_compressed_output_buffer;
   uhdr_error_info_t m_encode_call_status;
 };
