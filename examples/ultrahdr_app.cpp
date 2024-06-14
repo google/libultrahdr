@@ -758,13 +758,23 @@ bool UltraHdrAppInput::convertP010ToRGBImage() {
       float u0 = float(u[mRawP010Image.stride[UHDR_PLANE_UV] * (i / 2) + (j / 2) * 2] >> 6);
       float v0 = float(v[mRawP010Image.stride[UHDR_PLANE_UV] * (i / 2) + (j / 2) * 2] >> 6);
 
-      y0 = CLIP3(y0, 64.0f, 940.0f);
-      u0 = CLIP3(u0, 64.0f, 960.0f);
-      v0 = CLIP3(v0, 64.0f, 960.0f);
+      if (mRawP010Image.range == UHDR_CR_FULL_RANGE) {
+        y0 = CLIP3(y0, 0.0f, 1023.0f);
+        u0 = CLIP3(u0, 0.0f, 1023.0f);
+        v0 = CLIP3(v0, 0.0f, 1023.0f);
 
-      y0 = (y0 - 64.0f) / 876.0f;
-      u0 = (u0 - 512.0f) / 896.0f;
-      v0 = (v0 - 512.0f) / 896.0f;
+        y0 = y0 / 1023.0f;
+        u0 = u0 / 1023.0f;
+        v0 = v0 / 1023.0f;
+      } else {
+        y0 = CLIP3(y0, 64.0f, 940.0f);
+        u0 = CLIP3(u0, 64.0f, 960.0f);
+        v0 = CLIP3(v0, 64.0f, 960.0f);
+
+        y0 = (y0 - 64.0f) / 876.0f;
+        u0 = (u0 - 512.0f) / 896.0f;
+        v0 = (v0 - 512.0f) / 896.0f;
+      }
 
       float r = coeffs[0] * y0 + coeffs[1] * u0 + coeffs[2] * v0;
       float g = coeffs[3] * y0 + coeffs[4] * u0 + coeffs[5] * v0;
@@ -976,13 +986,23 @@ bool UltraHdrAppInput::convertRgba1010102ToYUV444Image() {
       float u = coeffs[3] * r0 + coeffs[4] * g0 + coeffs[5] * b0;
       float v = coeffs[6] * r0 + coeffs[7] * g0 + coeffs[8] * b0;
 
-      y = (y * 876.0f) + 64.0f + 0.5f;
-      u = (u * 896.0f) + 512.0f + 0.5f;
-      v = (v * 896.0f) + 512.0f + 0.5f;
+      if (mRawP010Image.range == UHDR_CR_FULL_RANGE) {
+        y = y * 1023.0f;
+        u = u * 1023.0f;
+        v = v * 1023.0f;
 
-      y = CLIP3(y, 64.0f, 940.0f);
-      u = CLIP3(u, 64.0f, 960.0f);
-      v = CLIP3(v, 64.0f, 960.0f);
+        y = CLIP3(y, 0.0f, 1023.0f);
+        u = CLIP3(u, 0.0f, 1023.0f);
+        v = CLIP3(v, 0.0f, 1023.0f);
+      } else {
+        y = (y * 876.0f) + 64.0f + 0.5f;
+        u = (u * 896.0f) + 512.0f + 0.5f;
+         v = (v * 896.0f) + 512.0f + 0.5f;
+
+        y = CLIP3(y, 64.0f, 940.0f);
+        u = CLIP3(u, 64.0f, 960.0f);
+        v = CLIP3(v, 64.0f, 960.0f);
+      }
 
       yData[mDecodedUhdrYuv444Image.stride[UHDR_PLANE_Y] * i + j] = uint16_t(y);
       uData[mDecodedUhdrYuv444Image.stride[UHDR_PLANE_U] * i + j] = uint16_t(u);
