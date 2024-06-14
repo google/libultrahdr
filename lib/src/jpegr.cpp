@@ -51,9 +51,6 @@ namespace ultrahdr {
 #define USE_PQ_INVOETF_LUT 1
 #define USE_APPLY_GAIN_LUT 1
 
-// Default gamma value for gain map
-static const float kGainMapGammaDefault = 1.0f;
-
 // Gain map metadata
 static const bool kWriteXmpMetadata = true;
 static const bool kWriteIso21496_1Metadata = false;
@@ -207,13 +204,15 @@ JpegR::JpegR() {
   mMapDimensionScaleFactor = kMapDimensionScaleFactorDefault;
   mMapCompressQuality = kMapCompressQualityDefault;
   mUseMultiChannelGainMap = kUseMultiChannelGainMapDefault;
+  mGamma = kGainMapGammaDefault;
 }
 
 JpegR::JpegR(size_t mapDimensionScaleFactor, int mapCompressQuality,
-             bool useMultiChannelGainMap) {
+             bool useMultiChannelGainMap, float gamma) {
   mMapDimensionScaleFactor = mapDimensionScaleFactor;
   mMapCompressQuality = mapCompressQuality;
   mUseMultiChannelGainMap = useMultiChannelGainMap;
+  mGamma = gamma;
 }
 
 /* Encode API-0 */
@@ -970,7 +969,7 @@ status_t JpegR::generateGainMap(jr_uncompressed_ptr yuv420_image_ptr,
 
   metadata->maxContentBoost = hdr_white_nits / kSdrWhiteNits;
   metadata->minContentBoost = 1.0f;
-  metadata->gamma = kGainMapGammaDefault;
+  metadata->gamma = mGamma;
   metadata->offsetSdr = 0.0f;
   metadata->offsetHdr = 0.0f;
   metadata->hdrCapacityMin = 1.0f;

@@ -331,6 +331,17 @@ UHDR_EXTERN uhdr_error_info_t uhdr_enc_set_using_multi_channel_gainmap(uhdr_code
 UHDR_EXTERN uhdr_error_info_t uhdr_enc_set_gainmap_scale_factor(uhdr_codec_private_t* enc,
                                                                 int gain_map_scale_factor);
 
+/*!\brief Set gain map gamma, default value is 1.0f
+ *
+ * \param[in]  enc  encoder instance.
+ * \param[in]  gamma  gain map gamma
+ *
+ * \return uhdr_error_info_t #UHDR_CODEC_OK if operation succeeds,
+ *                           #UHDR_CODEC_INVALID_PARAM otherwise.
+ */
+UHDR_EXTERN uhdr_error_info_t uhdr_enc_set_gainmap_gamma(uhdr_codec_private_t* enc,
+                                                         float gamma);
+
 /*!\brief Set output image compression format.
  *
  * \param[in]  enc  encoder instance.

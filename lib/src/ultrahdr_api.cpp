@@ -525,6 +525,21 @@ UHDR_EXTERN uhdr_error_info_t uhdr_enc_set_gainmap_scale_factor(uhdr_codec_priva
   return status;
 }
 
+UHDR_EXTERN uhdr_error_info_t uhdr_enc_set_gainmap_gamma(uhdr_codec_private_t* enc,
+                                                         float gamma) {
+  uhdr_error_info_t status = g_no_error;
+  uhdr_encoder_private* handle = dynamic_cast<uhdr_encoder_private*>(enc);
+  if (handle == nullptr) {
+    status.error_code = UHDR_CODEC_INVALID_PARAM;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail, "received nullptr for uhdr codec instance");
+    return status;
+  }
+
+  handle->m_metadata.gamma = gamma;
+  return status;
+}
+
 uhdr_error_info_t uhdr_enc_set_raw_image(uhdr_codec_private_t* enc, uhdr_raw_image_t* img,
                                          uhdr_img_label_t intent) {
   uhdr_error_info_t status = g_no_error;
@@ -948,7 +963,8 @@ uhdr_error_info_t uhdr_encode(uhdr_codec_private_t* enc) {
 
     ultrahdr::JpegR jpegr(handle->m_gainmap_scale_factor,
                           handle->m_quality.find(UHDR_GAIN_MAP_IMG)->second,
-                          handle->m_use_multi_channel_gainmap);
+                          handle->m_use_multi_channel_gainmap,
+                          handle->m_metadata.gamma);
     ultrahdr::jpegr_compressed_struct dest{};
     if (handle->m_compressed_images.find(UHDR_BASE_IMG) != handle->m_compressed_images.end() &&
         handle->m_compressed_images.find(UHDR_GAIN_MAP_IMG) != handle->m_compressed_images.end()) {
