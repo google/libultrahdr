@@ -19,6 +19,15 @@
 
 //#define LOG_NDEBUG 0
 
+#ifdef UHDR_ENABLE_OPENGL
+#include <EGL/egl.h>
+#ifndef UHDR_ENABLE_GLESV3
+#include <GLES2/gl2.h>
+#else
+#include <GLES3/gl3.h>
+#endif
+#endif
+
 #include <deque>
 #include <map>
 #include <memory>
@@ -192,6 +201,43 @@ typedef struct uhdr_gainmap_metadata_ext : uhdr_gainmap_metadata {
   std::string version;         /**< Ultra HDR format version */
 } uhdr_gainmap_metadata_ext_t; /**< alias for struct uhdr_gainmap_metadata */
 
+#ifdef UHDR_ENABLE_OPENGL
+
+/**\brief OpenGL context */
+typedef struct uhdr_opengl_ctxt {
+  EGLDisplay mEGLDisplay;         /**< EGL display connection */
+  EGLContext mEGLContext;         /**< EGL rendering context */
+  EGLSurface mEGLSurface;         /**< EGL surface for rendering */
+  EGLConfig mEGLConfig;           /**< EGL frame buffer configuration */
+  uhdr_error_info_t mErrorStatus; /**< OpenGL context status */
+
+  uhdr_opengl_ctxt();
+  ~uhdr_opengl_ctxt();
+
+  /*!\brief Initialize the OpenGL context
+   *
+   * \return uhdr_error_info_t #UHDR_CODEC_OK if operation succeeds, uhdr_codec_err_t otherwise.
+   */
+  uhdr_error_info_t init_opengl_ctxt();
+
+  /*!\brief Reset opengl_ctxt instance.
+   *
+   * Deletes the current OpenGL context and reinitializes it.
+   *
+   * \return uhdr_error_info_t #UHDR_CODEC_OK if operation succeeds, uhdr_codec_err_t otherwise.
+   */
+  uhdr_error_info_t reset_opengl_ctxt();
+
+  /*!\brief Deletes the current OpenGL context.
+   *
+   * \return none
+   */
+  void delete_opengl_ctxt();
+
+} uhdr_opengl_ctxt_t; /**< alias for struct uhdr_opengl_ctxt */
+
+#endif
+
 }  // namespace ultrahdr
 
 // ===============================================================================================
@@ -200,6 +246,9 @@ typedef struct uhdr_gainmap_metadata_ext : uhdr_gainmap_metadata {
 
 struct uhdr_codec_private {
   std::deque<ultrahdr::uhdr_effect_desc_t*> m_effects;
+#ifdef UHDR_ENABLE_OPENGL
+  ultrahdr::uhdr_opengl_ctxt_t m_uhdr_gl_ctxt;
+#endif
 
   virtual ~uhdr_codec_private();
 };
