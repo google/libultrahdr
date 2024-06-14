@@ -204,6 +204,12 @@ typedef struct uhdr_gainmap_metadata {
   float hdr_capacity_max;  /**< Max HDR capacity value for interpolating the Gain Map */
 } uhdr_gainmap_metadata_t; /**< alias for struct uhdr_gainmap_metadata */
 
+/*!\brief List of supported mirror directions */
+typedef enum uhdr_mirror_direction {
+  UHDR_MIRROR_VERTICAL,    /**< flip image over x axis */
+  UHDR_MIRROR_HORIZONTAL,  /**< flip image over y axis */
+} uhdr_mirror_direction_t; /**< alias for enum uhdr_mirror_direction */
+
 /**\brief ultrahdr codec context opaque descriptor */
 typedef struct uhdr_codec_private uhdr_codec_private_t;
 
@@ -625,5 +631,48 @@ UHDR_EXTERN uhdr_raw_image_t* uhdr_get_gain_map_image(uhdr_codec_private_t* dec)
  * \return none
  */
 UHDR_EXTERN void uhdr_reset_decoder(uhdr_codec_private_t* dec);
+
+/*!\brief Add mirror effect
+ *
+ * \param[in]  codec instance.
+ * \param[in]  mirror directions.
+ *
+ * \return uhdr_error_info_t #UHDR_CODEC_OK if operation succeeds, uhdr_codec_err_t otherwise.
+ */
+UHDR_EXTERN uhdr_error_info_t uhdr_add_effect_mirror(uhdr_codec_private_t* codec,
+                                                     uhdr_mirror_direction_t direction);
+
+/*!\brief Add rotate effect
+ *
+ * \param[in]  codec instance.
+ * \param[in]  clockwise degrees.
+ *
+ * \return uhdr_error_info_t #UHDR_CODEC_OK if operation succeeds, uhdr_codec_err_t otherwise.
+ */
+UHDR_EXTERN uhdr_error_info_t uhdr_add_effect_rotate(uhdr_codec_private_t* codec, int degrees);
+
+/*!\brief Add crop effect
+ *
+ * \param[in]  codec instance.
+ * \param[in]  crop coordinate left.
+ * \param[in]  crop coordinate right.
+ * \param[in]  crop coordinate top.
+ * \param[in]  crop coordinate bottom.
+ *
+ * \return uhdr_error_info_t #UHDR_CODEC_OK if operation succeeds, uhdr_codec_err_t otherwise.
+ */
+UHDR_EXTERN uhdr_error_info_t uhdr_add_effect_crop(uhdr_codec_private_t* codec, int left,
+                                                   int right, int top, int bottom);
+
+/*!\brief Add resize effect
+ *
+ * \param[in]  codec instance.
+ * \param[in]  target width.
+ * \param[in]  target height.
+ *
+ * \return uhdr_error_info_t #UHDR_CODEC_OK if operation succeeds, uhdr_codec_err_t otherwise.
+ */
+UHDR_EXTERN uhdr_error_info_t uhdr_add_effect_resize(uhdr_codec_private_t* codec,
+                                                     int width, int height);
 
 #endif  // ULTRAHDR_API_H
