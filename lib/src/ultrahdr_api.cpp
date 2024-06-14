@@ -994,6 +994,9 @@ void uhdr_reset_encoder(uhdr_codec_private_t* enc) {
     handle->m_sailed = false;
     handle->m_compressed_output_buffer.reset();
     handle->m_encode_call_status = g_no_error;
+#ifdef UHDR_ENABLE_OPENGL
+    handle->m_uhdr_gl_ctxt.reset_opengl_ctxt();
+#endif
   }
 }
 
@@ -1445,6 +1448,9 @@ void uhdr_reset_decoder(uhdr_codec_private_t* dec) {
     memset(&handle->m_metadata, 0, sizeof handle->m_metadata);
     handle->m_probe_call_status = g_no_error;
     handle->m_decode_call_status = g_no_error;
+#ifdef UHDR_ENABLE_OPENGL
+    handle->m_uhdr_gl_ctxt.reset_opengl_ctxt();
+#endif
   }
 }
 
