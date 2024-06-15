@@ -323,7 +323,7 @@ UHDR_EXTERN uhdr_error_info_t uhdr_enc_set_exif_data(uhdr_codec_private_t* enc,
  *                           #UHDR_CODEC_INVALID_PARAM otherwise.
  */
 UHDR_EXTERN uhdr_error_info_t uhdr_enc_set_using_multi_channel_gainmap(uhdr_codec_private_t* enc,
-                                                                       bool use_multi_channel_gainmap);
+                                                                       int use_multi_channel_gainmap);
 
 /*!\brief Set gain map scaling factor, default value is 4 (gain map dimension is 1/4 width and
  * 1/4 height in pixels of the primary image)

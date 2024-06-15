@@ -496,7 +496,7 @@ void uhdr_release_encoder(uhdr_codec_private_t* enc) {
 }
 
 UHDR_EXTERN uhdr_error_info_t uhdr_enc_set_using_multi_channel_gainmap(uhdr_codec_private_t* enc,
-                                                                       bool use_multi_channel_gainmap) {
+                                                                       int use_multi_channel_gainmap) {
   uhdr_error_info_t status = g_no_error;
   uhdr_encoder_private* handle = dynamic_cast<uhdr_encoder_private*>(enc);
   if (handle == nullptr) {
