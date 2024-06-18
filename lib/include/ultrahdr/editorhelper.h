@@ -20,13 +20,6 @@
 #include "ultrahdr_api.h"
 #include "ultrahdr/ultrahdrcommon.h"
 
-// todo: move this to ultrahdr_api.h
-/*!\brief List of supported mirror directions */
-typedef enum uhdr_mirror_direction {
-  UHDR_MIRROR_VERTICAL,    /**< flip image over x axis */
-  UHDR_MIRROR_HORIZONTAL,  /**< flip image over y axis */
-} uhdr_mirror_direction_t; /**< alias for enum uhdr_mirror_direction */
-
 namespace ultrahdr {
 
 /*!\brief uhdr image effect descriptor */
