@@ -95,10 +95,10 @@ typedef struct uhdr_resize_effect : uhdr_effect_desc {
   int m_width;
   int m_height;
 
-  void (*m_resize_uint8_t)(uint8_t*, uint8_t*, int, int, int, int, int, int);
-  void (*m_resize_uint16_t)(uint16_t*, uint16_t*, int, int, int, int, int, int);
-  void (*m_resize_uint32_t)(uint32_t*, uint32_t*, int, int, int, int, int, int);
-  void (*m_resize_uint64_t)(uint64_t*, uint64_t*, int, int, int, int, int, int);
+  void (*m_resize_uint8_t)(uint8_t*, uint8_t*, int, int, int, int, int, int, int, int, uint8_t,
+                           uint8_t);
+  void (*m_resize_uint16_t)(uint16_t*, uint16_t*, int, int, int, int, int, int, int, int, uint16_t,
+                            uint16_t);
 } uhdr_resize_effect_t; /**< alias for struct uhdr_resize_effect */
 
 template <typename T>
@@ -112,6 +112,11 @@ extern void mirror_buffer(T* src_buffer, T* dst_buffer, int src_w, int src_h, in
 template <typename T>
 extern void resize_buffer(T* src_buffer, T* dst_buffer, int src_w, int src_h, int dst_w, int dst_h,
                           int src_stride, int dst_stride);
+
+template <typename T>
+extern void resize_buffer(T* src_buffer, T* dst_buffer, int src_w, int src_h, int dst_w, int dst_h,
+                          int src_row_stride, int dst_row_stride, int src_pixel_stride,
+                          int dst_pixel_stride, T low_limit, T high_limit);
 
 #if (defined(UHDR_ENABLE_INTRINSICS) && (defined(__ARM_NEON__) || defined(__ARM_NEON)))
 template <typename T>
@@ -153,8 +158,7 @@ std::unique_ptr<uhdr_raw_image_ext_t> apply_mirror(ultrahdr::uhdr_mirror_effect_
                                                    void* texture = nullptr);
 
 std::unique_ptr<uhdr_raw_image_ext_t> apply_resize(ultrahdr::uhdr_resize_effect_t* desc,
-                                                   uhdr_raw_image* src, int dst_w, int dst_h,
-                                                   void* gl_ctxt = nullptr,
+                                                   uhdr_raw_image* src, void* gl_ctxt = nullptr,
                                                    void* texture = nullptr);
 
 std::unique_ptr<uhdr_raw_image_ext_t> apply_crop(ultrahdr::uhdr_crop_effect_t* desc,

@@ -124,6 +124,8 @@
 
 #define ALIGNM(x, m) ((((x) + ((m)-1)) / (m)) * (m))
 
+#define CLIP3(x, min, max) ((x) < (min)) ? (min) : ((x) > (max)) ? (max) : (x)
+
 #define UHDR_ERR_CHECK(x)                     \
   {                                           \
     uhdr_error_info_t status = (x);           \

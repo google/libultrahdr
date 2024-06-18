@@ -377,7 +377,7 @@ TEST_P(EditorHelperTest, Resize) {
     texture = static_cast<void*>(&Texture);
   }
 #endif
-  auto dst = apply_resize(&resize, &img_a, width / 2, height / 2, gl_ctxt, texture);
+  auto dst = apply_resize(&resize, &img_a, gl_ctxt, texture);
 #ifdef UHDR_ENABLE_GLES
   if (gl_ctxt != nullptr) {
     opengl_ctxt->read_texture(static_cast<GLuint*>(texture), dst->fmt, dst->w, dst->h,
@@ -404,7 +404,8 @@ TEST_P(EditorHelperTest, MultipleEffects) {
   ASSERT_TRUE(loadFile(filename.c_str(), &img_a)) << "unable to load file " << filename;
   ultrahdr::uhdr_rotate_effect_t r90(90), r180(180), r270(270);
   ultrahdr::uhdr_mirror_effect_t mhorz(UHDR_MIRROR_HORIZONTAL), mvert(UHDR_MIRROR_VERTICAL);
-  ultrahdr::uhdr_resize_effect_t resize(width / 2, height / 2);
+  ultrahdr::uhdr_resize_effect_t resize(width * 2, height * 2);
+
 #ifdef UHDR_ENABLE_GLES
   if (gl_ctxt != nullptr) {
     Texture = opengl_ctxt->create_texture(img_a.fmt, img_a.w, img_a.h, img_a.planes[0]);
@@ -447,13 +448,14 @@ TEST_P(EditorHelperTest, MultipleEffects) {
 #endif
   ASSERT_NO_FATAL_FAILURE(compareImg(&img_a, dst.get())) << msg;
 
-  dst = apply_resize(&resize, dst.get(), width * 2, height * 2, gl_ctxt, texture);
+  dst = apply_resize(&resize, dst.get(), gl_ctxt, texture);
 #ifdef UHDR_ENABLE_GLES
   if (gl_ctxt != nullptr) {
     opengl_ctxt->read_texture(static_cast<GLuint*>(texture), dst->fmt, dst->w, dst->h,
                               dst->planes[0]);
   }
 #endif
+
   ASSERT_EQ(img_a.fmt, dst->fmt) << msg;
   ASSERT_EQ(img_a.cg, dst->cg) << msg;
   ASSERT_EQ(img_a.ct, dst->ct) << msg;

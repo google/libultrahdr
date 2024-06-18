@@ -237,8 +237,7 @@ uhdr_error_info_t apply_effects(uhdr_encoder_private* enc) {
                  dst_w, dst_h);
         return status;
       }
-      hdr_img =
-          apply_resize(dynamic_cast<uhdr_resize_effect_t*>(it), hdr_raw_entry.get(), dst_w, dst_h);
+      hdr_img = apply_resize(dynamic_cast<uhdr_resize_effect_t*>(it), hdr_raw_entry.get());
       if (enc->m_raw_images.find(UHDR_SDR_IMG) != enc->m_raw_images.end()) {
         auto& sdr_raw_entry = enc->m_raw_images.find(UHDR_SDR_IMG)->second;
         if ((dst_w % 2 != 0 || dst_h % 2 != 0) &&
@@ -251,8 +250,7 @@ uhdr_error_info_t apply_effects(uhdr_encoder_private* enc) {
                    dst_w, dst_h);
           return status;
         }
-        sdr_img = apply_resize(dynamic_cast<uhdr_resize_effect_t*>(it), sdr_raw_entry.get(), dst_w,
-                               dst_h);
+        sdr_img = apply_resize(dynamic_cast<uhdr_resize_effect_t*>(it), sdr_raw_entry.get());
       }
     }
 
@@ -398,12 +396,11 @@ uhdr_error_info_t apply_effects(uhdr_decoder_private* dec) {
                  ultrahdr::kMaxWidth, ultrahdr::kMaxHeight, dst_w, dst_h, dst_gm_w, dst_gm_h);
         return status;
       }
-      disp_img =
-          apply_resize(dynamic_cast<uhdr_resize_effect_t*>(it), dec->m_decoded_img_buffer.get(),
-                       dst_w, dst_h, gl_ctxt, disp_texture_ptr);
-      gm_img =
-          apply_resize(dynamic_cast<uhdr_resize_effect_t*>(it), dec->m_gainmap_img_buffer.get(),
-                       dst_gm_w, dst_gm_h, gl_ctxt, gm_texture_ptr);
+      disp_img = apply_resize(dynamic_cast<uhdr_resize_effect_t*>(it),
+                              dec->m_decoded_img_buffer.get(), gl_ctxt, disp_texture_ptr);
+      uhdr_resize_effect_t gainmap_resz_effect(dst_gm_w, dst_gm_h);
+      gm_img = apply_resize(&gainmap_resz_effect, dec->m_gainmap_img_buffer.get(), gl_ctxt,
+                            gm_texture_ptr);
     }
 
     if (disp_img == nullptr || gm_img == nullptr) {
