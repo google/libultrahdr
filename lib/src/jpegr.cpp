@@ -264,7 +264,7 @@ uhdr_error_info_t JpegR::encodeJPEGR(uhdr_raw_image_t* hdr_intent,
       status.error_code = UHDR_CODEC_INVALID_PARAM;
       status.has_detail = 1;
       snprintf(status.detail, sizeof status.detail,
-               "configured color gamut  %d does not match with color gamut specified in icc box %d",
+               "configured color gamut %d does not match with color gamut specified in icc box %d",
                sdr_intent_compressed->cg, cg);
       return status;
     }
@@ -423,12 +423,15 @@ uhdr_error_info_t JpegR::generateGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_
                                          bool sdr_is_601) {
   uhdr_error_info_t status = g_no_error;
 
-  if (sdr_intent->fmt != UHDR_IMG_FMT_12bppYCbCr420) {
+  if (sdr_intent->fmt != UHDR_IMG_FMT_24bppYCbCr444 &&
+      sdr_intent->fmt != UHDR_IMG_FMT_16bppYCbCr422 &&
+      sdr_intent->fmt != UHDR_IMG_FMT_12bppYCbCr420) {
     status.error_code = UHDR_CODEC_UNSUPPORTED_FEATURE;
     status.has_detail = 1;
     snprintf(status.detail, sizeof status.detail,
              "generate gainmap method expects sdr intent color format to be one of "
-             "{UHDR_IMG_FMT_12bppYCbCr420}. Received %d",
+             "{UHDR_IMG_FMT_24bppYCbCr444, UHDR_IMG_FMT_16bppYCbCr422, "
+             "UHDR_IMG_FMT_12bppYCbCr420}. Received %d",
              sdr_intent->fmt);
     return status;
   }
@@ -519,6 +522,27 @@ uhdr_error_info_t JpegR::generateGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_
       return status;
   }
 
+  samplePixelFn sdr_sample_pixel_fn = nullptr;
+  switch (sdr_intent->fmt) {
+    case UHDR_IMG_FMT_24bppYCbCr444:
+      sdr_sample_pixel_fn = sampleYuv444;
+      break;
+    case UHDR_IMG_FMT_16bppYCbCr422:
+      sdr_sample_pixel_fn = sampleYuv422;
+      break;
+    case UHDR_IMG_FMT_12bppYCbCr420:
+      sdr_sample_pixel_fn = sampleYuv420;
+      break;
+    default: {
+      uhdr_error_info_t status;
+      status.error_code = UHDR_CODEC_UNSUPPORTED_FEATURE;
+      status.has_detail = 1;
+      snprintf(status.detail, sizeof status.detail,
+               "Unsupported sdr intent color format in apply gainmap %d", sdr_intent->fmt);
+      return status;
+    }
+  }
+
   if (sdr_is_601) {
     sdrYuvToRgbFn = p3YuvToRgb;
   }
@@ -569,13 +593,13 @@ uhdr_error_info_t JpegR::generateGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_
   JobQueue jobQueue;
   std::function<void()> generateMap = [this, sdr_intent, hdr_intent, gainmap_metadata, dest,
                                        hdrInvOetf, hdrGamutConversionFn, luminanceFn, sdrYuvToRgbFn,
-                                       hdrYuvToRgbFn, hdr_white_nits, log2MinBoost, log2MaxBoost,
-                                       &jobQueue]() -> void {
+                                       hdrYuvToRgbFn, sdr_sample_pixel_fn, hdr_white_nits,
+                                       log2MinBoost, log2MaxBoost, &jobQueue]() -> void {
     size_t rowStart, rowEnd;
     while (jobQueue.dequeueJob(rowStart, rowEnd)) {
       for (size_t y = rowStart; y < rowEnd; ++y) {
         for (size_t x = 0; x < dest->w; ++x) {
-          Color sdr_yuv_gamma = sampleYuv420(sdr_intent, mMapDimensionScaleFactor, x, y);
+          Color sdr_yuv_gamma = sdr_sample_pixel_fn(sdr_intent, mMapDimensionScaleFactor, x, y);
           Color sdr_rgb_gamma = sdrYuvToRgbFn(sdr_yuv_gamma);
           // We are assuming the SDR input is always sRGB transfer.
 #if USE_SRGB_INVOETF_LUT
@@ -985,35 +1009,59 @@ uhdr_error_info_t JpegR::applyGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_ima
     uhdr_error_info_t status;
     status.error_code = UHDR_CODEC_UNSUPPORTED_FEATURE;
     status.has_detail = 1;
-    snprintf(status.detail, sizeof status.detail, "Unsupported metadata version: %s",
+    snprintf(status.detail, sizeof status.detail,
+             "Unsupported gainmap metadata, version. Expected %s, Got %s", kJpegrVersion,
              gainmap_metadata->version.c_str());
     return status;
   }
-  if (gainmap_metadata->offset_sdr != 0.0f || gainmap_metadata->offset_hdr != 0.0f) {
-    uhdr_error_info_t status;
-    status.error_code = UHDR_CODEC_UNSUPPORTED_FEATURE;
-    status.has_detail = 1;
-    snprintf(status.detail, sizeof status.detail, "Unsupported metadata offset sdr, hdr: %f, %f",
-             gainmap_metadata->offset_sdr, gainmap_metadata->offset_hdr);
-    return status;
-  }
-  if (gainmap_metadata->hdr_capacity_min != gainmap_metadata->min_content_boost ||
-      gainmap_metadata->hdr_capacity_max != gainmap_metadata->max_content_boost) {
+  if (gainmap_metadata->offset_sdr != 0.0f) {
     uhdr_error_info_t status;
     status.error_code = UHDR_CODEC_UNSUPPORTED_FEATURE;
     status.has_detail = 1;
     snprintf(status.detail, sizeof status.detail,
-             "Unsupported metadata hdr capacity min, max: %f, %f",
-             gainmap_metadata->hdr_capacity_min, gainmap_metadata->hdr_capacity_max);
+             "Unsupported gainmap metadata, offset_sdr. Expected %f, Got %f", 0.0f,
+             gainmap_metadata->offset_sdr);
     return status;
   }
-  if (sdr_intent->fmt != UHDR_IMG_FMT_12bppYCbCr420) {
+  if (gainmap_metadata->offset_hdr != 0.0f) {
     uhdr_error_info_t status;
     status.error_code = UHDR_CODEC_UNSUPPORTED_FEATURE;
     status.has_detail = 1;
     snprintf(status.detail, sizeof status.detail,
-             "apply gainmap method expects sdr intent color format to be one of "
-             "{UHDR_IMG_FMT_12bppYCbCr420}. Received %d",
+             "Unsupported gainmap metadata, offset_hdr. Expected %f, Got %f", 0.0f,
+             gainmap_metadata->offset_hdr);
+    return status;
+  }
+  if (gainmap_metadata->hdr_capacity_min != gainmap_metadata->min_content_boost) {
+    uhdr_error_info_t status;
+    status.error_code = UHDR_CODEC_UNSUPPORTED_FEATURE;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "Unsupported gainmap metadata, min_content_boost. Min content boost is expected to be "
+             "same as hdr capacity min. Min content boost %f, Hdr Capacity min %f",
+             gainmap_metadata->min_content_boost, gainmap_metadata->hdr_capacity_min);
+    return status;
+  }
+  if (gainmap_metadata->hdr_capacity_max != gainmap_metadata->max_content_boost) {
+    uhdr_error_info_t status;
+    status.error_code = UHDR_CODEC_UNSUPPORTED_FEATURE;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "Unsupported gainmap metadata, max_content_boost. Max content boost is expected to be "
+             "same as hdr capacity max. Max content boost %f, Hdr Capacity max %f",
+             gainmap_metadata->max_content_boost, gainmap_metadata->hdr_capacity_max);
+    return status;
+  }
+  if (sdr_intent->fmt != UHDR_IMG_FMT_24bppYCbCr444 &&
+      sdr_intent->fmt != UHDR_IMG_FMT_16bppYCbCr422 &&
+      sdr_intent->fmt != UHDR_IMG_FMT_12bppYCbCr420) {
+    uhdr_error_info_t status;
+    status.error_code = UHDR_CODEC_UNSUPPORTED_FEATURE;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "apply gainmap method expects base image color format to be one of "
+             "{UHDR_IMG_FMT_24bppYCbCr444, UHDR_IMG_FMT_16bppYCbCr422, "
+             "UHDR_IMG_FMT_12bppYCbCr420}. Received %d",
              sdr_intent->fmt);
     return status;
   }
@@ -1058,17 +1106,38 @@ uhdr_error_info_t JpegR::applyGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_ima
   float display_boost = (std::min)(max_display_boost, gainmap_metadata->max_content_boost);
   GainLUT gainLUT(gainmap_metadata, display_boost);
 
+  getPixelFn get_pixel_fn = nullptr;
+  switch (sdr_intent->fmt) {
+    case UHDR_IMG_FMT_24bppYCbCr444:
+      get_pixel_fn = getYuv444Pixel;
+      break;
+    case UHDR_IMG_FMT_16bppYCbCr422:
+      get_pixel_fn = getYuv422Pixel;
+      break;
+    case UHDR_IMG_FMT_12bppYCbCr420:
+      get_pixel_fn = getYuv420Pixel;
+      break;
+    default: {
+      uhdr_error_info_t status;
+      status.error_code = UHDR_CODEC_UNSUPPORTED_FEATURE;
+      status.has_detail = 1;
+      snprintf(status.detail, sizeof status.detail,
+               "Unsupported sdr intent color format in apply gainmap %d", sdr_intent->fmt);
+      return status;
+    }
+  }
+
   JobQueue jobQueue;
   std::function<void()> applyRecMap = [sdr_intent, gainmap_img, dest, &jobQueue, &idwTable,
-                                       output_ct, &gainLUT, display_boost,
-                                       map_scale_factor]() -> void {
+                                       output_ct, &gainLUT, display_boost, map_scale_factor,
+                                       get_pixel_fn]() -> void {
     size_t width = sdr_intent->w;
 
     size_t rowStart, rowEnd;
     while (jobQueue.dequeueJob(rowStart, rowEnd)) {
       for (size_t y = rowStart; y < rowEnd; ++y) {
         for (size_t x = 0; x < width; ++x) {
-          Color yuv_gamma_sdr = getYuv420Pixel(sdr_intent, x, y);
+          Color yuv_gamma_sdr = get_pixel_fn(sdr_intent, x, y);
           // Assuming the sdr image is a decoded JPEG, we should always use Rec.601 YUV coefficients
           Color rgb_gamma_sdr = p3YuvToRgb(yuv_gamma_sdr);
           // We are assuming the SDR base image is always sRGB transfer.

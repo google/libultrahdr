@@ -61,6 +61,8 @@ struct Color {
 
 typedef Color (*ColorTransformFn)(Color);
 typedef float (*ColorCalculationFn)(Color);
+typedef Color (*getPixelFn)(uhdr_raw_image_t*, size_t, size_t);
+typedef Color (*samplePixelFn)(uhdr_raw_image_t*, size_t, size_t, size_t);
 
 static inline float clampPixelFloat(float value) {
   return (value < 0.0f) ? 0.0f : (value > kMaxPixelFloat) ? kMaxPixelFloat : value;
@@ -517,8 +519,10 @@ Color applyGain(Color e, Color gain, uhdr_gainmap_metadata_ext_t* metadata, floa
 Color applyGainLUT(Color e, Color gain, GainLUT& gainLUT);
 
 /*
- * Helper for sampling from YUV 420 images.
+ * Helper for sampling from YUV 4ab images.
  */
+Color getYuv444Pixel(uhdr_raw_image_t* image, size_t x, size_t y);
+Color getYuv422Pixel(uhdr_raw_image_t* image, size_t x, size_t y);
 Color getYuv420Pixel(uhdr_raw_image_t* image, size_t x, size_t y);
 
 /*
@@ -530,6 +534,8 @@ Color getP010Pixel(uhdr_raw_image_t* image, size_t x, size_t y);
  * Sample the image at the provided location, with a weighting based on nearby
  * pixels and the map scale factor.
  */
+Color sampleYuv444(uhdr_raw_image_t* map, size_t map_scale_factor, size_t x, size_t y);
+Color sampleYuv422(uhdr_raw_image_t* map, size_t map_scale_factor, size_t x, size_t y);
 Color sampleYuv420(uhdr_raw_image_t* map, size_t map_scale_factor, size_t x, size_t y);
 
 /*
