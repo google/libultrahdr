@@ -615,6 +615,17 @@ uhdr_error_info_t uhdr_enc_set_raw_image(uhdr_codec_private_t* enc, uhdr_raw_ima
       snprintf(status.detail, sizeof status.detail,
                "chroma_uv stride must not be smaller than width, stride=%d, width=%d",
                img->stride[UHDR_PLANE_UV], img->w);
+    } else if (img->fmt == UHDR_IMG_FMT_24bppYCbCrP010 &&
+               (img->range != UHDR_CR_FULL_RANGE && img->range != UHDR_CR_LIMITED_RANGE)) {
+      status.error_code = UHDR_CODEC_INVALID_PARAM;
+      status.has_detail = 1;
+      snprintf(status.detail, sizeof status.detail,
+               "invalid range, expects one of {UHDR_CR_FULL_RANGE, UHDR_CR_LIMITED_RANGE}");
+    } else if (img->fmt == UHDR_IMG_FMT_32bppRGBA1010102 && img->range != UHDR_CR_FULL_RANGE) {
+      status.error_code = UHDR_CODEC_INVALID_PARAM;
+      status.has_detail = 1;
+      snprintf(status.detail, sizeof status.detail,
+               "invalid range, expects one of {UHDR_CR_FULL_RANGE}");
     }
   } else if (img->fmt == UHDR_IMG_FMT_12bppYCbCr420) {
     if (img->planes[UHDR_PLANE_Y] == nullptr || img->planes[UHDR_PLANE_U] == nullptr ||
@@ -642,6 +653,11 @@ uhdr_error_info_t uhdr_enc_set_raw_image(uhdr_codec_private_t* enc, uhdr_raw_ima
       snprintf(status.detail, sizeof status.detail,
                "chroma_v stride must not be smaller than width / 2, stride=%d, width=%d",
                img->stride[UHDR_PLANE_V], img->w);
+    } else if (img->range != UHDR_CR_FULL_RANGE) {
+      status.error_code = UHDR_CODEC_INVALID_PARAM;
+      status.has_detail = 1;
+      snprintf(status.detail, sizeof status.detail,
+               "invalid range, expects one of {UHDR_CR_FULL_RANGE}");
     }
   }
   if (status.error_code != UHDR_CODEC_OK) return status;

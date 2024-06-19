@@ -1461,7 +1461,7 @@ TEST_P(JpegRAPIEncodeAndDecodeTest, EncodeAPI0AndDecodeTest) {
   uhdrRawImg.fmt = UHDR_IMG_FMT_24bppYCbCrP010;
   uhdrRawImg.cg = map_internal_cg_to_cg(mP010ColorGamut);
   uhdrRawImg.ct = map_internal_ct_to_ct(ultrahdr_transfer_function::ULTRAHDR_TF_HLG);
-  uhdrRawImg.range = UHDR_CR_UNSPECIFIED;
+  uhdrRawImg.range = UHDR_CR_LIMITED_RANGE;
   uhdrRawImg.w = kImageWidth;
   uhdrRawImg.h = kImageHeight;
   uhdrRawImg.planes[UHDR_PLANE_Y] = rawImg.getImageHandle()->data;
@@ -1524,7 +1524,7 @@ TEST_P(JpegRAPIEncodeAndDecodeTest, EncodeAPI0AndDecodeTest) {
     uhdrRawImg.fmt = UHDR_IMG_FMT_24bppYCbCrP010;
     uhdrRawImg.cg = map_internal_cg_to_cg(mP010ColorGamut);
     uhdrRawImg.ct = map_internal_ct_to_ct(ultrahdr_transfer_function::ULTRAHDR_TF_HLG);
-    uhdrRawImg.range = UHDR_CR_UNSPECIFIED;
+    uhdrRawImg.range = UHDR_CR_LIMITED_RANGE;
     uhdrRawImg.w = kImageWidth;
     uhdrRawImg.h = kImageHeight;
     uhdrRawImg.planes[UHDR_PLANE_Y] = rawImg2.getImageHandle()->data;
@@ -1724,7 +1724,7 @@ TEST_P(JpegRAPIEncodeAndDecodeTest, EncodeAPI1AndDecodeTest) {
     uhdrRawImg.fmt = UHDR_IMG_FMT_24bppYCbCrP010;
     uhdrRawImg.cg = map_internal_cg_to_cg(mP010ColorGamut);
     uhdrRawImg.ct = map_internal_ct_to_ct(ultrahdr_transfer_function::ULTRAHDR_TF_HLG);
-    uhdrRawImg.range = UHDR_CR_UNSPECIFIED;
+    uhdrRawImg.range = UHDR_CR_LIMITED_RANGE;
     uhdrRawImg.w = kImageWidth;
     uhdrRawImg.h = kImageHeight;
     uhdrRawImg.planes[UHDR_PLANE_Y] = rawImgP010.getImageHandle()->data;
@@ -1738,7 +1738,7 @@ TEST_P(JpegRAPIEncodeAndDecodeTest, EncodeAPI1AndDecodeTest) {
     uhdrRawImg.fmt = UHDR_IMG_FMT_12bppYCbCr420;
     uhdrRawImg.cg = map_internal_cg_to_cg(mYuv420ColorGamut);
     uhdrRawImg.ct = map_internal_ct_to_ct(ultrahdr_transfer_function::ULTRAHDR_TF_SRGB);
-    uhdrRawImg.range = UHDR_CR_UNSPECIFIED;
+    uhdrRawImg.range = UHDR_CR_FULL_RANGE;
     uhdrRawImg.w = kImageWidth;
     uhdrRawImg.h = kImageHeight;
     uhdrRawImg.planes[UHDR_PLANE_Y] = rawImg2420.getImageHandle()->data;
@@ -1930,7 +1930,7 @@ TEST_P(JpegRAPIEncodeAndDecodeTest, EncodeAPI2AndDecodeTest) {
     uhdrRawImg.fmt = UHDR_IMG_FMT_24bppYCbCrP010;
     uhdrRawImg.cg = map_internal_cg_to_cg(mP010ColorGamut);
     uhdrRawImg.ct = map_internal_ct_to_ct(ultrahdr_transfer_function::ULTRAHDR_TF_HLG);
-    uhdrRawImg.range = UHDR_CR_UNSPECIFIED;
+    uhdrRawImg.range = UHDR_CR_LIMITED_RANGE;
     uhdrRawImg.w = kImageWidth;
     uhdrRawImg.h = kImageHeight;
     uhdrRawImg.planes[UHDR_PLANE_Y] = rawImgP010.getImageHandle()->data;
@@ -1944,7 +1944,7 @@ TEST_P(JpegRAPIEncodeAndDecodeTest, EncodeAPI2AndDecodeTest) {
     uhdrRawImg.fmt = UHDR_IMG_FMT_12bppYCbCr420;
     uhdrRawImg.cg = map_internal_cg_to_cg(mYuv420ColorGamut);
     uhdrRawImg.ct = map_internal_ct_to_ct(ultrahdr_transfer_function::ULTRAHDR_TF_SRGB);
-    uhdrRawImg.range = UHDR_CR_UNSPECIFIED;
+    uhdrRawImg.range = UHDR_CR_FULL_RANGE;
     uhdrRawImg.w = kImageWidth;
     uhdrRawImg.h = kImageHeight;
     uhdrRawImg.planes[UHDR_PLANE_Y] = rawImg2420.getImageHandle()->data;
@@ -2107,7 +2107,7 @@ TEST_P(JpegRAPIEncodeAndDecodeTest, EncodeAPI3AndDecodeTest) {
     uhdrRawImg.fmt = UHDR_IMG_FMT_24bppYCbCrP010;
     uhdrRawImg.cg = map_internal_cg_to_cg(mP010ColorGamut);
     uhdrRawImg.ct = map_internal_ct_to_ct(ultrahdr_transfer_function::ULTRAHDR_TF_HLG);
-    uhdrRawImg.range = UHDR_CR_UNSPECIFIED;
+    uhdrRawImg.range = UHDR_CR_LIMITED_RANGE;
     uhdrRawImg.w = kImageWidth;
     uhdrRawImg.h = kImageHeight;
     uhdrRawImg.planes[UHDR_PLANE_Y] = rawImgP010.getImageHandle()->data;
