@@ -1794,6 +1794,9 @@ status_t JpegR::toneMap(jr_uncompressed_ptr src, jr_uncompressed_ptr dest,
 
   ColorTransformFn hdrInvOetf = nullptr;
   switch (hdr_tf) {
+    case ULTRAHDR_TF_LINEAR:
+      hdrInvOetf = identityConversion;
+      break;
     case ULTRAHDR_TF_HLG:
 #if USE_HLG_INVOETF_LUT
       hdrInvOetf = hlgInvOetfLUT;
