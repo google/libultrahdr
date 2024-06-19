@@ -495,33 +495,65 @@ void uhdr_release_encoder(uhdr_codec_private_t* enc) {
   }
 }
 
-UHDR_EXTERN uhdr_error_info_t uhdr_enc_set_using_multi_channel_gainmap(uhdr_codec_private_t* enc,
-                                                                       int use_multi_channel_gainmap) {
+UHDR_EXTERN uhdr_error_info_t
+uhdr_enc_set_using_multi_channel_gainmap(uhdr_codec_private_t* enc, int use_multi_channel_gainmap) {
   uhdr_error_info_t status = g_no_error;
-  uhdr_encoder_private* handle = dynamic_cast<uhdr_encoder_private*>(enc);
-  if (handle == nullptr) {
+
+  if (dynamic_cast<uhdr_encoder_private*>(enc) == nullptr) {
     status.error_code = UHDR_CODEC_INVALID_PARAM;
     status.has_detail = 1;
     snprintf(status.detail, sizeof status.detail, "received nullptr for uhdr codec instance");
     return status;
   }
 
+  uhdr_encoder_private* handle = dynamic_cast<uhdr_encoder_private*>(enc);
+
+  if (handle->m_sailed) {
+    status.error_code = UHDR_CODEC_INVALID_OPERATION;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "An earlier call to uhdr_encode() has switched the context from configurable state to "
+             "end state. The context is no longer configurable. To reuse, call reset()");
+    return status;
+  }
+
   handle->m_use_multi_channel_gainmap = use_multi_channel_gainmap;
+
   return status;
 }
 
 UHDR_EXTERN uhdr_error_info_t uhdr_enc_set_gainmap_scale_factor(uhdr_codec_private_t* enc,
                                                                 int gainmap_scale_factor) {
   uhdr_error_info_t status = g_no_error;
-  uhdr_encoder_private* handle = dynamic_cast<uhdr_encoder_private*>(enc);
-  if (handle == nullptr) {
+
+  if (dynamic_cast<uhdr_encoder_private*>(enc) == nullptr) {
     status.error_code = UHDR_CODEC_INVALID_PARAM;
     status.has_detail = 1;
     snprintf(status.detail, sizeof status.detail, "received nullptr for uhdr codec instance");
     return status;
   }
 
+  if (gainmap_scale_factor <= 0) {
+    status.error_code = UHDR_CODEC_INVALID_PARAM;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "unsupported gainmap scale factor %d, expects to be > 0", gainmap_scale_factor);
+    return status;
+  }
+
+  uhdr_encoder_private* handle = dynamic_cast<uhdr_encoder_private*>(enc);
+
+  if (handle->m_sailed) {
+    status.error_code = UHDR_CODEC_INVALID_OPERATION;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "An earlier call to uhdr_encode() has switched the context from configurable state to "
+             "end state. The context is no longer configurable. To reuse, call reset()");
+    return status;
+  }
+
   handle->m_gainmap_scale_factor = gainmap_scale_factor;
+
   return status;
 }
 
