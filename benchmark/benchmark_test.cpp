@@ -510,12 +510,21 @@ static void BM_Encode_Api4(benchmark::State& s) {
   gainmapImg.data = gainmapImgInfo.imgData.data();
   gainmapImg.maxLength = gainmapImg.length = gainmapImgInfo.imgData.size();
   gainmapImg.colorGamut = ULTRAHDR_COLORGAMUT_UNSPECIFIED;
-  ultrahdr_metadata_struct uhdr_metadata;
-  if (!getMetadataFromXMP(gainmapImgInfo.xmpData.data(), gainmapImgInfo.xmpData.size(),
-                          &uhdr_metadata)) {
+  uhdr_gainmap_metadata_ext_t meta;
+  if (getMetadataFromXMP(gainmapImgInfo.xmpData.data(), gainmapImgInfo.xmpData.size(), &meta)
+          .error_code != UHDR_CODEC_OK) {
     s.SkipWithError("getMetadataFromXMP returned with error");
     return;
   }
+  ultrahdr_metadata_struct uhdr_metadata;
+  uhdr_metadata.version = meta.version;
+  uhdr_metadata.hdrCapacityMax = meta.hdr_capacity_max;
+  uhdr_metadata.hdrCapacityMin = meta.hdr_capacity_min;
+  uhdr_metadata.gamma = meta.gamma;
+  uhdr_metadata.offsetSdr = meta.offset_sdr;
+  uhdr_metadata.offsetHdr = meta.offset_hdr;
+  uhdr_metadata.maxContentBoost = meta.max_content_boost;
+  uhdr_metadata.minContentBoost = meta.min_content_boost;
   for (auto _ : s) {
     status = jpegHdr.encodeJPEGR(&primaryImg, &gainmapImg, &uhdr_metadata, &jpegImgR);
     if (JPEGR_NO_ERROR != status) {

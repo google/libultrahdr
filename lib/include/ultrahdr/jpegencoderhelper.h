@@ -53,6 +53,19 @@ class JpegEncoderHelper {
   /*!\brief This function encodes the raw image that is passed to it and stores the results
    * internally. The result is accessible via getter functions.
    *
+   * \param[in]  img        image to encode
+   * \param[in]  qfactor    quality factor [1 - 100, 1 being poorest and 100 being best quality]
+   * \param[in]  iccBuffer  pointer to icc segment that needs to be added to the compressed image
+   * \param[in]  iccSize    size of icc segment
+   *
+   * \return uhdr_error_info_t #UHDR_CODEC_OK if operation succeeds, uhdr_codec_err_t otherwise.
+   */
+  uhdr_error_info_t compressImage(const uhdr_raw_image_t* img, const int qfactor,
+                                  const void* iccBuffer, const unsigned int iccSize);
+
+  /*!\brief This function encodes the raw image that is passed to it and stores the results
+   * internally. The result is accessible via getter functions.
+   *
    * \param[in]  planes     pointers of all planes of input image
    * \param[in]  strides    strides of all planes of input image
    * \param[in]  width      image width
@@ -62,31 +75,39 @@ class JpegEncoderHelper {
    * \param[in]  iccBuffer  pointer to icc segment that needs to be added to the compressed image
    * \param[in]  iccSize    size of icc segment
    *
-   * \returns true if operation succeeds, false otherwise.
+   * \return uhdr_error_info_t #UHDR_CODEC_OK if operation succeeds, uhdr_codec_err_t otherwise.
    */
-  bool compressImage(const uint8_t* planes[3], const size_t strides[3], const int width,
-                     const int height, const uhdr_img_fmt_t format, const int qfactor,
-                     const void* iccBuffer, const unsigned int iccSize);
+  uhdr_error_info_t compressImage(const uint8_t* planes[3], const size_t strides[3],
+                                  const int width, const int height, const uhdr_img_fmt_t format,
+                                  const int qfactor, const void* iccBuffer,
+                                  const unsigned int iccSize);
 
   /*! Below public methods are only effective if a call to compressImage() is made and it returned
    * true. */
 
   /*!\brief returns pointer to compressed image output */
+  uhdr_compressed_image_t getCompressedImage();
+
+  /*!\brief returns pointer to compressed image output
+   * \deprecated This function is deprecated instead use getCompressedImage().
+   */
   void* getCompressedImagePtr() { return mDestMgr.mResultBuffer.data(); }
 
-  /*!\brief returns size of compressed image */
+  /*!\brief returns size of compressed image
+   * \deprecated This function is deprecated instead use getCompressedImage().
+   */
   size_t getCompressedImageSize() { return mDestMgr.mResultBuffer.size(); }
 
  private:
   // max number of components supported
   static constexpr int kMaxNumComponents = 3;
 
-  bool encode(const uint8_t* planes[3], const size_t strides[3], const int width, const int height,
-              const uhdr_img_fmt_t format, const int qfactor, const void* iccBuffer,
-              const unsigned int iccSize);
+  uhdr_error_info_t encode(const uint8_t* planes[3], const size_t strides[3], const int width,
+                           const int height, const uhdr_img_fmt_t format, const int qfactor,
+                           const void* iccBuffer, const unsigned int iccSize);
 
-  bool compressYCbCr(jpeg_compress_struct* cinfo, const uint8_t* planes[3],
-                     const size_t strides[3]);
+  uhdr_error_info_t compressYCbCr(jpeg_compress_struct* cinfo, const uint8_t* planes[3],
+                                  const size_t strides[3]);
 
   destination_mgr_impl mDestMgr;  // object for managing output
 

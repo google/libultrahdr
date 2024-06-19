@@ -21,7 +21,6 @@
 #include <cstring>
 
 #include "ultrahdr/ultrahdrcommon.h"
-#include "ultrahdr/ultrahdr.h"
 #include "ultrahdr/jpegdecoderhelper.h"
 
 using namespace std;
@@ -153,14 +152,21 @@ static uhdr_img_fmt_t getOutputSamplingFormat(const j_decompress_ptr cinfo) {
   return UHDR_IMG_FMT_UNSPECIFIED;
 }
 
-bool JpegDecoderHelper::decompressImage(const void* image, int length, decode_mode_t mode) {
+uhdr_error_info_t JpegDecoderHelper::decompressImage(const void* image, int length,
+                                                     decode_mode_t mode) {
   if (image == nullptr) {
-    ALOGE("received nullptr for compressed image data");
-    return false;
+    uhdr_error_info_t status;
+    status.error_code = UHDR_CODEC_INVALID_PARAM;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail, "received nullptr for compressed image data");
+    return status;
   }
   if (length <= 0) {
-    ALOGE("received bad compressed image size %d", length);
-    return false;
+    uhdr_error_info_t status;
+    status.error_code = UHDR_CODEC_INVALID_PARAM;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail, "received bad compressed image size %d", length);
+    return status;
   }
 
   // reset context
@@ -170,20 +176,24 @@ bool JpegDecoderHelper::decompressImage(const void* image, int length, decode_mo
   mICCBuffer.clear();
   mIsoMetadataBuffer.clear();
   mOutFormat = UHDR_IMG_FMT_UNSPECIFIED;
+  mNumComponents = 1;
   for (int i = 0; i < kMaxNumComponents; i++) {
     mPlanesMCURow[i].reset();
     mPlaneWidth[i] = 0;
     mPlaneHeight[i] = 0;
+    mPlaneHStride[i] = 0;
+    mPlaneVStride[i] = 0;
   }
   mExifPayLoadOffset = -1;
 
   return decode(image, length, mode);
 }
 
-bool JpegDecoderHelper::decode(const void* image, int length, decode_mode_t mode) {
+uhdr_error_info_t JpegDecoderHelper::decode(const void* image, int length, decode_mode_t mode) {
   jpeg_source_mgr_impl mgr(static_cast<const uint8_t*>(image), length);
   jpeg_decompress_struct cinfo;
   jpeg_error_mgr_impl myerr;
+  uhdr_error_info_t status = g_no_error;
 
   cinfo.err = jpeg_std_error(&myerr);
   myerr.error_exit = jpegrerror_exit;
@@ -197,9 +207,12 @@ bool JpegDecoderHelper::decode(const void* image, int length, decode_mode_t mode
     jpeg_save_markers(&cinfo, kAPP2Marker, 0xFFFF);
     int ret_val = jpeg_read_header(&cinfo, TRUE /* require an image to be present */);
     if (JPEG_HEADER_OK != ret_val) {
-      ALOGE("jpeg_read_header(...) returned %d, expected %d", ret_val, JPEG_HEADER_OK);
+      status.error_code = UHDR_CODEC_ERROR;
+      status.has_detail = 1;
+      snprintf(status.detail, sizeof status.detail,
+               "jpeg_read_header(...) returned %d, expected %d", ret_val, JPEG_HEADER_OK);
       jpeg_destroy_decompress(&cinfo);
-      return false;
+      return status;
     }
     int payloadOffset = -1;
     jpeg_extract_marker_payload(&cinfo, kAPP1Marker, kXmpNameSpace,
@@ -215,75 +228,108 @@ bool JpegDecoderHelper::decode(const void* image, int length, decode_mode_t mode
                                 mIsoMetadataBuffer, payloadOffset);
 
     if (cinfo.image_width < 1 || cinfo.image_height < 1) {
-      ALOGE("received bad image width or height, wd = %d, ht = %d. wd and height shall be >= 1",
-            cinfo.image_width, cinfo.image_height);
+      status.error_code = UHDR_CODEC_ERROR;
+      status.has_detail = 1;
+      snprintf(status.detail, sizeof status.detail,
+               "received bad image width or height, wd = %d, ht = %d. wd and height shall be >= 1",
+               cinfo.image_width, cinfo.image_height);
       jpeg_destroy_decompress(&cinfo);
-      return false;
+      return status;
     }
     if (cinfo.image_width > kMaxWidth || cinfo.image_height > kMaxHeight) {
-      ALOGE(
+      status.error_code = UHDR_CODEC_ERROR;
+      status.has_detail = 1;
+      snprintf(
+          status.detail, sizeof status.detail,
           "max width, max supported by library are %d, %d respectively. Current image width and "
           "height are %d, %d. Recompile library with updated max supported dimensions to proceed",
           kMaxWidth, kMaxHeight, cinfo.image_width, cinfo.image_height);
       jpeg_destroy_decompress(&cinfo);
-      return false;
+      return status;
     }
     if (cinfo.num_components != 1 && cinfo.num_components != 3) {
-      ALOGE(
+      status.error_code = UHDR_CODEC_ERROR;
+      status.has_detail = 1;
+      snprintf(
+          status.detail, sizeof status.detail,
           "ultrahdr primary image and supplimentary images are images encoded with 1 component "
           "(grayscale) or 3 components (YCbCr / RGB). Unrecognized number of components %d",
           cinfo.num_components);
       jpeg_destroy_decompress(&cinfo);
-      return false;
+      return status;
     }
 
     for (int i = 0, product = 0; i < cinfo.num_components; i++) {
       if (cinfo.comp_info[i].h_samp_factor < 1 || cinfo.comp_info[i].h_samp_factor > 4) {
-        ALOGE(
-            "received bad horizontal sampling factor for component index %d, sample factor h = %d, "
-            "this is expected to be with in range [1-4]",
-            i, cinfo.comp_info[i].h_samp_factor);
+        status.error_code = UHDR_CODEC_ERROR;
+        status.has_detail = 1;
+        snprintf(status.detail, sizeof status.detail,
+                 "received bad horizontal sampling factor for component index %d, sample factor h "
+                 "= %d, this is expected to be with in range [1-4]",
+                 i, cinfo.comp_info[i].h_samp_factor);
         jpeg_destroy_decompress(&cinfo);
-        return false;
+        return status;
       }
       if (cinfo.comp_info[i].v_samp_factor < 1 || cinfo.comp_info[i].v_samp_factor > 4) {
-        ALOGE(
-            "received bad vertical sampling factor for component index %d, sample factor v = %d, "
-            "this is expected to be with in range [1-4]",
-            i, cinfo.comp_info[i].v_samp_factor);
+        status.error_code = UHDR_CODEC_ERROR;
+        status.has_detail = 1;
+        snprintf(status.detail, sizeof status.detail,
+                 "received bad vertical sampling factor for component index %d, sample factor v = "
+                 "%d, this is expected to be with in range [1-4]",
+                 i, cinfo.comp_info[i].v_samp_factor);
         jpeg_destroy_decompress(&cinfo);
-        return false;
+        return status;
       }
       product += cinfo.comp_info[i].h_samp_factor * cinfo.comp_info[i].v_samp_factor;
       if (product > 10) {
-        ALOGE(
-            "received bad sampling factors for components, sum of product of h_samp_factor, "
-            "v_samp_factor across all components exceeds 10");
+        status.error_code = UHDR_CODEC_ERROR;
+        status.has_detail = 1;
+        snprintf(status.detail, sizeof status.detail,
+                 "received bad sampling factors for components, sum of product of h_samp_factor, "
+                 "v_samp_factor across all components exceeds 10");
         jpeg_destroy_decompress(&cinfo);
-        return false;
+        return status;
       }
     }
 
+    mNumComponents = cinfo.num_components;
     for (int i = 0; i < cinfo.num_components; i++) {
       mPlaneWidth[i] = std::ceil(((float)cinfo.image_width * cinfo.comp_info[i].h_samp_factor) /
                                  cinfo.max_h_samp_factor);
+      mPlaneHStride[i] = mPlaneWidth[i];
       mPlaneHeight[i] = std::ceil(((float)cinfo.image_height * cinfo.comp_info[i].v_samp_factor) /
                                   cinfo.max_v_samp_factor);
+      mPlaneVStride[i] = mPlaneHeight[i];
     }
 
-    if (cinfo.num_components == 3 &&
-        (mPlaneWidth[1] != mPlaneWidth[2] || mPlaneHeight[1] != mPlaneHeight[2])) {
-      ALOGE(
-          "cb, cr planes are not sampled identically. cb width %d, cb height %d, cr width %d, cr "
-          "height %d",
-          (int)mPlaneWidth[1], (int)mPlaneWidth[2], (int)mPlaneHeight[1], (int)mPlaneHeight[2]);
-      jpeg_destroy_decompress(&cinfo);
-      return false;
+    if (cinfo.num_components == 3) {
+      if (mPlaneWidth[1] > mPlaneWidth[0] || mPlaneHeight[2] > mPlaneHeight[0]) {
+        status.error_code = UHDR_CODEC_ERROR;
+        status.has_detail = 1;
+        snprintf(status.detail, sizeof status.detail,
+                 "cb, cr planes are upsampled wrt luma plane. luma width %d, luma height %d, cb "
+                 "width %d, cb height %d, cr width %d, cr height %d",
+                 (int)mPlaneWidth[0], (int)mPlaneHeight[0], (int)mPlaneWidth[1],
+                 (int)mPlaneHeight[1], (int)mPlaneWidth[2], (int)mPlaneHeight[2]);
+        jpeg_destroy_decompress(&cinfo);
+        return status;
+      }
+      if (mPlaneWidth[1] != mPlaneWidth[2] || mPlaneHeight[1] != mPlaneHeight[2]) {
+        status.error_code = UHDR_CODEC_ERROR;
+        status.has_detail = 1;
+        snprintf(status.detail, sizeof status.detail,
+                 "cb, cr planes are not sampled identically. cb width %d, cb height %d, cr width "
+                 "%d, cr height %d",
+                 (int)mPlaneWidth[1], (int)mPlaneHeight[1], (int)mPlaneWidth[2],
+                 (int)mPlaneHeight[2]);
+        jpeg_destroy_decompress(&cinfo);
+        return status;
+      }
     }
 
     if (PARSE_STREAM == mode) {
       jpeg_destroy_decompress(&cinfo);
-      return true;
+      return status;
     }
 
     if (DECODE_STREAM == mode) {
@@ -292,37 +338,54 @@ bool JpegDecoderHelper::decode(const void* image, int length, decode_mode_t mode
 
     if (DECODE_TO_RGB_CS == mode) {
       if (cinfo.jpeg_color_space != JCS_YCbCr && cinfo.jpeg_color_space != JCS_RGB) {
-        ALOGE("expected input color space to be JCS_YCbCr or JCS_RGB but got %d",
-              cinfo.jpeg_color_space);
+        status.error_code = UHDR_CODEC_ERROR;
+        status.has_detail = 1;
+        snprintf(status.detail, sizeof status.detail,
+                 "expected input color space to be JCS_YCbCr or JCS_RGB but got %d",
+                 cinfo.jpeg_color_space);
         jpeg_destroy_decompress(&cinfo);
-        return false;
+        return status;
+      }
+      mPlaneHStride[0] = cinfo.image_width;
+      mPlaneVStride[0] = cinfo.image_height;
+      for (int i = 1; i < kMaxNumComponents; i++) {
+        mPlaneHStride[i] = 0;
+        mPlaneVStride[i] = 0;
       }
 #ifdef JCS_ALPHA_EXTENSIONS
-      mResultBuffer.resize(cinfo.image_width * cinfo.image_height * 4);
+      mResultBuffer.resize(mPlaneHStride[0] * mPlaneVStride[0] * 4);
       cinfo.out_color_space = JCS_EXT_RGBA;
 #else
-      mResultBuffer.resize(cinfo.image_width * cinfo.image_height * 3);
+      mResultBuffer.resize(mPlaneHStride[0] * mPlaneVStride[0] * 3);
       cinfo.out_color_space = JCS_RGB;
 #endif
     } else if (DECODE_TO_YCBCR_CS == mode) {
       if (cinfo.jpeg_color_space != JCS_YCbCr && cinfo.jpeg_color_space != JCS_GRAYSCALE) {
-        ALOGE("expected input color space to be JCS_YCbCr or JCS_GRAYSCALE but got %d",
-              cinfo.jpeg_color_space);
+        status.error_code = UHDR_CODEC_ERROR;
+        status.has_detail = 1;
+        snprintf(status.detail, sizeof status.detail,
+                 "expected input color space to be JCS_YCbCr or JCS_GRAYSCALE but got %d",
+                 cinfo.jpeg_color_space);
         jpeg_destroy_decompress(&cinfo);
-        return false;
+        return status;
       }
       if (cinfo.jpeg_color_space == JCS_YCbCr) {
         if (cinfo.comp_info[0].h_samp_factor != 2 || cinfo.comp_info[0].v_samp_factor != 2 ||
             cinfo.comp_info[1].h_samp_factor != 1 || cinfo.comp_info[1].v_samp_factor != 1 ||
             cinfo.comp_info[2].h_samp_factor != 1 || cinfo.comp_info[2].v_samp_factor != 1) {
-          ALOGE("apply gainmap supports only 4:2:0 sub sampling format, stopping image decode");
+          status.error_code = UHDR_CODEC_ERROR;
+          status.has_detail = 1;
+          snprintf(status.detail, sizeof status.detail,
+                   "apply gainmap supports only 4:2:0 sub sampling format, stopping image decode");
           jpeg_destroy_decompress(&cinfo);
-          return false;
+          return status;
         }
       }
       int size = 0;
       for (int i = 0; i < cinfo.num_components; i++) {
-        size += mPlaneWidth[i] * mPlaneHeight[i];
+        mPlaneHStride[i] = ALIGNM(mPlaneWidth[i], cinfo.max_h_samp_factor);
+        mPlaneVStride[i] = ALIGNM(mPlaneHeight[i], cinfo.max_v_samp_factor);
+        size += mPlaneHStride[i] * mPlaneVStride[i];
       }
       mResultBuffer.resize(size);
       cinfo.out_color_space = cinfo.jpeg_color_space;
@@ -330,21 +393,25 @@ bool JpegDecoderHelper::decode(const void* image, int length, decode_mode_t mode
     }
     cinfo.dct_method = JDCT_ISLOW;
     jpeg_start_decompress(&cinfo);
-    if (!decode(&cinfo, static_cast<uint8_t*>(mResultBuffer.data()))) {
+    status = decode(&cinfo, static_cast<uint8_t*>(mResultBuffer.data()));
+    if (status.error_code != UHDR_CODEC_OK) {
       jpeg_destroy_decompress(&cinfo);
-      return false;
+      return status;
     }
   } else {
-    cinfo.err->output_message((j_common_ptr)&cinfo);
+    status.error_code = UHDR_CODEC_ERROR;
+    status.has_detail = 1;
+    cinfo.err->format_message((j_common_ptr)&cinfo, status.detail);
     jpeg_destroy_decompress(&cinfo);
-    return false;
+    return status;
   }
   jpeg_finish_decompress(&cinfo);
   jpeg_destroy_decompress(&cinfo);
-  return true;
+  return status;
 }
 
-bool JpegDecoderHelper::decode(jpeg_decompress_struct* cinfo, uint8_t* dest) {
+uhdr_error_info_t JpegDecoderHelper::decode(jpeg_decompress_struct* cinfo, uint8_t* dest) {
+  uhdr_error_info_t status = g_no_error;
   switch (cinfo->out_color_space) {
     case JCS_GRAYSCALE:
       [[fallthrough]];
@@ -360,30 +427,37 @@ bool JpegDecoderHelper::decode(jpeg_decompress_struct* cinfo, uint8_t* dest) {
       mOutFormat = UHDR_IMG_FMT_24bppRGB888;
       return decodeToCSRGB(cinfo, dest);
     default:
-      ALOGE("unrecognized output color space %d", cinfo->out_color_space);
+      status.error_code = UHDR_CODEC_ERROR;
+      status.has_detail = 1;
+      snprintf(status.detail, sizeof status.detail, "unrecognized output color space %d",
+               cinfo->out_color_space);
   }
-  return false;
+  return status;
 }
 
-bool JpegDecoderHelper::decodeToCSRGB(jpeg_decompress_struct* cinfo, uint8_t* dest) {
+uhdr_error_info_t JpegDecoderHelper::decodeToCSRGB(jpeg_decompress_struct* cinfo, uint8_t* dest) {
   JSAMPLE* out = (JSAMPLE*)dest;
 
   while (cinfo->output_scanline < cinfo->image_height) {
     JDIMENSION read_lines = jpeg_read_scanlines(cinfo, &out, 1);
     if (1 != read_lines) {
-      ALOGE("jpeg_read_scanlines returned %d, expected %d", read_lines, 1);
-      return false;
+      uhdr_error_info_t status;
+      status.error_code = UHDR_CODEC_ERROR;
+      status.has_detail = 1;
+      snprintf(status.detail, sizeof status.detail, "jpeg_read_scanlines returned %d, expected %d",
+               read_lines, 1);
+      return status;
     }
 #ifdef JCS_ALPHA_EXTENSIONS
-    out += cinfo->image_width * 4;
+    out += mPlaneHStride[0] * 4;
 #else
-    out += cinfo->image_width * 3;
+    out += mPlaneHStride[0] * 3;
 #endif
   }
-  return true;
+  return g_no_error;
 }
 
-bool JpegDecoderHelper::decodeToCSYCbCr(jpeg_decompress_struct* cinfo, uint8_t* dest) {
+uhdr_error_info_t JpegDecoderHelper::decodeToCSYCbCr(jpeg_decompress_struct* cinfo, uint8_t* dest) {
   JSAMPROW mcuRows[kMaxNumComponents][4 * DCTSIZE];
   JSAMPROW mcuRowsTmp[kMaxNumComponents][4 * DCTSIZE];
   uint8_t* planes[kMaxNumComponents]{};
@@ -392,9 +466,9 @@ bool JpegDecoderHelper::decodeToCSYCbCr(jpeg_decompress_struct* cinfo, uint8_t* 
 
   for (int i = 0, plane_offset = 0; i < cinfo->num_components; i++) {
     planes[i] = dest + plane_offset;
-    plane_offset += mPlaneWidth[i] * mPlaneHeight[i];
-    alignedPlaneWidth[i] = ALIGNM(mPlaneWidth[i], DCTSIZE);
-    if (mPlaneWidth[i] != alignedPlaneWidth[i]) {
+    plane_offset += mPlaneHStride[i] * mPlaneVStride[i];
+    alignedPlaneWidth[i] = ALIGNM(mPlaneHStride[i], DCTSIZE);
+    if (mPlaneHStride[i] != alignedPlaneWidth[i]) {
       mPlanesMCURow[i] = std::make_unique<uint8_t[]>(alignedPlaneWidth[i] * DCTSIZE *
                                                      cinfo->comp_info[i].v_samp_factor);
       uint8_t* mem = mPlanesMCURow[i].get();
@@ -402,10 +476,10 @@ bool JpegDecoderHelper::decodeToCSYCbCr(jpeg_decompress_struct* cinfo, uint8_t* 
            j++, mem += alignedPlaneWidth[i]) {
         mcuRowsTmp[i][j] = mem;
       }
-    } else if (mPlaneHeight[i] % DCTSIZE != 0) {
+    } else if (mPlaneVStride[i] % DCTSIZE != 0) {
       mPlanesMCURow[i] = std::make_unique<uint8_t[]>(alignedPlaneWidth[i]);
     }
-    subImage[i] = mPlaneWidth[i] == alignedPlaneWidth[i] ? mcuRows[i] : mcuRowsTmp[i];
+    subImage[i] = mPlaneHStride[i] == alignedPlaneWidth[i] ? mcuRows[i] : mcuRowsTmp[i];
   }
 
   while (cinfo->output_scanline < cinfo->image_height) {
@@ -419,8 +493,8 @@ bool JpegDecoderHelper::decodeToCSYCbCr(jpeg_decompress_struct* cinfo, uint8_t* 
       for (int j = 0; j < cinfo->comp_info[i].v_samp_factor * DCTSIZE; j++) {
         JDIMENSION scanline = mcu_scanline_start[i] + j;
 
-        if (scanline < mPlaneHeight[i]) {
-          mcuRows[i][j] = planes[i] + scanline * mPlaneWidth[i];
+        if (scanline < mPlaneVStride[i]) {
+          mcuRows[i][j] = planes[i] + scanline * mPlaneHStride[i];
         } else {
           mcuRows[i][j] = mPlanesMCURow[i].get();
         }
@@ -429,23 +503,46 @@ bool JpegDecoderHelper::decodeToCSYCbCr(jpeg_decompress_struct* cinfo, uint8_t* 
 
     int processed = jpeg_read_raw_data(cinfo, subImage, DCTSIZE * cinfo->max_v_samp_factor);
     if (processed != DCTSIZE * cinfo->max_v_samp_factor) {
-      ALOGE("number of scan lines read %d does not equal requested scan lines %d ", processed,
-            DCTSIZE * cinfo->max_v_samp_factor);
-      return false;
+      uhdr_error_info_t status;
+      status.error_code = UHDR_CODEC_ERROR;
+      status.has_detail = 1;
+      snprintf(status.detail, sizeof status.detail,
+               "number of scan lines read %d does not equal requested scan lines %d ", processed,
+               DCTSIZE * cinfo->max_v_samp_factor);
+      return status;
     }
 
     for (int i = 0; i < cinfo->num_components; i++) {
-      if (mPlaneWidth[i] != alignedPlaneWidth[i]) {
+      if (mPlaneHStride[i] != alignedPlaneWidth[i]) {
         for (int j = 0; j < cinfo->comp_info[i].v_samp_factor * DCTSIZE; j++) {
           JDIMENSION scanline = mcu_scanline_start[i] + j;
-          if (scanline < mPlaneHeight[i]) {
+          if (scanline < mPlaneVStride[i]) {
             memcpy(mcuRows[i][j], mcuRowsTmp[i][j], mPlaneWidth[i]);
           }
         }
       }
     }
   }
-  return true;
+  return g_no_error;
+}
+
+uhdr_raw_image_t JpegDecoderHelper::getDecompressedImage() {
+  uhdr_raw_image_t img;
+
+  img.fmt = mOutFormat;
+  img.cg = UHDR_CG_UNSPECIFIED;
+  img.ct = UHDR_CT_UNSPECIFIED;
+  img.range = UHDR_CR_FULL_RANGE;
+  img.w = mPlaneWidth[0];
+  img.h = mPlaneHeight[0];
+  uint8_t* data = mResultBuffer.data();
+  for (int i = 0; i < 3; i++) {
+    img.planes[i] = data;
+    img.stride[i] = mPlaneHStride[i];
+    data += mPlaneHStride[i] * mPlaneVStride[i];
+  }
+
+  return img;
 }
 
 }  // namespace ultrahdr
