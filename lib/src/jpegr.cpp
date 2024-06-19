@@ -928,6 +928,18 @@ status_t JpegR::generateGainMap(jr_uncompressed_ptr yuv420_image_ptr,
   size_t map_width = image_width / mMapDimensionScaleFactor;
   size_t map_height = image_height / mMapDimensionScaleFactor;
 
+  if (map_width == 0 || map_height == 0) {
+    int scaleFactor = (std::min)(image_width, image_height);
+    scaleFactor = (scaleFactor >= DCTSIZE) ? (scaleFactor / DCTSIZE) : 1;
+    ALOGW(
+        "configured gainmap scale factor is resulting in gainmap width and/or height to be zero, "
+        "image width %d, image height %d, scale factor %d. Modiyfing gainmap scale factor to %d ",
+        (int)image_width, (int)image_height, (int)mMapDimensionScaleFactor, scaleFactor);
+    setMapDimensionScaleFactor(scaleFactor);
+    map_width = image_width / mMapDimensionScaleFactor;
+    map_height = image_height / mMapDimensionScaleFactor;
+  }
+
   dest->data = new uint8_t[map_width * map_height * gainMapChannelCount];
   dest->width = map_width;
   dest->height = map_height;

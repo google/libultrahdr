@@ -253,11 +253,9 @@ class UltraHdrAppInput {
                    uhdr_color_gamut_t sdrCg = UHDR_CG_BT_709,
                    uhdr_color_transfer_t hdrTf = UHDR_CT_HLG, int quality = 95,
                    uhdr_color_transfer_t oTf = UHDR_CT_HLG,
-                   uhdr_img_fmt_t oFmt = UHDR_IMG_FMT_32bppRGBA1010102,
-                   bool use_full_range_color_hdr = false,
-                   int gainmap_scale_factor = 4,
-                   bool use_multi_channel_gainmap = false,
-                   int gainmap_compression_quality = 85)
+                   uhdr_img_fmt_t oFmt = UHDR_IMG_FMT_32bppRGBA1010102, bool isHdrCrFull = false,
+                   int gainmapScaleFactor = 4, int gainmapQuality = 85,
+                   bool enableMultiChannelGainMap = false)
       : mHdrIntentRawFile(hdrIntentRawFile),
         mSdrIntentRawFile(sdrIntentRawFile),
         mSdrIntentCompressedFile(sdrIntentCompressedFile),
@@ -275,10 +273,10 @@ class UltraHdrAppInput {
         mQuality(quality),
         mOTf(oTf),
         mOfmt(oFmt),
-        mFullRange(use_full_range_color_hdr),
-        mMapDimensionScaleFactor(gainmap_scale_factor),
-        mMapCompressQuality(gainmap_compression_quality),
-        mUseMultiChannelGainMap(use_multi_channel_gainmap),
+        mFullRange(isHdrCrFull),
+        mMapDimensionScaleFactor(gainmapScaleFactor),
+        mMapCompressQuality(gainmapQuality),
+        mUseMultiChannelGainMap(enableMultiChannelGainMap),
         mMode(0){};
 
   UltraHdrAppInput(const char* uhdrFile, const char* outputFile,
@@ -298,6 +296,10 @@ class UltraHdrAppInput {
         mQuality(95),
         mOTf(oTf),
         mOfmt(oFmt),
+        mFullRange(UHDR_CR_UNSPECIFIED),
+        mMapDimensionScaleFactor(4),
+        mMapCompressQuality(85),
+        mUseMultiChannelGainMap(false),
         mMode(1){};
 
   ~UltraHdrAppInput() {
@@ -367,11 +369,11 @@ class UltraHdrAppInput {
   const int mQuality;
   const uhdr_color_transfer_t mOTf;
   const uhdr_img_fmt_t mOfmt;
+  const bool mFullRange;
+  const size_t mMapDimensionScaleFactor;
+  const int mMapCompressQuality;
+  const bool mUseMultiChannelGainMap;
   const int mMode;
-  bool mFullRange;
-  size_t mMapDimensionScaleFactor;
-  int mMapCompressQuality;
-  bool mUseMultiChannelGainMap;
 
   uhdr_raw_image_t mRawP010Image{};
   uhdr_raw_image_t mRawRgba1010102Image{};
@@ -631,16 +633,13 @@ bool UltraHdrAppInput::encode() {
   RET_IF_ERR(uhdr_enc_set_using_multi_channel_gainmap(handle, mUseMultiChannelGainMap))
   RET_IF_ERR(uhdr_enc_set_gainmap_scale_factor(handle, mMapDimensionScaleFactor))
 #ifdef PROFILE_ENABLE
-  const int profileCount = 10;
   Profiler profileEncode;
   profileEncode.timerStart();
-  for (auto i = 0; i < profileCount; i++) {
 #endif
-    RET_IF_ERR(uhdr_encode(handle))
+  RET_IF_ERR(uhdr_encode(handle))
 #ifdef PROFILE_ENABLE
-  }
   profileEncode.timerStop();
-  auto avgEncTime = profileEncode.elapsedTime() / (profileCount * 1000.f);
+  auto avgEncTime = profileEncode.elapsedTime() / 1000.f;
   printf("Average encode time for res %d x %d is %f ms \n", mWidth, mHeight, avgEncTime);
 #endif
 
@@ -655,10 +654,9 @@ bool UltraHdrAppInput::encode() {
   mUhdrImage.cg = output->cg;
   mUhdrImage.ct = output->ct;
   mUhdrImage.range = output->range;
-  writeFile(mOutputFile, output->data, output->data_sz);
   uhdr_release_encoder(handle);
 
-  return true;
+  return writeFile(mOutputFile, mUhdrImage.data, mUhdrImage.data_sz);
 }
 
 bool UltraHdrAppInput::decode() {
@@ -685,17 +683,15 @@ bool UltraHdrAppInput::decode() {
   RET_IF_ERR(uhdr_dec_set_out_img_format(handle, mOfmt))
 
 #ifdef PROFILE_ENABLE
-  const int profileCount = 10;
   Profiler profileDecode;
   profileDecode.timerStart();
-  for (auto i = 0; i < profileCount; i++) {
 #endif
-    RET_IF_ERR(uhdr_decode(handle))
+  RET_IF_ERR(uhdr_decode(handle))
 #ifdef PROFILE_ENABLE
-  }
   profileDecode.timerStop();
-  auto avgDecTime = profileDecode.elapsedTime() / (profileCount * 1000.f);
-  printf("Average decode time for res %ld x %ld is %f ms \n", info.width, info.height, avgDecTime);
+  auto avgDecTime = profileDecode.elapsedTime() / 1000.f;
+  printf("Average decode time for res %ld x %ld is %f ms \n", uhdr_dec_get_image_width(handle),
+         uhdr_dec_get_image_height(handle), avgDecTime);
 #endif
 
 #undef RET_IF_ERR
@@ -719,10 +715,9 @@ bool UltraHdrAppInput::decode() {
   for (unsigned i = 0; i < output->h; i++, inData += inStride, outData += outStride) {
     memcpy(outData, inData, length);
   }
-  writeFile(mOutputFile, output);
   uhdr_release_decoder(handle);
 
-  return true;
+  return mMode == 1 ? writeFile(mOutputFile, &mDecodedUhdrRgbImage) : true;
 }
 
 #define CLIP3(x, min, max) ((x) < (min)) ? (min) : ((x) > (max)) ? (max) : (x)
@@ -1240,10 +1235,18 @@ static void usage(const char* name) {
       "    -t    10 bit input transfer function, optional. [0:linear, 1:hlg (default), 2:pq] \n");
   fprintf(stderr,
           "    -q    quality factor to be used while encoding 8 bit image, optional. [0-100], 95 : "
-          "default.\n"
-          "          gain map image does not use this quality factor. \n"
-          "          for now gain map image quality factor is not configurable. \n");
+          "default.\n");
   fprintf(stderr, "    -e    compute psnr, optional. [0:no (default), 1:yes] \n");
+  fprintf(stderr,
+          "    -R    color range for hdr intent, optional. [0:narrow-range (default), "
+          "1:full-range]. \n");
+  fprintf(stderr, "    -s    gain map scale factor, optional. [factor > 0 (4 : default)]. \n");
+  fprintf(stderr,
+          "    -Q    quality factor to be used while encoding gain map image, optional. [0-100], "
+          "85 : default. \n");
+  fprintf(
+      stderr,
+      "    -M    enable / disable multi channel gain map, optional. [0:no (default), 1:yes]. \n");
   fprintf(stderr, "\n## decoder options : \n");
   fprintf(stderr, "    -j    ultra hdr compressed input resource. \n");
   fprintf(
@@ -1258,8 +1261,6 @@ static void usage(const char* name) {
       "          srgb output color transfer shall be paired with rgba8888 only. \n"
       "          hlg, pq shall be paired with rgba1010102. \n"
       "          linear shall be paired with rgbahalffloat. \n");
-  fprintf(stderr,
-      "    -R    color range for the HDR YUV input. [0:narrow-range (default), 1:full-range]. \n");
   fprintf(stderr, "\n## common options : \n");
   fprintf(stderr,
           "    -z    output filename, optional. \n"
@@ -1393,9 +1394,9 @@ int main(int argc, char* argv[]) {
         use_full_range_color_hdr = atoi(optarg_s) == 1 ? true : false;
         break;
       // TODO
-//      case 'r':
-//        use_full_range_color_sdr = atoi(optarg_s) == 1 ? true : false;
-//        break;
+      /*case 'r':
+        use_full_range_color_sdr = atoi(optarg_s) == 1 ? true : false;
+        break;*/
       case 's':
         gainmap_scale_factor = atoi(optarg_s);
         break;
@@ -1441,7 +1442,7 @@ int main(int argc, char* argv[]) {
                               output_file ? output_file : "out.jpeg", width, height, hdr_cf, sdr_cf,
                               hdr_cg, sdr_cg, hdr_tf, quality, out_tf, out_cf,
                               use_full_range_color_hdr, gainmap_scale_factor,
-                              use_multi_channel_gainmap, gainmap_compression_quality);
+                              gainmap_compression_quality, use_multi_channel_gainmap);
     if (!appInput.encode()) return -1;
     if (compute_psnr == 1) {
       if (!appInput.decode()) return -1;
