@@ -24,7 +24,6 @@
 #include <string>
 
 #include "ultrahdr/ultrahdrcommon.h"
-#include "ultrahdr/ultrahdr.h"
 #include "ultrahdr/jpegencoderhelper.h"
 
 namespace ultrahdr {
@@ -105,22 +104,50 @@ static void outputErrorMessage(j_common_ptr cinfo) {
   ALOGE("%s\n", buffer);
 }
 
-bool JpegEncoderHelper::compressImage(const uint8_t* planes[3], const size_t strides[3],
-                                      const int width, const int height,
-                                      const uhdr_img_fmt_t format, const int qfactor,
-                                      const void* iccBuffer, const unsigned int iccSize) {
+uhdr_error_info_t JpegEncoderHelper::compressImage(const uhdr_raw_image_t* img, const int qfactor,
+                                                   const void* iccBuffer,
+                                                   const unsigned int iccSize) {
+  const uint8_t* planes[3]{reinterpret_cast<uint8_t*>(img->planes[UHDR_PLANE_Y]),
+                           reinterpret_cast<uint8_t*>(img->planes[UHDR_PLANE_U]),
+                           reinterpret_cast<uint8_t*>(img->planes[UHDR_PLANE_V])};
+  const size_t strides[3]{img->stride[UHDR_PLANE_Y], img->stride[UHDR_PLANE_U],
+                          img->stride[UHDR_PLANE_V]};
+  return compressImage(planes, strides, img->w, img->h, img->fmt, qfactor, iccBuffer, iccSize);
+}
+
+uhdr_error_info_t JpegEncoderHelper::compressImage(const uint8_t* planes[3],
+                                                   const size_t strides[3], const int width,
+                                                   const int height, const uhdr_img_fmt_t format,
+                                                   const int qfactor, const void* iccBuffer,
+                                                   const unsigned int iccSize) {
   return encode(planes, strides, width, height, format, qfactor, iccBuffer, iccSize);
 }
 
-bool JpegEncoderHelper::encode(const uint8_t* planes[3], const size_t strides[3], const int width,
-                               const int height, const uhdr_img_fmt_t format, const int qfactor,
-                               const void* iccBuffer, const unsigned int iccSize) {
+uhdr_compressed_image_t JpegEncoderHelper::getCompressedImage() {
+  uhdr_compressed_image_t img;
+
+  img.data = mDestMgr.mResultBuffer.data();
+  img.capacity = img.data_sz = mDestMgr.mResultBuffer.size();
+  img.cg = UHDR_CG_UNSPECIFIED;
+  img.ct = UHDR_CT_UNSPECIFIED;
+  img.range = UHDR_CR_UNSPECIFIED;
+
+  return img;
+}
+
+uhdr_error_info_t JpegEncoderHelper::encode(const uint8_t* planes[3], const size_t strides[3],
+                                            const int width, const int height,
+                                            const uhdr_img_fmt_t format, const int qfactor,
+                                            const void* iccBuffer, const unsigned int iccSize) {
   jpeg_compress_struct cinfo;
   jpeg_error_mgr_impl myerr;
+  uhdr_error_info_t status = g_no_error;
 
   if (sample_factors.find(format) == sample_factors.end()) {
-    ALOGE("unrecognized format %d", format);
-    return false;
+    status.error_code = UHDR_CODEC_INVALID_PARAM;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail, "unrecognized input format %d", format);
+    return status;
   }
   std::vector<int>& factors = sample_factors.find(format)->second;
 
@@ -177,30 +204,37 @@ bool JpegEncoderHelper::encode(const uint8_t* planes[3], const size_t strides[3]
             const_cast<JSAMPROW>(&planes[0][cinfo.next_scanline * strides[0] * 3])};
         JDIMENSION processed = jpeg_write_scanlines(&cinfo, row_pointer, 1);
         if (1 != processed) {
-          ALOGE("jpeg_read_scanlines returned %d, expected %d", processed, 1);
+          status.error_code = UHDR_CODEC_ERROR;
+          status.has_detail = 1;
+          snprintf(status.detail, sizeof status.detail,
+                   "jpeg_read_scanlines returned %d, expected %d", processed, 1);
           jpeg_destroy_compress(&cinfo);
-          return false;
+          return status;
         }
       }
     } else {
-      if (!compressYCbCr(&cinfo, planes, strides)) {
+      status = compressYCbCr(&cinfo, planes, strides);
+      if (status.error_code != UHDR_CODEC_OK) {
         jpeg_destroy_compress(&cinfo);
-        return false;
+        return status;
       }
     }
   } else {
-    cinfo.err->output_message((j_common_ptr)&cinfo);
+    status.error_code = UHDR_CODEC_ERROR;
+    status.has_detail = 1;
+    cinfo.err->format_message((j_common_ptr)&cinfo, status.detail);
     jpeg_destroy_compress(&cinfo);
-    return false;
+    return status;
   }
 
   jpeg_finish_compress(&cinfo);
   jpeg_destroy_compress(&cinfo);
-  return true;
+  return status;
 }
 
-bool JpegEncoderHelper::compressYCbCr(jpeg_compress_struct* cinfo, const uint8_t* planes[3],
-                                      const size_t strides[3]) {
+uhdr_error_info_t JpegEncoderHelper::compressYCbCr(jpeg_compress_struct* cinfo,
+                                                   const uint8_t* planes[3],
+                                                   const size_t strides[3]) {
   JSAMPROW mcuRows[kMaxNumComponents][2 * DCTSIZE];
   JSAMPROW mcuRowsTmp[kMaxNumComponents][2 * DCTSIZE];
   size_t alignedPlaneWidth[kMaxNumComponents]{};
@@ -251,12 +285,16 @@ bool JpegEncoderHelper::compressYCbCr(jpeg_compress_struct* cinfo, const uint8_t
     }
     int processed = jpeg_write_raw_data(cinfo, subImage, DCTSIZE * cinfo->max_v_samp_factor);
     if (processed != DCTSIZE * cinfo->max_v_samp_factor) {
-      ALOGE("number of scan lines processed %d does not equal requested scan lines %d ", processed,
-            DCTSIZE * cinfo->max_v_samp_factor);
-      return false;
+      uhdr_error_info_t status;
+      status.error_code = UHDR_CODEC_ERROR;
+      status.has_detail = 1;
+      snprintf(status.detail, sizeof status.detail,
+               "number of scan lines processed %d does not equal requested scan lines %d ",
+               processed, DCTSIZE * cinfo->max_v_samp_factor);
+      return status;
     }
   }
-  return true;
+  return g_no_error;
 }
 
 }  // namespace ultrahdr

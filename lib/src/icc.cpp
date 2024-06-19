@@ -122,17 +122,17 @@ static void float_XYZD50_to_grid16_lab(const float* xyz_float, uint8_t* grid16_l
   }
 }
 
-std::string IccHelper::get_desc_string(const ultrahdr_transfer_function tf,
-                                       const ultrahdr_color_gamut gamut) {
+std::string IccHelper::get_desc_string(const uhdr_color_transfer_t tf,
+                                       const uhdr_color_gamut_t gamut) {
   std::string result;
   switch (gamut) {
-    case ULTRAHDR_COLORGAMUT_BT709:
+    case UHDR_CG_BT_709:
       result += "sRGB";
       break;
-    case ULTRAHDR_COLORGAMUT_P3:
+    case UHDR_CG_DISPLAY_P3:
       result += "Display P3";
       break;
-    case ULTRAHDR_COLORGAMUT_BT2100:
+    case UHDR_CG_BT_2100:
       result += "Rec2020";
       break;
     default:
@@ -141,16 +141,16 @@ std::string IccHelper::get_desc_string(const ultrahdr_transfer_function tf,
   }
   result += " Gamut with ";
   switch (tf) {
-    case ULTRAHDR_TF_SRGB:
+    case UHDR_CT_SRGB:
       result += "sRGB";
       break;
-    case ULTRAHDR_TF_LINEAR:
+    case UHDR_CT_LINEAR:
       result += "Linear";
       break;
-    case ULTRAHDR_TF_PQ:
+    case UHDR_CT_PQ:
       result += "PQ";
       break;
-    case ULTRAHDR_TF_HLG:
+    case UHDR_CT_HLG:
       result += "HLG";
       break;
     default:
@@ -245,11 +245,11 @@ std::shared_ptr<DataStruct> IccHelper::write_trc_tag(const TransferFunction& fn)
   return dataStruct;
 }
 
-float IccHelper::compute_tone_map_gain(const ultrahdr_transfer_function tf, float L) {
+float IccHelper::compute_tone_map_gain(const uhdr_color_transfer_t tf, float L) {
   if (L <= 0.f) {
     return 1.f;
   }
-  if (tf == ULTRAHDR_TF_PQ) {
+  if (tf == UHDR_CT_PQ) {
     // The PQ transfer function will map to the range [0, 1]. Linearly scale
     // it up to the range [0, 10,000/203]. We will then tone map that back
     // down to [0, 1].
@@ -262,7 +262,7 @@ float IccHelper::compute_tone_map_gain(const ultrahdr_transfer_function tf, floa
     constexpr float kToneMapB = 1.f / kOutputMaxLuminance;
     return kInputMaxLuminance * (1.f + kToneMapA * L) / (1.f + kToneMapB * L);
   }
-  if (tf == ULTRAHDR_TF_HLG) {
+  if (tf == UHDR_CT_HLG) {
     // Let Lw be the brightness of the display in nits.
     constexpr float Lw = 203.f;
     const float gamma = 1.2f + 0.42f * std::log(Lw / 1000.f) / std::log(10.f);
@@ -306,7 +306,7 @@ void IccHelper::compute_lut_entry(const Matrix3x3& src_to_XYZD50, float rgb[3]) 
   float L = bt2100Luminance({{{rgb[0], rgb[1], rgb[2]}}});
 
   // Compute the tone map gain based on the luminance.
-  float tone_map_gain = compute_tone_map_gain(ULTRAHDR_TF_PQ, L);
+  float tone_map_gain = compute_tone_map_gain(UHDR_CT_PQ, L);
 
   // Apply the tone map gain.
   for (size_t i = 0; i < kNumChannels; ++i) {
@@ -408,8 +408,8 @@ std::shared_ptr<DataStruct> IccHelper::write_mAB_or_mBA_tag(uint32_t type, bool 
   return dataStruct;
 }
 
-std::shared_ptr<DataStruct> IccHelper::writeIccProfile(ultrahdr_transfer_function tf,
-                                                       ultrahdr_color_gamut gamut) {
+std::shared_ptr<DataStruct> IccHelper::writeIccProfile(uhdr_color_transfer_t tf,
+                                                       uhdr_color_gamut_t gamut) {
   ICCHeader header;
 
   std::vector<std::pair<uint32_t, std::shared_ptr<DataStruct>>> tags;
@@ -421,13 +421,13 @@ std::shared_ptr<DataStruct> IccHelper::writeIccProfile(ultrahdr_transfer_functio
 
   Matrix3x3 toXYZD50;
   switch (gamut) {
-    case ULTRAHDR_COLORGAMUT_BT709:
+    case UHDR_CG_BT_709:
       toXYZD50 = kSRGB;
       break;
-    case ULTRAHDR_COLORGAMUT_P3:
+    case UHDR_CG_DISPLAY_P3:
       toXYZD50 = kDisplayP3;
       break;
-    case ULTRAHDR_COLORGAMUT_BT2100:
+    case UHDR_CG_BT_2100:
       toXYZD50 = kRec2020;
       break;
     default:
@@ -449,8 +449,8 @@ std::shared_ptr<DataStruct> IccHelper::writeIccProfile(ultrahdr_transfer_functio
   tags.emplace_back(kTAG_wtpt, write_xyz_tag(kD50_x, kD50_y, kD50_z));
 
   // Compute transfer curves.
-  if (tf != ULTRAHDR_TF_PQ) {
-    if (tf == ULTRAHDR_TF_HLG) {
+  if (tf != UHDR_CT_PQ) {
+    if (tf == UHDR_CT_HLG) {
       std::vector<uint8_t> trc_table;
       trc_table.resize(kTrcTableSize * 2);
       for (uint32_t i = 0; i < kTrcTableSize; ++i) {
@@ -474,32 +474,32 @@ std::shared_ptr<DataStruct> IccHelper::writeIccProfile(ultrahdr_transfer_functio
   }
 
   // Compute CICP.
-  if (tf == ULTRAHDR_TF_HLG || tf == ULTRAHDR_TF_PQ) {
+  if (tf == UHDR_CT_HLG || tf == UHDR_CT_PQ) {
     // The CICP tag is present in ICC 4.4, so update the header's version.
     header.version = Endian_SwapBE32(0x04400000);
 
     uint32_t color_primaries = 0;
-    if (gamut == ULTRAHDR_COLORGAMUT_BT709) {
+    if (gamut == UHDR_CG_BT_709) {
       color_primaries = kCICPPrimariesSRGB;
-    } else if (gamut == ULTRAHDR_COLORGAMUT_P3) {
+    } else if (gamut == UHDR_CG_DISPLAY_P3) {
       color_primaries = kCICPPrimariesP3;
     }
 
     uint32_t transfer_characteristics = 0;
-    if (tf == ULTRAHDR_TF_SRGB) {
+    if (tf == UHDR_CT_SRGB) {
       transfer_characteristics = kCICPTrfnSRGB;
-    } else if (tf == ULTRAHDR_TF_LINEAR) {
+    } else if (tf == UHDR_CT_LINEAR) {
       transfer_characteristics = kCICPTrfnLinear;
-    } else if (tf == ULTRAHDR_TF_PQ) {
+    } else if (tf == UHDR_CT_PQ) {
       transfer_characteristics = kCICPTrfnPQ;
-    } else if (tf == ULTRAHDR_TF_HLG) {
+    } else if (tf == UHDR_CT_HLG) {
       transfer_characteristics = kCICPTrfnHLG;
     }
     tags.emplace_back(kTAG_cicp, write_cicp_tag(color_primaries, transfer_characteristics));
   }
 
   // Compute A2B0.
-  if (tf == ULTRAHDR_TF_PQ) {
+  if (tf == UHDR_CT_PQ) {
     std::vector<uint8_t> a2b_grid;
     a2b_grid.resize(kGridSize * kGridSize * kGridSize * kNumChannels * 2);
     size_t a2b_grid_index = 0;
@@ -530,7 +530,7 @@ std::shared_ptr<DataStruct> IccHelper::writeIccProfile(ultrahdr_transfer_functio
   }
 
   // Compute B2A0.
-  if (tf == ULTRAHDR_TF_PQ) {
+  if (tf == UHDR_CT_PQ) {
     auto b2a_data = write_mAB_or_mBA_tag(kTAG_mBAType,
                                          /* has_a_curves */ false,
                                          /* grid_points */ nullptr,
@@ -561,7 +561,7 @@ std::shared_ptr<DataStruct> IccHelper::writeIccProfile(ultrahdr_transfer_functio
 
   // Write the header.
   header.data_color_space = Endian_SwapBE32(Signature_RGB);
-  header.pcs = Endian_SwapBE32(tf == ULTRAHDR_TF_PQ ? Signature_Lab : Signature_XYZ);
+  header.pcs = Endian_SwapBE32(tf == UHDR_CT_PQ ? Signature_Lab : Signature_XYZ);
   header.size = Endian_SwapBE32(profile_size);
   header.tag_count = Endian_SwapBE32(tags.size());
 
@@ -609,9 +609,8 @@ bool IccHelper::tagsEqualToMatrix(const Matrix3x3& matrix, const uint8_t* red_ta
   float r_x = FixedToFloat(r_x_fixed);
   float r_y = FixedToFloat(r_y_fixed);
   float r_z = FixedToFloat(r_z_fixed);
-  if (fabs(r_x - matrix.vals[0][0]) > tolerance ||
-          fabs(r_y - matrix.vals[1][0]) > tolerance ||
-          fabs(r_z - matrix.vals[2][0]) > tolerance) {
+  if (fabs(r_x - matrix.vals[0][0]) > tolerance || fabs(r_y - matrix.vals[1][0]) > tolerance ||
+      fabs(r_z - matrix.vals[2][0]) > tolerance) {
     return false;
   }
 
@@ -621,9 +620,8 @@ bool IccHelper::tagsEqualToMatrix(const Matrix3x3& matrix, const uint8_t* red_ta
   float g_x = FixedToFloat(g_x_fixed);
   float g_y = FixedToFloat(g_y_fixed);
   float g_z = FixedToFloat(g_z_fixed);
-  if (fabs(g_x - matrix.vals[0][1]) > tolerance ||
-          fabs(g_y - matrix.vals[1][1]) > tolerance ||
-          fabs(g_z - matrix.vals[2][1]) > tolerance) {
+  if (fabs(g_x - matrix.vals[0][1]) > tolerance || fabs(g_y - matrix.vals[1][1]) > tolerance ||
+      fabs(g_z - matrix.vals[2][1]) > tolerance) {
     return false;
   }
 
@@ -633,25 +631,24 @@ bool IccHelper::tagsEqualToMatrix(const Matrix3x3& matrix, const uint8_t* red_ta
   float b_x = FixedToFloat(b_x_fixed);
   float b_y = FixedToFloat(b_y_fixed);
   float b_z = FixedToFloat(b_z_fixed);
-  if (fabs(b_x - matrix.vals[0][2]) > tolerance ||
-          fabs(b_y - matrix.vals[1][2]) > tolerance ||
-          fabs(b_z - matrix.vals[2][2]) > tolerance) {
+  if (fabs(b_x - matrix.vals[0][2]) > tolerance || fabs(b_y - matrix.vals[1][2]) > tolerance ||
+      fabs(b_z - matrix.vals[2][2]) > tolerance) {
     return false;
   }
 
   return true;
 }
 
-ultrahdr_color_gamut IccHelper::readIccColorGamut(void* icc_data, size_t icc_size) {
+uhdr_color_gamut_t IccHelper::readIccColorGamut(void* icc_data, size_t icc_size) {
   // Each tag table entry consists of 3 fields of 4 bytes each.
   static const size_t kTagTableEntrySize = 12;
 
   if (icc_data == nullptr || icc_size < sizeof(ICCHeader) + kICCIdentifierSize) {
-    return ULTRAHDR_COLORGAMUT_UNSPECIFIED;
+    return UHDR_CG_UNSPECIFIED;
   }
 
   if (memcmp(icc_data, kICCIdentifier, sizeof(kICCIdentifier)) != 0) {
-    return ULTRAHDR_COLORGAMUT_UNSPECIFIED;
+    return UHDR_CG_UNSPECIFIED;
   }
 
   uint8_t* icc_bytes = reinterpret_cast<uint8_t*>(icc_data) + kICCIdentifierSize;
@@ -668,7 +665,7 @@ ultrahdr_color_gamut IccHelper::readIccColorGamut(void* icc_data, size_t icc_siz
           "Insufficient buffer size during icc parsing. tag index %zu, header %zu, tag size %zu, "
           "icc size %zu",
           tag_idx, kICCIdentifierSize + sizeof(ICCHeader), kTagTableEntrySize, icc_size);
-      return ULTRAHDR_COLORGAMUT_UNSPECIFIED;
+      return UHDR_CG_UNSPECIFIED;
     }
     uint32_t* tag_entry_start =
         reinterpret_cast<uint32_t*>(icc_bytes + sizeof(ICCHeader) + tag_idx * kTagTableEntrySize);
@@ -692,7 +689,7 @@ ultrahdr_color_gamut IccHelper::readIccColorGamut(void* icc_data, size_t icc_siz
       kICCIdentifierSize + green_primary_offset + green_primary_size > icc_size ||
       blue_primary_offset == 0 || blue_primary_size != kColorantTagSize ||
       kICCIdentifierSize + blue_primary_offset + blue_primary_size > icc_size) {
-    return ULTRAHDR_COLORGAMUT_UNSPECIFIED;
+    return UHDR_CG_UNSPECIFIED;
   }
 
   uint8_t* red_tag = icc_bytes + red_primary_offset;
@@ -702,16 +699,16 @@ ultrahdr_color_gamut IccHelper::readIccColorGamut(void* icc_data, size_t icc_siz
   // Serialize tags as we do on encode and compare what we find to that to
   // determine the gamut (since we don't have a need yet for full deserialize).
   if (tagsEqualToMatrix(kSRGB, red_tag, green_tag, blue_tag)) {
-    return ULTRAHDR_COLORGAMUT_BT709;
+    return UHDR_CG_BT_709;
   } else if (tagsEqualToMatrix(kDisplayP3, red_tag, green_tag, blue_tag)) {
-    return ULTRAHDR_COLORGAMUT_P3;
+    return UHDR_CG_DISPLAY_P3;
   } else if (tagsEqualToMatrix(kRec2020, red_tag, green_tag, blue_tag)) {
-    return ULTRAHDR_COLORGAMUT_BT2100;
+    return UHDR_CG_BT_2100;
   }
 
   // Didn't find a match to one of the profiles we write; indicate the gamut
   // is unspecified since we don't understand it.
-  return ULTRAHDR_COLORGAMUT_UNSPECIFIED;
+  return UHDR_CG_UNSPECIFIED;
 }
 
 }  // namespace ultrahdr

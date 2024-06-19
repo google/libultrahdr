@@ -119,6 +119,9 @@ typedef enum uhdr_codec_err {
   /*!\brief Operation completed without error */
   UHDR_CODEC_OK,
 
+  /*!\brief Generic codec error, refer detail field for description */
+  UHDR_CODEC_ERROR,
+
   /*!\brief Unspecified error */
   UHDR_CODEC_UNKNOWN_ERROR,
 

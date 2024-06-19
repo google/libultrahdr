@@ -73,6 +73,7 @@ bool DataStruct::write16(uint16_t value) {
   uint16_t v = value;
   return write(&v, 2);
 }
+
 bool DataStruct::write32(uint32_t value) {
   uint32_t v = value;
   return write(&v, 4);
@@ -92,14 +93,20 @@ bool DataStruct::write(const void* src, int size) {
 /*
  * Helper function used for writing data to destination.
  */
-status_t Write(jr_compressed_ptr destination, const void* source, int length, int& position) {
-  if (position + length > destination->maxLength) {
-    return ERROR_JPEGR_BUFFER_TOO_SMALL;
+uhdr_error_info_t Write(uhdr_compressed_image_t* destination, const void* source, int length,
+                        int& position) {
+  if (position + length > (int)destination->capacity) {
+    uhdr_error_info_t status;
+    status.error_code = UHDR_CODEC_MEM_ERROR;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "output buffer to store compressed data is too small");
+    return status;
   }
 
   memcpy((uint8_t*)destination->data + sizeof(uint8_t) * position, source, length);
   position += length;
-  return JPEGR_NO_ERROR;
+  return g_no_error;
 }
 
 // Extremely simple XML Handler - just searches for interesting elements
@@ -433,17 +440,28 @@ const string XMPXmlHandler::hdrCapacityMinAttrName = kMapHDRCapacityMin;
 const string XMPXmlHandler::hdrCapacityMaxAttrName = kMapHDRCapacityMax;
 const string XMPXmlHandler::baseRenditionIsHdrAttrName = kMapBaseRenditionIsHDR;
 
-bool getMetadataFromXMP(uint8_t* xmp_data, int xmp_size, ultrahdr_metadata_struct* metadata) {
+uhdr_error_info_t getMetadataFromXMP(uint8_t* xmp_data, int xmp_size,
+                                     uhdr_gainmap_metadata_ext_t* metadata) {
   string nameSpace = "http://ns.adobe.com/xap/1.0/\0";
 
   if (xmp_size < (int)nameSpace.size() + 2) {
-    // Data too short
-    return false;
+    uhdr_error_info_t status;
+    status.error_code = UHDR_CODEC_ERROR;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "size of xmp block is expected to be atleast %d bytes, received only %d bytes",
+             (int)nameSpace.size() + 2, xmp_size);
+    return status;
   }
 
   if (strncmp(reinterpret_cast<char*>(xmp_data), nameSpace.c_str(), nameSpace.size())) {
-    // Not correct namespace
-    return false;
+    uhdr_error_info_t status;
+    status.error_code = UHDR_CODEC_ERROR;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "mismatch in namespace of xmp block. Expected %s, Got %.*s", nameSpace.c_str(),
+             (int)nameSpace.size(), reinterpret_cast<char*>(xmp_data));
+    return status;
   }
 
   // Position the pointers to the start of XMP XML portion
@@ -492,8 +510,11 @@ bool getMetadataFromXMP(uint8_t* xmp_data, int xmp_size, ultrahdr_metadata_struc
   reader.Parse(str);
   reader.FinishParse();
   if (reader.HasErrors()) {
-    // Parse error
-    return false;
+    uhdr_error_info_t status;
+    status.error_code = UHDR_CODEC_UNKNOWN_ERROR;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail, "xml parser returned with error");
+    return status;
   }
 
   // Apply default values to any not-present fields, except for Version,
@@ -502,49 +523,110 @@ bool getMetadataFromXMP(uint8_t* xmp_data, int xmp_size, ultrahdr_metadata_struc
   // indicates it is invalid (eg. string where there should be a float).
   bool present = false;
   if (!handler.getVersion(&metadata->version, &present) || !present) {
-    return false;
+    uhdr_error_info_t status;
+    status.error_code = UHDR_CODEC_ERROR;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail, "xml parse error, could not find attribute %s",
+             kMapVersion.c_str());
+    return status;
   }
-  if (!handler.getMaxContentBoost(&metadata->maxContentBoost, &present) || !present) {
-    return false;
+  if (!handler.getMaxContentBoost(&metadata->max_content_boost, &present) || !present) {
+    uhdr_error_info_t status;
+    status.error_code = UHDR_CODEC_ERROR;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail, "xml parse error, could not find attribute %s",
+             kMapGainMapMax.c_str());
+    return status;
   }
-  if (!handler.getHdrCapacityMax(&metadata->hdrCapacityMax, &present) || !present) {
-    return false;
+  if (!handler.getHdrCapacityMax(&metadata->hdr_capacity_max, &present) || !present) {
+    uhdr_error_info_t status;
+    status.error_code = UHDR_CODEC_ERROR;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail, "xml parse error, could not find attribute %s",
+             kMapHDRCapacityMax.c_str());
+    return status;
   }
-  if (!handler.getMinContentBoost(&metadata->minContentBoost, &present)) {
-    if (present) return false;
-    metadata->minContentBoost = 1.0f;
+  if (!handler.getMinContentBoost(&metadata->min_content_boost, &present)) {
+    if (present) {
+      uhdr_error_info_t status;
+      status.error_code = UHDR_CODEC_ERROR;
+      status.has_detail = 1;
+      snprintf(status.detail, sizeof status.detail, "xml parse error, unable to parse attribute %s",
+               kMapGainMapMin.c_str());
+      return status;
+    }
+    metadata->min_content_boost = 1.0f;
   }
   if (!handler.getGamma(&metadata->gamma, &present)) {
-    if (present) return false;
+    if (present) {
+      uhdr_error_info_t status;
+      status.error_code = UHDR_CODEC_ERROR;
+      status.has_detail = 1;
+      snprintf(status.detail, sizeof status.detail, "xml parse error, unable to parse attribute %s",
+               kMapGamma.c_str());
+      return status;
+    }
     metadata->gamma = 1.0f;
   }
-  if (!handler.getOffsetSdr(&metadata->offsetSdr, &present)) {
-    if (present) return false;
-    metadata->offsetSdr = 1.0f / 64.0f;
+  if (!handler.getOffsetSdr(&metadata->offset_sdr, &present)) {
+    if (present) {
+      uhdr_error_info_t status;
+      status.error_code = UHDR_CODEC_ERROR;
+      status.has_detail = 1;
+      snprintf(status.detail, sizeof status.detail, "xml parse error, unable to parse attribute %s",
+               kMapOffsetSdr.c_str());
+      return status;
+    }
+    metadata->offset_sdr = 1.0f / 64.0f;
   }
-  if (!handler.getOffsetHdr(&metadata->offsetHdr, &present)) {
-    if (present) return false;
-    metadata->offsetHdr = 1.0f / 64.0f;
+  if (!handler.getOffsetHdr(&metadata->offset_hdr, &present)) {
+    if (present) {
+      uhdr_error_info_t status;
+      status.error_code = UHDR_CODEC_ERROR;
+      status.has_detail = 1;
+      snprintf(status.detail, sizeof status.detail, "xml parse error, unable to parse attribute %s",
+               kMapOffsetHdr.c_str());
+      return status;
+    }
+    metadata->offset_hdr = 1.0f / 64.0f;
   }
-  if (!handler.getHdrCapacityMin(&metadata->hdrCapacityMin, &present)) {
-    if (present) return false;
-    metadata->hdrCapacityMin = 1.0f;
+  if (!handler.getHdrCapacityMin(&metadata->hdr_capacity_min, &present)) {
+    if (present) {
+      uhdr_error_info_t status;
+      status.error_code = UHDR_CODEC_ERROR;
+      status.has_detail = 1;
+      snprintf(status.detail, sizeof status.detail, "xml parse error, unable to parse attribute %s",
+               kMapHDRCapacityMin.c_str());
+      return status;
+    }
+    metadata->hdr_capacity_min = 1.0f;
   }
 
   bool base_rendition_is_hdr;
   if (!handler.getBaseRenditionIsHdr(&base_rendition_is_hdr, &present)) {
-    if (present) return false;
+    if (present) {
+      uhdr_error_info_t status;
+      status.error_code = UHDR_CODEC_ERROR;
+      status.has_detail = 1;
+      snprintf(status.detail, sizeof status.detail, "xml parse error, unable to parse attribute %s",
+               kMapBaseRenditionIsHDR.c_str());
+      return status;
+    }
     base_rendition_is_hdr = false;
   }
   if (base_rendition_is_hdr) {
-    ALOGE("Base rendition of HDR is not supported!");
-    return false;
+    uhdr_error_info_t status;
+    status.error_code = UHDR_CODEC_ERROR;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail, "hdr intent as base rendition is not supported");
+    return status;
   }
 
-  return true;
+  return g_no_error;
 }
 
-string generateXmpForPrimaryImage(int secondary_image_length, ultrahdr_metadata_struct& metadata) {
+string generateXmpForPrimaryImage(int secondary_image_length,
+                                  uhdr_gainmap_metadata_ext_t& metadata) {
   const vector<string> kConDirSeq({kConDirectory, string("rdf:Seq")});
   const vector<string> kLiItem({string("rdf:li"), kConItem});
 
@@ -582,7 +664,7 @@ string generateXmpForPrimaryImage(int secondary_image_length, ultrahdr_metadata_
   return ss.str();
 }
 
-string generateXmpForSecondaryImage(ultrahdr_metadata_struct& metadata) {
+string generateXmpForSecondaryImage(uhdr_gainmap_metadata_ext_t& metadata) {
   const vector<string> kConDirSeq({kConDirectory, string("rdf:Seq")});
 
   std::stringstream ss;
@@ -595,13 +677,13 @@ string generateXmpForSecondaryImage(ultrahdr_metadata_struct& metadata) {
   writer.StartWritingElement("rdf:Description");
   writer.WriteXmlns(kGainMapPrefix, kGainMapUri);
   writer.WriteAttributeNameAndValue(kMapVersion, metadata.version);
-  writer.WriteAttributeNameAndValue(kMapGainMapMin, log2(metadata.minContentBoost));
-  writer.WriteAttributeNameAndValue(kMapGainMapMax, log2(metadata.maxContentBoost));
+  writer.WriteAttributeNameAndValue(kMapGainMapMin, log2(metadata.min_content_boost));
+  writer.WriteAttributeNameAndValue(kMapGainMapMax, log2(metadata.max_content_boost));
   writer.WriteAttributeNameAndValue(kMapGamma, metadata.gamma);
-  writer.WriteAttributeNameAndValue(kMapOffsetSdr, metadata.offsetSdr);
-  writer.WriteAttributeNameAndValue(kMapOffsetHdr, metadata.offsetHdr);
-  writer.WriteAttributeNameAndValue(kMapHDRCapacityMin, log2(metadata.hdrCapacityMin));
-  writer.WriteAttributeNameAndValue(kMapHDRCapacityMax, log2(metadata.hdrCapacityMax));
+  writer.WriteAttributeNameAndValue(kMapOffsetSdr, metadata.offset_sdr);
+  writer.WriteAttributeNameAndValue(kMapOffsetHdr, metadata.offset_hdr);
+  writer.WriteAttributeNameAndValue(kMapHDRCapacityMin, log2(metadata.hdr_capacity_min));
+  writer.WriteAttributeNameAndValue(kMapHDRCapacityMax, log2(metadata.hdr_capacity_max));
   writer.WriteAttributeNameAndValue(kMapBaseRenditionIsHDR, "False");
   writer.FinishWriting();
 

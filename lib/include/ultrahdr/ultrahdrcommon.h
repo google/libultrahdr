@@ -119,6 +119,14 @@
 
 #define ALIGNM(x, m) ((((x) + ((m)-1)) / (m)) * (m))
 
+#define UHDR_ERR_CHECK(x)                     \
+  {                                           \
+    uhdr_error_info_t status = (x);           \
+    if (status.error_code != UHDR_CODEC_OK) { \
+      return status;                          \
+    }                                         \
+  }
+
 #if defined(_MSC_VER)
 #define FORCE_INLINE __forceinline
 #define INLINE __inline
@@ -126,6 +134,8 @@
 #define FORCE_INLINE __inline__ __attribute__((always_inline))
 #define INLINE inline
 #endif
+
+static const uhdr_error_info_t g_no_error = {UHDR_CODEC_OK, 0, ""};
 
 namespace ultrahdr {
 
@@ -162,6 +172,26 @@ typedef struct uhdr_compressed_image_ext : uhdr_compressed_image_t {
 /*!\brief forward declaration for image effect descriptor */
 typedef struct uhdr_effect_desc uhdr_effect_desc_t;
 
+/**\brief Gain map metadata. */
+typedef struct uhdr_gainmap_metadata_ext : uhdr_gainmap_metadata {
+  uhdr_gainmap_metadata_ext() {}
+
+  uhdr_gainmap_metadata_ext(std::string ver) { version = ver; }
+
+  uhdr_gainmap_metadata_ext(uhdr_gainmap_metadata& metadata, std::string ver) {
+    max_content_boost = metadata.max_content_boost;
+    min_content_boost = metadata.min_content_boost;
+    gamma = metadata.gamma;
+    offset_sdr = metadata.offset_sdr;
+    offset_hdr = metadata.offset_hdr;
+    hdr_capacity_min = metadata.hdr_capacity_min;
+    hdr_capacity_max = metadata.hdr_capacity_max;
+    version = ver;
+  }
+
+  std::string version;         /**< Ultra HDR format version */
+} uhdr_gainmap_metadata_ext_t; /**< alias for struct uhdr_gainmap_metadata */
+
 }  // namespace ultrahdr
 
 // ===============================================================================================
@@ -183,11 +213,11 @@ struct uhdr_encoder_private : uhdr_codec_private {
   std::vector<uint8_t> m_exif;
   uhdr_gainmap_metadata_t m_metadata;
   uhdr_codec_t m_output_format;
+  int m_gainmap_scale_factor;
+  bool m_use_multi_channel_gainmap;
 
   // internal data
   bool m_sailed;
-  int m_gainmap_scale_factor;
-  bool m_use_multi_channel_gainmap;
   std::unique_ptr<ultrahdr::uhdr_compressed_image_ext_t> m_compressed_output_buffer;
   uhdr_error_info_t m_encode_call_status;
 };
@@ -205,7 +235,7 @@ struct uhdr_decoder_private : uhdr_codec_private {
   std::unique_ptr<ultrahdr::uhdr_raw_image_ext_t> m_decoded_img_buffer;
   std::unique_ptr<ultrahdr::uhdr_raw_image_ext_t> m_gainmap_img_buffer;
   int m_img_wd, m_img_ht;
-  int m_gainmap_wd, m_gainmap_ht;
+  int m_gainmap_wd, m_gainmap_ht, m_gainmap_num_comp;
   std::vector<uint8_t> m_exif;
   uhdr_mem_block_t m_exif_block;
   std::vector<uint8_t> m_icc;

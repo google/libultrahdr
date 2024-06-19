@@ -56,7 +56,6 @@ typedef enum {
 /*!\brief Encapsulates a converter from JPEG to raw image format. This class is not thread-safe */
 class JpegDecoderHelper {
  public:
-
   JpegDecoderHelper() = default;
   ~JpegDecoderHelper() = default;
 
@@ -67,9 +66,10 @@ class JpegDecoderHelper {
    * \param[in]  length   length of compressed image
    * \param[in]  mode     output decode format
    *
-   * \returns true if operation succeeds, false otherwise.
+   * \return uhdr_error_info_t #UHDR_CODEC_OK if operation succeeds, uhdr_codec_err_t otherwise.
    */
-  bool decompressImage(const void* image, int length, decode_mode_t mode = DECODE_TO_YCBCR_CS);
+  uhdr_error_info_t decompressImage(const void* image, int length,
+                                    decode_mode_t mode = DECODE_TO_YCBCR_CS);
 
   /*!\brief This function parses the bitstream that is passed to it and makes image information
    * available to the client via getter() functions. It does not decompress the image. That is done
@@ -78,23 +78,27 @@ class JpegDecoderHelper {
    * \param[in]  image    pointer to compressed image
    * \param[in]  length   length of compressed image
    *
-   * \returns true if operation succeeds, false otherwise.
+   * \return uhdr_error_info_t #UHDR_CODEC_OK if operation succeeds, uhdr_codec_err_t otherwise.
    */
-  bool parseImage(const void* image, int length) {
+  uhdr_error_info_t parseImage(const void* image, int length) {
     return decompressImage(image, length, PARSE_STREAM);
   }
 
   /*! Below public methods are only effective if a call to decompressImage() is made and it returned
    * true. */
 
-  /*!\brief returns pointer to decompressed image */
+  /*!\brief returns decompressed image descriptor */
+  uhdr_raw_image_t getDecompressedImage();
+
+  /*!\brief returns pointer to decompressed image
+   * \deprecated This function is deprecated instead use getDecompressedImage().
+   */
   void* getDecompressedImagePtr() { return mResultBuffer.data(); }
 
-  /*!\brief returns size of decompressed image */
+  /*!\brief returns size of decompressed image
+   * \deprecated This function is deprecated instead use getDecompressedImage().
+   */
   size_t getDecompressedImageSize() { return mResultBuffer.size(); }
-
-  /*!\brief returns format of decompressed image */
-  uhdr_img_fmt_t getDecompressedImageFormat() { return mOutFormat; }
 
   /*! Below public methods are only effective if a call to parseImage() or decompressImage() is made
    * and it returned true. */
@@ -104,6 +108,9 @@ class JpegDecoderHelper {
 
   /*!\brief returns image height */
   size_t getDecompressedImageHeight() { return mPlaneHeight[0]; }
+
+  /*!\brief returns number of components in image */
+  size_t getNumComponentsInImage() { return mNumComponents; }
 
   /*!\brief returns pointer to xmp block present in input image */
   void* getXMPPtr() { return mXMPBuffer.data(); }
@@ -139,10 +146,10 @@ class JpegDecoderHelper {
   // max number of components supported
   static constexpr int kMaxNumComponents = 3;
 
-  bool decode(const void* image, int length, decode_mode_t mode);
-  bool decode(jpeg_decompress_struct* cinfo, uint8_t* dest);
-  bool decodeToCSYCbCr(jpeg_decompress_struct* cinfo, uint8_t* dest);
-  bool decodeToCSRGB(jpeg_decompress_struct* cinfo, uint8_t* dest);
+  uhdr_error_info_t decode(const void* image, int length, decode_mode_t mode);
+  uhdr_error_info_t decode(jpeg_decompress_struct* cinfo, uint8_t* dest);
+  uhdr_error_info_t decodeToCSYCbCr(jpeg_decompress_struct* cinfo, uint8_t* dest);
+  uhdr_error_info_t decodeToCSRGB(jpeg_decompress_struct* cinfo, uint8_t* dest);
 
   // temporary storage
   std::unique_ptr<uint8_t[]> mPlanesMCURow[kMaxNumComponents];
@@ -155,8 +162,11 @@ class JpegDecoderHelper {
 
   // image attributes
   uhdr_img_fmt_t mOutFormat;
+  size_t mNumComponents;
   size_t mPlaneWidth[kMaxNumComponents];
   size_t mPlaneHeight[kMaxNumComponents];
+  size_t mPlaneHStride[kMaxNumComponents];
+  size_t mPlaneVStride[kMaxNumComponents];
 
   int mExifPayLoadOffset;  // Position of EXIF package, default value is -1 which means no EXIF
                            // package appears.

@@ -48,19 +48,21 @@ class GainMapMathTest : public testing::Test {
     int16_t v;
   };
 
-  Pixel getYuv420Pixel_uint(jr_uncompressed_ptr image, size_t x, size_t y) {
-    uint8_t* luma_data = reinterpret_cast<uint8_t*>(image->data);
-    size_t luma_stride = image->luma_stride;
-    uint8_t* chroma_data = reinterpret_cast<uint8_t*>(image->chroma_data);
-    size_t chroma_stride = image->chroma_stride;
+  Pixel getYuv420Pixel_uint(uhdr_raw_image_t* image, size_t x, size_t y) {
+    uint8_t* luma_data = reinterpret_cast<uint8_t*>(image->planes[UHDR_PLANE_Y]);
+    size_t luma_stride = image->stride[UHDR_PLANE_Y];
+    uint8_t* cb_data = reinterpret_cast<uint8_t*>(image->planes[UHDR_PLANE_U]);
+    size_t cb_stride = image->stride[UHDR_PLANE_U];
+    uint8_t* cr_data = reinterpret_cast<uint8_t*>(image->planes[UHDR_PLANE_V]);
+    size_t cr_stride = image->stride[UHDR_PLANE_V];
 
-    size_t offset_cr = chroma_stride * (image->height / 2);
     size_t pixel_y_idx = x + y * luma_stride;
-    size_t pixel_chroma_idx = x / 2 + (y / 2) * chroma_stride;
+    size_t pixel_cb_idx = x / 2 + (y / 2) * cb_stride;
+    size_t pixel_cr_idx = x / 2 + (y / 2) * cr_stride;
 
     uint8_t y_uint = luma_data[pixel_y_idx];
-    uint8_t u_uint = chroma_data[pixel_chroma_idx];
-    uint8_t v_uint = chroma_data[offset_cr + pixel_chroma_idx];
+    uint8_t u_uint = cb_data[pixel_cb_idx];
+    uint8_t v_uint = cr_data[pixel_cr_idx];
 
     return {y_uint, u_uint, v_uint};
   }
@@ -146,13 +148,13 @@ class GainMapMathTest : public testing::Test {
     return luminance_scaled * scale_factor;
   }
 
-  Color Recover(Color yuv_gamma, float gain, ultrahdr_metadata_ptr metadata) {
+  Color Recover(Color yuv_gamma, float gain, uhdr_gainmap_metadata_ext_t* metadata) {
     Color rgb_gamma = srgbYuvToRgb(yuv_gamma);
     Color rgb = srgbInvOetf(rgb_gamma);
     return applyGain(rgb, gain, metadata);
   }
 
-  jpegr_uncompressed_struct Yuv420Image() {
+  uhdr_raw_image_t Yuv420Image() {
     static uint8_t pixels[] = {
         // Y
         0x00,
@@ -182,10 +184,23 @@ class GainMapMathTest : public testing::Test {
         0xB2,
         0xB3,
     };
-    return {pixels, 4, 4, ULTRAHDR_COLORGAMUT_BT709, pixels + 16, 4, 2};
+    uhdr_raw_image_t img;
+    img.cg = UHDR_CG_BT_709;
+    img.ct = UHDR_CT_SRGB;
+    img.range = UHDR_CR_FULL_RANGE;
+    img.fmt = UHDR_IMG_FMT_12bppYCbCr420;
+    img.w = 4;
+    img.h = 4;
+    img.planes[UHDR_PLANE_Y] = pixels;
+    img.planes[UHDR_PLANE_U] = pixels + 16;
+    img.planes[UHDR_PLANE_V] = pixels + 16 + 4;
+    img.stride[UHDR_PLANE_Y] = 4;
+    img.stride[UHDR_PLANE_U] = 2;
+    img.stride[UHDR_PLANE_V] = 2;
+    return img;
   }
 
-  jpegr_uncompressed_struct Yuv420Image32x4() {
+  uhdr_raw_image_t Yuv420Image32x4() {
     // clang-format off
     static uint8_t pixels[] = {
     // Y
@@ -205,7 +220,20 @@ class GainMapMathTest : public testing::Test {
     0xD0, 0xD1, 0xD2, 0xD3, 0xD4, 0xD5, 0xD6, 0xD7, 0xD8, 0xD9, 0xDD, 0xDD, 0xDC, 0xDD, 0xDE, 0xDF,
     };
     // clang-format on
-    return {pixels, 32, 4, ULTRAHDR_COLORGAMUT_BT709, pixels + 128, 32, 16};
+    uhdr_raw_image_t img;
+    img.cg = UHDR_CG_BT_709;
+    img.ct = UHDR_CT_SRGB;
+    img.range = UHDR_CR_FULL_RANGE;
+    img.fmt = UHDR_IMG_FMT_12bppYCbCr420;
+    img.w = 32;
+    img.h = 4;
+    img.planes[UHDR_PLANE_Y] = pixels;
+    img.planes[UHDR_PLANE_U] = pixels + 128;
+    img.planes[UHDR_PLANE_V] = pixels + 128 + 32;
+    img.stride[UHDR_PLANE_Y] = 32;
+    img.stride[UHDR_PLANE_U] = 16;
+    img.stride[UHDR_PLANE_V] = 16;
+    return img;
   }
 
   Color (*Yuv420Colors())[4] {
@@ -238,7 +266,7 @@ class GainMapMathTest : public testing::Test {
     return colors;
   }
 
-  jpegr_uncompressed_struct P010Image() {
+  uhdr_raw_image_t P010Image() {
     static uint16_t pixels[] = {
         // Y
         0x00 << 6,
@@ -267,7 +295,20 @@ class GainMapMathTest : public testing::Test {
         0xA3 << 6,
         0xB3 << 6,
     };
-    return {pixels, 4, 4, ULTRAHDR_COLORGAMUT_BT709, pixels + 16, 4, 4};
+    uhdr_raw_image_t img;
+    img.cg = UHDR_CG_BT_709;
+    img.ct = UHDR_CT_HLG;
+    img.range = UHDR_CR_LIMITED_RANGE;
+    img.fmt = UHDR_IMG_FMT_24bppYCbCrP010;
+    img.w = 4;
+    img.h = 4;
+    img.planes[UHDR_PLANE_Y] = pixels;
+    img.planes[UHDR_PLANE_UV] = pixels + 16;
+    img.planes[UHDR_PLANE_V] = nullptr;
+    img.stride[UHDR_PLANE_Y] = 4;
+    img.stride[UHDR_PLANE_UV] = 4;
+    img.stride[UHDR_PLANE_V] = 0;
+    return img;
   }
 
   Color (*P010Colors())[4] {
@@ -300,12 +341,26 @@ class GainMapMathTest : public testing::Test {
     return colors;
   }
 
-  jpegr_uncompressed_struct MapImage() {
+  uhdr_raw_image_t MapImage() {
     static uint8_t pixels[] = {
         0x00, 0x10, 0x20, 0x30, 0x01, 0x11, 0x21, 0x31,
         0x02, 0x12, 0x22, 0x32, 0x03, 0x13, 0x23, 0x33,
     };
-    return {pixels, 4, 4, ULTRAHDR_COLORGAMUT_UNSPECIFIED};
+
+    uhdr_raw_image_t img;
+    img.cg = UHDR_CG_UNSPECIFIED;
+    img.ct = UHDR_CT_UNSPECIFIED;
+    img.range = UHDR_CR_UNSPECIFIED;
+    img.fmt = UHDR_IMG_FMT_8bppYCbCr400;
+    img.w = 4;
+    img.h = 4;
+    img.planes[UHDR_PLANE_Y] = pixels;
+    img.planes[UHDR_PLANE_U] = nullptr;
+    img.planes[UHDR_PLANE_V] = nullptr;
+    img.stride[UHDR_PLANE_Y] = 4;
+    img.stride[UHDR_PLANE_U] = 0;
+    img.stride[UHDR_PLANE_V] = 0;
+    return img;
   }
 
   float (*MapValues())[4] {
@@ -826,27 +881,31 @@ TEST_F(GainMapMathTest, YuvConversionNeon) {
 #endif
 
 TEST_F(GainMapMathTest, TransformYuv420) {
-  jpegr_uncompressed_struct input = Yuv420Image();
-  const size_t buf_size = input.width * input.height * 3 / 2;
+  auto input = Yuv420Image();
+  const size_t buf_size = input.w * input.h * 3 / 2;
   std::unique_ptr<uint8_t[]> out_buf = std::make_unique<uint8_t[]>(buf_size);
+  uint8_t* luma = out_buf.get();
+  uint8_t* cb = luma + input.w * input.h;
+  uint8_t* cr = cb + input.w * input.h / 4;
 
   const std::array<std::array<float, 9>, 6> conversion_coeffs = {
       kYuvBt709ToBt601,  kYuvBt709ToBt2100, kYuvBt601ToBt709,
       kYuvBt601ToBt2100, kYuvBt2100ToBt709, kYuvBt2100ToBt601};
 
   for (size_t coeffs_idx = 0; coeffs_idx < conversion_coeffs.size(); ++coeffs_idx) {
-    jpegr_uncompressed_struct output = Yuv420Image();
-    memcpy(out_buf.get(), input.data, buf_size);
-    output.data = out_buf.get();
-    output.chroma_data = out_buf.get() + input.width * input.height;
-    output.luma_stride = input.width;
-    output.chroma_stride = input.width / 2;
+    auto output = Yuv420Image();
+    memcpy(luma, input.planes[UHDR_PLANE_Y], input.w * input.h);
+    memcpy(cb, input.planes[UHDR_PLANE_U], input.w * input.h / 4);
+    memcpy(cr, input.planes[UHDR_PLANE_V], input.w * input.h / 4);
+    output.planes[UHDR_PLANE_Y] = luma;
+    output.planes[UHDR_PLANE_U] = cb;
+    output.planes[UHDR_PLANE_V] = cr;
 
     // Perform a color gamut conversion to the entire 4:2:0 image.
     transformYuv420(&output, conversion_coeffs.at(coeffs_idx));
 
-    for (size_t y = 0; y < input.height; y += 2) {
-      for (size_t x = 0; x < input.width; x += 2) {
+    for (size_t y = 0; y < input.h; y += 2) {
+      for (size_t x = 0; x < input.w; x += 2) {
         Pixel out1 = getYuv420Pixel_uint(&output, x, y);
         Pixel out2 = getYuv420Pixel_uint(&output, x + 1, y);
         Pixel out3 = getYuv420Pixel_uint(&output, x, y + 1);
@@ -907,21 +966,25 @@ TEST_F(GainMapMathTest, TransformYuv420Neon) {
        {kYuv2100To601_coeffs_neon, kYuvBt2100ToBt601}}};
 
   for (const auto& [neon_coeffs_ptr, floating_point_coeffs] : fixed_floating_coeffs) {
-    jpegr_uncompressed_struct input = Yuv420Image32x4();
-    const size_t buf_size = input.width * input.height * 3 / 2;
-
+    uhdr_raw_image_t input = Yuv420Image32x4();
+    const size_t buf_size = input.w * input.h * 3 / 2;
     std::unique_ptr<uint8_t[]> out_buf = std::make_unique<uint8_t[]>(buf_size);
-    memcpy(out_buf.get(), input.data, buf_size);
-    jpegr_uncompressed_struct output = Yuv420Image32x4();
-    output.data = out_buf.get();
-    output.chroma_data = out_buf.get() + input.width * input.height;
-    output.luma_stride = input.width;
-    output.chroma_stride = input.width / 2;
+    uint8_t* luma = out_buf.get();
+    uint8_t* cb = luma + input.w * input.h;
+    uint8_t* cr = cb + input.w * input.h / 4;
+
+    uhdr_raw_image_t output = Yuv420Image32x4();
+    memcpy(luma, input.planes[UHDR_PLANE_Y], input.w * input.h);
+    memcpy(cb, input.planes[UHDR_PLANE_U], input.w * input.h / 4);
+    memcpy(cr, input.planes[UHDR_PLANE_V], input.w * input.h / 4);
+    output.planes[UHDR_PLANE_Y] = luma;
+    output.planes[UHDR_PLANE_U] = cb;
+    output.planes[UHDR_PLANE_V] = cr;
 
     transformYuv420_neon(&output, neon_coeffs_ptr);
 
-    for (size_t y = 0; y < input.height / 2; ++y) {
-      for (size_t x = 0; x < input.width / 2; ++x) {
+    for (size_t y = 0; y < input.h / 2; ++y) {
+      for (size_t x = 0; x < input.w / 2; ++x) {
         const Pixel out1 = getYuv420Pixel_uint(&output, x * 2, y * 2);
         const Pixel out2 = getYuv420Pixel_uint(&output, x * 2 + 1, y * 2);
         const Pixel out3 = getYuv420Pixel_uint(&output, x * 2, y * 2 + 1);
@@ -1064,13 +1127,13 @@ TEST_F(GainMapMathTest, srgbInvOetfLUT) {
 
 TEST_F(GainMapMathTest, applyGainLUT) {
   for (int boost = 1; boost <= 10; boost++) {
-    ultrahdr_metadata_struct metadata;
+    uhdr_gainmap_metadata_ext_t metadata;
 
-    metadata.minContentBoost = 1.0f / static_cast<float>(boost);
-    metadata.maxContentBoost = static_cast<float>(boost);
+    metadata.min_content_boost = 1.0f / static_cast<float>(boost);
+    metadata.max_content_boost = static_cast<float>(boost);
     metadata.gamma = 1.0f;
     GainLUT gainLUT(&metadata);
-    GainLUT gainLUTWithBoost(&metadata, metadata.maxContentBoost);
+    GainLUT gainLUTWithBoost(&metadata, metadata.max_content_boost);
     for (size_t idx = 0; idx < kGainFactorNumEntries; idx++) {
       float value = static_cast<float>(idx) / static_cast<float>(kGainFactorNumEntries - 1);
       EXPECT_RGB_NEAR(applyGain(RgbBlack(), value, &metadata),
@@ -1097,13 +1160,13 @@ TEST_F(GainMapMathTest, applyGainLUT) {
   }
 
   for (int boost = 1; boost <= 10; boost++) {
-    ultrahdr_metadata_struct metadata;
+    uhdr_gainmap_metadata_ext_t metadata;
 
-    metadata.minContentBoost = 1.0f;
-    metadata.maxContentBoost = static_cast<float>(boost);
+    metadata.min_content_boost = 1.0f;
+    metadata.max_content_boost = static_cast<float>(boost);
     metadata.gamma = 1.0f;
     GainLUT gainLUT(&metadata);
-    GainLUT gainLUTWithBoost(&metadata, metadata.maxContentBoost);
+    GainLUT gainLUTWithBoost(&metadata, metadata.max_content_boost);
     for (size_t idx = 0; idx < kGainFactorNumEntries; idx++) {
       float value = static_cast<float>(idx) / static_cast<float>(kGainFactorNumEntries - 1);
       EXPECT_RGB_NEAR(applyGain(RgbBlack(), value, &metadata),
@@ -1130,13 +1193,13 @@ TEST_F(GainMapMathTest, applyGainLUT) {
   }
 
   for (int boost = 1; boost <= 10; boost++) {
-    ultrahdr_metadata_struct metadata;
+    uhdr_gainmap_metadata_ext_t metadata;
 
-    metadata.minContentBoost = 1.0f / powf(static_cast<float>(boost), 1.0f / 3.0f);
-    metadata.maxContentBoost = static_cast<float>(boost);
+    metadata.min_content_boost = 1.0f / powf(static_cast<float>(boost), 1.0f / 3.0f);
+    metadata.max_content_boost = static_cast<float>(boost);
     metadata.gamma = 1.0f;
     GainLUT gainLUT(&metadata);
-    GainLUT gainLUTWithBoost(&metadata, metadata.maxContentBoost);
+    GainLUT gainLUTWithBoost(&metadata, metadata.max_content_boost);
     for (size_t idx = 0; idx < kGainFactorNumEntries; idx++) {
       float value = static_cast<float>(idx) / static_cast<float>(kGainFactorNumEntries - 1);
       EXPECT_RGB_NEAR(applyGain(RgbBlack(), value, &metadata),
@@ -1172,41 +1235,32 @@ TEST_F(GainMapMathTest, PqTransferFunctionRoundtrip) {
 }
 
 TEST_F(GainMapMathTest, ColorConversionLookup) {
-  EXPECT_EQ(getHdrConversionFn(ULTRAHDR_COLORGAMUT_BT709, ULTRAHDR_COLORGAMUT_UNSPECIFIED),
-            nullptr);
-  EXPECT_EQ(getHdrConversionFn(ULTRAHDR_COLORGAMUT_BT709, ULTRAHDR_COLORGAMUT_BT709),
-            identityConversion);
-  EXPECT_EQ(getHdrConversionFn(ULTRAHDR_COLORGAMUT_BT709, ULTRAHDR_COLORGAMUT_P3), p3ToBt709);
-  EXPECT_EQ(getHdrConversionFn(ULTRAHDR_COLORGAMUT_BT709, ULTRAHDR_COLORGAMUT_BT2100),
-            bt2100ToBt709);
+  EXPECT_EQ(getHdrConversionFn(UHDR_CG_BT_709, UHDR_CG_UNSPECIFIED), nullptr);
+  EXPECT_EQ(getHdrConversionFn(UHDR_CG_BT_709, UHDR_CG_BT_709), identityConversion);
+  EXPECT_EQ(getHdrConversionFn(UHDR_CG_BT_709, UHDR_CG_DISPLAY_P3), p3ToBt709);
+  EXPECT_EQ(getHdrConversionFn(UHDR_CG_BT_709, UHDR_CG_BT_2100), bt2100ToBt709);
 
-  EXPECT_EQ(getHdrConversionFn(ULTRAHDR_COLORGAMUT_P3, ULTRAHDR_COLORGAMUT_UNSPECIFIED), nullptr);
-  EXPECT_EQ(getHdrConversionFn(ULTRAHDR_COLORGAMUT_P3, ULTRAHDR_COLORGAMUT_BT709), bt709ToP3);
-  EXPECT_EQ(getHdrConversionFn(ULTRAHDR_COLORGAMUT_P3, ULTRAHDR_COLORGAMUT_P3), identityConversion);
-  EXPECT_EQ(getHdrConversionFn(ULTRAHDR_COLORGAMUT_P3, ULTRAHDR_COLORGAMUT_BT2100), bt2100ToP3);
+  EXPECT_EQ(getHdrConversionFn(UHDR_CG_DISPLAY_P3, UHDR_CG_UNSPECIFIED), nullptr);
+  EXPECT_EQ(getHdrConversionFn(UHDR_CG_DISPLAY_P3, UHDR_CG_BT_709), bt709ToP3);
+  EXPECT_EQ(getHdrConversionFn(UHDR_CG_DISPLAY_P3, UHDR_CG_DISPLAY_P3), identityConversion);
+  EXPECT_EQ(getHdrConversionFn(UHDR_CG_DISPLAY_P3, UHDR_CG_BT_2100), bt2100ToP3);
 
-  EXPECT_EQ(getHdrConversionFn(ULTRAHDR_COLORGAMUT_BT2100, ULTRAHDR_COLORGAMUT_UNSPECIFIED),
-            nullptr);
-  EXPECT_EQ(getHdrConversionFn(ULTRAHDR_COLORGAMUT_BT2100, ULTRAHDR_COLORGAMUT_BT709),
-            bt709ToBt2100);
-  EXPECT_EQ(getHdrConversionFn(ULTRAHDR_COLORGAMUT_BT2100, ULTRAHDR_COLORGAMUT_P3), p3ToBt2100);
-  EXPECT_EQ(getHdrConversionFn(ULTRAHDR_COLORGAMUT_BT2100, ULTRAHDR_COLORGAMUT_BT2100),
-            identityConversion);
+  EXPECT_EQ(getHdrConversionFn(UHDR_CG_BT_2100, UHDR_CG_UNSPECIFIED), nullptr);
+  EXPECT_EQ(getHdrConversionFn(UHDR_CG_BT_2100, UHDR_CG_BT_709), bt709ToBt2100);
+  EXPECT_EQ(getHdrConversionFn(UHDR_CG_BT_2100, UHDR_CG_DISPLAY_P3), p3ToBt2100);
+  EXPECT_EQ(getHdrConversionFn(UHDR_CG_BT_2100, UHDR_CG_BT_2100), identityConversion);
 
-  EXPECT_EQ(getHdrConversionFn(ULTRAHDR_COLORGAMUT_UNSPECIFIED, ULTRAHDR_COLORGAMUT_UNSPECIFIED),
-            nullptr);
-  EXPECT_EQ(getHdrConversionFn(ULTRAHDR_COLORGAMUT_UNSPECIFIED, ULTRAHDR_COLORGAMUT_BT709),
-            nullptr);
-  EXPECT_EQ(getHdrConversionFn(ULTRAHDR_COLORGAMUT_UNSPECIFIED, ULTRAHDR_COLORGAMUT_P3), nullptr);
-  EXPECT_EQ(getHdrConversionFn(ULTRAHDR_COLORGAMUT_UNSPECIFIED, ULTRAHDR_COLORGAMUT_BT2100),
-            nullptr);
+  EXPECT_EQ(getHdrConversionFn(UHDR_CG_UNSPECIFIED, UHDR_CG_UNSPECIFIED), nullptr);
+  EXPECT_EQ(getHdrConversionFn(UHDR_CG_UNSPECIFIED, UHDR_CG_BT_709), nullptr);
+  EXPECT_EQ(getHdrConversionFn(UHDR_CG_UNSPECIFIED, UHDR_CG_DISPLAY_P3), nullptr);
+  EXPECT_EQ(getHdrConversionFn(UHDR_CG_UNSPECIFIED, UHDR_CG_BT_2100), nullptr);
 }
 
 TEST_F(GainMapMathTest, EncodeGain) {
-  ultrahdr_metadata_struct metadata;
+  uhdr_gainmap_metadata_ext_t metadata;
 
-  metadata.minContentBoost = 1.0f / 4.0f;
-  metadata.maxContentBoost = 4.0f;
+  metadata.min_content_boost = 1.0f / 4.0f;
+  metadata.max_content_boost = 4.0f;
   metadata.gamma = 1.0f;
 
   EXPECT_EQ(encodeGain(0.0f, 0.0f, &metadata), 127);
@@ -1222,24 +1276,24 @@ TEST_F(GainMapMathTest, EncodeGain) {
   EXPECT_EQ(encodeGain(1.0f, 2.0f, &metadata), 191);
   EXPECT_EQ(encodeGain(2.0f, 1.0f, &metadata), 63);
 
-  metadata.maxContentBoost = 2.0f;
-  metadata.minContentBoost = 1.0f / 2.0f;
+  metadata.max_content_boost = 2.0f;
+  metadata.min_content_boost = 1.0f / 2.0f;
 
   EXPECT_EQ(encodeGain(1.0f, 2.0f, &metadata), 255);
   EXPECT_EQ(encodeGain(2.0f, 1.0f, &metadata), 0);
   EXPECT_EQ(encodeGain(1.0f, 1.41421f, &metadata), 191);
   EXPECT_EQ(encodeGain(1.41421f, 1.0f, &metadata), 63);
 
-  metadata.maxContentBoost = 8.0f;
-  metadata.minContentBoost = 1.0f / 8.0f;
+  metadata.max_content_boost = 8.0f;
+  metadata.min_content_boost = 1.0f / 8.0f;
 
   EXPECT_EQ(encodeGain(1.0f, 8.0f, &metadata), 255);
   EXPECT_EQ(encodeGain(8.0f, 1.0f, &metadata), 0);
   EXPECT_EQ(encodeGain(1.0f, 2.82843f, &metadata), 191);
   EXPECT_EQ(encodeGain(2.82843f, 1.0f, &metadata), 63);
 
-  metadata.maxContentBoost = 8.0f;
-  metadata.minContentBoost = 1.0f;
+  metadata.max_content_boost = 8.0f;
+  metadata.min_content_boost = 1.0f;
 
   EXPECT_EQ(encodeGain(0.0f, 0.0f, &metadata), 0);
   EXPECT_EQ(encodeGain(1.0f, 0.0f, &metadata), 0);
@@ -1249,8 +1303,8 @@ TEST_F(GainMapMathTest, EncodeGain) {
   EXPECT_EQ(encodeGain(1.0f, 4.0f, &metadata), 170);
   EXPECT_EQ(encodeGain(1.0f, 2.0f, &metadata), 85);
 
-  metadata.maxContentBoost = 8.0f;
-  metadata.minContentBoost = 0.5f;
+  metadata.max_content_boost = 8.0f;
+  metadata.min_content_boost = 0.5f;
 
   EXPECT_EQ(encodeGain(0.0f, 0.0f, &metadata), 63);
   EXPECT_EQ(encodeGain(1.0f, 0.0f, &metadata), 0);
@@ -1264,12 +1318,12 @@ TEST_F(GainMapMathTest, EncodeGain) {
 }
 
 TEST_F(GainMapMathTest, ApplyGain) {
-  ultrahdr_metadata_struct metadata;
+  uhdr_gainmap_metadata_ext_t metadata;
 
-  metadata.minContentBoost = 1.0f / 4.0f;
-  metadata.maxContentBoost = 4.0f;
+  metadata.min_content_boost = 1.0f / 4.0f;
+  metadata.max_content_boost = 4.0f;
   metadata.gamma = 1.0f;
-  float displayBoost = metadata.maxContentBoost;
+  float displayBoost = metadata.max_content_boost;
 
   EXPECT_RGB_NEAR(applyGain(RgbBlack(), 0.0f, &metadata), RgbBlack());
   EXPECT_RGB_NEAR(applyGain(RgbBlack(), 0.5f, &metadata), RgbBlack());
@@ -1281,8 +1335,8 @@ TEST_F(GainMapMathTest, ApplyGain) {
   EXPECT_RGB_NEAR(applyGain(RgbWhite(), 0.75f, &metadata), RgbWhite() * 2.0f);
   EXPECT_RGB_NEAR(applyGain(RgbWhite(), 1.0f, &metadata), RgbWhite() * 4.0f);
 
-  metadata.maxContentBoost = 2.0f;
-  metadata.minContentBoost = 1.0f / 2.0f;
+  metadata.max_content_boost = 2.0f;
+  metadata.min_content_boost = 1.0f / 2.0f;
 
   EXPECT_RGB_NEAR(applyGain(RgbWhite(), 0.0f, &metadata), RgbWhite() / 2.0f);
   EXPECT_RGB_NEAR(applyGain(RgbWhite(), 0.25f, &metadata), RgbWhite() / 1.41421f);
@@ -1290,8 +1344,8 @@ TEST_F(GainMapMathTest, ApplyGain) {
   EXPECT_RGB_NEAR(applyGain(RgbWhite(), 0.75f, &metadata), RgbWhite() * 1.41421f);
   EXPECT_RGB_NEAR(applyGain(RgbWhite(), 1.0f, &metadata), RgbWhite() * 2.0f);
 
-  metadata.maxContentBoost = 8.0f;
-  metadata.minContentBoost = 1.0f / 8.0f;
+  metadata.max_content_boost = 8.0f;
+  metadata.min_content_boost = 1.0f / 8.0f;
 
   EXPECT_RGB_NEAR(applyGain(RgbWhite(), 0.0f, &metadata), RgbWhite() / 8.0f);
   EXPECT_RGB_NEAR(applyGain(RgbWhite(), 0.25f, &metadata), RgbWhite() / 2.82843f);
@@ -1299,16 +1353,16 @@ TEST_F(GainMapMathTest, ApplyGain) {
   EXPECT_RGB_NEAR(applyGain(RgbWhite(), 0.75f, &metadata), RgbWhite() * 2.82843f);
   EXPECT_RGB_NEAR(applyGain(RgbWhite(), 1.0f, &metadata), RgbWhite() * 8.0f);
 
-  metadata.maxContentBoost = 8.0f;
-  metadata.minContentBoost = 1.0f;
+  metadata.max_content_boost = 8.0f;
+  metadata.min_content_boost = 1.0f;
 
   EXPECT_RGB_NEAR(applyGain(RgbWhite(), 0.0f, &metadata), RgbWhite());
   EXPECT_RGB_NEAR(applyGain(RgbWhite(), 1.0f / 3.0f, &metadata), RgbWhite() * 2.0f);
   EXPECT_RGB_NEAR(applyGain(RgbWhite(), 2.0f / 3.0f, &metadata), RgbWhite() * 4.0f);
   EXPECT_RGB_NEAR(applyGain(RgbWhite(), 1.0f, &metadata), RgbWhite() * 8.0f);
 
-  metadata.maxContentBoost = 8.0f;
-  metadata.minContentBoost = 0.5f;
+  metadata.max_content_boost = 8.0f;
+  metadata.min_content_boost = 0.5f;
 
   EXPECT_RGB_NEAR(applyGain(RgbWhite(), 0.0f, &metadata), RgbWhite() / 2.0f);
   EXPECT_RGB_NEAR(applyGain(RgbWhite(), 0.25f, &metadata), RgbWhite());
@@ -1317,8 +1371,8 @@ TEST_F(GainMapMathTest, ApplyGain) {
   EXPECT_RGB_NEAR(applyGain(RgbWhite(), 1.0f, &metadata), RgbWhite() * 8.0f);
 
   Color e = {{{0.0f, 0.5f, 1.0f}}};
-  metadata.maxContentBoost = 4.0f;
-  metadata.minContentBoost = 1.0f / 4.0f;
+  metadata.max_content_boost = 4.0f;
+  metadata.min_content_boost = 1.0f / 4.0f;
 
   EXPECT_RGB_NEAR(applyGain(e, 0.0f, &metadata), e / 4.0f);
   EXPECT_RGB_NEAR(applyGain(e, 0.25f, &metadata), e / 2.0f);
@@ -1340,7 +1394,7 @@ TEST_F(GainMapMathTest, ApplyGain) {
 }
 
 TEST_F(GainMapMathTest, GetYuv420Pixel) {
-  jpegr_uncompressed_struct image = Yuv420Image();
+  auto image = Yuv420Image();
   Color(*colors)[4] = Yuv420Colors();
 
   for (size_t y = 0; y < 4; ++y) {
@@ -1351,7 +1405,7 @@ TEST_F(GainMapMathTest, GetYuv420Pixel) {
 }
 
 TEST_F(GainMapMathTest, GetP010Pixel) {
-  jpegr_uncompressed_struct image = P010Image();
+  auto image = P010Image();
   Color(*colors)[4] = P010Colors();
 
   for (size_t y = 0; y < 4; ++y) {
@@ -1362,7 +1416,7 @@ TEST_F(GainMapMathTest, GetP010Pixel) {
 }
 
 TEST_F(GainMapMathTest, SampleYuv420) {
-  jpegr_uncompressed_struct image = Yuv420Image();
+  auto image = Yuv420Image();
   Color(*colors)[4] = Yuv420Colors();
 
   static const size_t kMapScaleFactor = 2;
@@ -1388,7 +1442,7 @@ TEST_F(GainMapMathTest, SampleYuv420) {
 }
 
 TEST_F(GainMapMathTest, SampleP010) {
-  jpegr_uncompressed_struct image = P010Image();
+  auto image = P010Image();
   Color(*colors)[4] = P010Colors();
 
   static const size_t kMapScaleFactor = 2;
@@ -1414,7 +1468,7 @@ TEST_F(GainMapMathTest, SampleP010) {
 }
 
 TEST_F(GainMapMathTest, SampleMap) {
-  jpegr_uncompressed_struct image = MapImage();
+  auto image = MapImage();
   float(*values)[4] = MapValues();
 
   static const size_t kMapScaleFactor = 2;
@@ -1558,10 +1612,10 @@ TEST_F(GainMapMathTest, GenerateMapLuminancePq) {
 }
 
 TEST_F(GainMapMathTest, ApplyMap) {
-  ultrahdr_metadata_struct metadata;
+  uhdr_gainmap_metadata_ext_t metadata;
 
-  metadata.minContentBoost = 1.0f / 8.0f;
-  metadata.maxContentBoost = 8.0f;
+  metadata.min_content_boost = 1.0f / 8.0f;
+  metadata.max_content_boost = 8.0f;
   metadata.gamma = 1.0f;
 
   EXPECT_RGB_EQ(Recover(YuvWhite(), 1.0f, &metadata), RgbWhite() * 8.0f);
@@ -1594,16 +1648,16 @@ TEST_F(GainMapMathTest, ApplyMap) {
   EXPECT_RGB_CLOSE(Recover(SrgbYuvGreen(), 0.0f, &metadata), RgbGreen() / 8.0f);
   EXPECT_RGB_CLOSE(Recover(SrgbYuvBlue(), 0.0f, &metadata), RgbBlue() / 8.0f);
 
-  metadata.maxContentBoost = 8.0f;
-  metadata.minContentBoost = 1.0f;
+  metadata.max_content_boost = 8.0f;
+  metadata.min_content_boost = 1.0f;
 
   EXPECT_RGB_EQ(Recover(YuvWhite(), 1.0f, &metadata), RgbWhite() * 8.0f);
   EXPECT_RGB_EQ(Recover(YuvWhite(), 2.0f / 3.0f, &metadata), RgbWhite() * 4.0f);
   EXPECT_RGB_EQ(Recover(YuvWhite(), 1.0f / 3.0f, &metadata), RgbWhite() * 2.0f);
   EXPECT_RGB_EQ(Recover(YuvWhite(), 0.0f, &metadata), RgbWhite());
 
-  metadata.maxContentBoost = 8.0f;
-  metadata.minContentBoost = 0.5f;
+  metadata.max_content_boost = 8.0f;
+  metadata.min_content_boost = 0.5f;
 
   EXPECT_RGB_EQ(Recover(YuvWhite(), 1.0f, &metadata), RgbWhite() * 8.0f);
   EXPECT_RGB_EQ(Recover(YuvWhite(), 0.75, &metadata), RgbWhite() * 4.0f);

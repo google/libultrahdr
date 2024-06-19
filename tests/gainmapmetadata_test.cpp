@@ -42,35 +42,35 @@ void GainMapMetadataTest::TearDown() {}
 const std::string kIso = "urn:iso:std:iso:ts:21496:-1";
 
 TEST_F(GainMapMetadataTest, encodeMetadataThenDecode) {
-  ultrahdr_metadata_struct expected;
-  expected.version = "1.0";
-  expected.maxContentBoost = 100.5f;
-  expected.minContentBoost = 1.5f;
+  uhdr_gainmap_metadata_ext_t expected("1.0");
+  expected.max_content_boost = 100.5f;
+  expected.min_content_boost = 1.5f;
   expected.gamma = 1.0f;
-  expected.offsetSdr = 0.0f;
-  expected.offsetHdr = 0.0f;
-  expected.hdrCapacityMin = 1.0f;
-  expected.hdrCapacityMax = expected.maxContentBoost;
+  expected.offset_sdr = 0.0f;
+  expected.offset_hdr = 0.0f;
+  expected.hdr_capacity_min = 1.0f;
+  expected.hdr_capacity_max = expected.max_content_boost;
 
-  gain_map_metadata metadata;
-  gain_map_metadata::gainmapMetadataFloatToFraction(&expected, &metadata);
+  uhdr_gainmap_metadata_frac metadata;
+  uhdr_gainmap_metadata_frac::gainmapMetadataFloatToFraction(&expected, &metadata);
   //  metadata.dump();
 
   std::vector<uint8_t> data;
-  gain_map_metadata::encodeGainmapMetadata(&metadata, data);
+  uhdr_gainmap_metadata_frac::encodeGainmapMetadata(&metadata, data);
 
-  gain_map_metadata decodedMetadata;
-  gain_map_metadata::decodeGainmapMetadata(data, &decodedMetadata);
+  uhdr_gainmap_metadata_frac decodedMetadata;
+  uhdr_gainmap_metadata_frac::decodeGainmapMetadata(data, &decodedMetadata);
 
-  ultrahdr_metadata_struct decodedUHdrMetadata;
-  gain_map_metadata::gainmapMetadataFractionToFloat(&decodedMetadata, &decodedUHdrMetadata);
+  uhdr_gainmap_metadata_ext_t decodedUHdrMetadata;
+  uhdr_gainmap_metadata_frac::gainmapMetadataFractionToFloat(&decodedMetadata,
+                                                             &decodedUHdrMetadata);
 
-  EXPECT_EQ(expected.maxContentBoost, decodedUHdrMetadata.maxContentBoost);
-  EXPECT_EQ(expected.minContentBoost, decodedUHdrMetadata.minContentBoost);
+  EXPECT_EQ(expected.max_content_boost, decodedUHdrMetadata.max_content_boost);
+  EXPECT_EQ(expected.min_content_boost, decodedUHdrMetadata.min_content_boost);
   EXPECT_EQ(expected.gamma, decodedUHdrMetadata.gamma);
-  EXPECT_EQ(expected.offsetSdr, decodedUHdrMetadata.offsetSdr);
-  EXPECT_EQ(expected.offsetHdr, decodedUHdrMetadata.offsetHdr);
-  EXPECT_EQ(expected.hdrCapacityMin, decodedUHdrMetadata.hdrCapacityMin);
-  EXPECT_EQ(expected.hdrCapacityMax, decodedUHdrMetadata.hdrCapacityMax);
+  EXPECT_EQ(expected.offset_sdr, decodedUHdrMetadata.offset_sdr);
+  EXPECT_EQ(expected.offset_hdr, decodedUHdrMetadata.offset_hdr);
+  EXPECT_EQ(expected.hdr_capacity_min, decodedUHdrMetadata.hdr_capacity_min);
+  EXPECT_EQ(expected.hdr_capacity_max, decodedUHdrMetadata.hdr_capacity_max);
 }
 }  // namespace ultrahdr
