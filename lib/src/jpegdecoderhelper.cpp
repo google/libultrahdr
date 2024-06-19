@@ -369,18 +369,6 @@ uhdr_error_info_t JpegDecoderHelper::decode(const void* image, int length, decod
         jpeg_destroy_decompress(&cinfo);
         return status;
       }
-      if (cinfo.jpeg_color_space == JCS_YCbCr) {
-        if (cinfo.comp_info[0].h_samp_factor != 2 || cinfo.comp_info[0].v_samp_factor != 2 ||
-            cinfo.comp_info[1].h_samp_factor != 1 || cinfo.comp_info[1].v_samp_factor != 1 ||
-            cinfo.comp_info[2].h_samp_factor != 1 || cinfo.comp_info[2].v_samp_factor != 1) {
-          status.error_code = UHDR_CODEC_ERROR;
-          status.has_detail = 1;
-          snprintf(status.detail, sizeof status.detail,
-                   "apply gainmap supports only 4:2:0 sub sampling format, stopping image decode");
-          jpeg_destroy_decompress(&cinfo);
-          return status;
-        }
-      }
       int size = 0;
       for (int i = 0; i < cinfo.num_components; i++) {
         mPlaneHStride[i] = ALIGNM(mPlaneWidth[i], cinfo.max_h_samp_factor);

@@ -623,7 +623,7 @@ Color applyGainLUT(Color e, Color gain, GainLUT& gainLUT) {
   return {{{e.r * gainFactorR, e.g * gainFactorG, e.b * gainFactorB}}};
 }
 
-Color getYuv420Pixel(uhdr_raw_image_t* image, size_t x, size_t y) {
+Color getYuv4abPixel(uhdr_raw_image_t* image, size_t x, size_t y, int h_factor, int v_factor) {
   uint8_t* luma_data = reinterpret_cast<uint8_t*>(image->planes[UHDR_PLANE_Y]);
   size_t luma_stride = image->stride[UHDR_PLANE_Y];
   uint8_t* cb_data = reinterpret_cast<uint8_t*>(image->planes[UHDR_PLANE_U]);
@@ -632,8 +632,8 @@ Color getYuv420Pixel(uhdr_raw_image_t* image, size_t x, size_t y) {
   size_t cr_stride = image->stride[UHDR_PLANE_V];
 
   size_t pixel_y_idx = x + y * luma_stride;
-  size_t pixel_cb_idx = x / 2 + (y / 2) * cb_stride;
-  size_t pixel_cr_idx = x / 2 + (y / 2) * cr_stride;
+  size_t pixel_cb_idx = x / h_factor + (y / v_factor) * cb_stride;
+  size_t pixel_cr_idx = x / h_factor + (y / v_factor) * cr_stride;
 
   uint8_t y_uint = luma_data[pixel_y_idx];
   uint8_t u_uint = cb_data[pixel_cb_idx];
@@ -644,6 +644,18 @@ Color getYuv420Pixel(uhdr_raw_image_t* image, size_t x, size_t y) {
   return {
       {{static_cast<float>(y_uint) * (1 / 255.0f), static_cast<float>(u_uint - 128) * (1 / 255.0f),
         static_cast<float>(v_uint - 128) * (1 / 255.0f)}}};
+}
+
+Color getYuv444Pixel(uhdr_raw_image_t* image, size_t x, size_t y) {
+  return getYuv4abPixel(image, x, y, 1, 1);
+}
+
+Color getYuv422Pixel(uhdr_raw_image_t* image, size_t x, size_t y) {
+  return getYuv4abPixel(image, x, y, 2, 1);
+}
+
+Color getYuv420Pixel(uhdr_raw_image_t* image, size_t x, size_t y) {
+  return getYuv4abPixel(image, x, y, 2, 2);
 }
 
 Color getP010Pixel(uhdr_raw_image_t* image, size_t x, size_t y) {
@@ -671,8 +683,6 @@ Color getP010Pixel(uhdr_raw_image_t* image, size_t x, size_t y) {
             static_cast<float>(v_uint - 64) * (1 / 896.0f) - 0.5f}}};
 }
 
-typedef Color (*getPixelFn)(uhdr_raw_image_t*, size_t, size_t);
-
 static Color samplePixels(uhdr_raw_image_t* image, size_t map_scale_factor, size_t x, size_t y,
                           getPixelFn get_pixel_fn) {
   Color e = {{{0.0f, 0.0f, 0.0f}}};
@@ -683,6 +693,14 @@ static Color samplePixels(uhdr_raw_image_t* image, size_t map_scale_factor, size
   }
 
   return e / static_cast<float>(map_scale_factor * map_scale_factor);
+}
+
+Color sampleYuv444(uhdr_raw_image_t* image, size_t map_scale_factor, size_t x, size_t y) {
+  return samplePixels(image, map_scale_factor, x, y, getYuv444Pixel);
+}
+
+Color sampleYuv422(uhdr_raw_image_t* image, size_t map_scale_factor, size_t x, size_t y) {
+  return samplePixels(image, map_scale_factor, x, y, getYuv422Pixel);
 }
 
 Color sampleYuv420(uhdr_raw_image_t* image, size_t map_scale_factor, size_t x, size_t y) {
