@@ -257,7 +257,8 @@ class UltraHdrAppInput {
                    bool use_full_range_color_hdr = false,
                    int gainmap_scale_factor = 4,
                    bool use_multi_channel_gainmap = false,
-                   int gainmap_compression_quality = 85)
+                   int gainmap_compression_quality = 85,
+                   float gamma = 1.0f)
       : mHdrIntentRawFile(hdrIntentRawFile),
         mSdrIntentRawFile(sdrIntentRawFile),
         mSdrIntentCompressedFile(sdrIntentCompressedFile),
@@ -279,6 +280,7 @@ class UltraHdrAppInput {
         mMapDimensionScaleFactor(gainmap_scale_factor),
         mMapCompressQuality(gainmap_compression_quality),
         mUseMultiChannelGainMap(use_multi_channel_gainmap),
+        mGamma(gamma),
         mMode(0){};
 
   UltraHdrAppInput(const char* uhdrFile, const char* outputFile,
@@ -372,6 +374,7 @@ class UltraHdrAppInput {
   size_t mMapDimensionScaleFactor;
   int mMapCompressQuality;
   bool mUseMultiChannelGainMap;
+  float mGamma;
 
   uhdr_raw_image_t mRawP010Image{};
   uhdr_raw_image_t mRawRgba1010102Image{};
@@ -630,6 +633,7 @@ bool UltraHdrAppInput::encode() {
   RET_IF_ERR(uhdr_enc_set_quality(handle, mMapCompressQuality, UHDR_GAIN_MAP_IMG))
   RET_IF_ERR(uhdr_enc_set_using_multi_channel_gainmap(handle, mUseMultiChannelGainMap))
   RET_IF_ERR(uhdr_enc_set_gainmap_scale_factor(handle, mMapDimensionScaleFactor))
+  RET_IF_ERR(uhdr_enc_set_gainmap_gamma(handle, mGamma))
 #ifdef PROFILE_ENABLE
   const int profileCount = 10;
   Profiler profileEncode;
@@ -1319,7 +1323,7 @@ static void usage(const char* name) {
 }
 
 int main(int argc, char* argv[]) {
-  char opt_string[] = "p:y:i:g:f:w:h:C:c:t:q:o:O:m:j:e:a:b:z:R:s:M:Q:";
+  char opt_string[] = "p:y:i:g:f:w:h:C:c:t:q:o:O:m:j:e:a:b:z:R:s:M:Q:G:";
   char *hdr_intent_raw_file = nullptr, *sdr_intent_raw_file = nullptr, *uhdr_file = nullptr,
        *sdr_intent_compressed_file = nullptr, *gainmap_compressed_file = nullptr,
        *gainmap_metadata_cfg_file = nullptr, *output_file = nullptr;
@@ -1338,6 +1342,7 @@ int main(int argc, char* argv[]) {
   bool use_full_range_color_hdr = false;
   int gainmap_compression_quality = 85;
   int compute_psnr = 0;
+  float gamma = 1.0f;
   int ch;
   while ((ch = getopt_s(argc, argv, opt_string)) != -1) {
     switch (ch) {
@@ -1405,6 +1410,9 @@ int main(int argc, char* argv[]) {
       case 'Q':
         gainmap_compression_quality = atoi(optarg_s);
         break;
+      case 'G':
+        gamma = atof(optarg_s);
+        break;
       case 'j':
         uhdr_file = optarg_s;
         break;
@@ -1441,7 +1449,7 @@ int main(int argc, char* argv[]) {
                               output_file ? output_file : "out.jpeg", width, height, hdr_cf, sdr_cf,
                               hdr_cg, sdr_cg, hdr_tf, quality, out_tf, out_cf,
                               use_full_range_color_hdr, gainmap_scale_factor,
-                              use_multi_channel_gainmap, gainmap_compression_quality);
+                              use_multi_channel_gainmap, gainmap_compression_quality, gamma);
     if (!appInput.encode()) return -1;
     if (compute_psnr == 1) {
       if (!appInput.decode()) return -1;

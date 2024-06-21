@@ -33,12 +33,11 @@ static const size_t kMapDimensionScaleFactorDefault = 4;
 static const int kMapCompressQualityDefault = 85;
 // Gain map calculation
 static const bool kUseMultiChannelGainMapDefault = false;
+// Default gamma value for gain map
+static const float kGainMapGammaDefault = 1.0f;
 
 // The current JPEGR version that we encode to
 static const char* const kJpegrVersion = kGainMapVersion;
-
-// Map is quarter res / sixteenth size
-static const size_t kMapDimensionScaleFactor = 4;
 
 // Gain Map width is (image_width / kMapDimensionScaleFactor). If we were to
 // compress 420 GainMap in jpeg, then we need at least 2 samples. For Grayscale
@@ -137,7 +136,7 @@ class JpegR {
  public:
    JpegR();
 
-   JpegR(size_t, int, bool);
+   JpegR(size_t, int, bool, float);
 
   /*
    * Experimental only
@@ -332,6 +331,12 @@ class JpegR {
 
    bool isUsingMultiChannelGainMap() { return this->mUseMultiChannelGainMap; }
 
+   void setGainMapGamma(float gamma) {
+      this->mGamma = gamma;
+   }
+
+   float getGainMapGamma() { return this->mGamma; }
+
  protected:
   /*
    * This method is called in the encoding pipeline. It will take the uncompressed 8-bit and
@@ -506,6 +511,8 @@ class JpegR {
   int mMapCompressQuality;
   // Gain map calculation
   bool mUseMultiChannelGainMap;
+  // Gamma
+  float mGamma;
 };
 
 struct GlobalTonemapOutputs {
