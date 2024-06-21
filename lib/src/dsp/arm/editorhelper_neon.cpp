@@ -17,6 +17,7 @@
 #include <arm_neon.h>
 #include <cstring>
 
+#include "ultrahdr/dsp/arm/mem_neon.h"
 #include "ultrahdr/editorhelper.h"
 
 namespace ultrahdr {
@@ -47,21 +48,21 @@ static void mirror_buffer_horizontal_neon_uint8_t(uint8_t* src_buffer, uint8_t* 
     int j = 0;
 
     for (; j + 64 <= src_w; src_blk -= 64, dst_blk += 64, j += 64) {
-      uint8x16x4_t s0 = vld1q_u8_x4(src_blk - 64);
+      uint8x16x4_t s0 = load_u8x16_x4(src_blk - 64);
       uint8x16x4_t d0;
       vrev128q_u8(s0.val[0], d0.val[3]);
       vrev128q_u8(s0.val[1], d0.val[2]);
       vrev128q_u8(s0.val[2], d0.val[1]);
       vrev128q_u8(s0.val[3], d0.val[0]);
-      vst1q_u8_x4(dst_blk, d0);
+      store_u8x16_x4(dst_blk, d0);
     }
 
     for (; j + 32 <= src_w; src_blk -= 32, dst_blk += 32, j += 32) {
-      uint8x16x2_t s0 = vld1q_u8_x2(src_blk - 32);
+      uint8x16x2_t s0 = load_u8x16_x2(src_blk - 32);
       uint8x16x2_t d0;
       vrev128q_u8(s0.val[0], d0.val[1]);
       vrev128q_u8(s0.val[1], d0.val[0]);
-      vst1q_u8_x2(dst_blk, d0);
+      store_u8x16_x2(dst_blk, d0);
     }
 
     for (; j + 16 <= src_w; src_blk -= 16, dst_blk += 16, j += 16) {
@@ -94,21 +95,21 @@ static void mirror_buffer_horizontal_neon_uint16_t(uint16_t* src_buffer, uint16_
     int j = 0;
 
     for (; j + 32 <= src_w; src_blk -= 32, dst_blk += 32, j += 32) {
-      uint16x8x4_t s0 = vld1q_u16_x4(src_blk - 32);
+      uint16x8x4_t s0 = load_u16x8_x4(src_blk - 32);
       uint16x8x4_t d0;
       vrev128q_u16(s0.val[0], d0.val[3]);
       vrev128q_u16(s0.val[1], d0.val[2]);
       vrev128q_u16(s0.val[2], d0.val[1]);
       vrev128q_u16(s0.val[3], d0.val[0]);
-      vst1q_u16_x4(dst_blk, d0);
+      store_u16x8_x4(dst_blk, d0);
     }
 
     for (; j + 16 <= src_w; src_blk -= 16, dst_blk += 16, j += 16) {
-      uint16x8x2_t s0 = vld1q_u16_x2(src_blk - 16);
+      uint16x8x2_t s0 = load_u16x8_x2(src_blk - 16);
       uint16x8x2_t d0;
       vrev128q_u16(s0.val[0], d0.val[1]);
       vrev128q_u16(s0.val[1], d0.val[0]);
-      vst1q_u16_x2(dst_blk, d0);
+      store_u16x8_x2(dst_blk, d0);
     }
 
     for (; j + 8 <= src_w; src_blk -= 8, dst_blk += 8, j += 8) {
@@ -135,21 +136,21 @@ static void mirror_buffer_horizontal_neon_uint32_t(uint32_t* src_buffer, uint32_
     int j = 0;
 
     for (; j + 16 <= src_w; src_blk -= 16, dst_blk += 16, j += 16) {
-      uint32x4x4_t s0 = vld1q_u32_x4(src_blk - 16);
+      uint32x4x4_t s0 = load_u32x4_x4(src_blk - 16);
       uint32x4x4_t d0;
       vrev128q_u32(s0.val[0], d0.val[3]);
       vrev128q_u32(s0.val[1], d0.val[2]);
       vrev128q_u32(s0.val[2], d0.val[1]);
       vrev128q_u32(s0.val[3], d0.val[0]);
-      vst1q_u32_x4(dst_blk, d0);
+      store_u32x4_x4(dst_blk, d0);
     }
 
     for (; j + 8 <= src_w; src_blk -= 8, dst_blk += 8, j += 8) {
-      uint32x4x2_t s0 = vld1q_u32_x2(src_blk - 8);
+      uint32x4x2_t s0 = load_u32x4_x2(src_blk - 8);
       uint32x4x2_t d0;
       vrev128q_u32(s0.val[0], d0.val[1]);
       vrev128q_u32(s0.val[1], d0.val[0]);
-      vst1q_u32_x2(dst_blk, d0);
+      store_u32x4_x2(dst_blk, d0);
     }
 
     for (; j + 4 <= src_w; src_blk -= 4, dst_blk += 4, j += 4) {
@@ -197,13 +198,13 @@ static void mirror_buffer_vertical_neon_uint8_t(uint8_t* src_buffer, uint8_t* ds
     int j = 0;
 
     for (; j + 64 <= src_w; src_blk += 64, dst_blk += 64, j += 64) {
-      uint8x16x4_t s0 = vld1q_u8_x4(src_blk);
-      vst1q_u8_x4(dst_blk, s0);
+      uint8x16x4_t s0 = load_u8x16_x4(src_blk);
+      store_u8x16_x4(dst_blk, s0);
     }
 
     for (; j + 32 <= src_w; src_blk += 32, dst_blk += 32, j += 32) {
-      uint8x16x2_t s0 = vld1q_u8_x2(src_blk);
-      vst1q_u8_x2(dst_blk, s0);
+      uint8x16x2_t s0 = load_u8x16_x2(src_blk);
+      store_u8x16_x2(dst_blk, s0);
     }
 
     for (; j + 16 <= src_w; src_blk += 16, dst_blk += 16, j += 16) {
@@ -232,13 +233,13 @@ static void mirror_buffer_vertical_neon_uint16_t(uint16_t* src_buffer, uint16_t*
     int j = 0;
 
     for (; j + 32 <= src_w; src_blk += 32, dst_blk += 32, j += 32) {
-      uint16x8x4_t s0 = vld1q_u16_x4(src_blk);
-      vst1q_u16_x4(dst_blk, s0);
+      uint16x8x4_t s0 = load_u16x8_x4(src_blk);
+      store_u16x8_x4(dst_blk, s0);
     }
 
     for (; j + 16 <= src_w; src_blk += 16, dst_blk += 16, j += 16) {
-      uint16x8x2_t s0 = vld1q_u16_x2(src_blk);
-      vst1q_u16_x2(dst_blk, s0);
+      uint16x8x2_t s0 = load_u16x8_x2(src_blk);
+      store_u16x8_x2(dst_blk, s0);
     }
 
     for (; j + 8 <= src_w; src_blk += 8, dst_blk += 8, j += 8) {
@@ -262,13 +263,13 @@ static void mirror_buffer_vertical_neon_uint32_t(uint32_t* src_buffer, uint32_t*
     int j = 0;
 
     for (; j + 16 <= src_w; src_blk += 16, dst_blk += 16, j += 16) {
-      uint32x4x4_t s0 = vld1q_u32_x4(src_blk);
-      vst1q_u32_x4(dst_blk, s0);
+      uint32x4x4_t s0 = load_u32x4_x4(src_blk);
+      store_u32x4_x4(dst_blk, s0);
     }
 
     for (; j + 8 <= src_w; src_blk += 8, dst_blk += 8, j += 8) {
-      uint32x4x2_t s0 = vld1q_u32_x2(src_blk);
-      vst1q_u32_x2(dst_blk, s0);
+      uint32x4x2_t s0 = load_u32x4_x2(src_blk);
+      store_u32x4_x2(dst_blk, s0);
     }
 
     for (; j + 4 <= src_w; src_blk += 4, dst_blk += 4, j += 4) {

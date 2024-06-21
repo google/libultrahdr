@@ -77,10 +77,10 @@ ALIGNED(16)
 const int16_t kYuv2100To601_coeffs_neon[8] = {1931, 1729, 16306, -976, -1378, 15999, 0, 0};
 
 static inline int16x8_t yConversion_neon(uint8x8_t y, int16x8_t u, int16x8_t v, int16x8_t coeffs) {
-  int32x4_t lo = vmull_laneq_s16(vget_low_s16(u), coeffs, 0);
-  int32x4_t hi = vmull_laneq_s16(vget_high_s16(u), coeffs, 0);
-  lo = vmlal_laneq_s16(lo, vget_low_s16(v), coeffs, 1);
-  hi = vmlal_laneq_s16(hi, vget_high_s16(v), coeffs, 1);
+  int32x4_t lo = vmull_lane_s16(vget_low_s16(u), vget_low_s16(coeffs), 0);
+  int32x4_t hi = vmull_lane_s16(vget_high_s16(u), vget_low_s16(coeffs), 0);
+  lo = vmlal_lane_s16(lo, vget_low_s16(v), vget_low_s16(coeffs), 1);
+  hi = vmlal_lane_s16(hi, vget_high_s16(v), vget_low_s16(coeffs), 1);
 
   // Descale result to account for coefficients being scaled by 2^14.
   uint16x8_t y_output =
@@ -89,10 +89,10 @@ static inline int16x8_t yConversion_neon(uint8x8_t y, int16x8_t u, int16x8_t v, 
 }
 
 static inline int16x8_t uConversion_neon(int16x8_t u, int16x8_t v, int16x8_t coeffs) {
-  int32x4_t u_lo = vmull_laneq_s16(vget_low_s16(u), coeffs, 2);
-  int32x4_t u_hi = vmull_laneq_s16(vget_high_s16(u), coeffs, 2);
-  u_lo = vmlal_laneq_s16(u_lo, vget_low_s16(v), coeffs, 3);
-  u_hi = vmlal_laneq_s16(u_hi, vget_high_s16(v), coeffs, 3);
+  int32x4_t u_lo = vmull_lane_s16(vget_low_s16(u), vget_low_s16(coeffs), 2);
+  int32x4_t u_hi = vmull_lane_s16(vget_high_s16(u), vget_low_s16(coeffs), 2);
+  u_lo = vmlal_lane_s16(u_lo, vget_low_s16(v), vget_low_s16(coeffs), 3);
+  u_hi = vmlal_lane_s16(u_hi, vget_high_s16(v), vget_low_s16(coeffs), 3);
 
   // Descale result to account for coefficients being scaled by 2^14.
   const int16x8_t u_output = vcombine_s16(vqrshrn_n_s32(u_lo, 14), vqrshrn_n_s32(u_hi, 14));
@@ -100,10 +100,10 @@ static inline int16x8_t uConversion_neon(int16x8_t u, int16x8_t v, int16x8_t coe
 }
 
 static inline int16x8_t vConversion_neon(int16x8_t u, int16x8_t v, int16x8_t coeffs) {
-  int32x4_t v_lo = vmull_laneq_s16(vget_low_s16(u), coeffs, 4);
-  int32x4_t v_hi = vmull_laneq_s16(vget_high_s16(u), coeffs, 4);
-  v_lo = vmlal_laneq_s16(v_lo, vget_low_s16(v), coeffs, 5);
-  v_hi = vmlal_laneq_s16(v_hi, vget_high_s16(v), coeffs, 5);
+  int32x4_t v_lo = vmull_lane_s16(vget_low_s16(u), vget_high_s16(coeffs), 0);
+  int32x4_t v_hi = vmull_lane_s16(vget_high_s16(u), vget_high_s16(coeffs), 0);
+  v_lo = vmlal_lane_s16(v_lo, vget_low_s16(v), vget_high_s16(coeffs), 1);
+  v_hi = vmlal_lane_s16(v_hi, vget_high_s16(v), vget_high_s16(coeffs), 1);
 
   // Descale result to account for coefficients being scaled by 2^14.
   const int16x8_t v_output = vcombine_s16(vqrshrn_n_s32(v_lo, 14), vqrshrn_n_s32(v_hi, 14));
@@ -141,10 +141,10 @@ void transformYuv420_neon(uhdr_raw_image_t* image, const int16_t* coeffs_ptr) {
       int16x8_t u_wide_s16 = vreinterpretq_s16_u16(vaddw_u8(uv_bias, u));  // -128 + u
       int16x8_t v_wide_s16 = vreinterpretq_s16_u16(vaddw_u8(uv_bias, v));  // -128 + v
 
-      const int16x8_t u_wide_lo = vzip1q_s16(u_wide_s16, u_wide_s16);
-      const int16x8_t u_wide_hi = vzip2q_s16(u_wide_s16, u_wide_s16);
-      const int16x8_t v_wide_lo = vzip1q_s16(v_wide_s16, v_wide_s16);
-      const int16x8_t v_wide_hi = vzip2q_s16(v_wide_s16, v_wide_s16);
+      const int16x8_t u_wide_lo = vzipq_s16(u_wide_s16, u_wide_s16).val[0];
+      const int16x8_t u_wide_hi = vzipq_s16(u_wide_s16, u_wide_s16).val[1];
+      const int16x8_t v_wide_lo = vzipq_s16(v_wide_s16, v_wide_s16).val[0];
+      const int16x8_t v_wide_hi = vzipq_s16(v_wide_s16, v_wide_s16).val[1];
 
       const int16x8_t y0_lo = yConversion_neon(vget_low_u8(y0), u_wide_lo, v_wide_lo, coeffs);
       const int16x8_t y0_hi = yConversion_neon(vget_high_u8(y0), u_wide_hi, v_wide_hi, coeffs);
