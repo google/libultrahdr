@@ -17,7 +17,7 @@ jobs:
             build_type: Release
             cc: cl
             cxx: cl
-            cmake-opts: '-DUHDR_BUILD_TESTS=1 -DUHDR_ENABLE_LOGS=1 -DUHDR_BUILD_DEPS=1'
+            cmake-opts: '-DUHDR_BUILD_TESTS=1 -DUHDR_ENABLE_LOGS=1 -DUHDR_BUILD_DEPS=1 -DUHDR_ENABLE_WERROR=1'
 
     steps:
     - name: Checkout the repository
