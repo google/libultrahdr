@@ -41,7 +41,7 @@ jobs:
       shell: bash
       run: |
         mkdir build
-        cmake -G Ninja -B build -DCMAKE_TOOLCHAIN_FILE=./cmake/toolchains/android.cmake -DUHDR_ANDROID_NDK_PATH=${{ steps.setup-ndk.outputs.ndk-path }} -DUHDR_BUILD_TESTS=1 -DUHDR_ENABLE_LOGS=1 -DUHDR_BUILD_DEPS=1 -DANDROID_ABI=${{ matrix.abi }} -DANDROID_PLATFORM=android-23 -DUHDR_BUILD_JAVA=1
+        cmake -G Ninja -B build -DCMAKE_TOOLCHAIN_FILE=./cmake/toolchains/android.cmake -DUHDR_ANDROID_NDK_PATH=${{ steps.setup-ndk.outputs.ndk-path }} -DUHDR_BUILD_TESTS=1 -DUHDR_ENABLE_LOGS=1 -DUHDR_BUILD_DEPS=1 -DANDROID_ABI=${{ matrix.abi }} -DANDROID_PLATFORM=android-23 -DUHDR_BUILD_JAVA=1 -DUHDR_ENABLE_WERROR=1
 
     - name: Build
       run: cmake --build build
