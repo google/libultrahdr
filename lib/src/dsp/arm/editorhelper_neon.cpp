@@ -377,7 +377,7 @@ static INLINE uint16x8x2_t vtrnq_u64_to_u16(uint32x4_t a0, uint32x4_t a1) {
   b0.val[0] =
       vcombine_u16(vreinterpret_u16_u32(vget_low_u32(a0)), vreinterpret_u16_u32(vget_low_u32(a1)));
   b0.val[1] = vcombine_u16(vreinterpret_u16_u32(vget_high_u32(a0)),
-                           vreinterpret_u16_u32(vget_high_s32(a1)));
+                           vreinterpret_u16_u32(vget_high_u32(a1)));
 #endif
   return b0;
 }
