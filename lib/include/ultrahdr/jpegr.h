@@ -79,7 +79,8 @@ class JpegR {
 
   JpegR(size_t mapDimensionScaleFactor = kMapDimensionScaleFactorDefault,
         int mapCompressQuality = kMapCompressQualityDefault,
-        bool useMultiChannelGainMap = kUseMultiChannelGainMapDefault);
+        bool useMultiChannelGainMap = kUseMultiChannelGainMapDefault,
+        float maxDisplayLuminanceNits = -1.0f);
 
   /*!\brief Encode API-0.
    *
@@ -538,6 +539,7 @@ class JpegR {
   size_t mMapDimensionScaleFactor;  // gainmap scale factor
   int mMapCompressQuality;          // gainmap quality factor
   bool mUseMultiChannelGainMap;     // enable multichannel gainmap
+  float mMaxDisplayLuminanceNits;   // maximum mastering display luminance
 };
 
 struct GlobalTonemapOutputs {

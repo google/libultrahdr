@@ -463,7 +463,6 @@ ColorTransformFn getInverseOetf(uhdr_color_transfer_t transfer) {
 float getMaxDisplayMasteringLuminance(uhdr_color_transfer_t transfer) {
   switch (transfer) {
     case UHDR_CT_LINEAR:
-      // TODO: configure maxCLL correctly for linear tf
       return kHlgMaxNits;
     case UHDR_CT_HLG:
       return kHlgMaxNits;
@@ -578,48 +577,43 @@ void transformYuv420(uhdr_raw_image_t* image, const std::array<float, 9>& coeffs
 
 ////////////////////////////////////////////////////////////////////////////////
 // Gain map calculations
-uint8_t encodeGain(float y_sdr, float y_hdr, uhdr_gainmap_metadata_ext_t* metadata) {
-  return encodeGain(y_sdr, y_hdr, metadata, log2(metadata->min_content_boost),
-                    log2(metadata->max_content_boost));
+float computeGain(float sdr, float hdr, float sdr_offset, float hdr_offset) {
+  return log2((hdr + hdr_offset) / (sdr + sdr_offset));
 }
 
-uint8_t encodeGain(float y_sdr, float y_hdr, uhdr_gainmap_metadata_ext_t* metadata,
-                   float log2MinContentBoost, float log2MaxContentBoost) {
-  float gain = 1.0f;
-  if (y_sdr > 0.0f) {
-    gain = y_hdr / y_sdr;
-  }
-
-  float log2_normalized_gamma_gain = metadata->gamma * log2(gain);
-  log2_normalized_gamma_gain = fmin(log2_normalized_gamma_gain, log2MaxContentBoost);
-  log2_normalized_gamma_gain = fmax(log2_normalized_gamma_gain, log2MinContentBoost);
-
-  return static_cast<uint8_t>((log2_normalized_gamma_gain - log2MinContentBoost) /
-                              (log2MaxContentBoost - log2MinContentBoost) * 255.0f);
+uint8_t affineMapGain(float gainlog2, float mingainlog2, float maxgainlog2, float gamma) {
+  float mappedVal = (gainlog2 - mingainlog2) / (maxgainlog2 - mingainlog2);
+  if (gamma != 1.0f) mappedVal = pow(mappedVal, gamma);
+  mappedVal *= 255;
+  return CLIP3(mappedVal + 0.5f, 0, 255);
 }
 
-Color applyGain(Color e, float gain, uhdr_gainmap_metadata_ext_t* metadata) {
+Color applyGain(Color e, float gain, uhdr_gainmap_metadata_ext_t* metadata,
+                float offset_sdr_weighed, float offset_hdr_weighed) {
   gain = pow(gain, 1.0f / metadata->gamma);
   float logBoost =
       log2(metadata->min_content_boost) * (1.0f - gain) + log2(metadata->max_content_boost) * gain;
   float gainFactor = exp2(logBoost);
-  return e * gainFactor;
+  return (e + offset_sdr_weighed) * gainFactor - offset_hdr_weighed;
 }
 
-Color applyGain(Color e, float gain, uhdr_gainmap_metadata_ext_t* metadata, float displayBoost) {
+Color applyGain(Color e, float gain, uhdr_gainmap_metadata_ext_t* metadata, float displayBoost,
+                float offset_sdr_weighed, float offset_hdr_weighed) {
   gain = pow(gain, 1.0f / metadata->gamma);
   float logBoost =
       log2(metadata->min_content_boost) * (1.0f - gain) + log2(metadata->max_content_boost) * gain;
-  float gainFactor = exp2(logBoost * displayBoost / metadata->max_content_boost);
-  return e * gainFactor;
+  float gainFactor = exp2(logBoost * displayBoost / metadata->hdr_capacity_max);
+  return (e + offset_sdr_weighed) * gainFactor - offset_hdr_weighed;
 }
 
-Color applyGainLUT(Color e, float gain, GainLUT& gainLUT) {
+Color applyGainLUT(Color e, float gain, GainLUT& gainLUT, float offset_sdr_weighed,
+                   float offset_hdr_weighed) {
   float gainFactor = gainLUT.getGainFactor(gain);
-  return e * gainFactor;
+  return (e + offset_sdr_weighed) * gainFactor - offset_hdr_weighed;
 }
 
-Color applyGain(Color e, Color gain, uhdr_gainmap_metadata_ext_t* metadata) {
+Color applyGain(Color e, Color gain, uhdr_gainmap_metadata_ext_t* metadata,
+                float offset_sdr_weighed, float offset_hdr_weighed) {
   float logBoostR = log2(metadata->min_content_boost) * (1.0f - gain.r) +
                     log2(metadata->max_content_boost) * gain.r;
   float logBoostG = log2(metadata->min_content_boost) * (1.0f - gain.g) +
@@ -629,27 +623,35 @@ Color applyGain(Color e, Color gain, uhdr_gainmap_metadata_ext_t* metadata) {
   float gainFactorR = exp2(logBoostR);
   float gainFactorG = exp2(logBoostG);
   float gainFactorB = exp2(logBoostB);
-  return {{{e.r * gainFactorR, e.g * gainFactorG, e.b * gainFactorB}}};
+  return {{{(e.r + offset_sdr_weighed) * gainFactorR - offset_hdr_weighed,
+            (e.g + offset_sdr_weighed) * gainFactorG - offset_hdr_weighed,
+            (e.b + offset_sdr_weighed) * gainFactorB - offset_hdr_weighed}}};
 }
 
-Color applyGain(Color e, Color gain, uhdr_gainmap_metadata_ext_t* metadata, float displayBoost) {
+Color applyGain(Color e, Color gain, uhdr_gainmap_metadata_ext_t* metadata, float displayBoost,
+                float offset_sdr_weighed, float offset_hdr_weighed) {
   float logBoostR = log2(metadata->min_content_boost) * (1.0f - gain.r) +
                     log2(metadata->max_content_boost) * gain.r;
   float logBoostG = log2(metadata->min_content_boost) * (1.0f - gain.g) +
                     log2(metadata->max_content_boost) * gain.g;
   float logBoostB = log2(metadata->min_content_boost) * (1.0f - gain.b) +
                     log2(metadata->max_content_boost) * gain.b;
-  float gainFactorR = exp2(logBoostR * displayBoost / metadata->max_content_boost);
-  float gainFactorG = exp2(logBoostG * displayBoost / metadata->max_content_boost);
-  float gainFactorB = exp2(logBoostB * displayBoost / metadata->max_content_boost);
-  return {{{e.r * gainFactorR, e.g * gainFactorG, e.b * gainFactorB}}};
+  float gainFactorR = exp2(logBoostR * displayBoost / metadata->hdr_capacity_max);
+  float gainFactorG = exp2(logBoostG * displayBoost / metadata->hdr_capacity_max);
+  float gainFactorB = exp2(logBoostB * displayBoost / metadata->hdr_capacity_max);
+  return {{{(e.r + offset_sdr_weighed) * gainFactorR - offset_hdr_weighed,
+            (e.g + offset_sdr_weighed) * gainFactorG - offset_hdr_weighed,
+            (e.b + offset_sdr_weighed) * gainFactorB - offset_hdr_weighed}}};
 }
 
-Color applyGainLUT(Color e, Color gain, GainLUT& gainLUT) {
+Color applyGainLUT(Color e, Color gain, GainLUT& gainLUT, float offset_sdr_weighed,
+                   float offset_hdr_weighed) {
   float gainFactorR = gainLUT.getGainFactor(gain.r);
   float gainFactorG = gainLUT.getGainFactor(gain.g);
   float gainFactorB = gainLUT.getGainFactor(gain.b);
-  return {{{e.r * gainFactorR, e.g * gainFactorG, e.b * gainFactorB}}};
+  return {{{(e.r + offset_sdr_weighed) * gainFactorR - offset_hdr_weighed,
+            (e.g + offset_sdr_weighed) * gainFactorG - offset_hdr_weighed,
+            (e.b + offset_sdr_weighed) * gainFactorB - offset_hdr_weighed}}};
 }
 
 Color getYuv4abPixel(uhdr_raw_image_t* image, size_t x, size_t y, int h_factor, int v_factor) {

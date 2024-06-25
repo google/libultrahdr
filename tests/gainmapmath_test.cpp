@@ -151,7 +151,8 @@ class GainMapMathTest : public testing::Test {
   Color Recover(Color yuv_gamma, float gain, uhdr_gainmap_metadata_ext_t* metadata) {
     Color rgb_gamma = srgbYuvToRgb(yuv_gamma);
     Color rgb = srgbInvOetf(rgb_gamma);
-    return applyGain(rgb, gain, metadata);
+    return applyGain(rgb, gain, metadata, metadata->offset_sdr / kSdrWhiteNits,
+                     metadata->offset_hdr / kSdrWhiteNits);
   }
 
   uhdr_raw_image_t Yuv420Image() {
@@ -1131,31 +1132,35 @@ TEST_F(GainMapMathTest, applyGainLUT) {
 
     metadata.min_content_boost = 1.0f / static_cast<float>(boost);
     metadata.max_content_boost = static_cast<float>(boost);
+    metadata.hdr_capacity_max = metadata.max_content_boost;
+    metadata.hdr_capacity_min = metadata.min_content_boost;
+    metadata.offset_sdr = 0.0f;
+    metadata.offset_hdr = 0.0f;
     metadata.gamma = 1.0f;
     GainLUT gainLUT(&metadata);
     GainLUT gainLUTWithBoost(&metadata, metadata.max_content_boost);
     for (size_t idx = 0; idx < kGainFactorNumEntries; idx++) {
       float value = static_cast<float>(idx) / static_cast<float>(kGainFactorNumEntries - 1);
-      EXPECT_RGB_NEAR(applyGain(RgbBlack(), value, &metadata),
-                      applyGainLUT(RgbBlack(), value, gainLUT));
-      EXPECT_RGB_NEAR(applyGain(RgbWhite(), value, &metadata),
-                      applyGainLUT(RgbWhite(), value, gainLUT));
-      EXPECT_RGB_NEAR(applyGain(RgbRed(), value, &metadata),
-                      applyGainLUT(RgbRed(), value, gainLUT));
-      EXPECT_RGB_NEAR(applyGain(RgbGreen(), value, &metadata),
-                      applyGainLUT(RgbGreen(), value, gainLUT));
-      EXPECT_RGB_NEAR(applyGain(RgbBlue(), value, &metadata),
-                      applyGainLUT(RgbBlue(), value, gainLUT));
-      EXPECT_RGB_EQ(applyGainLUT(RgbBlack(), value, gainLUT),
-                    applyGainLUT(RgbBlack(), value, gainLUTWithBoost));
-      EXPECT_RGB_EQ(applyGainLUT(RgbWhite(), value, gainLUT),
-                    applyGainLUT(RgbWhite(), value, gainLUTWithBoost));
-      EXPECT_RGB_EQ(applyGainLUT(RgbRed(), value, gainLUT),
-                    applyGainLUT(RgbRed(), value, gainLUTWithBoost));
-      EXPECT_RGB_EQ(applyGainLUT(RgbGreen(), value, gainLUT),
-                    applyGainLUT(RgbGreen(), value, gainLUTWithBoost));
-      EXPECT_RGB_EQ(applyGainLUT(RgbBlue(), value, gainLUT),
-                    applyGainLUT(RgbBlue(), value, gainLUTWithBoost));
+      EXPECT_RGB_NEAR(applyGain(RgbBlack(), value, &metadata, 0.0f, 0.0f),
+                      applyGainLUT(RgbBlack(), value, gainLUT, 0.0f, 0.0f));
+      EXPECT_RGB_NEAR(applyGain(RgbWhite(), value, &metadata, 0.0f, 0.0f),
+                      applyGainLUT(RgbWhite(), value, gainLUT, 0.0f, 0.0f));
+      EXPECT_RGB_NEAR(applyGain(RgbRed(), value, &metadata, 0.0f, 0.0f),
+                      applyGainLUT(RgbRed(), value, gainLUT, 0.0f, 0.0f));
+      EXPECT_RGB_NEAR(applyGain(RgbGreen(), value, &metadata, 0.0f, 0.0f),
+                      applyGainLUT(RgbGreen(), value, gainLUT, 0.0f, 0.0f));
+      EXPECT_RGB_NEAR(applyGain(RgbBlue(), value, &metadata, 0.0f, 0.0f),
+                      applyGainLUT(RgbBlue(), value, gainLUT, 0.0f, 0.0f));
+      EXPECT_RGB_EQ(applyGainLUT(RgbBlack(), value, gainLUT, 0.0f, 0.0f),
+                    applyGainLUT(RgbBlack(), value, gainLUTWithBoost, 0.0f, 0.0f));
+      EXPECT_RGB_EQ(applyGainLUT(RgbWhite(), value, gainLUT, 0.0f, 0.0f),
+                    applyGainLUT(RgbWhite(), value, gainLUTWithBoost, 0.0f, 0.0f));
+      EXPECT_RGB_EQ(applyGainLUT(RgbRed(), value, gainLUT, 0.0f, 0.0f),
+                    applyGainLUT(RgbRed(), value, gainLUTWithBoost, 0.0f, 0.0f));
+      EXPECT_RGB_EQ(applyGainLUT(RgbGreen(), value, gainLUT, 0.0f, 0.0f),
+                    applyGainLUT(RgbGreen(), value, gainLUTWithBoost, 0.0f, 0.0f));
+      EXPECT_RGB_EQ(applyGainLUT(RgbBlue(), value, gainLUT, 0.0f, 0.0f),
+                    applyGainLUT(RgbBlue(), value, gainLUTWithBoost, 0.0f, 0.0f));
     }
   }
 
@@ -1164,31 +1169,35 @@ TEST_F(GainMapMathTest, applyGainLUT) {
 
     metadata.min_content_boost = 1.0f;
     metadata.max_content_boost = static_cast<float>(boost);
+    metadata.hdr_capacity_max = metadata.max_content_boost;
+    metadata.hdr_capacity_min = metadata.min_content_boost;
     metadata.gamma = 1.0f;
+    metadata.offset_sdr = 0.0f;
+    metadata.offset_hdr = 0.0f;
     GainLUT gainLUT(&metadata);
     GainLUT gainLUTWithBoost(&metadata, metadata.max_content_boost);
     for (size_t idx = 0; idx < kGainFactorNumEntries; idx++) {
       float value = static_cast<float>(idx) / static_cast<float>(kGainFactorNumEntries - 1);
-      EXPECT_RGB_NEAR(applyGain(RgbBlack(), value, &metadata),
-                      applyGainLUT(RgbBlack(), value, gainLUT));
-      EXPECT_RGB_NEAR(applyGain(RgbWhite(), value, &metadata),
-                      applyGainLUT(RgbWhite(), value, gainLUT));
-      EXPECT_RGB_NEAR(applyGain(RgbRed(), value, &metadata),
-                      applyGainLUT(RgbRed(), value, gainLUT));
-      EXPECT_RGB_NEAR(applyGain(RgbGreen(), value, &metadata),
-                      applyGainLUT(RgbGreen(), value, gainLUT));
-      EXPECT_RGB_NEAR(applyGain(RgbBlue(), value, &metadata),
-                      applyGainLUT(RgbBlue(), value, gainLUT));
-      EXPECT_RGB_EQ(applyGainLUT(RgbBlack(), value, gainLUT),
-                    applyGainLUT(RgbBlack(), value, gainLUTWithBoost));
-      EXPECT_RGB_EQ(applyGainLUT(RgbWhite(), value, gainLUT),
-                    applyGainLUT(RgbWhite(), value, gainLUTWithBoost));
-      EXPECT_RGB_EQ(applyGainLUT(RgbRed(), value, gainLUT),
-                    applyGainLUT(RgbRed(), value, gainLUTWithBoost));
-      EXPECT_RGB_EQ(applyGainLUT(RgbGreen(), value, gainLUT),
-                    applyGainLUT(RgbGreen(), value, gainLUTWithBoost));
-      EXPECT_RGB_EQ(applyGainLUT(RgbBlue(), value, gainLUT),
-                    applyGainLUT(RgbBlue(), value, gainLUTWithBoost));
+      EXPECT_RGB_NEAR(applyGain(RgbBlack(), value, &metadata, 0.0f, 0.0f),
+                      applyGainLUT(RgbBlack(), value, gainLUT, 0.0f, 0.0f));
+      EXPECT_RGB_NEAR(applyGain(RgbWhite(), value, &metadata, 0.0f, 0.0f),
+                      applyGainLUT(RgbWhite(), value, gainLUT, 0.0f, 0.0f));
+      EXPECT_RGB_NEAR(applyGain(RgbRed(), value, &metadata, 0.0f, 0.0f),
+                      applyGainLUT(RgbRed(), value, gainLUT, 0.0f, 0.0f));
+      EXPECT_RGB_NEAR(applyGain(RgbGreen(), value, &metadata, 0.0f, 0.0f),
+                      applyGainLUT(RgbGreen(), value, gainLUT, 0.0f, 0.0f));
+      EXPECT_RGB_NEAR(applyGain(RgbBlue(), value, &metadata, 0.0f, 0.0f),
+                      applyGainLUT(RgbBlue(), value, gainLUT, 0.0f, 0.0f));
+      EXPECT_RGB_EQ(applyGainLUT(RgbBlack(), value, gainLUT, 0.0f, 0.0f),
+                    applyGainLUT(RgbBlack(), value, gainLUTWithBoost, 0.0f, 0.0f));
+      EXPECT_RGB_EQ(applyGainLUT(RgbWhite(), value, gainLUT, 0.0f, 0.0f),
+                    applyGainLUT(RgbWhite(), value, gainLUTWithBoost, 0.0f, 0.0f));
+      EXPECT_RGB_EQ(applyGainLUT(RgbRed(), value, gainLUT, 0.0f, 0.0f),
+                    applyGainLUT(RgbRed(), value, gainLUTWithBoost, 0.0f, 0.0f));
+      EXPECT_RGB_EQ(applyGainLUT(RgbGreen(), value, gainLUT, 0.0f, 0.0f),
+                    applyGainLUT(RgbGreen(), value, gainLUTWithBoost, 0.0f, 0.0f));
+      EXPECT_RGB_EQ(applyGainLUT(RgbBlue(), value, gainLUT, 0.0f, 0.0f),
+                    applyGainLUT(RgbBlue(), value, gainLUTWithBoost, 0.0f, 0.0f));
     }
   }
 
@@ -1197,31 +1206,35 @@ TEST_F(GainMapMathTest, applyGainLUT) {
 
     metadata.min_content_boost = 1.0f / powf(static_cast<float>(boost), 1.0f / 3.0f);
     metadata.max_content_boost = static_cast<float>(boost);
+    metadata.hdr_capacity_max = metadata.max_content_boost;
+    metadata.hdr_capacity_min = metadata.min_content_boost;
+    metadata.offset_sdr = 0.0f;
+    metadata.offset_hdr = 0.0f;
     metadata.gamma = 1.0f;
     GainLUT gainLUT(&metadata);
     GainLUT gainLUTWithBoost(&metadata, metadata.max_content_boost);
     for (size_t idx = 0; idx < kGainFactorNumEntries; idx++) {
       float value = static_cast<float>(idx) / static_cast<float>(kGainFactorNumEntries - 1);
-      EXPECT_RGB_NEAR(applyGain(RgbBlack(), value, &metadata),
-                      applyGainLUT(RgbBlack(), value, gainLUT));
-      EXPECT_RGB_NEAR(applyGain(RgbWhite(), value, &metadata),
-                      applyGainLUT(RgbWhite(), value, gainLUT));
-      EXPECT_RGB_NEAR(applyGain(RgbRed(), value, &metadata),
-                      applyGainLUT(RgbRed(), value, gainLUT));
-      EXPECT_RGB_NEAR(applyGain(RgbGreen(), value, &metadata),
-                      applyGainLUT(RgbGreen(), value, gainLUT));
-      EXPECT_RGB_NEAR(applyGain(RgbBlue(), value, &metadata),
-                      applyGainLUT(RgbBlue(), value, gainLUT));
-      EXPECT_RGB_EQ(applyGainLUT(RgbBlack(), value, gainLUT),
-                    applyGainLUT(RgbBlack(), value, gainLUTWithBoost));
-      EXPECT_RGB_EQ(applyGainLUT(RgbWhite(), value, gainLUT),
-                    applyGainLUT(RgbWhite(), value, gainLUTWithBoost));
-      EXPECT_RGB_EQ(applyGainLUT(RgbRed(), value, gainLUT),
-                    applyGainLUT(RgbRed(), value, gainLUTWithBoost));
-      EXPECT_RGB_EQ(applyGainLUT(RgbGreen(), value, gainLUT),
-                    applyGainLUT(RgbGreen(), value, gainLUTWithBoost));
-      EXPECT_RGB_EQ(applyGainLUT(RgbBlue(), value, gainLUT),
-                    applyGainLUT(RgbBlue(), value, gainLUTWithBoost));
+      EXPECT_RGB_NEAR(applyGain(RgbBlack(), value, &metadata, 0.0f, 0.0f),
+                      applyGainLUT(RgbBlack(), value, gainLUT, 0.0f, 0.0f));
+      EXPECT_RGB_NEAR(applyGain(RgbWhite(), value, &metadata, 0.0f, 0.0f),
+                      applyGainLUT(RgbWhite(), value, gainLUT, 0.0f, 0.0f));
+      EXPECT_RGB_NEAR(applyGain(RgbRed(), value, &metadata, 0.0f, 0.0f),
+                      applyGainLUT(RgbRed(), value, gainLUT, 0.0f, 0.0f));
+      EXPECT_RGB_NEAR(applyGain(RgbGreen(), value, &metadata, 0.0f, 0.0f),
+                      applyGainLUT(RgbGreen(), value, gainLUT, 0.0f, 0.0f));
+      EXPECT_RGB_NEAR(applyGain(RgbBlue(), value, &metadata, 0.0f, 0.0f),
+                      applyGainLUT(RgbBlue(), value, gainLUT, 0.0f, 0.0f));
+      EXPECT_RGB_EQ(applyGainLUT(RgbBlack(), value, gainLUT, 0.0f, 0.0f),
+                    applyGainLUT(RgbBlack(), value, gainLUTWithBoost, 0.0f, 0.0f));
+      EXPECT_RGB_EQ(applyGainLUT(RgbWhite(), value, gainLUT, 0.0f, 0.0f),
+                    applyGainLUT(RgbWhite(), value, gainLUTWithBoost, 0.0f, 0.0f));
+      EXPECT_RGB_EQ(applyGainLUT(RgbRed(), value, gainLUT, 0.0f, 0.0f),
+                    applyGainLUT(RgbRed(), value, gainLUTWithBoost, 0.0f, 0.0f));
+      EXPECT_RGB_EQ(applyGainLUT(RgbGreen(), value, gainLUT, 0.0f, 0.0f),
+                    applyGainLUT(RgbGreen(), value, gainLUTWithBoost, 0.0f, 0.0f));
+      EXPECT_RGB_EQ(applyGainLUT(RgbBlue(), value, gainLUT, 0.0f, 0.0f),
+                    applyGainLUT(RgbBlue(), value, gainLUTWithBoost, 0.0f, 0.0f));
     }
   }
 }
@@ -1257,64 +1270,69 @@ TEST_F(GainMapMathTest, ColorConversionLookup) {
 }
 
 TEST_F(GainMapMathTest, EncodeGain) {
-  uhdr_gainmap_metadata_ext_t metadata;
+  float min_boost = log2(1.0f / 4.0f);
+  float max_boost = log2(4.0f);
+  float gamma = 1.0f;
 
-  metadata.min_content_boost = 1.0f / 4.0f;
-  metadata.max_content_boost = 4.0f;
-  metadata.gamma = 1.0f;
+  EXPECT_EQ(
+      affineMapGain(computeGain(0.0f, 1.0f, 0.015625f, 0.015625f), min_boost, max_boost, 1.0f),
+      255);
+  EXPECT_EQ(
+      affineMapGain(computeGain(1.0f, 0.0f, 0.015625f, 0.015625f), min_boost, max_boost, 1.0f), 0);
+  EXPECT_EQ(
+      affineMapGain(computeGain(0.5f, 0.0f, 0.015625f, 0.015625f), min_boost, max_boost, 1.0f), 0);
+  EXPECT_EQ(affineMapGain(computeGain(1.0f, 1.0, 0.0f, 0.0f), min_boost, max_boost, 1.0f), 128);
 
-  EXPECT_EQ(encodeGain(0.0f, 0.0f, &metadata), 127);
-  EXPECT_EQ(encodeGain(0.0f, 1.0f, &metadata), 127);
-  EXPECT_EQ(encodeGain(1.0f, 0.0f, &metadata), 0);
-  EXPECT_EQ(encodeGain(0.5f, 0.0f, &metadata), 0);
+  EXPECT_EQ(affineMapGain(computeGain(1.0f, 4.0f, 0.0f, 0.0f), min_boost, max_boost, 1.0f), 255);
+  EXPECT_EQ(affineMapGain(computeGain(1.0f, 5.0f, 0.0f, 0.0f), min_boost, max_boost, 1.0f), 255);
+  EXPECT_EQ(affineMapGain(computeGain(4.0f, 1.0f, 0.0f, 0.0f), min_boost, max_boost, 1.0f), 0);
+  EXPECT_EQ(affineMapGain(computeGain(4.0f, 0.5f, 0.0f, 0.0f), min_boost, max_boost, 1.0f), 0);
+  EXPECT_EQ(affineMapGain(computeGain(1.0f, 2.0f, 0.0f, 0.0f), min_boost, max_boost, 1.0f), 191);
+  EXPECT_EQ(affineMapGain(computeGain(2.0f, 1.0f, 0.0f, 0.0f), min_boost, max_boost, 1.0f), 64);
 
-  EXPECT_EQ(encodeGain(1.0f, 1.0f, &metadata), 127);
-  EXPECT_EQ(encodeGain(1.0f, 4.0f, &metadata), 255);
-  EXPECT_EQ(encodeGain(1.0f, 5.0f, &metadata), 255);
-  EXPECT_EQ(encodeGain(4.0f, 1.0f, &metadata), 0);
-  EXPECT_EQ(encodeGain(4.0f, 0.5f, &metadata), 0);
-  EXPECT_EQ(encodeGain(1.0f, 2.0f, &metadata), 191);
-  EXPECT_EQ(encodeGain(2.0f, 1.0f, &metadata), 63);
+  min_boost = log2(1.0f / 2.0f);
+  max_boost = log2(2.0f);
 
-  metadata.max_content_boost = 2.0f;
-  metadata.min_content_boost = 1.0f / 2.0f;
+  EXPECT_EQ(affineMapGain(computeGain(1.0f, 2.0f, 0.0f, 0.0f), min_boost, max_boost, 1.0f), 255);
+  EXPECT_EQ(affineMapGain(computeGain(2.0f, 1.0f, 0.0f, 0.0f), min_boost, max_boost, 1.0f), 0);
+  EXPECT_EQ(affineMapGain(computeGain(1.0f, 1.41421f, 0.0f, 0.0f), min_boost, max_boost, 1.0f),
+            191);
+  EXPECT_EQ(affineMapGain(computeGain(1.41421f, 1.0f, 0.0f, 0.0f), min_boost, max_boost, 1.0f), 64);
 
-  EXPECT_EQ(encodeGain(1.0f, 2.0f, &metadata), 255);
-  EXPECT_EQ(encodeGain(2.0f, 1.0f, &metadata), 0);
-  EXPECT_EQ(encodeGain(1.0f, 1.41421f, &metadata), 191);
-  EXPECT_EQ(encodeGain(1.41421f, 1.0f, &metadata), 63);
+  min_boost = log2(1.0f / 8.0f);
+  max_boost = log2(8.0f);
 
-  metadata.max_content_boost = 8.0f;
-  metadata.min_content_boost = 1.0f / 8.0f;
+  EXPECT_EQ(affineMapGain(computeGain(1.0f, 8.0f, 0.0f, 0.0f), min_boost, max_boost, 1.0f), 255);
+  EXPECT_EQ(affineMapGain(computeGain(8.0f, 1.0f, 0.0f, 0.0f), min_boost, max_boost, 1.0f), 0);
+  EXPECT_EQ(affineMapGain(computeGain(1.0f, 2.82843f, 0.0f, 0.0f), min_boost, max_boost, 1.0f),
+            191);
+  EXPECT_EQ(affineMapGain(computeGain(2.82843f, 1.0f, 0.0f, 0.0f), min_boost, max_boost, 1.0f), 64);
 
-  EXPECT_EQ(encodeGain(1.0f, 8.0f, &metadata), 255);
-  EXPECT_EQ(encodeGain(8.0f, 1.0f, &metadata), 0);
-  EXPECT_EQ(encodeGain(1.0f, 2.82843f, &metadata), 191);
-  EXPECT_EQ(encodeGain(2.82843f, 1.0f, &metadata), 63);
+  min_boost = log2(1.0f);
+  max_boost = log2(8.0f);
 
-  metadata.max_content_boost = 8.0f;
-  metadata.min_content_boost = 1.0f;
+  EXPECT_EQ(
+      affineMapGain(computeGain(0.0f, 0.0f, 0.015625f, 0.015625f), min_boost, max_boost, 1.0f), 0);
+  EXPECT_EQ(
+      affineMapGain(computeGain(1.0f, 0.0f, 0.015625f, 0.015625f), min_boost, max_boost, 1.0f), 0);
+  EXPECT_EQ(affineMapGain(computeGain(1.0f, 1.0f, 0.0f, 0.0f), min_boost, max_boost, 1.0f), 0);
+  EXPECT_EQ(affineMapGain(computeGain(1.0f, 8.0f, 0.0f, 0.0f), min_boost, max_boost, 1.0f), 255);
+  EXPECT_EQ(affineMapGain(computeGain(1.0f, 4.0f, 0.0f, 0.0f), min_boost, max_boost, 1.0f), 170);
+  EXPECT_EQ(affineMapGain(computeGain(1.0f, 2.0f, 0.0f, 0.0f), min_boost, max_boost, 1.0f), 85);
 
-  EXPECT_EQ(encodeGain(0.0f, 0.0f, &metadata), 0);
-  EXPECT_EQ(encodeGain(1.0f, 0.0f, &metadata), 0);
+  min_boost = log2(1.0f / 2.0f);
+  max_boost = log2(8.0f);
 
-  EXPECT_EQ(encodeGain(1.0f, 1.0f, &metadata), 0);
-  EXPECT_EQ(encodeGain(1.0f, 8.0f, &metadata), 255);
-  EXPECT_EQ(encodeGain(1.0f, 4.0f, &metadata), 170);
-  EXPECT_EQ(encodeGain(1.0f, 2.0f, &metadata), 85);
-
-  metadata.max_content_boost = 8.0f;
-  metadata.min_content_boost = 0.5f;
-
-  EXPECT_EQ(encodeGain(0.0f, 0.0f, &metadata), 63);
-  EXPECT_EQ(encodeGain(1.0f, 0.0f, &metadata), 0);
-
-  EXPECT_EQ(encodeGain(1.0f, 1.0f, &metadata), 63);
-  EXPECT_EQ(encodeGain(1.0f, 8.0f, &metadata), 255);
-  EXPECT_EQ(encodeGain(1.0f, 4.0f, &metadata), 191);
-  EXPECT_EQ(encodeGain(1.0f, 2.0f, &metadata), 127);
-  EXPECT_EQ(encodeGain(1.0f, 0.7071f, &metadata), 31);
-  EXPECT_EQ(encodeGain(1.0f, 0.5f, &metadata), 0);
+  EXPECT_EQ(
+      affineMapGain(computeGain(0.0f, 0.0f, 0.015625f, 0.015625f), min_boost, max_boost, 1.0f), 64);
+  EXPECT_EQ(
+      affineMapGain(computeGain(1.0f, 0.0f, 0.015625f, 0.015625f), min_boost, max_boost, 1.0f), 0);
+  EXPECT_EQ(affineMapGain(computeGain(1.0f, 1.0f, 0.0f, 0.0f), min_boost, max_boost, 1.0f), 64);
+  EXPECT_EQ(affineMapGain(computeGain(1.0f, 8.0f, 0.0f, 0.0f), min_boost, max_boost, 1.0f), 255);
+  EXPECT_EQ(affineMapGain(computeGain(1.0f, 4.0f, 0.0f, 0.0f), min_boost, max_boost, 1.0f), 191);
+  EXPECT_EQ(affineMapGain(computeGain(1.0f, 2.0f, 0.0f, 0.0f), min_boost, max_boost, 1.0f), 128);
+  EXPECT_EQ(affineMapGain(computeGain(1.0f, 0.7071f, 0.0f, 0.0f), min_boost, max_boost, 1.0f), 32);
+  EXPECT_EQ(affineMapGain(computeGain(1.0f, 0.5f, 0.0f, 0.0f), min_boost, max_boost, 1.0f), 0);
 }
 
 TEST_F(GainMapMathTest, ApplyGain) {
@@ -1322,75 +1340,90 @@ TEST_F(GainMapMathTest, ApplyGain) {
 
   metadata.min_content_boost = 1.0f / 4.0f;
   metadata.max_content_boost = 4.0f;
+  metadata.hdr_capacity_max = metadata.max_content_boost;
+  metadata.hdr_capacity_min = metadata.min_content_boost;
+  metadata.offset_sdr = 0.0f;
+  metadata.offset_hdr = 0.0f;
   metadata.gamma = 1.0f;
   float displayBoost = metadata.max_content_boost;
 
-  EXPECT_RGB_NEAR(applyGain(RgbBlack(), 0.0f, &metadata), RgbBlack());
-  EXPECT_RGB_NEAR(applyGain(RgbBlack(), 0.5f, &metadata), RgbBlack());
-  EXPECT_RGB_NEAR(applyGain(RgbBlack(), 1.0f, &metadata), RgbBlack());
+  EXPECT_RGB_NEAR(applyGain(RgbBlack(), 0.0f, &metadata, 0.0f, 0.0f), RgbBlack());
+  EXPECT_RGB_NEAR(applyGain(RgbBlack(), 0.5f, &metadata, 0.0f, 0.0f), RgbBlack());
+  EXPECT_RGB_NEAR(applyGain(RgbBlack(), 1.0f, &metadata, 0.0f, 0.0f), RgbBlack());
 
-  EXPECT_RGB_NEAR(applyGain(RgbWhite(), 0.0f, &metadata), RgbWhite() / 4.0f);
-  EXPECT_RGB_NEAR(applyGain(RgbWhite(), 0.25f, &metadata), RgbWhite() / 2.0f);
-  EXPECT_RGB_NEAR(applyGain(RgbWhite(), 0.5f, &metadata), RgbWhite());
-  EXPECT_RGB_NEAR(applyGain(RgbWhite(), 0.75f, &metadata), RgbWhite() * 2.0f);
-  EXPECT_RGB_NEAR(applyGain(RgbWhite(), 1.0f, &metadata), RgbWhite() * 4.0f);
+  EXPECT_RGB_NEAR(applyGain(RgbWhite(), 0.0f, &metadata, 0.0f, 0.0f), RgbWhite() / 4.0f);
+  EXPECT_RGB_NEAR(applyGain(RgbWhite(), 0.25f, &metadata, 0.0f, 0.0f), RgbWhite() / 2.0f);
+  EXPECT_RGB_NEAR(applyGain(RgbWhite(), 0.5f, &metadata, 0.0f, 0.0f), RgbWhite());
+  EXPECT_RGB_NEAR(applyGain(RgbWhite(), 0.75f, &metadata, 0.0f, 0.0f), RgbWhite() * 2.0f);
+  EXPECT_RGB_NEAR(applyGain(RgbWhite(), 1.0f, &metadata, 0.0f, 0.0f), RgbWhite() * 4.0f);
 
   metadata.max_content_boost = 2.0f;
   metadata.min_content_boost = 1.0f / 2.0f;
+  metadata.hdr_capacity_max = metadata.max_content_boost;
+  metadata.hdr_capacity_min = metadata.min_content_boost;
 
-  EXPECT_RGB_NEAR(applyGain(RgbWhite(), 0.0f, &metadata), RgbWhite() / 2.0f);
-  EXPECT_RGB_NEAR(applyGain(RgbWhite(), 0.25f, &metadata), RgbWhite() / 1.41421f);
-  EXPECT_RGB_NEAR(applyGain(RgbWhite(), 0.5f, &metadata), RgbWhite());
-  EXPECT_RGB_NEAR(applyGain(RgbWhite(), 0.75f, &metadata), RgbWhite() * 1.41421f);
-  EXPECT_RGB_NEAR(applyGain(RgbWhite(), 1.0f, &metadata), RgbWhite() * 2.0f);
+  EXPECT_RGB_NEAR(applyGain(RgbWhite(), 0.0f, &metadata, 0.0f, 0.0f), RgbWhite() / 2.0f);
+  EXPECT_RGB_NEAR(applyGain(RgbWhite(), 0.25f, &metadata, 0.0f, 0.0f), RgbWhite() / 1.41421f);
+  EXPECT_RGB_NEAR(applyGain(RgbWhite(), 0.5f, &metadata, 0.0f, 0.0f), RgbWhite());
+  EXPECT_RGB_NEAR(applyGain(RgbWhite(), 0.75f, &metadata, 0.0f, 0.0f), RgbWhite() * 1.41421f);
+  EXPECT_RGB_NEAR(applyGain(RgbWhite(), 1.0f, &metadata, 0.0f, 0.0f), RgbWhite() * 2.0f);
 
   metadata.max_content_boost = 8.0f;
   metadata.min_content_boost = 1.0f / 8.0f;
+  metadata.hdr_capacity_max = metadata.max_content_boost;
+  metadata.hdr_capacity_min = metadata.min_content_boost;
 
-  EXPECT_RGB_NEAR(applyGain(RgbWhite(), 0.0f, &metadata), RgbWhite() / 8.0f);
-  EXPECT_RGB_NEAR(applyGain(RgbWhite(), 0.25f, &metadata), RgbWhite() / 2.82843f);
-  EXPECT_RGB_NEAR(applyGain(RgbWhite(), 0.5f, &metadata), RgbWhite());
-  EXPECT_RGB_NEAR(applyGain(RgbWhite(), 0.75f, &metadata), RgbWhite() * 2.82843f);
-  EXPECT_RGB_NEAR(applyGain(RgbWhite(), 1.0f, &metadata), RgbWhite() * 8.0f);
+  EXPECT_RGB_NEAR(applyGain(RgbWhite(), 0.0f, &metadata, 0.0f, 0.0f), RgbWhite() / 8.0f);
+  EXPECT_RGB_NEAR(applyGain(RgbWhite(), 0.25f, &metadata, 0.0f, 0.0f), RgbWhite() / 2.82843f);
+  EXPECT_RGB_NEAR(applyGain(RgbWhite(), 0.5f, &metadata, 0.0f, 0.0f), RgbWhite());
+  EXPECT_RGB_NEAR(applyGain(RgbWhite(), 0.75f, &metadata, 0.0f, 0.0f), RgbWhite() * 2.82843f);
+  EXPECT_RGB_NEAR(applyGain(RgbWhite(), 1.0f, &metadata, 0.0f, 0.0f), RgbWhite() * 8.0f);
 
   metadata.max_content_boost = 8.0f;
   metadata.min_content_boost = 1.0f;
+  metadata.hdr_capacity_max = metadata.max_content_boost;
+  metadata.hdr_capacity_min = metadata.min_content_boost;
 
-  EXPECT_RGB_NEAR(applyGain(RgbWhite(), 0.0f, &metadata), RgbWhite());
-  EXPECT_RGB_NEAR(applyGain(RgbWhite(), 1.0f / 3.0f, &metadata), RgbWhite() * 2.0f);
-  EXPECT_RGB_NEAR(applyGain(RgbWhite(), 2.0f / 3.0f, &metadata), RgbWhite() * 4.0f);
-  EXPECT_RGB_NEAR(applyGain(RgbWhite(), 1.0f, &metadata), RgbWhite() * 8.0f);
+  EXPECT_RGB_NEAR(applyGain(RgbWhite(), 0.0f, &metadata, 0.0f, 0.0f), RgbWhite());
+  EXPECT_RGB_NEAR(applyGain(RgbWhite(), 1.0f / 3.0f, &metadata, 0.0f, 0.0f), RgbWhite() * 2.0f);
+  EXPECT_RGB_NEAR(applyGain(RgbWhite(), 2.0f / 3.0f, &metadata, 0.0f, 0.0f), RgbWhite() * 4.0f);
+  EXPECT_RGB_NEAR(applyGain(RgbWhite(), 1.0f, &metadata, 0.0f, 0.0f), RgbWhite() * 8.0f);
 
   metadata.max_content_boost = 8.0f;
   metadata.min_content_boost = 0.5f;
+  metadata.hdr_capacity_max = metadata.max_content_boost;
+  metadata.hdr_capacity_min = metadata.min_content_boost;
 
-  EXPECT_RGB_NEAR(applyGain(RgbWhite(), 0.0f, &metadata), RgbWhite() / 2.0f);
-  EXPECT_RGB_NEAR(applyGain(RgbWhite(), 0.25f, &metadata), RgbWhite());
-  EXPECT_RGB_NEAR(applyGain(RgbWhite(), 0.5f, &metadata), RgbWhite() * 2.0f);
-  EXPECT_RGB_NEAR(applyGain(RgbWhite(), 0.75f, &metadata), RgbWhite() * 4.0f);
-  EXPECT_RGB_NEAR(applyGain(RgbWhite(), 1.0f, &metadata), RgbWhite() * 8.0f);
+  EXPECT_RGB_NEAR(applyGain(RgbWhite(), 0.0f, &metadata, 0.0f, 0.0f), RgbWhite() / 2.0f);
+  EXPECT_RGB_NEAR(applyGain(RgbWhite(), 0.25f, &metadata, 0.0f, 0.0f), RgbWhite());
+  EXPECT_RGB_NEAR(applyGain(RgbWhite(), 0.5f, &metadata, 0.0f, 0.0f), RgbWhite() * 2.0f);
+  EXPECT_RGB_NEAR(applyGain(RgbWhite(), 0.75f, &metadata, 0.0f, 0.0f), RgbWhite() * 4.0f);
+  EXPECT_RGB_NEAR(applyGain(RgbWhite(), 1.0f, &metadata, 0.0f, 0.0f), RgbWhite() * 8.0f);
 
   Color e = {{{0.0f, 0.5f, 1.0f}}};
   metadata.max_content_boost = 4.0f;
   metadata.min_content_boost = 1.0f / 4.0f;
+  metadata.hdr_capacity_max = metadata.max_content_boost;
+  metadata.hdr_capacity_min = metadata.min_content_boost;
 
-  EXPECT_RGB_NEAR(applyGain(e, 0.0f, &metadata), e / 4.0f);
-  EXPECT_RGB_NEAR(applyGain(e, 0.25f, &metadata), e / 2.0f);
-  EXPECT_RGB_NEAR(applyGain(e, 0.5f, &metadata), e);
-  EXPECT_RGB_NEAR(applyGain(e, 0.75f, &metadata), e * 2.0f);
-  EXPECT_RGB_NEAR(applyGain(e, 1.0f, &metadata), e * 4.0f);
+  EXPECT_RGB_NEAR(applyGain(e, 0.0f, &metadata, 0.0f, 0.0f), e / 4.0f);
+  EXPECT_RGB_NEAR(applyGain(e, 0.25f, &metadata, 0.0f, 0.0f), e / 2.0f);
+  EXPECT_RGB_NEAR(applyGain(e, 0.5f, &metadata, 0.0f, 0.0f), e);
+  EXPECT_RGB_NEAR(applyGain(e, 0.75f, &metadata, 0.0f, 0.0f), e * 2.0f);
+  EXPECT_RGB_NEAR(applyGain(e, 1.0f, &metadata, 0.0f, 0.0f), e * 4.0f);
 
-  EXPECT_RGB_EQ(applyGain(RgbBlack(), 1.0f, &metadata),
-                applyGain(RgbBlack(), 1.0f, &metadata, displayBoost));
-  EXPECT_RGB_EQ(applyGain(RgbWhite(), 1.0f, &metadata),
-                applyGain(RgbWhite(), 1.0f, &metadata, displayBoost));
-  EXPECT_RGB_EQ(applyGain(RgbRed(), 1.0f, &metadata),
-                applyGain(RgbRed(), 1.0f, &metadata, displayBoost));
-  EXPECT_RGB_EQ(applyGain(RgbGreen(), 1.0f, &metadata),
-                applyGain(RgbGreen(), 1.0f, &metadata, displayBoost));
-  EXPECT_RGB_EQ(applyGain(RgbBlue(), 1.0f, &metadata),
-                applyGain(RgbBlue(), 1.0f, &metadata, displayBoost));
-  EXPECT_RGB_EQ(applyGain(e, 1.0f, &metadata), applyGain(e, 1.0f, &metadata, displayBoost));
+  EXPECT_RGB_EQ(applyGain(RgbBlack(), 1.0f, &metadata, 0.0f, 0.0f),
+                applyGain(RgbBlack(), 1.0f, &metadata, displayBoost, 0.0f, 0.0f));
+  EXPECT_RGB_EQ(applyGain(RgbWhite(), 1.0f, &metadata, 0.0f, 0.0f),
+                applyGain(RgbWhite(), 1.0f, &metadata, displayBoost, 0.0f, 0.0f));
+  EXPECT_RGB_EQ(applyGain(RgbRed(), 1.0f, &metadata, 0.0f, 0.0f),
+                applyGain(RgbRed(), 1.0f, &metadata, displayBoost, 0.0f, 0.0f));
+  EXPECT_RGB_EQ(applyGain(RgbGreen(), 1.0f, &metadata, 0.0f, 0.0f),
+                applyGain(RgbGreen(), 1.0f, &metadata, displayBoost, 0.0f, 0.0f));
+  EXPECT_RGB_EQ(applyGain(RgbBlue(), 1.0f, &metadata, 0.0f, 0.0f),
+                applyGain(RgbBlue(), 1.0f, &metadata, displayBoost, 0.0f, 0.0f));
+  EXPECT_RGB_EQ(applyGain(e, 1.0f, &metadata, 0.0f, 0.0f),
+                applyGain(e, 1.0f, &metadata, displayBoost, 0.0f, 0.0f));
 }
 
 TEST_F(GainMapMathTest, GetYuv420Pixel) {
@@ -1616,6 +1649,8 @@ TEST_F(GainMapMathTest, ApplyMap) {
 
   metadata.min_content_boost = 1.0f / 8.0f;
   metadata.max_content_boost = 8.0f;
+  metadata.offset_sdr = 0.0f;
+  metadata.offset_hdr = 0.0f;
   metadata.gamma = 1.0f;
 
   EXPECT_RGB_EQ(Recover(YuvWhite(), 1.0f, &metadata), RgbWhite() * 8.0f);

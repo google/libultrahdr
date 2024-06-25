@@ -823,6 +823,40 @@ uhdr_error_info_t uhdr_enc_set_output_format(uhdr_codec_private_t* enc, uhdr_cod
   return status;
 }
 
+UHDR_EXTERN uhdr_error_info_t uhdr_enc_set_max_display_luminance_nits(uhdr_codec_private_t* enc,
+                                                                      float max_hdr_nits) {
+  uhdr_error_info_t status = g_no_error;
+  const float min_hdr_display_mastering_nits = 600;
+
+  if (dynamic_cast<uhdr_encoder_private*>(enc) == nullptr) {
+    status.error_code = UHDR_CODEC_INVALID_PARAM;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail, "received nullptr for uhdr codec instance");
+  } else if (max_hdr_nits < min_hdr_display_mastering_nits || max_hdr_nits > ultrahdr::kPqMaxNits) {
+    status.error_code = UHDR_CODEC_INVALID_PARAM;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "for hdr, brightness in nits shall be at least %f and a maximum of %f. Current "
+             "configured value is %f",
+             min_hdr_display_mastering_nits, ultrahdr::kPqMaxNits, max_hdr_nits);
+  }
+  if (status.error_code != UHDR_CODEC_OK) return status;
+
+  uhdr_encoder_private* handle = dynamic_cast<uhdr_encoder_private*>(enc);
+  if (handle->m_sailed) {
+    status.error_code = UHDR_CODEC_INVALID_OPERATION;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "An earlier call to uhdr_encode() has switched the context from configurable state to "
+             "end state. The context is no longer configurable. To reuse, call reset()");
+    return status;
+  }
+
+  handle->m_hdr_max_display_luminance = max_hdr_nits;
+
+  return status;
+}
+
 uhdr_error_info_t uhdr_encode(uhdr_codec_private_t* enc) {
   if (dynamic_cast<uhdr_encoder_private*>(enc) == nullptr) {
     uhdr_error_info_t status;
@@ -896,7 +930,7 @@ uhdr_error_info_t uhdr_encode(uhdr_codec_private_t* enc) {
 
     ultrahdr::JpegR jpegr(handle->m_gainmap_scale_factor,
                           handle->m_quality.find(UHDR_GAIN_MAP_IMG)->second,
-                          handle->m_use_multi_channel_gainmap);
+                          handle->m_use_multi_channel_gainmap, handle->m_hdr_max_display_luminance);
     if (handle->m_compressed_images.find(UHDR_BASE_IMG) != handle->m_compressed_images.end() &&
         handle->m_compressed_images.find(UHDR_GAIN_MAP_IMG) != handle->m_compressed_images.end()) {
       auto& base_entry = handle->m_compressed_images.find(UHDR_BASE_IMG)->second;
@@ -990,6 +1024,7 @@ void uhdr_reset_encoder(uhdr_codec_private_t* enc) {
     handle->m_output_format = UHDR_CODEC_JPG;
     handle->m_gainmap_scale_factor = ultrahdr::kMapDimensionScaleFactorDefault;
     handle->m_use_multi_channel_gainmap = ultrahdr::kUseMultiChannelGainMapDefault;
+    handle->m_hdr_max_display_luminance = -1.0f;
 
     handle->m_sailed = false;
     handle->m_compressed_output_buffer.reset();

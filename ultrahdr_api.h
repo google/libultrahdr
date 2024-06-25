@@ -351,6 +351,17 @@ UHDR_EXTERN uhdr_error_info_t uhdr_enc_set_gainmap_scale_factor(uhdr_codec_priva
 UHDR_EXTERN uhdr_error_info_t uhdr_enc_set_output_format(uhdr_codec_private_t* enc,
                                                          uhdr_codec_t media_type);
 
+/*!\brief Set maximum display mastering luminance in nits.
+ *
+ * \param[in]  enc  encoder instance.
+ * \param[in]  max_hdr_nits  max display luminance in nits
+ *
+ * \return uhdr_error_info_t #UHDR_CODEC_OK if operation succeeds,
+ *                           #UHDR_CODEC_INVALID_PARAM otherwise.
+ */
+UHDR_EXTERN uhdr_error_info_t uhdr_enc_set_max_display_luminance_nits(uhdr_codec_private_t* enc,
+                                                                      float max_hdr_nits);
+
 /*!\brief Encode process call
  * After initializing the encoder context, call to this function will submit data for encoding. If
  * the call is successful, the encoded output is stored internally and is accessible via

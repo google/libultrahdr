@@ -449,7 +449,7 @@ uhdr_error_info_t getMetadataFromXMP(uint8_t* xmp_data, int xmp_size,
     status.error_code = UHDR_CODEC_ERROR;
     status.has_detail = 1;
     snprintf(status.detail, sizeof status.detail,
-             "size of xmp block is expected to be atleast %d bytes, received only %d bytes",
+             "size of xmp block is expected to be at least %d bytes, received only %d bytes",
              (int)nameSpace.size() + 2, xmp_size);
     return status;
   }
