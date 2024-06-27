@@ -45,9 +45,6 @@ const float kPqMaxNits = 10000.0f;
 
 static const float kMaxPixelFloat = 1.0f;
 
-// Describes the tone-mapping operation & gain-map encoding parameters.
-const float kHlgHeadroom = 1000.0f / 203.0f;
-
 struct Color {
   union {
     struct {
