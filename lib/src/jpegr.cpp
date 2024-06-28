@@ -44,13 +44,6 @@ using namespace photos_editing_formats::image_io;
 
 namespace ultrahdr {
 
-#define USE_SRGB_INVOETF_LUT 1
-#define USE_HLG_OETF_LUT 1
-#define USE_PQ_OETF_LUT 1
-#define USE_HLG_INVOETF_LUT 1
-#define USE_PQ_INVOETF_LUT 1
-#define USE_APPLY_GAIN_LUT 1
-
 // Default gamma value for gain map
 static const float kGainMapGammaDefault = 1.0f;
 
@@ -455,35 +448,24 @@ uhdr_error_info_t JpegR::generateGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_
     }
   }*/
 
-  ColorTransformFn hdrInvOetf = nullptr;
-  float hdr_white_nits;
-  switch (hdr_intent->ct) {
-    case UHDR_CT_LINEAR:
-      hdrInvOetf = identityConversion;
-      hdr_white_nits = kHlgMaxNits;  // TODO: configure maxCLL correctly for linear tf
-      break;
-    case UHDR_CT_HLG:
-#if USE_HLG_INVOETF_LUT
-      hdrInvOetf = hlgInvOetfLUT;
-#else
-      hdrInvOetf = hlgInvOetf;
-#endif
-      hdr_white_nits = kHlgMaxNits;
-      break;
-    case UHDR_CT_PQ:
-#if USE_PQ_INVOETF_LUT
-      hdrInvOetf = pqInvOetfLUT;
-#else
-      hdrInvOetf = pqInvOetf;
-#endif
-      hdr_white_nits = kPqMaxNits;
-      break;
-    default:
-      status.error_code = UHDR_CODEC_INVALID_PARAM;
-      status.has_detail = 1;
-      snprintf(status.detail, sizeof status.detail,
-               "Unrecognized hdr intent color transfer characteristics %d", hdr_intent->ct);
-      return status;
+  ColorTransformFn hdrInvOetf = getInverseOetf(hdr_intent->ct);
+  if (hdrInvOetf == nullptr) {
+    status.error_code = UHDR_CODEC_UNSUPPORTED_FEATURE;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "No implementation available for converting transfer characteristics %d to linear",
+             hdr_intent->ct);
+    return status;
+  }
+
+  float hdr_white_nits = getMaxDisplayMasteringLuminance(hdr_intent->ct);
+  if (hdr_white_nits == -1.0f) {
+    status.error_code = UHDR_CODEC_UNSUPPORTED_FEATURE;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "Did not receive valid maxCLL for display with transfer characteristics %d",
+             hdr_intent->ct);
+    return status;
   }
 
   gainmap_metadata->max_content_boost = hdr_white_nits / kSdrWhiteNits;
@@ -497,29 +479,44 @@ uhdr_error_info_t JpegR::generateGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_
   float log2MinBoost = log2(gainmap_metadata->min_content_boost);
   float log2MaxBoost = log2(gainmap_metadata->max_content_boost);
 
-  ColorTransformFn hdrGamutConversionFn = getHdrConversionFn(sdr_intent->cg, hdr_intent->cg);
+  ColorTransformFn hdrGamutConversionFn = getGamutConversionFn(sdr_intent->cg, hdr_intent->cg);
+  if (hdrGamutConversionFn == nullptr) {
+    status.error_code = UHDR_CODEC_UNSUPPORTED_FEATURE;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "No implementation available for gamut conversion from %d to %d", hdr_intent->cg,
+             sdr_intent->cg);
+    return status;
+  }
 
-  ColorCalculationFn luminanceFn = nullptr;
-  ColorTransformFn sdrYuvToRgbFn = nullptr;
-  switch (sdr_intent->cg) {
-    case UHDR_CG_BT_709:
-      luminanceFn = srgbLuminance;
-      sdrYuvToRgbFn = srgbYuvToRgb;
-      break;
-    case UHDR_CG_DISPLAY_P3:
-      luminanceFn = p3Luminance;
-      sdrYuvToRgbFn = p3YuvToRgb;
-      break;
-    case UHDR_CG_BT_2100:
-      luminanceFn = bt2100Luminance;
-      sdrYuvToRgbFn = bt2100YuvToRgb;
-      break;
-    case UHDR_CG_UNSPECIFIED:
-      status.error_code = UHDR_CODEC_INVALID_PARAM;
-      status.has_detail = 1;
-      snprintf(status.detail, sizeof status.detail, "Unrecognized sdr intent color gamut %d",
-               sdr_intent->cg);
-      return status;
+  ColorTransformFn sdrYuvToRgbFn = getYuvToRgbFn(sdr_intent->cg);
+  if (sdrYuvToRgbFn == nullptr) {
+    status.error_code = UHDR_CODEC_UNSUPPORTED_FEATURE;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "No implementation available for converting yuv to rgb for color gamut %d",
+             sdr_intent->cg);
+    return status;
+  }
+
+  ColorTransformFn hdrYuvToRgbFn = getYuvToRgbFn(hdr_intent->cg);
+  if (hdrYuvToRgbFn == nullptr) {
+    status.error_code = UHDR_CODEC_UNSUPPORTED_FEATURE;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "No implementation available for converting yuv to rgb for color gamut %d",
+             hdr_intent->cg);
+    return status;
+  }
+
+  ColorCalculationFn luminanceFn = getLuminanceFn(sdr_intent->cg);
+  if (luminanceFn == nullptr) {
+    status.error_code = UHDR_CODEC_UNSUPPORTED_FEATURE;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "No implementation available for computing luminance for color gamut %d",
+             sdr_intent->cg);
+    return status;
   }
 
   samplePixelFn sdr_sample_pixel_fn = nullptr;
@@ -533,37 +530,16 @@ uhdr_error_info_t JpegR::generateGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_
     case UHDR_IMG_FMT_12bppYCbCr420:
       sdr_sample_pixel_fn = sampleYuv420;
       break;
-    default: {
-      uhdr_error_info_t status;
+    default:
       status.error_code = UHDR_CODEC_UNSUPPORTED_FEATURE;
       status.has_detail = 1;
       snprintf(status.detail, sizeof status.detail,
                "Unsupported sdr intent color format in apply gainmap %d", sdr_intent->fmt);
       return status;
-    }
   }
 
   if (sdr_is_601) {
     sdrYuvToRgbFn = p3YuvToRgb;
-  }
-
-  ColorTransformFn hdrYuvToRgbFn = nullptr;
-  switch (hdr_intent->cg) {
-    case UHDR_CG_BT_709:
-      hdrYuvToRgbFn = srgbYuvToRgb;
-      break;
-    case UHDR_CG_DISPLAY_P3:
-      hdrYuvToRgbFn = p3YuvToRgb;
-      break;
-    case UHDR_CG_BT_2100:
-      hdrYuvToRgbFn = bt2100YuvToRgb;
-      break;
-    case UHDR_CG_UNSPECIFIED:
-      status.error_code = UHDR_CODEC_INVALID_PARAM;
-      status.has_detail = 1;
-      snprintf(status.detail, sizeof status.detail, "Unrecognized hdr intent color gamut %d",
-               hdr_intent->cg);
-      return status;
   }
 
   size_t image_width = sdr_intent->w;
@@ -1412,65 +1388,44 @@ uhdr_error_info_t JpegR::toneMap(uhdr_raw_image_t* hdr_intent, uhdr_raw_image_t*
     return status;
   }
 
-  ColorTransformFn hdrYuvToRgbFn = nullptr;
-  switch (hdr_intent->cg) {
-    case UHDR_CG_BT_709:
-      hdrYuvToRgbFn = srgbYuvToRgb;
-      break;
-    case UHDR_CG_DISPLAY_P3:
-      hdrYuvToRgbFn = p3YuvToRgb;
-      break;
-    case UHDR_CG_BT_2100:
-      hdrYuvToRgbFn = bt2100YuvToRgb;
-      break;
-    case UHDR_CG_UNSPECIFIED:
-      uhdr_error_info_t status;
-      status.error_code = UHDR_CODEC_INVALID_PARAM;
-      status.has_detail = 1;
-      snprintf(status.detail, sizeof status.detail, "Unrecognized hdr intent color gamut %d",
-               hdr_intent->cg);
-      return status;
+  ColorTransformFn hdrYuvToRgbFn = getYuvToRgbFn(hdr_intent->cg);
+  if (hdrYuvToRgbFn == nullptr) {
+    uhdr_error_info_t status;
+    status.error_code = UHDR_CODEC_UNSUPPORTED_FEATURE;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "No implementation available for converting yuv to rgb for color gamut %d",
+             hdr_intent->cg);
+    return status;
   }
 
-  ColorTransformFn hdrInvOetf = nullptr;
-  float hdr_white_nits;
-  switch (hdr_intent->ct) {
-    case UHDR_CT_LINEAR:
-      hdrInvOetf = identityConversion;
-       // Note: this will produce clipping if the input exceeds kHlgMaxNits.
-      // TODO: TF LINEAR will be deprecated.
-      hdr_white_nits = kHlgMaxNits;
-      break;
-    case UHDR_CT_HLG:
-#if USE_HLG_INVOETF_LUT
-      hdrInvOetf = hlgInvOetfLUT;
-#else
-      hdrInvOetf = hlgInvOetf;
-#endif
-      hdr_white_nits = kHlgMaxNits;
-      break;
-    case UHDR_CT_PQ:
-#if USE_PQ_INVOETF_LUT
-      hdrInvOetf = pqInvOetfLUT;
-#else
-      hdrInvOetf = pqInvOetf;
-#endif
-      hdr_white_nits = kPqMaxNits;
-      break;
-    default:
-      uhdr_error_info_t status;
-      status.error_code = UHDR_CODEC_INVALID_PARAM;
-      status.has_detail = 1;
-      snprintf(status.detail, sizeof status.detail,
-               "Unrecognized hdr intent color transfer characteristics %d", hdr_intent->ct);
-      return status;
+  ColorTransformFn hdrInvOetf = getInverseOetf(hdr_intent->ct);
+  if (hdrInvOetf == nullptr) {
+    uhdr_error_info_t status;
+    status.error_code = UHDR_CODEC_UNSUPPORTED_FEATURE;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "No implementation available for converting transfer characteristics %d to linear",
+             hdr_intent->ct);
+    return status;
+  }
+
+  float hdr_white_nits = getMaxDisplayMasteringLuminance(hdr_intent->ct);
+  if (hdr_white_nits == -1.0f) {
+    uhdr_error_info_t status;
+    status.error_code = UHDR_CODEC_UNSUPPORTED_FEATURE;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "Did not receive valid maxCLL for display with transfer characteristics %d",
+             hdr_intent->ct);
+    return status;
   }
 
   sdr_intent->cg = UHDR_CG_DISPLAY_P3;
   sdr_intent->ct = UHDR_CT_SRGB;
   sdr_intent->range = UHDR_CR_FULL_RANGE;
 
-  ColorTransformFn hdrGamutConversionFn = getHdrConversionFn(sdr_intent->cg, hdr_intent->cg);
+  ColorTransformFn hdrGamutConversionFn = getGamutConversionFn(sdr_intent->cg, hdr_intent->cg);
   uint8_t* luma_data = reinterpret_cast<uint8_t*>(sdr_intent->planes[UHDR_PLANE_Y]);
   uint8_t* cb_data = reinterpret_cast<uint8_t*>(sdr_intent->planes[UHDR_PLANE_U]);
   uint8_t* cr_data = reinterpret_cast<uint8_t*>(sdr_intent->planes[UHDR_PLANE_V]);
@@ -1503,9 +1458,9 @@ uhdr_error_info_t JpegR::toneMap(uhdr_raw_image_t* hdr_intent, uhdr_raw_image_t*
 
               GlobalTonemapOutputs tonemap_outputs =
                   globalTonemap({hdr_rgb.r, hdr_rgb.g, hdr_rgb.b}, hdr_white_nits / kSdrWhiteNits);
-              Color sdr_rgb_linear_bt2100 = {{{tonemap_outputs.rgb_out[0],
-                                               tonemap_outputs.rgb_out[1],
-                                               tonemap_outputs.rgb_out[2]}}};
+              Color sdr_rgb_linear_bt2100 = {
+                  {{tonemap_outputs.rgb_out[0], tonemap_outputs.rgb_out[1],
+                    tonemap_outputs.rgb_out[2]}}};
               Color sdr_rgb = hdrGamutConversionFn(sdr_rgb_linear_bt2100);
 
               // Hard clip out-of-gamut values;

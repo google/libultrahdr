@@ -1235,25 +1235,25 @@ TEST_F(GainMapMathTest, PqTransferFunctionRoundtrip) {
 }
 
 TEST_F(GainMapMathTest, ColorConversionLookup) {
-  EXPECT_EQ(getHdrConversionFn(UHDR_CG_BT_709, UHDR_CG_UNSPECIFIED), nullptr);
-  EXPECT_EQ(getHdrConversionFn(UHDR_CG_BT_709, UHDR_CG_BT_709), identityConversion);
-  EXPECT_EQ(getHdrConversionFn(UHDR_CG_BT_709, UHDR_CG_DISPLAY_P3), p3ToBt709);
-  EXPECT_EQ(getHdrConversionFn(UHDR_CG_BT_709, UHDR_CG_BT_2100), bt2100ToBt709);
+  EXPECT_EQ(getGamutConversionFn(UHDR_CG_BT_709, UHDR_CG_UNSPECIFIED), nullptr);
+  EXPECT_EQ(getGamutConversionFn(UHDR_CG_BT_709, UHDR_CG_BT_709), identityConversion);
+  EXPECT_EQ(getGamutConversionFn(UHDR_CG_BT_709, UHDR_CG_DISPLAY_P3), p3ToBt709);
+  EXPECT_EQ(getGamutConversionFn(UHDR_CG_BT_709, UHDR_CG_BT_2100), bt2100ToBt709);
 
-  EXPECT_EQ(getHdrConversionFn(UHDR_CG_DISPLAY_P3, UHDR_CG_UNSPECIFIED), nullptr);
-  EXPECT_EQ(getHdrConversionFn(UHDR_CG_DISPLAY_P3, UHDR_CG_BT_709), bt709ToP3);
-  EXPECT_EQ(getHdrConversionFn(UHDR_CG_DISPLAY_P3, UHDR_CG_DISPLAY_P3), identityConversion);
-  EXPECT_EQ(getHdrConversionFn(UHDR_CG_DISPLAY_P3, UHDR_CG_BT_2100), bt2100ToP3);
+  EXPECT_EQ(getGamutConversionFn(UHDR_CG_DISPLAY_P3, UHDR_CG_UNSPECIFIED), nullptr);
+  EXPECT_EQ(getGamutConversionFn(UHDR_CG_DISPLAY_P3, UHDR_CG_BT_709), bt709ToP3);
+  EXPECT_EQ(getGamutConversionFn(UHDR_CG_DISPLAY_P3, UHDR_CG_DISPLAY_P3), identityConversion);
+  EXPECT_EQ(getGamutConversionFn(UHDR_CG_DISPLAY_P3, UHDR_CG_BT_2100), bt2100ToP3);
 
-  EXPECT_EQ(getHdrConversionFn(UHDR_CG_BT_2100, UHDR_CG_UNSPECIFIED), nullptr);
-  EXPECT_EQ(getHdrConversionFn(UHDR_CG_BT_2100, UHDR_CG_BT_709), bt709ToBt2100);
-  EXPECT_EQ(getHdrConversionFn(UHDR_CG_BT_2100, UHDR_CG_DISPLAY_P3), p3ToBt2100);
-  EXPECT_EQ(getHdrConversionFn(UHDR_CG_BT_2100, UHDR_CG_BT_2100), identityConversion);
+  EXPECT_EQ(getGamutConversionFn(UHDR_CG_BT_2100, UHDR_CG_UNSPECIFIED), nullptr);
+  EXPECT_EQ(getGamutConversionFn(UHDR_CG_BT_2100, UHDR_CG_BT_709), bt709ToBt2100);
+  EXPECT_EQ(getGamutConversionFn(UHDR_CG_BT_2100, UHDR_CG_DISPLAY_P3), p3ToBt2100);
+  EXPECT_EQ(getGamutConversionFn(UHDR_CG_BT_2100, UHDR_CG_BT_2100), identityConversion);
 
-  EXPECT_EQ(getHdrConversionFn(UHDR_CG_UNSPECIFIED, UHDR_CG_UNSPECIFIED), nullptr);
-  EXPECT_EQ(getHdrConversionFn(UHDR_CG_UNSPECIFIED, UHDR_CG_BT_709), nullptr);
-  EXPECT_EQ(getHdrConversionFn(UHDR_CG_UNSPECIFIED, UHDR_CG_DISPLAY_P3), nullptr);
-  EXPECT_EQ(getHdrConversionFn(UHDR_CG_UNSPECIFIED, UHDR_CG_BT_2100), nullptr);
+  EXPECT_EQ(getGamutConversionFn(UHDR_CG_UNSPECIFIED, UHDR_CG_UNSPECIFIED), nullptr);
+  EXPECT_EQ(getGamutConversionFn(UHDR_CG_UNSPECIFIED, UHDR_CG_BT_709), nullptr);
+  EXPECT_EQ(getGamutConversionFn(UHDR_CG_UNSPECIFIED, UHDR_CG_DISPLAY_P3), nullptr);
+  EXPECT_EQ(getGamutConversionFn(UHDR_CG_UNSPECIFIED, UHDR_CG_BT_2100), nullptr);
 }
 
 TEST_F(GainMapMathTest, EncodeGain) {
