@@ -1281,7 +1281,7 @@ static float ReinhardMap(float y_hdr, float headroom) {
   return out * y_hdr;
 }
 
-GlobalTonemapOutputs hlgGlobalTonemap(const std::array<float, 3>& rgb_in, float headroom) {
+GlobalTonemapOutputs globalTonemap(const std::array<float, 3>& rgb_in, float headroom) {
   constexpr float kRgbToYBt2020[3] = {0.2627f, 0.6780f, 0.0593f};
   constexpr float kOotfGamma = 1.2f;
 
@@ -1364,9 +1364,13 @@ uhdr_error_info_t JpegR::toneMap(uhdr_raw_image_t* hdr_intent, uhdr_raw_image_t*
   }
 
   ColorTransformFn hdrInvOetf = nullptr;
+  float hdr_white_nits;
   switch (hdr_intent->ct) {
     case UHDR_CT_LINEAR:
       hdrInvOetf = identityConversion;
+       // Note: this will produce clipping if the input exceeds kHlgMaxNits.
+      // TODO: TF LINEAR will be deprecated.
+      hdr_white_nits = kHlgMaxNits;
       break;
     case UHDR_CT_HLG:
 #if USE_HLG_INVOETF_LUT
@@ -1374,6 +1378,7 @@ uhdr_error_info_t JpegR::toneMap(uhdr_raw_image_t* hdr_intent, uhdr_raw_image_t*
 #else
       hdrInvOetf = hlgInvOetf;
 #endif
+      hdr_white_nits = kHlgMaxNits;
       break;
     case UHDR_CT_PQ:
 #if USE_PQ_INVOETF_LUT
@@ -1381,6 +1386,7 @@ uhdr_error_info_t JpegR::toneMap(uhdr_raw_image_t* hdr_intent, uhdr_raw_image_t*
 #else
       hdrInvOetf = pqInvOetf;
 #endif
+      hdr_white_nits = kPqMaxNits;
       break;
     default:
       uhdr_error_info_t status;
@@ -1410,7 +1416,8 @@ uhdr_error_info_t JpegR::toneMap(uhdr_raw_image_t* hdr_intent, uhdr_raw_image_t*
   std::function<void()> toneMapInternal;
 
   toneMapInternal = [hdr_intent, luma_data, cb_data, cr_data, hdrInvOetf, hdrGamutConversionFn,
-                     hdrYuvToRgbFn, luma_stride, cb_stride, cr_stride, &jobQueue]() -> void {
+                     hdrYuvToRgbFn, luma_stride, cb_stride, cr_stride, hdr_white_nits,
+                     &jobQueue]() -> void {
     size_t rowStart, rowEnd;
     while (jobQueue.dequeueJob(rowStart, rowEnd)) {
       for (size_t y = rowStart; y < rowEnd; y += 2) {
@@ -1426,10 +1433,10 @@ uhdr_error_info_t JpegR::toneMap(uhdr_raw_image_t* hdr_intent, uhdr_raw_image_t*
               Color hdr_rgb = hdrInvOetf(hdr_rgb_gamma);
 
               GlobalTonemapOutputs tonemap_outputs =
-                  hlgGlobalTonemap({hdr_rgb.r, hdr_rgb.g, hdr_rgb.b}, kHlgHeadroom);
-              Color sdr_rgb_linear_bt2100 = {
-                  {{tonemap_outputs.rgb_out[0], tonemap_outputs.rgb_out[1],
-                    tonemap_outputs.rgb_out[2]}}};
+                  globalTonemap({hdr_rgb.r, hdr_rgb.g, hdr_rgb.b}, hdr_white_nits / kSdrWhiteNits);
+              Color sdr_rgb_linear_bt2100 = {{{tonemap_outputs.rgb_out[0],
+                                               tonemap_outputs.rgb_out[1],
+                                               tonemap_outputs.rgb_out[2]}}};
               Color sdr_rgb = hdrGamutConversionFn(sdr_rgb_linear_bt2100);
 
               // Hard clip out-of-gamut values;
