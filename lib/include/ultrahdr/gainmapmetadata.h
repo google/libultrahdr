@@ -18,24 +18,15 @@
 #define ULTRAHDR_GAINMAPMETADATA_H
 
 #include "ultrahdr/ultrahdrcommon.h"
-#include "ultrahdr/ultrahdr.h"
 
 #include <memory>
 #include <vector>
 
 namespace ultrahdr {
 
-#define JPEGR_CHECK(x)                \
-  {                                   \
-    status_t status = (x);            \
-    if ((status) != JPEGR_NO_ERROR) { \
-      return status;                  \
-    }                                 \
-  }
-
 // Gain map metadata, for tone mapping between SDR and HDR.
-// This is the fraction version of {@code ultrahdr_metadata_struct}.
-struct gain_map_metadata {
+// This is the fraction version of {@code uhdr_gainmap_metadata_ext_t}.
+struct uhdr_gainmap_metadata_frac {
   uint32_t gainMapMinN[3];
   uint32_t gainMapMinD[3];
   uint32_t gainMapMaxN[3];
@@ -56,17 +47,17 @@ struct gain_map_metadata {
   bool backwardDirection;
   bool useBaseColorSpace;
 
-  static status_t encodeGainmapMetadata(const gain_map_metadata* gain_map_metadata,
-                                        std::vector<uint8_t>& out_data);
+  static uhdr_error_info_t encodeGainmapMetadata(const uhdr_gainmap_metadata_frac* in_metadata,
+                                                 std::vector<uint8_t>& out_data);
 
-  static status_t decodeGainmapMetadata(const std::vector<uint8_t>& data,
-                                        gain_map_metadata* out_gain_map_metadata);
+  static uhdr_error_info_t decodeGainmapMetadata(const std::vector<uint8_t>& in_data,
+                                                 uhdr_gainmap_metadata_frac* out_metadata);
 
-  static status_t gainmapMetadataFractionToFloat(const gain_map_metadata* from,
-                                                 ultrahdr_metadata_ptr to);
+  static uhdr_error_info_t gainmapMetadataFractionToFloat(const uhdr_gainmap_metadata_frac* from,
+                                                          uhdr_gainmap_metadata_ext_t* to);
 
-  static status_t gainmapMetadataFloatToFraction(const ultrahdr_metadata_ptr from,
-                                                 gain_map_metadata* to);
+  static uhdr_error_info_t gainmapMetadataFloatToFraction(const uhdr_gainmap_metadata_ext_t* from,
+                                                          uhdr_gainmap_metadata_frac* to);
 
   void dump() const {
     ALOGD("GAIN MAP METADATA: \n");
@@ -98,6 +89,7 @@ struct gain_map_metadata {
     ALOGD("use base color space:                %s\n", useBaseColorSpace ? "true" : "false");
   }
 };
+
 }  // namespace ultrahdr
 
 #endif  // ULTRAHDR_GAINMAPMETADATA_H

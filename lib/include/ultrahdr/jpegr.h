@@ -20,7 +20,9 @@
 #include <array>
 #include <cfloat>
 
+#include "ultrahdr_api.h"
 #include "ultrahdr/ultrahdr.h"
+#include "ultrahdr/ultrahdrcommon.h"
 #include "ultrahdr/jpegdecoderhelper.h"
 #include "ultrahdr/jpegencoderhelper.h"
 
@@ -29,16 +31,16 @@ namespace ultrahdr {
 // Default configurations
 // Map is quarter res / sixteenth size
 static const size_t kMapDimensionScaleFactorDefault = 4;
+
 // JPEG compress quality (0 ~ 100) for gain map
 static const int kMapCompressQualityDefault = 85;
+
 // Gain map calculation
 static const bool kUseMultiChannelGainMapDefault = false;
 
 // The current JPEGR version that we encode to
-static const char* const kJpegrVersion = kGainMapVersion;
-
-// Map is quarter res / sixteenth size
-static const size_t kMapDimensionScaleFactor = 4;
+static const char* const kGainMapVersion = "1.0";
+static const char* const kJpegrVersion = "1.0";
 
 // Gain Map width is (image_width / kMapDimensionScaleFactor). If we were to
 // compress 420 GainMap in jpeg, then we need at least 2 samples. For Grayscale
@@ -56,6 +58,7 @@ struct jpeg_info_struct {
   std::vector<uint8_t> xmpData = std::vector<uint8_t>(0);
   size_t width;
   size_t height;
+  size_t numComponents;
 };
 
 /*
@@ -68,228 +71,279 @@ struct jpegr_info_struct {
   jpeg_info_struct* gainmapImgInfo = nullptr;
 };
 
-/*
- * Holds information for uncompressed image or gain map.
- */
-struct jpegr_uncompressed_struct {
-  // Pointer to the data location.
-  void* data;
-  // Width of the gain map or the luma plane of the image in pixels.
-  size_t width;
-  // Height of the gain map or the luma plane of the image in pixels.
-  size_t height;
-  // Color gamut.
-  ultrahdr_color_gamut colorGamut;
-
-  // Values below are optional
-  // Pointer to chroma data, if it's NULL, chroma plane is considered to be immediately
-  // after the luma plane.
-  void* chroma_data = nullptr;
-  // Stride of Y plane in number of pixels. 0 indicates the member is uninitialized. If
-  // non-zero this value must be larger than or equal to luma width. If stride is
-  // uninitialized then it is assumed to be equal to luma width.
-  size_t luma_stride = 0;
-  // Stride of UV plane in number of pixels.
-  // 1. If this handle points to P010 image then this value must be larger than
-  //    or equal to luma width.
-  // 2. If this handle points to 420 image then this value must be larger than
-  //    or equal to (luma width / 2).
-  // NOTE: if chroma_data is nullptr, chroma_stride is irrelevant. Just as the way,
-  // chroma_data is derived from luma ptr, chroma stride is derived from luma stride.
-  size_t chroma_stride = 0;
-  // Pixel format.
-  uhdr_img_fmt_t pixelFormat = UHDR_IMG_FMT_UNSPECIFIED;
-  // Color range.
-  uhdr_color_range_t colorRange = UHDR_CR_UNSPECIFIED;
-};
-
-/*
- * Holds information for compressed image or gain map.
- */
-struct jpegr_compressed_struct {
-  // Pointer to the data location.
-  void* data;
-  // Used data length in bytes.
-  int length;
-  // Maximum available data length in bytes.
-  int maxLength;
-  // Color gamut.
-  ultrahdr_color_gamut colorGamut;
-};
-
-/*
- * Holds information for EXIF metadata.
- */
-struct jpegr_exif_struct {
-  // Pointer to the data location.
-  void* data;
-  // Data length;
-  size_t length;
-};
-
-typedef struct jpegr_uncompressed_struct* jr_uncompressed_ptr;
-typedef struct jpegr_compressed_struct* jr_compressed_ptr;
-typedef struct jpegr_exif_struct* jr_exif_ptr;
 typedef struct jpeg_info_struct* j_info_ptr;
 typedef struct jpegr_info_struct* jr_info_ptr;
 
 class JpegR {
  public:
-   JpegR();
 
-   JpegR(size_t, int, bool);
+  JpegR(size_t mapDimensionScaleFactor = kMapDimensionScaleFactorDefault,
+        int mapCompressQuality = kMapCompressQualityDefault,
+        bool useMultiChannelGainMap = kUseMultiChannelGainMapDefault);
 
-  /*
-   * Experimental only
+  /*!\brief Encode API-0.
    *
-   * Encode API-0
-   * Compress JPEGR image from 10-bit HDR YUV.
+   * Create ultrahdr jpeg image from raw hdr intent.
    *
-   * Tonemap the HDR input to a SDR image, generate gain map from the HDR and SDR images,
-   * compress SDR YUV to 8-bit JPEG and append the gain map to the end of the compressed
-   * JPEG.
-   * @param p010_image_ptr uncompressed HDR image in P010 color format
-   * @param hdr_tf transfer function of the HDR image
-   * @param dest destination of the compressed JPEGR image. Please note that {@code maxLength}
-   *             represents the maximum available size of the destination buffer, and it must be
-   *             set before calling this method. If the encoded JPEGR size exceeds
-   *             {@code maxLength}, this method will return {@code ERROR_JPEGR_BUFFER_TOO_SMALL}.
-   * @param quality target quality of the JPEG encoding, must be in range of 0-100 where 100 is
-   *                the highest quality
-   * @param exif pointer to the exif metadata.
-   * @return NO_ERROR if encoding succeeds, error code if error occurs.
+   * Experimental only.
+   *
+   * Input hdr image is tonemapped to sdr image. A gainmap coefficient is computed between hdr and
+   * sdr intent. sdr intent and gain map coefficient are compressed using jpeg encoding. compressed
+   * gainmap is appended at the end of compressed sdr image.
+   *
+   * \param[in]       hdr_intent        hdr intent raw input image descriptor
+   * \param[in, out]  dest              output image descriptor to store compressed ultrahdr image
+   * \param[in]       quality           quality factor for sdr intent jpeg compression
+   * \param[in]       exif              optional exif metadata that needs to be inserted in
+   *                                    compressed output
+   *
+   * \return uhdr_error_info_t #UHDR_CODEC_OK if operation succeeds, uhdr_codec_err_t otherwise.
+   */
+  uhdr_error_info_t encodeJPEGR(uhdr_raw_image_t* hdr_intent, uhdr_compressed_image_t* dest,
+                                int quality, uhdr_mem_block_t* exif);
+
+  /*!\brief Encode API-1.
+   *
+   * Create ultrahdr jpeg image from raw hdr intent and raw sdr intent.
+   *
+   * A gainmap coefficient is computed between hdr and sdr intent. sdr intent and gain map
+   * coefficient are compressed using jpeg encoding. compressed gainmap is appended at the end of
+   * compressed sdr image.
+   * NOTE: Color transfer of sdr intent is expected to be sRGB.
+   *
+   * \param[in]       hdr_intent        hdr intent raw input image descriptor
+   * \param[in]       sdr_intent        sdr intent raw input image descriptor
+   * \param[in, out]  dest              output image descriptor to store compressed ultrahdr image
+   * \param[in]       quality           quality factor for sdr intent jpeg compression
+   * \param[in]       exif              optional exif metadata that needs to be inserted in
+   *                                    compressed output
+   *
+   * \return uhdr_error_info_t #UHDR_CODEC_OK if operation succeeds, uhdr_codec_err_t otherwise.
+   */
+  uhdr_error_info_t encodeJPEGR(uhdr_raw_image_t* hdr_intent, uhdr_raw_image_t* sdr_intent,
+                                uhdr_compressed_image_t* dest, int quality, uhdr_mem_block_t* exif);
+
+  /*!\brief Encode API-2.
+   *
+   * Create ultrahdr jpeg image from raw hdr intent, raw sdr intent and compressed sdr intent.
+   *
+   * A gainmap coefficient is computed between hdr and sdr intent. gain map coefficient is
+   * compressed using jpeg encoding. compressed gainmap is appended at the end of compressed sdr
+   * intent. ICC profile is added if one isn't present in the sdr intent JPEG image.
+   * NOTE: Color transfer of sdr intent is expected to be sRGB.
+   * NOTE: sdr intent raw and compressed inputs are expected to be related via compress/decompress
+   * operations.
+   *
+   * \param[in]       hdr_intent               hdr intent raw input image descriptor
+   * \param[in]       sdr_intent               sdr intent raw input image descriptor
+   * \param[in]       sdr_intent_compressed    sdr intent compressed input image descriptor
+   * \param[in, out]  dest                     output image descriptor to store compressed ultrahdr
+   *                                           image
+   *
+   * \return uhdr_error_info_t #UHDR_CODEC_OK if operation succeeds, uhdr_codec_err_t otherwise.
+   */
+  uhdr_error_info_t encodeJPEGR(uhdr_raw_image_t* hdr_intent, uhdr_raw_image_t* sdr_intent,
+                                uhdr_compressed_image_t* sdr_intent_compressed,
+                                uhdr_compressed_image_t* dest);
+
+  /*!\brief Encode API-3.
+   *
+   * Create ultrahdr jpeg image from raw hdr intent and compressed sdr intent.
+   *
+   * The sdr intent is decoded and a gainmap coefficient is computed between hdr and sdr intent.
+   * gain map coefficient is compressed using jpeg encoding. compressed gainmap is appended at the
+   * end of compressed sdr image. ICC profile is added if one isn't present in the sdr intent JPEG
+   * image.
+   * NOTE: Color transfer of sdr intent is expected to be sRGB.
+   *
+   * \param[in]       hdr_intent               hdr intent raw input image descriptor
+   * \param[in]       sdr_intent_compressed    sdr intent compressed input image descriptor
+   * \param[in, out]  dest                     output image descriptor to store compressed ultrahdr
+   *                                           image
+   *
+   * \return uhdr_error_info_t #UHDR_CODEC_OK if operation succeeds, uhdr_codec_err_t otherwise.
+   */
+  uhdr_error_info_t encodeJPEGR(uhdr_raw_image_t* hdr_intent,
+                                uhdr_compressed_image_t* sdr_intent_compressed,
+                                uhdr_compressed_image_t* dest);
+
+  /*!\brief Encode API-4.
+   *
+   * Create ultrahdr jpeg image from compressed sdr image and compressed gainmap image
+   *
+   * compressed gainmap image is added at the end of compressed sdr image. ICC profile is added if
+   * one isn't present in the sdr intent compressed image.
+   *
+   * \param[in]       base_img_compressed      sdr intent compressed input image descriptor
+   * \param[in]       gainmap_img_compressed   gainmap compressed image descriptor
+   * \param[in]       metadata                 gainmap metadata descriptor
+   * \param[in, out]  dest                     output image descriptor to store compressed ultrahdr
+   *                                           image
+   *
+   * \return uhdr_error_info_t #UHDR_CODEC_OK if operation succeeds, uhdr_codec_err_t otherwise.
+   */
+  uhdr_error_info_t encodeJPEGR(uhdr_compressed_image_t* base_img_compressed,
+                                uhdr_compressed_image_t* gainmap_img_compressed,
+                                uhdr_gainmap_metadata_ext_t* metadata,
+                                uhdr_compressed_image_t* dest);
+
+  /*!\brief Decode API.
+   *
+   * Decompress ultrahdr jpeg image.
+   *
+   * NOTE: This method requires that the ultrahdr input image contains an ICC profile with primaries
+   * that match those of a color gamut that this library is aware of; Bt.709, Display-P3, or
+   * Bt.2100. It also assumes the base image color transfer characteristics are sRGB.
+   *
+   * \param[in]       uhdr_compressed_img      compressed ultrahdr image descriptor
+   * \param[in, out]  dest                     output image descriptor to store decoded output
+   * \param[in]       max_display_boost        (optional) the maximum available boost supported by a
+   *                                           display, the value must be greater than or equal
+   *                                           to 1.0
+   * \param[in]       output_ct                (optional) output color transfer
+   * \param[in]       output_format            (optional) output pixel format
+   * \param[in, out]  gainmap_img              (optional) output image descriptor to store decoded
+   *                                           gainmap image
+   * \param[in, out]  gainmap_metadata         (optional) descriptor to store gainmap metadata
+   *
+   * \return uhdr_error_info_t #UHDR_CODEC_OK if operation succeeds, uhdr_codec_err_t otherwise.
+   *
+   * NOTE: This method only supports single gain map metadata values for fields that allow
+   * multi-channel metadata values.
+   *
+   * NOTE: Not all combinations of output color transfer and output pixel format are supported.
+   * Refer below table for supported combinations.
+   *         ----------------------------------------------------------------------
+   *         |           color transfer	       |          color format            |
+   *         ----------------------------------------------------------------------
+   *         |                 SDR             |          32bppRGBA8888           |
+   *         ----------------------------------------------------------------------
+   *         |             HDR_LINEAR          |          64bppRGBAHalfFloat      |
+   *         ----------------------------------------------------------------------
+   *         |               HDR_PQ            |          32bppRGBA1010102        |
+   *         ----------------------------------------------------------------------
+   *         |               HDR_HLG           |          32bppRGBA1010102        |
+   *         ----------------------------------------------------------------------
+   */
+  uhdr_error_info_t decodeJPEGR(uhdr_compressed_image_t* uhdr_compressed_img,
+                                uhdr_raw_image_t* dest, float max_display_boost = FLT_MAX,
+                                uhdr_color_transfer_t output_ct = UHDR_CT_LINEAR,
+                                uhdr_img_fmt_t output_format = UHDR_IMG_FMT_64bppRGBAHalfFloat,
+                                uhdr_raw_image_t* gainmap_img = nullptr,
+                                uhdr_gainmap_metadata_t* gainmap_metadata = nullptr);
+
+  /*!\brief This function parses the bitstream and returns information that is useful for actual
+   * decoding. This does not decode the image. That is handled by decodeJPEGR
+   *
+   * \param[in]       uhdr_compressed_img      compressed ultrahdr image descriptor
+   * \param[in, out]  uhdr_image_info          image info descriptor
+   *
+   * \return uhdr_error_info_t #UHDR_CODEC_OK if operation succeeds, uhdr_codec_err_t otherwise.
+   */
+  uhdr_error_info_t getJPEGRInfo(uhdr_compressed_image_t* uhdr_compressed_img,
+                                 jr_info_ptr uhdr_image_info);
+
+  /*!\brief set gain map dimension scale factor
+   *
+   * NOTE: Applicable only in encoding scenario
+   *
+   * \param[in]       mapDimensionScaleFactor      scale factor
+   *
+   * \return none
+   */
+  void setMapDimensionScaleFactor(size_t mapDimensionScaleFactor) {
+    this->mMapDimensionScaleFactor = mapDimensionScaleFactor;
+  }
+
+  /*!\brief get gain map dimension scale factor
+   *
+   * NOTE: Applicable only in encoding scenario
+   *
+   * \return mapDimensionScaleFactor
+   */
+  size_t getMapDimensionScaleFactor() { return this->mMapDimensionScaleFactor; }
+
+  /*!\brief set gain map compression quality factor
+   *
+   * NOTE: Applicable only in encoding scenario
+   *
+   * \param[in]       mapCompressQuality      quality factor for gain map image compression
+   *
+   * \return none
+   */
+  void setMapCompressQuality(int mapCompressQuality) {
+    this->mMapCompressQuality = mapCompressQuality;
+  }
+
+  /*!\brief get gain map quality factor
+   *
+   * NOTE: Applicable only in encoding scenario
+   *
+   * \return quality factor
+   */
+  int getMapCompressQuality() { return this->mMapCompressQuality; }
+
+  /*!\brief enable / disable multi channel gain map
+   *
+   * NOTE: Applicable only in encoding scenario
+   *
+   * \param[in]       useMultiChannelGainMap      enable / disable multi channel gain map
+   *
+   * \return none
+   */
+  void setUseMultiChannelGainMap(bool useMultiChannelGainMap) {
+    this->mUseMultiChannelGainMap = useMultiChannelGainMap;
+  }
+
+  /*!\brief check if multi channel gain map is enabled
+   *
+   * NOTE: Applicable only in encoding scenario
+   *
+   * \return true if multi channel gain map is enabled, false otherwise
+   */
+  bool isUsingMultiChannelGainMap() { return this->mUseMultiChannelGainMap; }
+
+  /* \brief Alias of Encode API-0.
+   *
+   * \deprecated This function is deprecated. Use its alias
    */
   status_t encodeJPEGR(jr_uncompressed_ptr p010_image_ptr, ultrahdr_transfer_function hdr_tf,
                        jr_compressed_ptr dest, int quality, jr_exif_ptr exif);
 
-  /*
-   * Encode API-1
-   * Compress JPEGR image from 10-bit HDR YUV and 8-bit SDR YUV.
+  /* \brief Alias of Encode API-1.
    *
-   * Generate gain map from the HDR and SDR inputs, compress SDR YUV to 8-bit JPEG and append
-   * the gain map to the end of the compressed JPEG. HDR and SDR inputs must be the same
-   * resolution. SDR input is assumed to use the sRGB transfer function.
-   * @param p010_image_ptr uncompressed HDR image in P010 color format
-   * @param yuv420_image_ptr uncompressed SDR image in YUV_420 color format
-   * @param hdr_tf transfer function of the HDR image
-   * @param dest destination of the compressed JPEGR image. Please note that {@code maxLength}
-   *             represents the maximum available size of the desitination buffer, and it must be
-   *             set before calling this method. If the encoded JPEGR size exceeds
-   *             {@code maxLength}, this method will return {@code ERROR_JPEGR_BUFFER_TOO_SMALL}.
-   * @param quality target quality of the JPEG encoding, must be in range of 0-100 where 100 is
-   *                the highest quality
-   * @param exif pointer to the exif metadata.
-   * @return NO_ERROR if encoding succeeds, error code if error occurs.
+   * \deprecated This function is deprecated. Use its actual
    */
   status_t encodeJPEGR(jr_uncompressed_ptr p010_image_ptr, jr_uncompressed_ptr yuv420_image_ptr,
                        ultrahdr_transfer_function hdr_tf, jr_compressed_ptr dest, int quality,
                        jr_exif_ptr exif);
 
-  /*
-   * Encode API-2
-   * Compress JPEGR image from 10-bit HDR YUV, 8-bit SDR YUV and compressed 8-bit JPEG.
+  /* \brief Alias of Encode API-2.
    *
-   * This method requires HAL Hardware JPEG encoder.
-   *
-   * Generate gain map from the HDR and SDR inputs, append the gain map to the end of the
-   * compressed JPEG. Adds an ICC profile if one isn't present in the input JPEG image. HDR and
-   * SDR inputs must be the same resolution and color space. SDR image is assumed to use the sRGB
-   * transfer function.
-   * @param p010_image_ptr uncompressed HDR image in P010 color format
-   * @param yuv420_image_ptr uncompressed SDR image in YUV_420 color format
-   * @param yuv420jpg_image_ptr SDR image compressed in jpeg format
-   * @param hdr_tf transfer function of the HDR image
-   * @param dest destination of the compressed JPEGR image. Please note that {@code maxLength}
-   *             represents the maximum available size of the desitination buffer, and it must be
-   *             set before calling this method. If the encoded JPEGR size exceeds
-   *             {@code maxLength}, this method will return {@code ERROR_JPEGR_BUFFER_TOO_SMALL}.
-   * @return NO_ERROR if encoding succeeds, error code if error occurs.
+   * \deprecated This function is deprecated. Use its actual
    */
   status_t encodeJPEGR(jr_uncompressed_ptr p010_image_ptr, jr_uncompressed_ptr yuv420_image_ptr,
                        jr_compressed_ptr yuv420jpg_image_ptr, ultrahdr_transfer_function hdr_tf,
                        jr_compressed_ptr dest);
 
-  /*
-   * Encode API-3
-   * Compress JPEGR image from 10-bit HDR YUV and 8-bit SDR YUV.
+  /* \brief Alias of Encode API-3.
    *
-   * This method requires HAL Hardware JPEG encoder.
-   *
-   * Decode the compressed 8-bit JPEG image to YUV SDR, generate gain map from the HDR input
-   * and the decoded SDR result, append the gain map to the end of the compressed JPEG. Adds an
-   * ICC profile if one isn't present in the input JPEG image. HDR and SDR inputs must be the same
-   * resolution. JPEG image is assumed to use the sRGB transfer function.
-   * @param p010_image_ptr uncompressed HDR image in P010 color format
-   * @param yuv420jpg_image_ptr SDR image compressed in jpeg format
-   * @param hdr_tf transfer function of the HDR image
-   * @param dest destination of the compressed JPEGR image. Please note that {@code maxLength}
-   *             represents the maximum available size of the desitination buffer, and it must be
-   *             set before calling this method. If the encoded JPEGR size exceeds
-   *             {@code maxLength}, this method will return {@code ERROR_JPEGR_BUFFER_TOO_SMALL}.
-   * @return NO_ERROR if encoding succeeds, error code if error occurs.
+   * \deprecated This function is deprecated. Use its actual
    */
   status_t encodeJPEGR(jr_uncompressed_ptr p010_image_ptr, jr_compressed_ptr yuv420jpg_image_ptr,
                        ultrahdr_transfer_function hdr_tf, jr_compressed_ptr dest);
 
-  /*
-   * Encode API-4
-   * Assemble JPEGR image from SDR JPEG and gainmap JPEG.
+  /* \brief Alias of Encode API-4.
    *
-   * Assemble the primary JPEG image, the gain map and the metadata to JPEG/R format. Adds an ICC
-   * profile if one isn't present in the input JPEG image.
-   * @param yuv420jpg_image_ptr SDR image compressed in jpeg format
-   * @param gainmapjpg_image_ptr gain map image compressed in jpeg format
-   * @param metadata metadata to be written in XMP of the primary jpeg
-   * @param dest destination of the compressed JPEGR image. Please note that {@code maxLength}
-   *             represents the maximum available size of the desitination buffer, and it must be
-   *             set before calling this method. If the encoded JPEGR size exceeds
-   *             {@code maxLength}, this method will return {@code ERROR_JPEGR_BUFFER_TOO_SMALL}.
-   * @return NO_ERROR if encoding succeeds, error code if error occurs.
+   * \deprecated This function is deprecated. Use its actual
    */
   status_t encodeJPEGR(jr_compressed_ptr yuv420jpg_image_ptr,
                        jr_compressed_ptr gainmapjpg_image_ptr, ultrahdr_metadata_ptr metadata,
                        jr_compressed_ptr dest);
 
-  /*
-   * Decode API
-   * Decompress JPEGR image.
+  /* \brief Alias of Decode API
    *
-   * This method assumes that the JPEGR image contains an ICC profile with primaries that match
-   * those of a color gamut that this library is aware of; Bt.709, Display-P3, or Bt.2100. It also
-   * assumes the base image uses the sRGB transfer function.
-   *
-   * This method only supports single gain map metadata values for fields that allow multi-channel
-   * metadata values.
-   * @param jpegr_image_ptr compressed JPEGR image.
-   * @param dest destination of the uncompressed JPEGR image.
-   * @param max_display_boost (optional) the maximum available boost supported by a display,
-   *                          the value must be greater than or equal to 1.0.
-   * @param exif destination of the decoded EXIF metadata. The default value is NULL where the
-                 decoder will do nothing about it. If configured not NULL the decoder will write
-                 EXIF data into this structure. The format is defined in {@code jpegr_exif_struct}
-   * @param output_format flag for setting output color format. Its value configures the output
-                          color format. The default value is {@code JPEGR_OUTPUT_HDR_LINEAR}.
-                          ----------------------------------------------------------------------
-                          |      output_format       |    decoded color format to be written   |
-                          ----------------------------------------------------------------------
-                          |     JPEGR_OUTPUT_SDR     |                RGBA_8888                |
-                          ----------------------------------------------------------------------
-                          | JPEGR_OUTPUT_HDR_LINEAR  |        (default)RGBA_F16 linear         |
-                          ----------------------------------------------------------------------
-                          |   JPEGR_OUTPUT_HDR_PQ    |             RGBA_1010102 PQ             |
-                          ----------------------------------------------------------------------
-                          |   JPEGR_OUTPUT_HDR_HLG   |            RGBA_1010102 HLG             |
-                          ----------------------------------------------------------------------
-   * @param gainmap_image_ptr destination of the decoded gain map. The default value is NULL
-                              where the decoder will do nothing about it. If configured not NULL
-                              the decoder will write the decoded gain_map data into this
-                              structure. The format is defined in
-                              {@code jpegr_uncompressed_struct}.
-   * @param metadata destination of the decoded metadata. The default value is NULL where the
-                     decoder will do nothing about it. If configured not NULL the decoder will
-                     write metadata into this structure. the format of metadata is defined in
-                     {@code ultrahdr_metadata_struct}.
-   * @return NO_ERROR if decoding succeeds, error code if error occurs.
+   * \deprecated This function is deprecated. Use its actual
    */
   status_t decodeJPEGR(jr_compressed_ptr jpegr_image_ptr, jr_uncompressed_ptr dest,
                        float max_display_boost = FLT_MAX, jr_exif_ptr exif = nullptr,
@@ -297,170 +351,145 @@ class JpegR {
                        jr_uncompressed_ptr gainmap_image_ptr = nullptr,
                        ultrahdr_metadata_ptr metadata = nullptr);
 
-  /*
-   * Gets Info from JPEGR file without decoding it.
+  /* \brief Alias of getJPEGRInfo
    *
-   * This method only supports single gain map metadata values for fields that allow multi-channel
-   * metadata values.
-   *
-   * The output is filled jpegr_info structure
-   * @param jpegr_image_ptr compressed JPEGR image
-   * @param jpeg_image_info_ptr pointer to jpegr info struct. Members of jpegr_info
-   *                            are owned by the caller
-   * @return NO_ERROR if JPEGR parsing succeeds, error code otherwise
+   * \deprecated This function is deprecated. Use its actual
    */
-  status_t getJPEGRInfo(jr_compressed_ptr jpegr_image_ptr, jr_info_ptr jpeg_image_info_ptr);
-
-  /*
-   * Getting / Setting configurations
-   */
-   void setMapDimensionScaleFactor(size_t mapDimensionScaleFactor) {
-      this->mMapDimensionScaleFactor = mapDimensionScaleFactor;
-   }
-
-   size_t getMapDimensionScaleFactor() { return this->mMapDimensionScaleFactor; }
-
-   void setMapCompressQuality(int mapCompressQuality) {
-      this->mMapCompressQuality = mapCompressQuality;
-   }
-
-   int getMapCompressQuality() { return this->mMapCompressQuality; }
-
-   void setUseMultiChannelGainMap(bool useMultiChannelGainMap) {
-      this->mUseMultiChannelGainMap = useMultiChannelGainMap;
-   }
-
-   bool isUsingMultiChannelGainMap() { return this->mUseMultiChannelGainMap; }
+  status_t getJPEGRInfo(jr_compressed_ptr jpegr_image_ptr, jr_info_ptr jpegr_image_info_ptr);
 
  protected:
-  /*
-   * This method is called in the encoding pipeline. It will take the uncompressed 8-bit and
-   * 10-bit yuv images as input, and calculate the uncompressed gain map. The input images
-   * must be the same resolution. The SDR input is assumed to use the sRGB transfer function.
+  /*!\brief This method takes hdr intent and sdr intent and computes gainmap coefficient.
    *
-   * @param yuv420_image_ptr uncompressed SDR image in YUV_420 color format
-   * @param p010_image_ptr uncompressed HDR image in P010 color format
-   * @param hdr_tf transfer function of the HDR image
-   * @param metadata everything but "version" is filled in this struct
-   * @param dest location at which gain map image is stored (caller responsible for memory
-                 of data).
-   * @param sdr_is_601 if true, then use BT.601 decoding of YUV regardless of SDR image gamut
-   * @return NO_ERROR if calculation succeeds, error code if error occurs.
+   * This method is called in the encoding pipeline. It takes uncompressed 8-bit and 10-bit yuv
+   * images as input and calculates gainmap.
+   *
+   * NOTE: The input images must be the same resolution.
+   * NOTE: The SDR input is assumed to use the sRGB transfer function.
+   *
+   * \param[in]       sdr_intent               sdr intent raw input image descriptor
+   * \param[in]       hdr_intent               hdr intent raw input image descriptor
+   * \param[in, out]  gainmap_metadata         gainmap metadata descriptor
+   * \param[in, out]  gainmap_img              gainmap image descriptor
+   * \param[in]       sdr_is_601               (optional) if sdr_is_601 is true, then use BT.601
+   *                                           gamut to represent sdr intent regardless of the value
+   *                                           present in the sdr intent image descriptor
+   *
+   * \return uhdr_error_info_t #UHDR_CODEC_OK if operation succeeds, uhdr_codec_err_t otherwise.
    */
-  status_t generateGainMap(jr_uncompressed_ptr yuv420_image_ptr, jr_uncompressed_ptr p010_image_ptr,
-                           ultrahdr_transfer_function hdr_tf, ultrahdr_metadata_ptr metadata,
-                           jr_uncompressed_ptr dest, bool sdr_is_601 = false);
+  uhdr_error_info_t generateGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_image_t* hdr_intent,
+                                    uhdr_gainmap_metadata_ext_t* gainmap_metadata,
+                                    std::unique_ptr<uhdr_raw_image_ext_t>& gainmap_img,
+                                    bool sdr_is_601 = false);
 
-  /*
-   * This method is called in the decoding pipeline. It will take the uncompressed (decoded)
-   * 8-bit yuv image, the uncompressed (decoded) gain map, and extracted JPEG/R metadata as
-   * input, and calculate the 10-bit recovered image. The recovered output image is the same
-   * color gamut as the SDR image, with HLG transfer function, and is in RGBA1010102 data format.
-   * The SDR image is assumed to use the sRGB transfer function. The SDR image is also assumed to
-   * be a decoded JPEG for the purpose of YUV interpration.
+  /*!\brief This method takes sdr intent, gainmap image and gainmap metadata and computes hdr
+   * intent. This method is called in the decoding pipeline. The output hdr intent image will have
+   * same color gamut as sdr intent.
    *
-   * @param yuv420_image_ptr uncompressed SDR image in YUV_420 color format
-   * @param gainmap_image_ptr pointer to uncompressed gain map image struct.
-   * @param metadata JPEG/R metadata extracted from XMP.
-   * @param output_format flag for setting output color format. if set to
-   *                      {@code JPEGR_OUTPUT_SDR}, decoder will only decode the primary image
-   *                      which is SDR. Default value is JPEGR_OUTPUT_HDR_LINEAR.
-   * @param max_display_boost the maximum available boost supported by a display
-   * @param dest reconstructed HDR image
-   * @return NO_ERROR if calculation succeeds, error code if error occurs.
+   * NOTE: The SDR input is assumed to use the sRGB transfer function.
+   *
+   * \param[in]       sdr_intent               sdr intent raw input image descriptor
+   * \param[in]       gainmap_img              gainmap image descriptor
+   * \param[in]       gainmap_metadata         gainmap metadata descriptor
+   * \param[in]       output_ct                output color transfer
+   * \param[in]       output_format            output pixel format
+   * \param[in]       max_display_boost        the maximum available boost supported by a
+   *                                           display, the value must be greater than or equal
+   *                                           to 1.0
+   * \param[in, out]  dest                     output image descriptor to store output
+   *
+   * \return uhdr_error_info_t #UHDR_CODEC_OK if operation succeeds, uhdr_codec_err_t otherwise.
    */
-  status_t applyGainMap(jr_uncompressed_ptr yuv420_image_ptr, jr_uncompressed_ptr gainmap_image_ptr,
-                        ultrahdr_metadata_ptr metadata, ultrahdr_output_format output_format,
-                        float max_display_boost, jr_uncompressed_ptr dest);
+  uhdr_error_info_t applyGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_image_t* gainmap_img,
+                                 uhdr_gainmap_metadata_ext_t* gainmap_metadata,
+                                 uhdr_color_transfer_t output_ct, uhdr_img_fmt_t output_format,
+                                 float max_display_boost, uhdr_raw_image_t* dest);
 
  private:
-  /*
-   * This method is called in the encoding pipeline. It will encode the gain map.
+  /*!\brief compress gainmap image
    *
-   * @param gainmap_image_ptr pointer to uncompressed gain map image struct
-   * @param jpeg_enc_obj_ptr helper resource to compress gain map
-   * @return NO_ERROR if encoding succeeds, error code if error occurs.
+   * \param[in]       gainmap_img              gainmap image descriptor
+   * \param[in]       jpeg_enc_obj             jpeg encoder object handle
+   *
+   * \return uhdr_error_info_t #UHDR_CODEC_OK if operation succeeds, uhdr_codec_err_t otherwise.
    */
-  status_t compressGainMap(jr_uncompressed_ptr gainmap_image_ptr,
-                           JpegEncoderHelper* jpeg_enc_obj_ptr);
+  uhdr_error_info_t compressGainMap(uhdr_raw_image_t* gainmap_img, JpegEncoderHelper* jpeg_enc_obj);
 
-  /*
-   * This method is called to separate primary image and gain map image from JPEGR
+  /*!\brief This method is called to separate base image and gain map image from compressed
+   * ultrahdr image
    *
-   * @param jpegr_image_ptr pointer to compressed JPEGR image.
-   * @param primary_jpg_image_ptr destination of primary image
-   * @param gainmap_jpg_image_ptr destination of compressed gain map image
-   * @return NO_ERROR if calculation succeeds, error code if error occurs.
+   * \param[in]            jpegr_image               compressed ultrahdr image descriptor
+   * \param[in, out]       primary_image             sdr image descriptor
+   * \param[in, out]       gainmap_image             gainmap image descriptor
+   *
+   * \return uhdr_error_info_t #UHDR_CODEC_OK if operation succeeds, uhdr_codec_err_t otherwise.
    */
-  status_t extractPrimaryImageAndGainMap(jr_compressed_ptr jpegr_image_ptr,
-                                         jr_compressed_ptr primary_jpg_image_ptr,
-                                         jr_compressed_ptr gainmap_jpg_image_ptr);
+  uhdr_error_info_t extractPrimaryImageAndGainMap(uhdr_compressed_image_t* jpegr_image,
+                                                  uhdr_compressed_image_t* primary_image,
+                                                  uhdr_compressed_image_t* gainmap_image);
 
-  /*
-   * Gets Info from JPEG image without decoding it.
+  /*!\brief This function parses the bitstream and returns metadata that is useful for actual
+   * decoding. This does not decode the image. That is handled by decompressImage().
    *
-   * The output is filled jpeg_info structure
-   * @param jpegr_image_ptr compressed JPEG image
-   * @param jpeg_image_info_ptr pointer to jpeg info struct. Members of jpeg_info_struct
-   *                            are owned by the caller
-   * @param img_width (optional) pointer to store width of jpeg image
-   * @param img_height (optional) pointer to store height of jpeg image
-   * @return NO_ERROR if JPEGR parsing succeeds, error code otherwise
+   * \param[in]            jpeg_image      compressed jpeg image descriptor
+   * \param[in, out]       image_info      image info descriptor
+   * \param[in, out]       img_width       (optional) image width
+   * \param[in, out]       img_height      (optional) image height
+   *
+   * \return uhdr_error_info_t #UHDR_CODEC_OK if operation succeeds, uhdr_codec_err_t otherwise.
    */
-  status_t parseJpegInfo(jr_compressed_ptr jpeg_image_ptr, j_info_ptr jpeg_image_info_ptr,
-                         size_t* img_width = nullptr, size_t* img_height = nullptr);
+  uhdr_error_info_t parseJpegInfo(uhdr_compressed_image_t* jpeg_image, j_info_ptr image_info,
+                                  size_t* img_width = nullptr, size_t* img_height = nullptr);
 
-  /*
-   * This method is called in the encoding pipeline. It will take the standard 8-bit JPEG image,
-   * the compressed gain map and optionally the exif package as inputs, and generate the XMP
-   * metadata, and finally append everything in the order of:
-   *     SOI, APP2(EXIF) (if EXIF is from outside), APP2(XMP), primary image, gain map
+  /*!\brief This method takes compressed sdr intent, compressed gainmap coefficient, gainmap
+   * metadata and creates a ultrahdr image. This is done by first generating XMP packet from gainmap
+   * metadata, then appending in the order,
+   *    SOI, APP2 (Exif is present), APP2 (XMP), base image, gain map image.
    *
-   * Note that in the final JPEG/R output, EXIF package will appear if ONLY ONE of the following
-   * conditions is fulfilled:
-   *  (1) EXIF package is available from outside input. I.e. pExif != nullptr.
-   *  (2) Input JPEG has EXIF.
-   * If both conditions are fulfilled, this method will return ERROR_JPEGR_INVALID_INPUT_TYPE
+   * NOTE: In the final output, EXIF package will appear if ONLY ONE of the following conditions is
+   * fulfilled:
+   * (1) EXIF package is available from outside input. I.e. pExif != nullptr.
+   * (2) Compressed sdr intent has EXIF.
+   * If both conditions are fulfilled, this method will return error indicating that it is unable to
+   * choose which exif to be placed in the bitstream.
    *
-   * @param primary_jpg_image_ptr destination of primary image
-   * @param gainmap_jpg_image_ptr destination of compressed gain map image
-   * @param (nullable) pExif EXIF package
-   * @param (nullable) pIcc ICC package
-   * @param icc_size length in bytes of ICC package
-   * @param metadata JPEG/R metadata to encode in XMP of the jpeg
-   * @param dest compressed JPEGR image
-   * @return NO_ERROR if calculation succeeds, error code if error occurs.
+   * \param[in]       sdr_intent_compressed    sdr intent image descriptor
+   * \param[in]       gainmap_compressed       gainmap intent input image descriptor
+   * \param[in]       pExif                    exif block to be placed in the bitstream
+   * \param[in]       pIcc                     pointer to icc segment that needs to be added to the
+   *                                           compressed image
+   * \param[in]       icc_size                 size of icc segment
+   * \param[in]       metadata                 gainmap metadata descriptor
+   * \param[in, out]  dest                     output image descriptor to store compressed ultrahdr
+   *                                           image
+   *
+   * \return uhdr_error_info_t #UHDR_CODEC_OK if operation succeeds, uhdr_codec_err_t otherwise.
    */
-  status_t appendGainMap(jr_compressed_ptr primary_jpg_image_ptr,
-                         jr_compressed_ptr gainmap_jpg_image_ptr, jr_exif_ptr pExif, void* pIcc,
-                         size_t icc_size, ultrahdr_metadata_ptr metadata, jr_compressed_ptr dest);
+  uhdr_error_info_t appendGainMap(uhdr_compressed_image_t* sdr_intent_compressed,
+                                  uhdr_compressed_image_t* gainmap_compressed,
+                                  uhdr_mem_block_t* pExif, void* pIcc, size_t icc_size,
+                                  uhdr_gainmap_metadata_ext_t* metadata,
+                                  uhdr_compressed_image_t* dest);
 
-  /*
-   * This method will tone map a HDR image to an SDR image.
+  /*!\brief This method is used to tone map a hdr image
    *
-   * @param src pointer to uncompressed HDR image struct. HDR image is expected to be
-   *            in p010 color format
-   * @param dest pointer to store tonemapped SDR image
-   * @param hdr_tf transfer function of the HDR image
-   * @return NO_ERROR if calculation succeeds, error code if error occurs.
+   * \param[in]            hdr_intent      hdr image descriptor
+   * \param[in, out]       sdr_intent      sdr image descriptor
+   *
+   * \return uhdr_error_info_t #UHDR_CODEC_OK if operation succeeds, uhdr_codec_err_t otherwise.
    */
-  status_t toneMap(jr_uncompressed_ptr src, jr_uncompressed_ptr dest,
-                   ultrahdr_transfer_function hdr_tf);
+  uhdr_error_info_t toneMap(uhdr_raw_image_t* hdr_intent, uhdr_raw_image_t* sdr_intent);
 
-  /*
-   * This method will convert a YUV420 image from one YUV encoding to another in-place (eg.
-   * Bt.709 to Bt.601 YUV encoding).
+  /*!\brief This method is used to convert a raw image from one gamut space to another gamut space
+   * in-place.
    *
-   * src_encoding and dest_encoding indicate the encoding via the YUV conversion defined for that
-   * gamut. P3 indicates Rec.601, since this is how DataSpace encodes Display-P3 YUV data.
+   * \param[in, out]  image              raw image descriptor
+   * \param[in]       src_encoding       input gamut space
+   * \param[in]       dst_encoding       destination gamut space
    *
-   * @param image the YUV420 image to convert
-   * @param src_encoding input YUV encoding
-   * @param dest_encoding output YUV encoding
-   * @return NO_ERROR if calculation succeeds, error code if error occurs.
+   * \return uhdr_error_info_t #UHDR_CODEC_OK if operation succeeds, uhdr_codec_err_t otherwise.
    */
-  status_t convertYuv(jr_uncompressed_ptr image, ultrahdr_color_gamut src_encoding,
-                      ultrahdr_color_gamut dest_encoding);
+  uhdr_error_info_t convertYuv(uhdr_raw_image_t* image, uhdr_color_gamut_t src_encoding,
+                               uhdr_color_gamut_t dst_encoding);
 
   /*
    * This method will check the validity of the input arguments.
@@ -500,12 +529,9 @@ class JpegR {
                                   int quality);
 
   // Configurations
-  // Map is quarter res / sixteenth size
-  size_t mMapDimensionScaleFactor;
-  // JPEG compress quality (0 ~ 100) for gain map
-  int mMapCompressQuality;
-  // Gain map calculation
-  bool mUseMultiChannelGainMap;
+  size_t mMapDimensionScaleFactor;  // gainmap scale factor
+  int mMapCompressQuality;          // gainmap quality factor
+  bool mUseMultiChannelGainMap;     // enable multichannel gainmap
 };
 
 struct GlobalTonemapOutputs {

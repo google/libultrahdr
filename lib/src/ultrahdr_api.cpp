@@ -24,8 +24,6 @@
 #include "ultrahdr/jpegr.h"
 #include "ultrahdr/jpegrutils.h"
 
-static const uhdr_error_info_t g_no_error = {UHDR_CODEC_OK, 0, ""};
-
 namespace ultrahdr {
 
 uhdr_memory_block::uhdr_memory_block(size_t capacity) {
@@ -49,6 +47,8 @@ uhdr_raw_image_ext::uhdr_raw_image_ext(uhdr_img_fmt_t fmt_, uhdr_color_gamut_t c
   int bpp = 1;
   if (fmt_ == UHDR_IMG_FMT_24bppYCbCrP010) {
     bpp = 2;
+  } else if (fmt_ == UHDR_IMG_FMT_24bppRGB888) {
+    bpp = 3;
   } else if (fmt_ == UHDR_IMG_FMT_32bppRGBA8888 || fmt_ == UHDR_IMG_FMT_32bppRGBA1010102) {
     bpp = 4;
   } else if (fmt_ == UHDR_IMG_FMT_64bppRGBAHalfFloat) {
@@ -335,105 +335,6 @@ uhdr_codec_private::~uhdr_codec_private() {
   m_effects.clear();
 }
 
-ultrahdr::ultrahdr_color_gamut map_cg_to_internal_cg(uhdr_color_gamut_t cg) {
-  switch (cg) {
-    case UHDR_CG_BT_2100:
-      return ultrahdr::ULTRAHDR_COLORGAMUT_BT2100;
-    case UHDR_CG_BT_709:
-      return ultrahdr::ULTRAHDR_COLORGAMUT_BT709;
-    case UHDR_CG_DISPLAY_P3:
-      return ultrahdr::ULTRAHDR_COLORGAMUT_P3;
-    default:
-      return ultrahdr::ULTRAHDR_COLORGAMUT_UNSPECIFIED;
-  }
-}
-
-uhdr_color_gamut_t map_internal_cg_to_cg(ultrahdr::ultrahdr_color_gamut cg) {
-  switch (cg) {
-    case ultrahdr::ULTRAHDR_COLORGAMUT_BT2100:
-      return UHDR_CG_BT_2100;
-    case ultrahdr::ULTRAHDR_COLORGAMUT_BT709:
-      return UHDR_CG_BT_709;
-    case ultrahdr::ULTRAHDR_COLORGAMUT_P3:
-      return UHDR_CG_DISPLAY_P3;
-    default:
-      return UHDR_CG_UNSPECIFIED;
-  }
-}
-
-ultrahdr::ultrahdr_transfer_function map_ct_to_internal_ct(uhdr_color_transfer_t ct) {
-  switch (ct) {
-    case UHDR_CT_HLG:
-      return ultrahdr::ULTRAHDR_TF_HLG;
-    case UHDR_CT_PQ:
-      return ultrahdr::ULTRAHDR_TF_PQ;
-    case UHDR_CT_LINEAR:
-      return ultrahdr::ULTRAHDR_TF_LINEAR;
-    case UHDR_CT_SRGB:
-      return ultrahdr::ULTRAHDR_TF_SRGB;
-    default:
-      return ultrahdr::ULTRAHDR_TF_UNSPECIFIED;
-  }
-}
-
-ultrahdr::ultrahdr_output_format map_ct_fmt_to_internal_output_fmt(uhdr_color_transfer_t ct,
-                                                                   uhdr_img_fmt fmt) {
-  if (ct == UHDR_CT_HLG && fmt == UHDR_IMG_FMT_32bppRGBA1010102) {
-    return ultrahdr::ULTRAHDR_OUTPUT_HDR_HLG;
-  } else if (ct == UHDR_CT_PQ && fmt == UHDR_IMG_FMT_32bppRGBA1010102) {
-    return ultrahdr::ULTRAHDR_OUTPUT_HDR_PQ;
-  } else if (ct == UHDR_CT_LINEAR && fmt == UHDR_IMG_FMT_64bppRGBAHalfFloat) {
-    return ultrahdr::ULTRAHDR_OUTPUT_HDR_LINEAR;
-  } else if (ct == UHDR_CT_SRGB && fmt == UHDR_IMG_FMT_32bppRGBA8888) {
-    return ultrahdr::ULTRAHDR_OUTPUT_SDR;
-  }
-  return ultrahdr::ULTRAHDR_OUTPUT_UNSPECIFIED;
-}
-
-void map_internal_error_status_to_error_info(ultrahdr::status_t internal_status,
-                                             uhdr_error_info_t& status) {
-  if (internal_status == ultrahdr::JPEGR_NO_ERROR) {
-    status = g_no_error;
-  } else {
-    status.has_detail = 1;
-    if (internal_status == ultrahdr::ERROR_JPEGR_RESOLUTION_MISMATCH) {
-      status.error_code = UHDR_CODEC_INVALID_PARAM;
-      snprintf(status.detail, sizeof status.detail,
-               "dimensions of sdr intent and hdr intent do not match");
-    } else if (internal_status == ultrahdr::ERROR_JPEGR_ENCODE_ERROR) {
-      status.error_code = UHDR_CODEC_UNKNOWN_ERROR;
-      snprintf(status.detail, sizeof status.detail, "encountered unknown error during encoding");
-    } else if (internal_status == ultrahdr::ERROR_JPEGR_DECODE_ERROR) {
-      status.error_code = UHDR_CODEC_UNKNOWN_ERROR;
-      snprintf(status.detail, sizeof status.detail, "encountered unknown error during decoding");
-    } else if (internal_status == ultrahdr::ERROR_JPEGR_NO_IMAGES_FOUND) {
-      status.error_code = UHDR_CODEC_UNKNOWN_ERROR;
-      snprintf(status.detail, sizeof status.detail, "input uhdr image does not any valid images");
-    } else if (internal_status == ultrahdr::ERROR_JPEGR_GAIN_MAP_IMAGE_NOT_FOUND) {
-      status.error_code = UHDR_CODEC_UNKNOWN_ERROR;
-      snprintf(status.detail, sizeof status.detail,
-               "input uhdr image does not contain gainmap image");
-    } else if (internal_status == ultrahdr::ERROR_JPEGR_BUFFER_TOO_SMALL) {
-      status.error_code = UHDR_CODEC_MEM_ERROR;
-      snprintf(status.detail, sizeof status.detail,
-               "output buffer to store compressed data is too small");
-    } else if (internal_status == ultrahdr::ERROR_JPEGR_MULTIPLE_EXIFS_RECEIVED) {
-      status.error_code = UHDR_CODEC_INVALID_OPERATION;
-      snprintf(status.detail, sizeof status.detail,
-               "received exif from uhdr_enc_set_exif_data() while the base image intent already "
-               "contains exif, unsure which one to use");
-    } else if (internal_status == ultrahdr::ERROR_JPEGR_UNSUPPORTED_MAP_SCALE_FACTOR) {
-      status.error_code = UHDR_CODEC_UNSUPPORTED_FEATURE;
-      snprintf(status.detail, sizeof status.detail,
-               "say base image wd to gain map image wd ratio is 'k1' and base image ht to gain map "
-               "image ht ratio is 'k2', we found k1 != k2.");
-    } else {
-      status.error_code = UHDR_CODEC_UNKNOWN_ERROR;
-      status.has_detail = 0;
-    }
-  }
-}
-
 uhdr_error_info_t uhdr_enc_validate_and_set_compressed_img(uhdr_codec_private_t* enc,
                                                            uhdr_compressed_image_t* img,
                                                            uhdr_img_label_t intent) {
@@ -495,33 +396,65 @@ void uhdr_release_encoder(uhdr_codec_private_t* enc) {
   }
 }
 
-UHDR_EXTERN uhdr_error_info_t uhdr_enc_set_using_multi_channel_gainmap(uhdr_codec_private_t* enc,
-                                                                       bool use_multi_channel_gainmap) {
+UHDR_EXTERN uhdr_error_info_t
+uhdr_enc_set_using_multi_channel_gainmap(uhdr_codec_private_t* enc, int use_multi_channel_gainmap) {
   uhdr_error_info_t status = g_no_error;
-  uhdr_encoder_private* handle = dynamic_cast<uhdr_encoder_private*>(enc);
-  if (handle == nullptr) {
+
+  if (dynamic_cast<uhdr_encoder_private*>(enc) == nullptr) {
     status.error_code = UHDR_CODEC_INVALID_PARAM;
     status.has_detail = 1;
     snprintf(status.detail, sizeof status.detail, "received nullptr for uhdr codec instance");
     return status;
   }
 
+  uhdr_encoder_private* handle = dynamic_cast<uhdr_encoder_private*>(enc);
+
+  if (handle->m_sailed) {
+    status.error_code = UHDR_CODEC_INVALID_OPERATION;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "An earlier call to uhdr_encode() has switched the context from configurable state to "
+             "end state. The context is no longer configurable. To reuse, call reset()");
+    return status;
+  }
+
   handle->m_use_multi_channel_gainmap = use_multi_channel_gainmap;
+
   return status;
 }
 
 UHDR_EXTERN uhdr_error_info_t uhdr_enc_set_gainmap_scale_factor(uhdr_codec_private_t* enc,
                                                                 int gainmap_scale_factor) {
   uhdr_error_info_t status = g_no_error;
-  uhdr_encoder_private* handle = dynamic_cast<uhdr_encoder_private*>(enc);
-  if (handle == nullptr) {
+
+  if (dynamic_cast<uhdr_encoder_private*>(enc) == nullptr) {
     status.error_code = UHDR_CODEC_INVALID_PARAM;
     status.has_detail = 1;
     snprintf(status.detail, sizeof status.detail, "received nullptr for uhdr codec instance");
     return status;
   }
 
+  if (gainmap_scale_factor <= 0) {
+    status.error_code = UHDR_CODEC_INVALID_PARAM;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "unsupported gainmap scale factor %d, expects to be > 0", gainmap_scale_factor);
+    return status;
+  }
+
+  uhdr_encoder_private* handle = dynamic_cast<uhdr_encoder_private*>(enc);
+
+  if (handle->m_sailed) {
+    status.error_code = UHDR_CODEC_INVALID_OPERATION;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "An earlier call to uhdr_encode() has switched the context from configurable state to "
+             "end state. The context is no longer configurable. To reuse, call reset()");
+    return status;
+  }
+
   handle->m_gainmap_scale_factor = gainmap_scale_factor;
+
   return status;
 }
 
@@ -615,6 +548,17 @@ uhdr_error_info_t uhdr_enc_set_raw_image(uhdr_codec_private_t* enc, uhdr_raw_ima
       snprintf(status.detail, sizeof status.detail,
                "chroma_uv stride must not be smaller than width, stride=%d, width=%d",
                img->stride[UHDR_PLANE_UV], img->w);
+    } else if (img->fmt == UHDR_IMG_FMT_24bppYCbCrP010 &&
+               (img->range != UHDR_CR_FULL_RANGE && img->range != UHDR_CR_LIMITED_RANGE)) {
+      status.error_code = UHDR_CODEC_INVALID_PARAM;
+      status.has_detail = 1;
+      snprintf(status.detail, sizeof status.detail,
+               "invalid range, expects one of {UHDR_CR_FULL_RANGE, UHDR_CR_LIMITED_RANGE}");
+    } else if (img->fmt == UHDR_IMG_FMT_32bppRGBA1010102 && img->range != UHDR_CR_FULL_RANGE) {
+      status.error_code = UHDR_CODEC_INVALID_PARAM;
+      status.has_detail = 1;
+      snprintf(status.detail, sizeof status.detail,
+               "invalid range, expects one of {UHDR_CR_FULL_RANGE}");
     }
   } else if (img->fmt == UHDR_IMG_FMT_12bppYCbCr420) {
     if (img->planes[UHDR_PLANE_Y] == nullptr || img->planes[UHDR_PLANE_U] == nullptr ||
@@ -642,6 +586,11 @@ uhdr_error_info_t uhdr_enc_set_raw_image(uhdr_codec_private_t* enc, uhdr_raw_ima
       snprintf(status.detail, sizeof status.detail,
                "chroma_v stride must not be smaller than width / 2, stride=%d, width=%d",
                img->stride[UHDR_PLANE_V], img->w);
+    } else if (img->range != UHDR_CR_FULL_RANGE) {
+      status.error_code = UHDR_CODEC_INVALID_PARAM;
+      status.has_detail = 1;
+      snprintf(status.detail, sizeof status.detail,
+               "invalid range, expects one of {UHDR_CR_FULL_RANGE}");
     }
   }
   if (status.error_code != UHDR_CODEC_OK) return status;
@@ -938,54 +887,30 @@ uhdr_error_info_t uhdr_encode(uhdr_codec_private_t* enc) {
     }
   }
 
-  ultrahdr::status_t internal_status = ultrahdr::JPEGR_NO_ERROR;
   if (handle->m_output_format == UHDR_CODEC_JPG) {
-    ultrahdr::jpegr_exif_struct exif{};
+    uhdr_mem_block_t exif{};
     if (handle->m_exif.size() > 0) {
       exif.data = handle->m_exif.data();
-      exif.length = handle->m_exif.size();
+      exif.capacity = exif.data_sz = handle->m_exif.size();
     }
 
     ultrahdr::JpegR jpegr(handle->m_gainmap_scale_factor,
                           handle->m_quality.find(UHDR_GAIN_MAP_IMG)->second,
                           handle->m_use_multi_channel_gainmap);
-    ultrahdr::jpegr_compressed_struct dest{};
     if (handle->m_compressed_images.find(UHDR_BASE_IMG) != handle->m_compressed_images.end() &&
         handle->m_compressed_images.find(UHDR_GAIN_MAP_IMG) != handle->m_compressed_images.end()) {
       auto& base_entry = handle->m_compressed_images.find(UHDR_BASE_IMG)->second;
-      ultrahdr::jpegr_compressed_struct primary_image;
-      primary_image.data = base_entry->data;
-      primary_image.length = primary_image.maxLength = base_entry->data_sz;
-      primary_image.colorGamut = map_cg_to_internal_cg(base_entry->cg);
-
       auto& gainmap_entry = handle->m_compressed_images.find(UHDR_GAIN_MAP_IMG)->second;
-      ultrahdr::jpegr_compressed_struct gainmap_image;
-      gainmap_image.data = gainmap_entry->data;
-      gainmap_image.length = gainmap_image.maxLength = gainmap_entry->data_sz;
-      gainmap_image.colorGamut = map_cg_to_internal_cg(gainmap_entry->cg);
 
-      ultrahdr::ultrahdr_metadata_struct metadata;
-      metadata.version = ultrahdr::kJpegrVersion;
-      metadata.maxContentBoost = handle->m_metadata.max_content_boost;
-      metadata.minContentBoost = handle->m_metadata.min_content_boost;
-      metadata.gamma = handle->m_metadata.gamma;
-      metadata.offsetSdr = handle->m_metadata.offset_sdr;
-      metadata.offsetHdr = handle->m_metadata.offset_hdr;
-      metadata.hdrCapacityMin = handle->m_metadata.hdr_capacity_min;
-      metadata.hdrCapacityMax = handle->m_metadata.hdr_capacity_max;
-
-      size_t size = (std::max)((8 * 1024), 2 * (primary_image.length + gainmap_image.length));
+      size_t size = (std::max)((8u * 1024), 2 * (base_entry->data_sz + gainmap_entry->data_sz));
       handle->m_compressed_output_buffer = std::make_unique<ultrahdr::uhdr_compressed_image_ext_t>(
           UHDR_CG_UNSPECIFIED, UHDR_CT_UNSPECIFIED, UHDR_CR_UNSPECIFIED, size);
 
-      dest.data = handle->m_compressed_output_buffer->data;
-      dest.length = 0;
-      dest.maxLength = handle->m_compressed_output_buffer->capacity;
-      dest.colorGamut = ultrahdr::ULTRAHDR_COLORGAMUT_UNSPECIFIED;
+      ultrahdr::uhdr_gainmap_metadata_ext_t metadata(handle->m_metadata, ultrahdr::kJpegrVersion);
 
       // api - 4
-      internal_status = jpegr.encodeJPEGR(&primary_image, &gainmap_image, &metadata, &dest);
-      map_internal_error_status_to_error_info(internal_status, status);
+      status = jpegr.encodeJPEGR(base_entry.get(), gainmap_entry.get(), &metadata,
+                                 handle->m_compressed_output_buffer.get());
     } else if (handle->m_raw_images.find(UHDR_HDR_IMG) != handle->m_raw_images.end()) {
       auto& hdr_raw_entry = handle->m_raw_images.find(UHDR_HDR_IMG)->second;
 
@@ -993,82 +918,41 @@ uhdr_error_info_t uhdr_encode(uhdr_codec_private_t* enc) {
       handle->m_compressed_output_buffer = std::make_unique<ultrahdr::uhdr_compressed_image_ext_t>(
           UHDR_CG_UNSPECIFIED, UHDR_CT_UNSPECIFIED, UHDR_CR_UNSPECIFIED, size);
 
-      dest.data = handle->m_compressed_output_buffer->data;
-      dest.length = 0;
-      dest.maxLength = handle->m_compressed_output_buffer->capacity;
-      dest.colorGamut = ultrahdr::ULTRAHDR_COLORGAMUT_UNSPECIFIED;
-
-      ultrahdr::jpegr_uncompressed_struct p010_image;
-      p010_image.data = hdr_raw_entry->planes[UHDR_PLANE_Y];
-      p010_image.width = hdr_raw_entry->w;
-      p010_image.height = hdr_raw_entry->h;
-      p010_image.colorGamut = map_cg_to_internal_cg(hdr_raw_entry->cg);
-      p010_image.luma_stride = hdr_raw_entry->stride[UHDR_PLANE_Y];
-      p010_image.chroma_data = hdr_raw_entry->planes[UHDR_PLANE_UV];
-      p010_image.chroma_stride = hdr_raw_entry->stride[UHDR_PLANE_UV];
-      p010_image.colorRange = hdr_raw_entry->range;
-      p010_image.pixelFormat = hdr_raw_entry->fmt;
-
       if (handle->m_compressed_images.find(UHDR_SDR_IMG) == handle->m_compressed_images.end() &&
           handle->m_raw_images.find(UHDR_SDR_IMG) == handle->m_raw_images.end()) {
         // api - 0
-        internal_status = jpegr.encodeJPEGR(&p010_image, map_ct_to_internal_ct(hdr_raw_entry->ct),
-                                            &dest, handle->m_quality.find(UHDR_BASE_IMG)->second,
-                                            handle->m_exif.size() > 0 ? &exif : nullptr);
+        status = jpegr.encodeJPEGR(hdr_raw_entry.get(), handle->m_compressed_output_buffer.get(),
+                                   handle->m_quality.find(UHDR_BASE_IMG)->second,
+                                   handle->m_exif.size() > 0 ? &exif : nullptr);
       } else if (handle->m_compressed_images.find(UHDR_SDR_IMG) !=
                      handle->m_compressed_images.end() &&
                  handle->m_raw_images.find(UHDR_SDR_IMG) == handle->m_raw_images.end()) {
         auto& sdr_compressed_entry = handle->m_compressed_images.find(UHDR_SDR_IMG)->second;
-        ultrahdr::jpegr_compressed_struct sdr_compressed_image;
-        sdr_compressed_image.data = sdr_compressed_entry->data;
-        sdr_compressed_image.length = sdr_compressed_image.maxLength =
-            sdr_compressed_entry->data_sz;
-        sdr_compressed_image.colorGamut = map_cg_to_internal_cg(sdr_compressed_entry->cg);
         // api - 3
-        internal_status = jpegr.encodeJPEGR(&p010_image, &sdr_compressed_image,
-                                            map_ct_to_internal_ct(hdr_raw_entry->ct), &dest);
+        status = jpegr.encodeJPEGR(hdr_raw_entry.get(), sdr_compressed_entry.get(),
+                                   handle->m_compressed_output_buffer.get());
       } else if (handle->m_raw_images.find(UHDR_SDR_IMG) != handle->m_raw_images.end()) {
         auto& sdr_raw_entry = handle->m_raw_images.find(UHDR_SDR_IMG)->second;
 
-        ultrahdr::jpegr_uncompressed_struct yuv420_image;
-        yuv420_image.data = sdr_raw_entry->planes[UHDR_PLANE_Y];
-        yuv420_image.width = sdr_raw_entry->w;
-        yuv420_image.height = sdr_raw_entry->h;
-        yuv420_image.colorGamut = map_cg_to_internal_cg(sdr_raw_entry->cg);
-        yuv420_image.luma_stride = sdr_raw_entry->stride[UHDR_PLANE_Y];
-        yuv420_image.chroma_data = nullptr;
-        yuv420_image.chroma_stride = 0;
-        yuv420_image.pixelFormat = sdr_raw_entry->fmt;
-
         if (handle->m_compressed_images.find(UHDR_SDR_IMG) == handle->m_compressed_images.end()) {
           // api - 1
-          internal_status = jpegr.encodeJPEGR(&p010_image, &yuv420_image,
-                                              map_ct_to_internal_ct(hdr_raw_entry->ct), &dest,
-                                              handle->m_quality.find(UHDR_BASE_IMG)->second,
-                                              handle->m_exif.size() > 0 ? &exif : nullptr);
+          status = jpegr.encodeJPEGR(hdr_raw_entry.get(), sdr_raw_entry.get(),
+                                     handle->m_compressed_output_buffer.get(),
+                                     handle->m_quality.find(UHDR_BASE_IMG)->second,
+                                     handle->m_exif.size() > 0 ? &exif : nullptr);
         } else {
           auto& sdr_compressed_entry = handle->m_compressed_images.find(UHDR_SDR_IMG)->second;
-          ultrahdr::jpegr_compressed_struct sdr_compressed_image;
-          sdr_compressed_image.data = sdr_compressed_entry->data;
-          sdr_compressed_image.length = sdr_compressed_image.maxLength =
-              sdr_compressed_entry->data_sz;
-          sdr_compressed_image.colorGamut = map_cg_to_internal_cg(sdr_compressed_entry->cg);
-
           // api - 2
-          internal_status = jpegr.encodeJPEGR(&p010_image, &yuv420_image, &sdr_compressed_image,
-                                              map_ct_to_internal_ct(hdr_raw_entry->ct), &dest);
+          status = jpegr.encodeJPEGR(hdr_raw_entry.get(), sdr_raw_entry.get(),
+                                     sdr_compressed_entry.get(),
+                                     handle->m_compressed_output_buffer.get());
         }
       }
-      map_internal_error_status_to_error_info(internal_status, status);
     } else {
       status.error_code = UHDR_CODEC_INVALID_OPERATION;
       status.has_detail = 1;
       snprintf(status.detail, sizeof status.detail,
                "resources required for uhdr_encode() operation are not present");
-    }
-    if (status.error_code == UHDR_CODEC_OK) {
-      handle->m_compressed_output_buffer->data_sz = dest.length;
-      handle->m_compressed_output_buffer->cg = map_internal_cg_to_cg(dest.colorGamut);
     }
   }
 
@@ -1324,37 +1208,27 @@ uhdr_error_info_t uhdr_dec_probe(uhdr_codec_private_t* dec) {
     jpegr_info.primaryImgInfo = &primary_image;
     jpegr_info.gainmapImgInfo = &gainmap_image;
 
-    ultrahdr::jpegr_compressed_struct uhdr_image;
-    uhdr_image.data = handle->m_uhdr_compressed_img->data;
-    uhdr_image.length = uhdr_image.maxLength = handle->m_uhdr_compressed_img->data_sz;
-    uhdr_image.colorGamut = map_cg_to_internal_cg(handle->m_uhdr_compressed_img->cg);
-
     ultrahdr::JpegR jpegr;
-    ultrahdr::status_t internal_status = jpegr.getJPEGRInfo(&uhdr_image, &jpegr_info);
-    map_internal_error_status_to_error_info(internal_status, status);
+    status = jpegr.getJPEGRInfo(handle->m_uhdr_compressed_img.get(), &jpegr_info);
     if (status.error_code != UHDR_CODEC_OK) return status;
 
-    ultrahdr::ultrahdr_metadata_struct metadata;
-    if (ultrahdr::getMetadataFromXMP(gainmap_image.xmpData.data(), gainmap_image.xmpData.size(),
-                                     &metadata)) {
-      handle->m_metadata.max_content_boost = metadata.maxContentBoost;
-      handle->m_metadata.min_content_boost = metadata.minContentBoost;
-      handle->m_metadata.gamma = metadata.gamma;
-      handle->m_metadata.offset_sdr = metadata.offsetSdr;
-      handle->m_metadata.offset_hdr = metadata.offsetHdr;
-      handle->m_metadata.hdr_capacity_min = metadata.hdrCapacityMin;
-      handle->m_metadata.hdr_capacity_max = metadata.hdrCapacityMax;
-    } else {
-      status.error_code = UHDR_CODEC_UNKNOWN_ERROR;
-      status.has_detail = 1;
-      snprintf(status.detail, sizeof status.detail, "encountered error while parsing metadata");
-      return status;
-    }
+    ultrahdr::uhdr_gainmap_metadata_ext_t metadata;
+    status = ultrahdr::getMetadataFromXMP(gainmap_image.xmpData.data(),
+                                          gainmap_image.xmpData.size(), &metadata);
+    if (status.error_code != UHDR_CODEC_OK) return status;
+    handle->m_metadata.max_content_boost = metadata.max_content_boost;
+    handle->m_metadata.min_content_boost = metadata.min_content_boost;
+    handle->m_metadata.gamma = metadata.gamma;
+    handle->m_metadata.offset_sdr = metadata.offset_sdr;
+    handle->m_metadata.offset_hdr = metadata.offset_hdr;
+    handle->m_metadata.hdr_capacity_min = metadata.hdr_capacity_min;
+    handle->m_metadata.hdr_capacity_max = metadata.hdr_capacity_max;
 
     handle->m_img_wd = primary_image.width;
     handle->m_img_ht = primary_image.height;
     handle->m_gainmap_wd = gainmap_image.width;
     handle->m_gainmap_ht = gainmap_image.height;
+    handle->m_gainmap_num_comp = gainmap_image.numComponents;
     handle->m_exif = std::move(primary_image.exifData);
     handle->m_exif_block.data = handle->m_exif.data();
     handle->m_exif_block.data_sz = handle->m_exif_block.capacity = handle->m_exif.size();
@@ -1480,9 +1354,11 @@ uhdr_error_info_t uhdr_decode(uhdr_codec_private_t* dec) {
 
   handle->m_sailed = true;
 
-  ultrahdr::ultrahdr_output_format outputFormat =
-      map_ct_fmt_to_internal_output_fmt(handle->m_output_ct, handle->m_output_fmt);
-  if (outputFormat == ultrahdr::ultrahdr_output_format::ULTRAHDR_OUTPUT_UNSPECIFIED) {
+  if ((handle->m_output_fmt == UHDR_IMG_FMT_32bppRGBA1010102 &&
+       (handle->m_output_ct != UHDR_CT_HLG && handle->m_output_ct != UHDR_CT_PQ)) ||
+      (handle->m_output_fmt == UHDR_IMG_FMT_64bppRGBAHalfFloat &&
+       handle->m_output_ct != UHDR_CT_LINEAR) ||
+      (handle->m_output_fmt == UHDR_IMG_FMT_32bppRGBA8888 && handle->m_output_ct != UHDR_CT_SRGB)) {
     status.error_code = UHDR_CODEC_INVALID_PARAM;
     status.has_detail = 1;
     snprintf(status.detail, sizeof status.detail,
@@ -1490,34 +1366,20 @@ uhdr_error_info_t uhdr_decode(uhdr_codec_private_t* dec) {
     return status;
   }
 
-  ultrahdr::jpegr_compressed_struct uhdr_image;
-  uhdr_image.data = handle->m_uhdr_compressed_img->data;
-  uhdr_image.length = uhdr_image.maxLength = handle->m_uhdr_compressed_img->data_sz;
-  uhdr_image.colorGamut = map_cg_to_internal_cg(handle->m_uhdr_compressed_img->cg);
-
   handle->m_decoded_img_buffer = std::make_unique<ultrahdr::uhdr_raw_image_ext_t>(
       handle->m_output_fmt, UHDR_CG_UNSPECIFIED, handle->m_output_ct, UHDR_CR_UNSPECIFIED,
       handle->m_img_wd, handle->m_img_ht, 1);
-  // alias
-  ultrahdr::jpegr_uncompressed_struct dest;
-  dest.data = handle->m_decoded_img_buffer->planes[UHDR_PLANE_PACKED];
-  dest.colorGamut = ultrahdr::ULTRAHDR_COLORGAMUT_UNSPECIFIED;
 
   handle->m_gainmap_img_buffer = std::make_unique<ultrahdr::uhdr_raw_image_ext_t>(
-      UHDR_IMG_FMT_8bppYCbCr400, UHDR_CG_UNSPECIFIED, UHDR_CT_UNSPECIFIED, UHDR_CR_UNSPECIFIED,
-      handle->m_gainmap_wd, handle->m_gainmap_ht, 1);
-  // alias
-  ultrahdr::jpegr_uncompressed_struct dest_gainmap;
-  dest_gainmap.data = handle->m_gainmap_img_buffer->planes[UHDR_PLANE_Y];
+      handle->m_gainmap_num_comp == 1 ? UHDR_IMG_FMT_8bppYCbCr400 : UHDR_IMG_FMT_32bppRGBA8888,
+      UHDR_CG_UNSPECIFIED, UHDR_CT_UNSPECIFIED, UHDR_CR_UNSPECIFIED, handle->m_gainmap_wd,
+      handle->m_gainmap_ht, 1);
 
   ultrahdr::JpegR jpegr;
-  ultrahdr::status_t internal_status =
-      jpegr.decodeJPEGR(&uhdr_image, &dest, handle->m_output_max_disp_boost, nullptr, outputFormat,
-                        &dest_gainmap, nullptr);
-  map_internal_error_status_to_error_info(internal_status, status);
-  if (status.error_code == UHDR_CODEC_OK) {
-    handle->m_decoded_img_buffer->cg = map_internal_cg_to_cg(dest.colorGamut);
-  }
+  status =
+      jpegr.decodeJPEGR(handle->m_uhdr_compressed_img.get(), handle->m_decoded_img_buffer.get(),
+                        handle->m_output_max_disp_boost, handle->m_output_ct, handle->m_output_fmt,
+                        handle->m_gainmap_img_buffer.get(), nullptr);
 
   if (status.error_code == UHDR_CODEC_OK && dec->m_effects.size() != 0) {
     status = ultrahdr::apply_effects(handle);
@@ -1573,6 +1435,7 @@ void uhdr_reset_decoder(uhdr_codec_private_t* dec) {
     handle->m_img_ht = 0;
     handle->m_gainmap_wd = 0;
     handle->m_gainmap_ht = 0;
+    handle->m_gainmap_num_comp = 0;
     handle->m_exif.clear();
     memset(&handle->m_exif_block, 0, sizeof handle->m_exif_block);
     handle->m_icc.clear();

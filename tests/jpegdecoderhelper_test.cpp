@@ -101,47 +101,56 @@ void JpegDecoderHelperTest::TearDown() {}
 
 TEST_F(JpegDecoderHelperTest, decodeYuvImage) {
   JpegDecoderHelper decoder;
-  EXPECT_TRUE(decoder.decompressImage(mYuvImage.buffer.get(), mYuvImage.size));
+  EXPECT_EQ(decoder.decompressImage(mYuvImage.buffer.get(), mYuvImage.size).error_code,
+            UHDR_CODEC_OK);
   ASSERT_GT(decoder.getDecompressedImageSize(), static_cast<uint32_t>(0));
   EXPECT_EQ(IccHelper::readIccColorGamut(decoder.getICCPtr(), decoder.getICCSize()),
-            ULTRAHDR_COLORGAMUT_UNSPECIFIED);
+            UHDR_CG_UNSPECIFIED);
 }
 
 TEST_F(JpegDecoderHelperTest, decodeYuvImageToRgba) {
   JpegDecoderHelper decoder;
-  EXPECT_TRUE(decoder.decompressImage(mYuvImage.buffer.get(), mYuvImage.size, DECODE_TO_RGB_CS));
+  EXPECT_EQ(
+      decoder.decompressImage(mYuvImage.buffer.get(), mYuvImage.size, DECODE_TO_RGB_CS).error_code,
+      UHDR_CODEC_OK);
   ASSERT_GT(decoder.getDecompressedImageSize(), static_cast<uint32_t>(0));
   EXPECT_EQ(IccHelper::readIccColorGamut(decoder.getICCPtr(), decoder.getICCSize()),
-            ULTRAHDR_COLORGAMUT_UNSPECIFIED);
+            UHDR_CG_UNSPECIFIED);
 }
 
 TEST_F(JpegDecoderHelperTest, decodeYuvIccImage) {
   JpegDecoderHelper decoder;
-  EXPECT_TRUE(decoder.decompressImage(mYuvIccImage.buffer.get(), mYuvIccImage.size));
+  EXPECT_EQ(decoder.decompressImage(mYuvIccImage.buffer.get(), mYuvIccImage.size).error_code,
+            UHDR_CODEC_OK);
   ASSERT_GT(decoder.getDecompressedImageSize(), static_cast<uint32_t>(0));
   EXPECT_EQ(IccHelper::readIccColorGamut(decoder.getICCPtr(), decoder.getICCSize()),
-            ULTRAHDR_COLORGAMUT_BT709);
+            UHDR_CG_BT_709);
 }
 
 TEST_F(JpegDecoderHelperTest, decodeGreyImage) {
   JpegDecoderHelper decoder;
-  EXPECT_TRUE(decoder.decompressImage(mGreyImage.buffer.get(), mGreyImage.size));
+  EXPECT_EQ(decoder.decompressImage(mGreyImage.buffer.get(), mGreyImage.size).error_code,
+            UHDR_CODEC_OK);
   ASSERT_GT(decoder.getDecompressedImageSize(), static_cast<uint32_t>(0));
-  EXPECT_TRUE(decoder.decompressImage(mGreyImage.buffer.get(), mGreyImage.size, DECODE_STREAM));
+  EXPECT_EQ(
+      decoder.decompressImage(mGreyImage.buffer.get(), mGreyImage.size, DECODE_STREAM).error_code,
+      UHDR_CODEC_OK);
   ASSERT_GT(decoder.getDecompressedImageSize(), static_cast<uint32_t>(0));
 }
 
 TEST_F(JpegDecoderHelperTest, decodeRgbImageToRgba) {
   JpegDecoderHelper decoder;
-  EXPECT_TRUE(decoder.decompressImage(mRgbImage.buffer.get(), mRgbImage.size, DECODE_STREAM));
+  EXPECT_EQ(
+      decoder.decompressImage(mRgbImage.buffer.get(), mRgbImage.size, DECODE_STREAM).error_code,
+      UHDR_CODEC_OK);
   ASSERT_GT(decoder.getDecompressedImageSize(), static_cast<uint32_t>(0));
   EXPECT_EQ(IccHelper::readIccColorGamut(decoder.getICCPtr(), decoder.getICCSize()),
-            ULTRAHDR_COLORGAMUT_UNSPECIFIED);
+            UHDR_CG_UNSPECIFIED);
 }
 
 TEST_F(JpegDecoderHelperTest, getCompressedImageParameters) {
   JpegDecoderHelper decoder;
-  EXPECT_TRUE(decoder.parseImage(mYuvImage.buffer.get(), mYuvImage.size));
+  EXPECT_EQ(decoder.parseImage(mYuvImage.buffer.get(), mYuvImage.size).error_code, UHDR_CODEC_OK);
   EXPECT_EQ(IMAGE_WIDTH, decoder.getDecompressedImageWidth());
   EXPECT_EQ(IMAGE_HEIGHT, decoder.getDecompressedImageHeight());
   EXPECT_EQ(decoder.getICCSize(), 0);
@@ -150,13 +159,14 @@ TEST_F(JpegDecoderHelperTest, getCompressedImageParameters) {
 
 TEST_F(JpegDecoderHelperTest, getCompressedImageParametersIcc) {
   JpegDecoderHelper decoder;
-  EXPECT_TRUE(decoder.parseImage(mYuvIccImage.buffer.get(), mYuvIccImage.size));
+  EXPECT_EQ(decoder.parseImage(mYuvIccImage.buffer.get(), mYuvIccImage.size).error_code,
+            UHDR_CODEC_OK);
   EXPECT_EQ(IMAGE_WIDTH, decoder.getDecompressedImageWidth());
   EXPECT_EQ(IMAGE_HEIGHT, decoder.getDecompressedImageHeight());
   EXPECT_GT(decoder.getICCSize(), 0);
   EXPECT_GT(decoder.getEXIFSize(), 0);
   EXPECT_EQ(IccHelper::readIccColorGamut(decoder.getICCPtr(), decoder.getICCSize()),
-            ULTRAHDR_COLORGAMUT_BT709);
+            UHDR_CG_BT_709);
 }
 
 }  // namespace ultrahdr

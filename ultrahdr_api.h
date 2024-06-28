@@ -119,6 +119,9 @@ typedef enum uhdr_codec_err {
   /*!\brief Operation completed without error */
   UHDR_CODEC_OK,
 
+  /*!\brief Generic codec error, refer detail field for description */
+  UHDR_CODEC_ERROR,
+
   /*!\brief Unspecified error */
   UHDR_CODEC_UNKNOWN_ERROR,
 
@@ -203,6 +206,12 @@ typedef struct uhdr_gainmap_metadata {
   float hdr_capacity_min;  /**< Min HDR capacity values for interpolating the Gain Map */
   float hdr_capacity_max;  /**< Max HDR capacity value for interpolating the Gain Map */
 } uhdr_gainmap_metadata_t; /**< alias for struct uhdr_gainmap_metadata */
+
+/*!\brief List of supported mirror directions */
+typedef enum uhdr_mirror_direction {
+  UHDR_MIRROR_VERTICAL,    /**< flip image over x axis */
+  UHDR_MIRROR_HORIZONTAL,  /**< flip image over y axis */
+} uhdr_mirror_direction_t; /**< alias for enum uhdr_mirror_direction */
 
 /**\brief ultrahdr codec context opaque descriptor */
 typedef struct uhdr_codec_private uhdr_codec_private_t;
@@ -308,7 +317,7 @@ UHDR_EXTERN uhdr_error_info_t uhdr_enc_set_quality(uhdr_codec_private_t* enc, in
 UHDR_EXTERN uhdr_error_info_t uhdr_enc_set_exif_data(uhdr_codec_private_t* enc,
                                                      uhdr_mem_block_t* exif);
 
-/*!\brief Set flag of using multi-channel gainmap, default to false (use single channel gainmap)
+/*!\brief Enable multi-channel gainmap, default to false (use single channel gainmap)
  *
  * \param[in]  enc  encoder instance.
  * \param[in]  use_multi_channel_gainmap  flag of using multi-channel gainmap.
@@ -316,8 +325,8 @@ UHDR_EXTERN uhdr_error_info_t uhdr_enc_set_exif_data(uhdr_codec_private_t* enc,
  * \return uhdr_error_info_t #UHDR_CODEC_OK if operation succeeds,
  *                           #UHDR_CODEC_INVALID_PARAM otherwise.
  */
-UHDR_EXTERN uhdr_error_info_t uhdr_enc_set_using_multi_channel_gainmap(uhdr_codec_private_t* enc,
-                                                                       bool use_multi_channel_gainmap);
+UHDR_EXTERN uhdr_error_info_t
+uhdr_enc_set_using_multi_channel_gainmap(uhdr_codec_private_t* enc, int use_multi_channel_gainmap);
 
 /*!\brief Set gain map scaling factor, default value is 4 (gain map dimension is 1/4 width and
  * 1/4 height in pixels of the primary image)
@@ -358,6 +367,10 @@ UHDR_EXTERN uhdr_error_info_t uhdr_enc_set_output_format(uhdr_codec_private_t* e
  *   - uhdr_enc_set_quality()
  * - If the application wants to insert exif data
  *   - uhdr_enc_set_exif_data()
+ * - If the application wants to set gainmap scale factor
+ *   - uhdr_enc_set_gainmap_scale_factor()
+ * - If the application wants to enable multi channel gain map
+ *   - uhdr_enc_set_using_multi_channel_gainmap()
  * - If the application wants to control target compression format
  *   - uhdr_enc_set_output_format()
  * - The program calls uhdr_encode() to encode data. This call would initiate the process of
@@ -397,6 +410,8 @@ UHDR_EXTERN uhdr_error_info_t uhdr_enc_set_output_format(uhdr_codec_private_t* e
  * - uhdr_enc_set_quality() // optional
  * - uhdr_enc_set_exif_data() // optional
  * - uhdr_enc_set_output_format() // optional
+ * - uhdr_enc_set_gainmap_scale_factor() // optional
+ * - uhdr_enc_set_using_multi_channel_gainmap() // optional
  * - uhdr_encode()
  * - uhdr_get_encoded_stream()
  * - uhdr_release_encoder()
@@ -625,5 +640,62 @@ UHDR_EXTERN uhdr_raw_image_t* uhdr_get_gain_map_image(uhdr_codec_private_t* dec)
  * \return none
  */
 UHDR_EXTERN void uhdr_reset_decoder(uhdr_codec_private_t* dec);
+
+// ===============================================================================================
+// Common APIs
+// ===============================================================================================
+
+/*!\brief Add image editing operations (pre-encode or post-decode).
+ * Below functions list the set of edits supported. Program can set any combination of these during
+ * initialization. Once the encode/decode process call is made, before encoding or after decoding
+ * the edits are applied in the order of configuration.
+ */
+
+/*!\brief Add mirror effect
+ *
+ * \param[in]  codec  codec instance.
+ * \param[in]  direction  mirror directions.
+ *
+ * \return uhdr_error_info_t #UHDR_CODEC_OK if operation succeeds, #UHDR_CODEC_INVALID_PARAM
+ * otherwise.
+ */
+UHDR_EXTERN uhdr_error_info_t uhdr_add_effect_mirror(uhdr_codec_private_t* codec,
+                                                     uhdr_mirror_direction_t direction);
+
+/*!\brief Add rotate effect
+ *
+ * \param[in]  codec  codec instance.
+ * \param[in]  degrees  clockwise degrees.
+ *
+ * \return uhdr_error_info_t #UHDR_CODEC_OK if operation succeeds, #UHDR_CODEC_INVALID_PARAM
+ * otherwise.
+ */
+UHDR_EXTERN uhdr_error_info_t uhdr_add_effect_rotate(uhdr_codec_private_t* codec, int degrees);
+
+/*!\brief Add crop effect
+ *
+ * \param[in]  codec  codec instance.
+ * \param[in]  left  crop coordinate left in pixels.
+ * \param[in]  right  crop coordinate right in pixels.
+ * \param[in]  top  crop coordinate top in pixels.
+ * \param[in]  bottom  crop coordinate bottom in pixels.
+ *
+ * \return uhdr_error_info_t #UHDR_CODEC_OK if operation succeeds, #UHDR_CODEC_INVALID_PARAM
+ * otherwise.
+ */
+UHDR_EXTERN uhdr_error_info_t uhdr_add_effect_crop(uhdr_codec_private_t* codec, int left, int right,
+                                                   int top, int bottom);
+
+/*!\brief Add resize effect
+ *
+ * \param[in]  codec  codec instance.
+ * \param[in]  width  target width.
+ * \param[in]  height  target height.
+ *
+ * \return uhdr_error_info_t #UHDR_CODEC_OK if operation succeeds, #UHDR_CODEC_INVALID_PARAM
+ * otherwise.
+ */
+UHDR_EXTERN uhdr_error_info_t uhdr_add_effect_resize(uhdr_codec_private_t* codec, int width,
+                                                     int height);
 
 #endif  // ULTRAHDR_API_H

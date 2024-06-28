@@ -39,31 +39,26 @@ void IccHelperTest::SetUp() {}
 void IccHelperTest::TearDown() {}
 
 TEST_F(IccHelperTest, iccWriteThenRead) {
-  std::shared_ptr<DataStruct> iccBt709 =
-      IccHelper::writeIccProfile(ULTRAHDR_TF_SRGB, ULTRAHDR_COLORGAMUT_BT709);
+  std::shared_ptr<DataStruct> iccBt709 = IccHelper::writeIccProfile(UHDR_CT_SRGB, UHDR_CG_BT_709);
   ASSERT_NE(iccBt709->getLength(), 0);
   ASSERT_NE(iccBt709->getData(), nullptr);
   EXPECT_EQ(IccHelper::readIccColorGamut(iccBt709->getData(), iccBt709->getLength()),
-            ULTRAHDR_COLORGAMUT_BT709);
+            UHDR_CG_BT_709);
 
-  std::shared_ptr<DataStruct> iccP3 =
-      IccHelper::writeIccProfile(ULTRAHDR_TF_SRGB, ULTRAHDR_COLORGAMUT_P3);
+  std::shared_ptr<DataStruct> iccP3 = IccHelper::writeIccProfile(UHDR_CT_SRGB, UHDR_CG_DISPLAY_P3);
   ASSERT_NE(iccP3->getLength(), 0);
   ASSERT_NE(iccP3->getData(), nullptr);
-  EXPECT_EQ(IccHelper::readIccColorGamut(iccP3->getData(), iccP3->getLength()),
-            ULTRAHDR_COLORGAMUT_P3);
+  EXPECT_EQ(IccHelper::readIccColorGamut(iccP3->getData(), iccP3->getLength()), UHDR_CG_DISPLAY_P3);
 
-  std::shared_ptr<DataStruct> iccBt2100 =
-      IccHelper::writeIccProfile(ULTRAHDR_TF_SRGB, ULTRAHDR_COLORGAMUT_BT2100);
+  std::shared_ptr<DataStruct> iccBt2100 = IccHelper::writeIccProfile(UHDR_CT_SRGB, UHDR_CG_BT_2100);
   ASSERT_NE(iccBt2100->getLength(), 0);
   ASSERT_NE(iccBt2100->getData(), nullptr);
   EXPECT_EQ(IccHelper::readIccColorGamut(iccBt2100->getData(), iccBt2100->getLength()),
-            ULTRAHDR_COLORGAMUT_BT2100);
+            UHDR_CG_BT_2100);
 }
 
 TEST_F(IccHelperTest, iccEndianness) {
-  std::shared_ptr<DataStruct> icc =
-      IccHelper::writeIccProfile(ULTRAHDR_TF_SRGB, ULTRAHDR_COLORGAMUT_BT709);
+  std::shared_ptr<DataStruct> icc = IccHelper::writeIccProfile(UHDR_CT_SRGB, UHDR_CG_BT_709);
   size_t profile_size = icc->getLength() - kICCIdentifierSize;
 
   uint8_t* icc_bytes = reinterpret_cast<uint8_t*>(icc->getData()) + kICCIdentifierSize;
