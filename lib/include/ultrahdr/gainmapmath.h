@@ -29,6 +29,13 @@
 #include <arm_neon.h>
 #endif
 
+#define USE_SRGB_INVOETF_LUT 1
+#define USE_HLG_OETF_LUT 1
+#define USE_PQ_OETF_LUT 1
+#define USE_HLG_INVOETF_LUT 1
+#define USE_PQ_INVOETF_LUT 1
+#define USE_APPLY_GAIN_LUT 1
+
 #define CLIP3(x, min, max) ((x) < (min)) ? (min) : ((x) > (max)) ? (max) : (x)
 
 namespace ultrahdr {
@@ -430,7 +437,27 @@ inline Color identityConversion(Color e) { return e; }
 /*
  * Get the conversion to apply to the HDR image for gain map generation
  */
-ColorTransformFn getHdrConversionFn(uhdr_color_gamut_t sdr_gamut, uhdr_color_gamut_t hdr_gamut);
+ColorTransformFn getGamutConversionFn(uhdr_color_gamut_t dst_gamut, uhdr_color_gamut_t src_gamut);
+
+/*
+ * Get the conversion to convert yuv to rgb
+ */
+ColorTransformFn getYuvToRgbFn(uhdr_color_gamut_t gamut);
+
+/*
+ * Get function to compute luminance
+ */
+ColorCalculationFn getLuminanceFn(uhdr_color_gamut_t gamut);
+
+/*
+ * Get function to linearize transfer characteristics
+ */
+ColorTransformFn getInverseOetf(uhdr_color_transfer_t transfer);
+
+/*
+ * Get max display mastering luminance in nits
+ */
+float getMaxDisplayMasteringLuminance(uhdr_color_transfer_t transfer);
 
 /*
  * Convert between YUV encodings, according to ITU-R BT.709-6, ITU-R BT.601-7, and ITU-R BT.2100-2.

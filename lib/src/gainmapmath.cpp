@@ -404,10 +404,10 @@ Color bt2100ToP3(Color e) {
 
 // TODO: confirm we always want to convert like this before calculating
 // luminance.
-ColorTransformFn getHdrConversionFn(uhdr_color_gamut_t sdr_gamut, uhdr_color_gamut_t hdr_gamut) {
-  switch (sdr_gamut) {
+ColorTransformFn getGamutConversionFn(uhdr_color_gamut_t dst_gamut, uhdr_color_gamut_t src_gamut) {
+  switch (dst_gamut) {
     case UHDR_CG_BT_709:
-      switch (hdr_gamut) {
+      switch (src_gamut) {
         case UHDR_CG_BT_709:
           return identityConversion;
         case UHDR_CG_DISPLAY_P3:
@@ -419,7 +419,7 @@ ColorTransformFn getHdrConversionFn(uhdr_color_gamut_t sdr_gamut, uhdr_color_gam
       }
       break;
     case UHDR_CG_DISPLAY_P3:
-      switch (hdr_gamut) {
+      switch (src_gamut) {
         case UHDR_CG_BT_709:
           return bt709ToP3;
         case UHDR_CG_DISPLAY_P3:
@@ -431,7 +431,7 @@ ColorTransformFn getHdrConversionFn(uhdr_color_gamut_t sdr_gamut, uhdr_color_gam
       }
       break;
     case UHDR_CG_BT_2100:
-      switch (hdr_gamut) {
+      switch (src_gamut) {
         case UHDR_CG_BT_709:
           return bt709ToBt2100;
         case UHDR_CG_DISPLAY_P3:
@@ -446,6 +446,79 @@ ColorTransformFn getHdrConversionFn(uhdr_color_gamut_t sdr_gamut, uhdr_color_gam
       return nullptr;
   }
   return nullptr;
+}
+
+ColorTransformFn getYuvToRgbFn(uhdr_color_gamut_t gamut) {
+  switch (gamut) {
+    case UHDR_CG_BT_709:
+      return srgbYuvToRgb;
+    case UHDR_CG_DISPLAY_P3:
+      return p3YuvToRgb;
+    case UHDR_CG_BT_2100:
+      return bt2100YuvToRgb;
+    case UHDR_CG_UNSPECIFIED:
+      return nullptr;
+  }
+  return nullptr;
+}
+
+ColorCalculationFn getLuminanceFn(uhdr_color_gamut_t gamut) {
+  switch (gamut) {
+    case UHDR_CG_BT_709:
+      return srgbLuminance;
+    case UHDR_CG_DISPLAY_P3:
+      return p3Luminance;
+    case UHDR_CG_BT_2100:
+      return bt2100Luminance;
+    case UHDR_CG_UNSPECIFIED:
+      return nullptr;
+  }
+  return nullptr;
+}
+
+ColorTransformFn getInverseOetf(uhdr_color_transfer_t transfer) {
+  switch (transfer) {
+    case UHDR_CT_LINEAR:
+      return identityConversion;
+    case UHDR_CT_HLG:
+#if USE_HLG_INVOETF_LUT
+      return hlgInvOetfLUT;
+#else
+      return hlgInvOetf;
+#endif
+    case UHDR_CT_PQ:
+#if USE_PQ_INVOETF_LUT
+      return pqInvOetfLUT;
+#else
+      return pqInvOetf;
+#endif
+    case UHDR_CT_SRGB:
+#if USE_SRGB_INVOETF_LUT
+      return srgbInvOetfLUT;
+#else
+      return srgbInvOetf;
+#endif
+    case UHDR_CT_UNSPECIFIED:
+      return nullptr;
+  }
+  return nullptr;
+}
+
+float getMaxDisplayMasteringLuminance(uhdr_color_transfer_t transfer) {
+  switch (transfer) {
+    case UHDR_CT_LINEAR:
+      // TODO: configure maxCLL correctly for linear tf
+      return kHlgMaxNits;
+    case UHDR_CT_HLG:
+      return kHlgMaxNits;
+    case UHDR_CT_PQ:
+      return kPqMaxNits;
+    case UHDR_CT_SRGB:
+      return kSdrWhiteNits;
+    case UHDR_CT_UNSPECIFIED:
+      return -1.0f;
+  }
+  return -1.0f;
 }
 
 // All of these conversions are derived from the respective input YUV->RGB conversion followed by
