@@ -564,8 +564,8 @@ uhdr_error_info_t JpegR::generateGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_
   uhdr_raw_image_ext_t* dest = gainmap_img.get();
 
   const int threads = (std::min)(GetCPUCoreCount(), 4);
-  const int jobSizeInRows = mMapDimensionScaleFactor;
-  size_t rowStep = threads == 1 ? image_height : jobSizeInRows;
+  const int jobSizeInRows = 1;
+  size_t rowStep = threads == 1 ? map_height : jobSizeInRows;
   JobQueue jobQueue;
   std::function<void()> generateMap = [this, sdr_intent, hdr_intent, gainmap_metadata, dest,
                                        hdrInvOetf, hdrGamutConversionFn, luminanceFn, sdrYuvToRgbFn,
@@ -1434,7 +1434,7 @@ uhdr_error_info_t JpegR::toneMap(uhdr_raw_image_t* hdr_intent, uhdr_raw_image_t*
   size_t cr_stride = sdr_intent->stride[UHDR_PLANE_V];
   size_t height = hdr_intent->h;
   const int threads = (std::min)(GetCPUCoreCount(), 4);
-  const int jobSizeInRows = 2;
+  const int jobSizeInRows = 2;  // 420 subsampling
   size_t rowStep = threads == 1 ? height : jobSizeInRows;
   JobQueue jobQueue;
   std::function<void()> toneMapInternal;
