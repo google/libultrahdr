@@ -20,6 +20,7 @@
 #include <array>
 #include <cmath>
 #include <cstring>
+#include <functional>
 
 #include "ultrahdr_api.h"
 #include "ultrahdr/ultrahdrcommon.h"
@@ -261,6 +262,20 @@ struct ShepardsIDW {
 
   float euclideanDistance(float x1, float x2, float y1, float y2);
   void fillShepardsIDW(float* weights, int incR, int incB);
+};
+
+class LookUpTable {
+ public:
+  LookUpTable(size_t numEntries, std::function<float(float)> computeFunc) {
+    for (size_t idx = 0; idx < numEntries; idx++) {
+      float value = static_cast<float>(idx) / static_cast<float>(numEntries - 1);
+      table.push_back(computeFunc(value));
+    }
+  }
+  const std::vector<float>& getTable() const { return table; }
+
+ private:
+  std::vector<float> table;
 };
 
 ////////////////////////////////////////////////////////////////////////////////
