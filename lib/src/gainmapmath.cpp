@@ -20,51 +20,6 @@
 
 namespace ultrahdr {
 
-static const std::vector<float> kPqOETF = [] {
-  std::vector<float> result;
-  for (size_t idx = 0; idx < kPqOETFNumEntries; idx++) {
-    float value = static_cast<float>(idx) / static_cast<float>(kPqOETFNumEntries - 1);
-    result.push_back(pqOetf(value));
-  }
-  return result;
-}();
-
-static const std::vector<float> kPqInvOETF = [] {
-  std::vector<float> result;
-  for (size_t idx = 0; idx < kPqInvOETFNumEntries; idx++) {
-    float value = static_cast<float>(idx) / static_cast<float>(kPqInvOETFNumEntries - 1);
-    result.push_back(pqInvOetf(value));
-  }
-  return result;
-}();
-
-static const std::vector<float> kHlgOETF = [] {
-  std::vector<float> result;
-  for (size_t idx = 0; idx < kHlgOETFNumEntries; idx++) {
-    float value = static_cast<float>(idx) / static_cast<float>(kHlgOETFNumEntries - 1);
-    result.push_back(hlgOetf(value));
-  }
-  return result;
-}();
-
-static const std::vector<float> kHlgInvOETF = [] {
-  std::vector<float> result;
-  for (size_t idx = 0; idx < kHlgInvOETFNumEntries; idx++) {
-    float value = static_cast<float>(idx) / static_cast<float>(kHlgInvOETFNumEntries - 1);
-    result.push_back(hlgInvOetf(value));
-  }
-  return result;
-}();
-
-static const std::vector<float> kSrgbInvOETF = [] {
-  std::vector<float> result;
-  for (size_t idx = 0; idx < kSrgbInvOETFNumEntries; idx++) {
-    float value = static_cast<float>(idx) / static_cast<float>(kSrgbInvOETFNumEntries - 1);
-    result.push_back(srgbInvOetf(value));
-  }
-  return result;
-}();
-
 // Use Shepard's method for inverse distance weighting. For more information:
 // en.wikipedia.org/wiki/Inverse_distance_weighting#Shepard's_method
 
@@ -160,7 +115,8 @@ float srgbInvOetfLUT(float e_gamma) {
   int32_t value = static_cast<int32_t>(e_gamma * (kSrgbInvOETFNumEntries - 1) + 0.5);
   // TODO() : Remove once conversion modules have appropriate clamping in place
   value = CLIP3(value, 0, kSrgbInvOETFNumEntries - 1);
-  return kSrgbInvOETF[value];
+  static LookUpTable kSrgbLut(kSrgbInvOETFNumEntries, static_cast<float (*)(float)>(srgbInvOetf));
+  return kSrgbLut.getTable()[value];
 }
 
 Color srgbInvOetfLUT(Color e_gamma) {
@@ -280,8 +236,8 @@ float hlgOetfLUT(float e) {
   int32_t value = static_cast<int32_t>(e * (kHlgOETFNumEntries - 1) + 0.5);
   // TODO() : Remove once conversion modules have appropriate clamping in place
   value = CLIP3(value, 0, kHlgOETFNumEntries - 1);
-
-  return kHlgOETF[value];
+  static LookUpTable kHlgLut(kHlgOETFNumEntries, static_cast<float (*)(float)>(hlgOetf));
+  return kHlgLut.getTable()[value];
 }
 
 Color hlgOetfLUT(Color e) { return {{{hlgOetfLUT(e.r), hlgOetfLUT(e.g), hlgOetfLUT(e.b)}}}; }
@@ -303,8 +259,8 @@ float hlgInvOetfLUT(float e_gamma) {
   int32_t value = static_cast<int32_t>(e_gamma * (kHlgInvOETFNumEntries - 1) + 0.5);
   // TODO() : Remove once conversion modules have appropriate clamping in place
   value = CLIP3(value, 0, kHlgInvOETFNumEntries - 1);
-
-  return kHlgInvOETF[value];
+  static LookUpTable kHlgInvLut(kHlgInvOETFNumEntries, static_cast<float (*)(float)>(hlgInvOetf));
+  return kHlgInvLut.getTable()[value];
 }
 
 Color hlgInvOetfLUT(Color e_gamma) {
@@ -327,8 +283,8 @@ float pqOetfLUT(float e) {
   int32_t value = static_cast<int32_t>(e * (kPqOETFNumEntries - 1) + 0.5);
   // TODO() : Remove once conversion modules have appropriate clamping in place
   value = CLIP3(value, 0, kPqOETFNumEntries - 1);
-
-  return kPqOETF[value];
+  static LookUpTable kPqLut(kPqOETFNumEntries, static_cast<float (*)(float)>(pqOetf));
+  return kPqLut.getTable()[value];
 }
 
 Color pqOetfLUT(Color e) { return {{{pqOetfLUT(e.r), pqOetfLUT(e.g), pqOetfLUT(e.b)}}}; }
@@ -355,8 +311,8 @@ float pqInvOetfLUT(float e_gamma) {
   int32_t value = static_cast<int32_t>(e_gamma * (kPqInvOETFNumEntries - 1) + 0.5);
   // TODO() : Remove once conversion modules have appropriate clamping in place
   value = CLIP3(value, 0, kPqInvOETFNumEntries - 1);
-
-  return kPqInvOETF[value];
+  static LookUpTable kPqInvLut(kPqInvOETFNumEntries, static_cast<float (*)(float)>(pqInvOetf));
+  return kPqInvLut.getTable()[value];
 }
 
 Color pqInvOetfLUT(Color e_gamma) {
