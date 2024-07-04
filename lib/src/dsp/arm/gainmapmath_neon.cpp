@@ -19,6 +19,12 @@
 #include <arm_neon.h>
 #include <cassert>
 
+#ifdef _MSC_VER
+#define ALIGNED(x) __declspec(align(x))
+#else
+#define ALIGNED(x) __attribute__((aligned(x)))
+#endif
+
 namespace ultrahdr {
 
 // Scale all coefficients by 2^14 to avoid needing floating-point arithmetic. This can cause an off
@@ -32,42 +38,42 @@ namespace ultrahdr {
 // Y' = (1.0f * Y) + ( 0.101579f * U) + ( 0.196076f * V)
 // U' = (0.0f * Y) + ( 0.989854f * U) + (-0.110653f * V)
 // V' = (0.0f * Y) + (-0.072453f * U) + ( 0.983398f * V)
-__attribute__((aligned(16)))
+ALIGNED(16)
 const int16_t kYuv709To601_coeffs_neon[8] = {1664, 3213, 16218, -1813, -1187, 16112, 0, 0};
 
 // Yuv Bt709 -> Yuv Bt2100
 // Y' = (1.0f * Y) + (-0.016969f * U) + ( 0.096312f * V)
 // U' = (0.0f * Y) + ( 0.995306f * U) + (-0.051192f * V)
 // V' = (0.0f * Y) + ( 0.011507f * U) + ( 1.002637f * V)
-__attribute__((aligned(16)))
+ALIGNED(16)
 const int16_t kYuv709To2100_coeffs_neon[8] = {-278, 1578, 16307, -839, 189, 16427, 0, 0};
 
 // Yuv Bt601 -> Yuv Bt709
 // Y' = (1.0f * Y) + (-0.118188f * U) + (-0.212685f * V),
 // U' = (0.0f * Y) + ( 1.018640f * U) + ( 0.114618f * V),
 // V' = (0.0f * Y) + ( 0.075049f * U) + ( 1.025327f * V);
-__attribute__((aligned(16)))
+ALIGNED(16)
 const int16_t kYuv601To709_coeffs_neon[8] = {-1936, -3485, 16689, 1878, 1230, 16799, 0, 0};
 
 // Yuv Bt601 -> Yuv Bt2100
 // Y' = (1.0f * Y) + (-0.128245f * U) + (-0.115879f * V)
 // U' = (0.0f * Y) + ( 1.010016f * U) + ( 0.061592f * V)
 // V' = (0.0f * Y) + ( 0.086969f * U) + ( 1.029350f * V)
-__attribute__((aligned(16)))
+ALIGNED(16)
 const int16_t kYuv601To2100_coeffs_neon[8] = {-2101, -1899, 16548, 1009, 1425, 16865, 0, 0};
 
 // Yuv Bt2100 -> Yuv Bt709
 // Y' = (1.0f * Y) + ( 0.018149f * U) + (-0.095132f * V)
 // U' = (0.0f * Y) + ( 1.004123f * U) + ( 0.051267f * V)
 // V' = (0.0f * Y) + (-0.011524f * U) + ( 0.996782f * V)
-__attribute__((aligned(16)))
+ALIGNED(16)
 const int16_t kYuv2100To709_coeffs_neon[8] = {297, -1559, 16452, 840, -189, 16331, 0, 0};
 
 // Yuv Bt2100 -> Yuv Bt601
 // Y' = (1.0f * Y) + ( 0.117887f * U) + ( 0.105521f * V)
 // U' = (0.0f * Y) + ( 0.995211f * U) + (-0.059549f * V)
 // V' = (0.0f * Y) + (-0.084085f * U) + ( 0.976518f * V)
-__attribute__((aligned(16)))
+ALIGNED(16)
 const int16_t kYuv2100To601_coeffs_neon[8] = {1931, 1729, 16306, -976, -1378, 15999, 0, 0};
 
 static inline int16x8_t yConversion_neon(uint8x8_t y, int16x8_t u, int16x8_t v, int16x8_t coeffs) {
@@ -113,7 +119,7 @@ int16x8x3_t yuvConversion_neon(uint8x8_t y, int16x8_t u, int16x8_t v, int16x8_t 
 
 void transformYuv420_neon(uhdr_raw_image_t* image, const int16_t* coeffs_ptr) {
   // Implementation assumes image buffer is multiple of 16.
-  assert(image->width % 16 == 0);
+  assert(image->w % 16 == 0);
   uint8_t* y0_ptr = static_cast<uint8_t*>(image->planes[UHDR_PLANE_Y]);
   uint8_t* y1_ptr = y0_ptr + image->stride[UHDR_PLANE_Y];
   uint8_t* u_ptr = static_cast<uint8_t*>(image->planes[UHDR_PLANE_U]);
