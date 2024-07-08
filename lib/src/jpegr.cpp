@@ -215,9 +215,9 @@ uhdr_error_info_t JpegR::encodeJPEGR(uhdr_raw_image_t* hdr_intent, uhdr_raw_imag
   uhdr_compressed_image_t sdr_intent_compressed = jpeg_enc_obj_sdr.getCompressedImage();
   sdr_intent_compressed.cg = sdr_intent->cg;
 
-  // append gain map, no ICC since JPEG encode already did it
-  UHDR_ERR_CHECK(appendGainMap(&sdr_intent_compressed, &gainmap_compressed, exif, /* icc */ nullptr,
-                               /* icc size */ 0, &metadata, dest));
+  // append gain map
+  UHDR_ERR_CHECK(appendGainMap(&sdr_intent_compressed, &gainmap_compressed, exif, icc.getData(),
+                               icc.getLength(), &metadata, dest));
   return g_no_error;
 }
 
