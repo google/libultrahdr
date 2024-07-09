@@ -180,8 +180,30 @@ uhdr_error_info_t JpegR::encodeJPEGR(uhdr_raw_image_t* hdr_intent, uhdr_compress
   // tone map
   UHDR_ERR_CHECK(toneMap(hdr_intent, sdr_intent.get()));
 
-  // encode
-  return encodeJPEGR(hdr_intent, sdr_intent.get(), dest, quality, exif);
+  // generate gain map
+  uhdr_gainmap_metadata_ext_t metadata(kJpegrVersion);
+  std::unique_ptr<uhdr_raw_image_ext_t> gainmap;
+  UHDR_ERR_CHECK(generateGainMap(sdr_intent.get(), hdr_intent, &metadata, gainmap, /* sdr_is_601 */ false,
+          /* use_luminance */ false));
+
+  // compress gain map
+  JpegEncoderHelper jpeg_enc_obj_gm;
+  UHDR_ERR_CHECK(compressGainMap(gainmap.get(), &jpeg_enc_obj_gm));
+  uhdr_compressed_image_t gainmap_compressed = jpeg_enc_obj_gm.getCompressedImage();
+
+  std::shared_ptr<DataStruct> icc = IccHelper::writeIccProfile(UHDR_CT_SRGB, sdr_intent->cg);
+
+  // compress sdr image
+  JpegEncoderHelper jpeg_enc_obj_sdr;
+  UHDR_ERR_CHECK(
+      jpeg_enc_obj_sdr.compressImage(sdr_intent.get(), quality, icc->getData(), icc->getLength()));
+  uhdr_compressed_image_t sdr_intent_compressed = jpeg_enc_obj_sdr.getCompressedImage();
+  sdr_intent_compressed.cg = sdr_intent->cg;
+
+  // append gain map, no ICC since JPEG encode already did it
+  UHDR_ERR_CHECK(appendGainMap(&sdr_intent_compressed, &gainmap_compressed, exif, /* icc */ nullptr,
+                               /* icc size */ 0, &metadata, dest));
+  return g_no_error;
 }
 
 /* Encode API-1 */
@@ -413,7 +435,7 @@ uhdr_error_info_t JpegR::compressGainMap(uhdr_raw_image_t* gainmap_img,
 uhdr_error_info_t JpegR::generateGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_image_t* hdr_intent,
                                          uhdr_gainmap_metadata_ext_t* gainmap_metadata,
                                          std::unique_ptr<uhdr_raw_image_ext_t>& gainmap_img,
-                                         bool sdr_is_601) {
+                                         bool sdr_is_601, bool use_luminance) {
   uhdr_error_info_t status = g_no_error;
 
   if (sdr_intent->fmt != UHDR_IMG_FMT_24bppYCbCr444 &&
@@ -570,7 +592,8 @@ uhdr_error_info_t JpegR::generateGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_
   std::function<void()> generateMap = [this, sdr_intent, hdr_intent, gainmap_metadata, dest,
                                        hdrInvOetf, hdrGamutConversionFn, luminanceFn, sdrYuvToRgbFn,
                                        hdrYuvToRgbFn, sdr_sample_pixel_fn, hdr_white_nits,
-                                       log2MinBoost, log2MaxBoost, &jobQueue]() -> void {
+                                       log2MinBoost, log2MaxBoost, use_luminance, &jobQueue]()
+                                       -> void {
     size_t rowStart, rowEnd;
     while (jobQueue.dequeueJob(rowStart, rowEnd)) {
       for (size_t y = rowStart; y < rowEnd; ++y) {
@@ -601,8 +624,16 @@ uhdr_error_info_t JpegR::generateGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_
             reinterpret_cast<uint8_t*>(dest->planes[UHDR_PLANE_PACKED])[pixel_idx + 2] = encodeGain(
                 sdr_rgb_nits.b, hdr_rgb_nits.b, gainmap_metadata, log2MinBoost, log2MaxBoost);
           } else {
-            float sdr_y_nits = luminanceFn(sdr_rgb) * kSdrWhiteNits;
-            float hdr_y_nits = luminanceFn(hdr_rgb) * hdr_white_nits;
+            float sdr_y_nits;
+            float hdr_y_nits;
+            if (use_luminance) {
+              sdr_y_nits = luminanceFn(sdr_rgb) * kSdrWhiteNits;
+              hdr_y_nits = luminanceFn(hdr_rgb) * hdr_white_nits;
+            } else {
+              sdr_y_nits = fmax(sdr_rgb.r, fmax(sdr_rgb.g, sdr_rgb.b)) * kSdrWhiteNits;
+              hdr_y_nits = fmax(hdr_rgb.r, fmax(hdr_rgb.g, hdr_rgb.b)) * hdr_white_nits;
+            }
+
             size_t pixel_idx = x + y * dest->stride[UHDR_PLANE_Y];
 
             reinterpret_cast<uint8_t*>(dest->planes[UHDR_PLANE_Y])[pixel_idx] =

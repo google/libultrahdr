@@ -373,13 +373,19 @@ class JpegR {
    * \param[in]       sdr_is_601               (optional) if sdr_is_601 is true, then use BT.601
    *                                           gamut to represent sdr intent regardless of the value
    *                                           present in the sdr intent image descriptor
+   * \param[in]       use_luminance            (optional) used for single channel gainmap. If
+   *                                           use_luminance is true, gainmap calculation is based
+   *                                           on the pixel's luminance which is a weighted
+   *                                           combination of r, g, b channels; otherwise, gainmap
+   *                                           calculation is based of the maximun value of r, g, b
+   *                                           channels.
    *
    * \return uhdr_error_info_t #UHDR_CODEC_OK if operation succeeds, uhdr_codec_err_t otherwise.
    */
   uhdr_error_info_t generateGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_image_t* hdr_intent,
                                     uhdr_gainmap_metadata_ext_t* gainmap_metadata,
                                     std::unique_ptr<uhdr_raw_image_ext_t>& gainmap_img,
-                                    bool sdr_is_601 = false);
+                                    bool sdr_is_601 = false, bool use_luminance = true);
 
   /*!\brief This method takes sdr intent, gainmap image and gainmap metadata and computes hdr
    * intent. This method is called in the decoding pipeline. The output hdr intent image will have
