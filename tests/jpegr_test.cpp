@@ -2158,7 +2158,7 @@ INSTANTIATE_TEST_SUITE_P(
                                          ULTRAHDR_COLORGAMUT_BT2100),
                        ::testing::Values(ULTRAHDR_COLORGAMUT_BT709, ULTRAHDR_COLORGAMUT_P3,
                                          ULTRAHDR_COLORGAMUT_BT2100)));
-#if 0
+
 // ============================================================================
 // Profiling
 // ============================================================================
@@ -2203,48 +2203,44 @@ class Profiler {
 
 class JpegRBenchmark : public JpegR {
  public:
-  void BenchmarkGenerateGainMap(jr_uncompressed_ptr yuv420Image, jr_uncompressed_ptr p010Image,
-                                ultrahdr_metadata_ptr metadata, jr_uncompressed_ptr map);
-  void BenchmarkApplyGainMap(jr_uncompressed_ptr yuv420Image, jr_uncompressed_ptr map,
-                             ultrahdr_metadata_ptr metadata, jr_uncompressed_ptr dest);
+  void BenchmarkGenerateGainMap(uhdr_raw_image_t* yuv420Image, uhdr_raw_image_t* p010Image,
+                                uhdr_gainmap_metadata_ext_t* metadata,
+                                std::unique_ptr<uhdr_raw_image_ext_t>& gainmap);
+  void BenchmarkApplyGainMap(uhdr_raw_image_t* yuv420Image, uhdr_raw_image_t* map,
+                             uhdr_gainmap_metadata_ext_t* metadata, uhdr_raw_image_t* dest);
 
  private:
   const int kProfileCount = 10;
 };
 
-void JpegRBenchmark::BenchmarkGenerateGainMap(jr_uncompressed_ptr yuv420Image,
-                                              jr_uncompressed_ptr p010Image,
-                                              ultrahdr_metadata_ptr metadata,
-                                              jr_uncompressed_ptr map) {
-  ASSERT_EQ(yuv420Image->width, p010Image->width);
-  ASSERT_EQ(yuv420Image->height, p010Image->height);
+void JpegRBenchmark::BenchmarkGenerateGainMap(uhdr_raw_image_t* yuv420Image,
+                                              uhdr_raw_image_t* p010Image,
+                                              uhdr_gainmap_metadata_ext_t* metadata,
+                                              std::unique_ptr<uhdr_raw_image_ext_t>& gainmap) {
+  ASSERT_EQ(yuv420Image->w, p010Image->w);
+  ASSERT_EQ(yuv420Image->h, p010Image->h);
   Profiler profileGenerateMap;
   profileGenerateMap.timerStart();
   for (auto i = 0; i < kProfileCount; i++) {
-    ASSERT_EQ(JPEGR_NO_ERROR,
-              generateGainMap(yuv420Image, p010Image, ultrahdr_transfer_function::ULTRAHDR_TF_HLG,
-                              metadata, map));
-    if (i != kProfileCount - 1) {
-      delete[] static_cast<uint8_t*>(map->data);
-      map->data = nullptr;
-    }
+    ASSERT_EQ(UHDR_CODEC_OK, generateGainMap(yuv420Image, p010Image, metadata, gainmap).error_code);
   }
   profileGenerateMap.timerStop();
-  ALOGE("Generate Gain Map:- Res = %zu x %zu, time = %f ms", yuv420Image->width,
-        yuv420Image->height, profileGenerateMap.elapsedTime() / (kProfileCount * 1000.f));
+  ALOGV("Generate Gain Map:- Res = %u x %u, time = %f ms", yuv420Image->w, yuv420Image->h,
+        profileGenerateMap.elapsedTime() / (kProfileCount * 1000.f));
 }
 
-void JpegRBenchmark::BenchmarkApplyGainMap(jr_uncompressed_ptr yuv420Image, jr_uncompressed_ptr map,
-                                           ultrahdr_metadata_ptr metadata,
-                                           jr_uncompressed_ptr dest) {
+void JpegRBenchmark::BenchmarkApplyGainMap(uhdr_raw_image_t* yuv420Image, uhdr_raw_image_t* map,
+                                           uhdr_gainmap_metadata_ext_t* metadata,
+                                           uhdr_raw_image_t* dest) {
   Profiler profileRecMap;
   profileRecMap.timerStart();
   for (auto i = 0; i < kProfileCount; i++) {
-    ASSERT_EQ(JPEGR_NO_ERROR, applyGainMap(yuv420Image, map, metadata, ULTRAHDR_OUTPUT_HDR_HLG,
-                                           metadata->maxContentBoost /* displayBoost */, dest));
+    ASSERT_EQ(UHDR_CODEC_OK, applyGainMap(yuv420Image, map, metadata, UHDR_CT_HLG,
+                                          UHDR_IMG_FMT_32bppRGBA1010102, FLT_MAX, dest)
+                                 .error_code);
   }
   profileRecMap.timerStop();
-  ALOGE("Apply Gain Map:- Res = %zu x %zu, time = %f ms", yuv420Image->width, yuv420Image->height,
+  ALOGV("Apply Gain Map:- Res = %u x %u, time = %f ms", yuv420Image->w, yuv420Image->h,
         profileRecMap.elapsedTime() / (kProfileCount * 1000.f));
 }
 
@@ -2257,14 +2253,9 @@ TEST(JpegRTest, ProfileGainMapFuncs) {
   ASSERT_TRUE(rawImg420.setImageColorGamut(ultrahdr_color_gamut::ULTRAHDR_COLORGAMUT_BT709));
   ASSERT_TRUE(rawImg420.allocateMemory());
   ASSERT_TRUE(rawImg420.loadRawResource(kYCbCr420FileName));
-  ultrahdr_metadata_struct metadata;
-  metadata.version = kJpegrVersion;
-  jpegr_uncompressed_struct map;
-  map.data = NULL;
-  map.width = 0;
-  map.height = 0;
-  map.colorGamut = ULTRAHDR_COLORGAMUT_UNSPECIFIED;
-  map.pixelFormat = UHDR_IMG_FMT_8bppYCbCr400;
+  uhdr_gainmap_metadata_ext_t metadata(kJpegrVersion);
+
+  uhdr_raw_image_t hdr_intent, sdr_intent;
 
   {
     auto rawImg = rawImgP010.getImageHandle();
@@ -2274,6 +2265,18 @@ TEST(JpegRTest, ProfileGainMapFuncs) {
       rawImg->chroma_data = data + rawImg->luma_stride * rawImg->height;
       rawImg->chroma_stride = rawImg->luma_stride;
     }
+    hdr_intent.fmt = UHDR_IMG_FMT_24bppYCbCrP010;
+    hdr_intent.cg = UHDR_CG_BT_2100;
+    hdr_intent.ct = UHDR_CT_HLG;
+    hdr_intent.range = UHDR_CR_LIMITED_RANGE;
+    hdr_intent.w = rawImg->width;
+    hdr_intent.h = rawImg->height;
+    hdr_intent.planes[UHDR_PLANE_Y] = rawImg->data;
+    hdr_intent.stride[UHDR_PLANE_Y] = rawImg->luma_stride;
+    hdr_intent.planes[UHDR_PLANE_UV] = rawImg->chroma_data;
+    hdr_intent.stride[UHDR_PLANE_UV] = rawImg->chroma_stride;
+    hdr_intent.planes[UHDR_PLANE_V] = nullptr;
+    hdr_intent.stride[UHDR_PLANE_V] = 0;
   }
   {
     auto rawImg = rawImg420.getImageHandle();
@@ -2283,28 +2286,46 @@ TEST(JpegRTest, ProfileGainMapFuncs) {
       rawImg->chroma_data = data + rawImg->luma_stride * rawImg->height;
       rawImg->chroma_stride = rawImg->luma_stride / 2;
     }
+    sdr_intent.fmt = UHDR_IMG_FMT_12bppYCbCr420;
+    sdr_intent.cg = UHDR_CG_DISPLAY_P3;
+    sdr_intent.ct = UHDR_CT_SRGB;
+    sdr_intent.range = rawImg->colorRange;
+    sdr_intent.w = rawImg->width;
+    sdr_intent.h = rawImg->height;
+    sdr_intent.planes[UHDR_PLANE_Y] = rawImg->data;
+    sdr_intent.stride[UHDR_PLANE_Y] = rawImg->luma_stride;
+    sdr_intent.planes[UHDR_PLANE_U] = rawImg->chroma_data;
+    sdr_intent.stride[UHDR_PLANE_U] = rawImg->chroma_stride;
+    uint8_t* data = reinterpret_cast<uint8_t*>(rawImg->chroma_data);
+    data += (rawImg->height * rawImg->chroma_stride) / 2;
+    sdr_intent.planes[UHDR_PLANE_V] = data;
+    sdr_intent.stride[UHDR_PLANE_V] = rawImg->chroma_stride;
   }
 
+  std::unique_ptr<uhdr_raw_image_ext_t> gainmap;
+
   JpegRBenchmark benchmark;
-  ASSERT_NO_FATAL_FAILURE(benchmark.BenchmarkGenerateGainMap(
-      rawImg420.getImageHandle(), rawImgP010.getImageHandle(), &metadata, &map));
+  ASSERT_NO_FATAL_FAILURE(
+      benchmark.BenchmarkGenerateGainMap(&sdr_intent, &hdr_intent, &metadata, gainmap));
 
   const int dstSize = kImageWidth * kImageWidth * 4;
   auto bufferDst = std::make_unique<uint8_t[]>(dstSize);
-  jpegr_uncompressed_struct dest;
-  dest.data = bufferDst.get();
-  dest.width = 0;
-  dest.height = 0;
-  dest.colorGamut = ULTRAHDR_COLORGAMUT_UNSPECIFIED;
+  uhdr_raw_image_t output;
+  output.fmt = UHDR_IMG_FMT_32bppRGBA1010102;
+  output.cg = UHDR_CG_UNSPECIFIED;
+  output.ct = UHDR_CT_UNSPECIFIED;
+  output.range = UHDR_CR_UNSPECIFIED;
+  output.w = kImageWidth;
+  output.h = kImageHeight;
+  output.planes[UHDR_PLANE_PACKED] = bufferDst.get();
+  output.stride[UHDR_PLANE_PACKED] = kImageWidth;
+  output.planes[UHDR_PLANE_U] = nullptr;
+  output.stride[UHDR_PLANE_U] = 0;
+  output.planes[UHDR_PLANE_V] = nullptr;
+  output.stride[UHDR_PLANE_V] = 0;
 
   ASSERT_NO_FATAL_FAILURE(
-      benchmark.BenchmarkApplyGainMap(rawImg420.getImageHandle(), &map, &metadata, &dest));
-
-  if (map.data) {
-    delete[] static_cast<uint8_t*>(map.data);
-    map.data = nullptr;
-  }
+      benchmark.BenchmarkApplyGainMap(&sdr_intent, gainmap.get(), &metadata, &output));
 }
-#endif
 
 }  // namespace ultrahdr
