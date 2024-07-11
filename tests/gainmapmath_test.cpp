@@ -1516,9 +1516,9 @@ TEST_F(GainMapMathTest, ColorToRgba1010102) {
 
   Color e_gamma = {{{0.1f, 0.2f, 0.3f}}};
   EXPECT_EQ(colorToRgba1010102(e_gamma),
-            0x3 << 30 | static_cast<uint32_t>(0.1f * static_cast<float>(0x3ff)) |
-                static_cast<uint32_t>(0.2f * static_cast<float>(0x3ff)) << 10 |
-                static_cast<uint32_t>(0.3f * static_cast<float>(0x3ff)) << 20);
+            0x3 << 30 | static_cast<uint32_t>(0.1f * static_cast<float>(0x3ff) + 0.5) |
+                static_cast<uint32_t>(0.2f * static_cast<float>(0x3ff) + 0.5) << 10 |
+                static_cast<uint32_t>(0.3f * static_cast<float>(0x3ff) + 0.5) << 20);
 }
 
 TEST_F(GainMapMathTest, ColorToRgbaF16) {
