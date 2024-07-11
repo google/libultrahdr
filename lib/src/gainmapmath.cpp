@@ -966,10 +966,10 @@ Color sampleMap3Channel(uhdr_raw_image_t* map, size_t map_scale_factor, size_t x
 }
 
 uint32_t colorToRgba1010102(Color e_gamma) {
-  return (0x3ff & static_cast<uint32_t>(e_gamma.r * 1023.0f)) |
-         ((0x3ff & static_cast<uint32_t>(e_gamma.g * 1023.0f)) << 10) |
-         ((0x3ff & static_cast<uint32_t>(e_gamma.b * 1023.0f)) << 20) |
-         (0x3 << 30);  // Set alpha to 1.0
+  uint32_t r = CLIP3((e_gamma.r * 1023 + 0.5f), 0.0f, 1023.0f);
+  uint32_t g = CLIP3((e_gamma.g * 1023 + 0.5f), 0.0f, 1023.0f);
+  uint32_t b = CLIP3((e_gamma.b * 1023 + 0.5f), 0.0f, 1023.0f);
+  return (r | (g << 10) | (b << 20) | (0x3 << 30));  // Set alpha to 1.0
 }
 
 uint64_t colorToRgbaF16(Color e_gamma) {
