@@ -183,8 +183,9 @@ uhdr_error_info_t JpegR::encodeJPEGR(uhdr_raw_image_t* hdr_intent, uhdr_compress
   // generate gain map
   uhdr_gainmap_metadata_ext_t metadata(kJpegrVersion);
   std::unique_ptr<uhdr_raw_image_ext_t> gainmap;
-  UHDR_ERR_CHECK(generateGainMap(sdr_intent.get(), hdr_intent, &metadata, gainmap, /* sdr_is_601 */ false,
-          /* use_luminance */ false));
+  UHDR_ERR_CHECK(generateGainMap(sdr_intent.get(), hdr_intent, &metadata, gainmap,
+                                 /* sdr_is_601 */ false,
+                                 /* use_luminance */ false));
 
   // compress gain map
   JpegEncoderHelper jpeg_enc_obj_gm;
@@ -588,11 +589,10 @@ uhdr_error_info_t JpegR::generateGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_
   const int jobSizeInRows = 1;
   size_t rowStep = threads == 1 ? map_height : jobSizeInRows;
   JobQueue jobQueue;
-  std::function<void()> generateMap = [this, sdr_intent, hdr_intent, gainmap_metadata, dest,
-                                       hdrInvOetf, hdrGamutConversionFn, luminanceFn, sdrYuvToRgbFn,
-                                       hdrYuvToRgbFn, sdr_sample_pixel_fn, hdr_white_nits,
-                                       log2MinBoost, log2MaxBoost, use_luminance, &jobQueue]()
-                                       -> void {
+  std::function<void()> generateMap =
+      [this, sdr_intent, hdr_intent, gainmap_metadata, dest, hdrInvOetf, hdrGamutConversionFn,
+       luminanceFn, sdrYuvToRgbFn, hdrYuvToRgbFn, sdr_sample_pixel_fn, hdr_white_nits, log2MinBoost,
+       log2MaxBoost, use_luminance, &jobQueue]() -> void {
     size_t rowStart, rowEnd;
     while (jobQueue.dequeueJob(rowStart, rowEnd)) {
       for (size_t y = rowStart; y < rowEnd; ++y) {
@@ -928,6 +928,42 @@ uhdr_error_info_t JpegR::getJPEGRInfo(uhdr_compressed_image_t* uhdr_compressed_i
   return g_no_error;
 }
 
+uhdr_error_info_t JpegR::parseGainMapMetadata(uint8_t* iso_data, int iso_size, uint8_t* xmp_data,
+                                              int xmp_size,
+                                              uhdr_gainmap_metadata_ext_t* uhdr_metadata) {
+  if (iso_size > 0) {
+    if (iso_size < (int)kIsoNameSpace.size() + 1) {
+      uhdr_error_info_t status;
+      status.error_code = UHDR_CODEC_ERROR;
+      status.has_detail = 1;
+      snprintf(status.detail, sizeof status.detail,
+               "iso block size needs to be atleast %d but got %d", (int)kIsoNameSpace.size() + 1,
+               iso_size);
+      return status;
+    }
+    uhdr_gainmap_metadata_frac decodedMetadata;
+    std::vector<uint8_t> iso_vec;
+    for (int i = (int)kIsoNameSpace.size() + 1; i < iso_size; i++) {
+      iso_vec.push_back(iso_data[i]);
+    }
+
+    UHDR_ERR_CHECK(uhdr_gainmap_metadata_frac::decodeGainmapMetadata(iso_vec, &decodedMetadata));
+    UHDR_ERR_CHECK(uhdr_gainmap_metadata_frac::gainmapMetadataFractionToFloat(&decodedMetadata,
+                                                                              uhdr_metadata));
+  } else if (xmp_size > 0) {
+    UHDR_ERR_CHECK(getMetadataFromXMP(xmp_data, xmp_size, uhdr_metadata));
+  } else {
+    uhdr_error_info_t status;
+    status.error_code = UHDR_CODEC_INVALID_PARAM;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "received no valid buffer to parse gainmap metadata");
+    return status;
+  }
+
+  return g_no_error;
+}
+
 /* Decode API */
 uhdr_error_info_t JpegR::decodeJPEGR(uhdr_compressed_image_t* uhdr_compressed_img,
                                      uhdr_raw_image_t* dest, float max_display_boost,
@@ -956,31 +992,10 @@ uhdr_error_info_t JpegR::decodeJPEGR(uhdr_compressed_image_t* uhdr_compressed_im
 
   uhdr_gainmap_metadata_ext_t uhdr_metadata;
   if (gainmap_metadata != nullptr || output_ct != UHDR_CT_SRGB) {
-    uint8_t* iso_ptr = static_cast<uint8_t*>(jpeg_dec_obj_gm.getIsoMetadataPtr());
-    if (iso_ptr != nullptr) {
-      size_t iso_size = jpeg_dec_obj_gm.getIsoMetadataSize();
-      if (iso_size < kIsoNameSpace.size() + 1) {
-        uhdr_error_info_t status;
-        status.error_code = UHDR_CODEC_ERROR;
-        status.has_detail = 1;
-        snprintf(status.detail, sizeof status.detail,
-                 "iso block size needs to be atleast %d but got %d", (int)kIsoNameSpace.size() + 1,
-                 (int)iso_size);
-        return status;
-      }
-      uhdr_gainmap_metadata_frac decodedMetadata;
-      std::vector<uint8_t> iso_vec;
-      for (size_t i = kIsoNameSpace.size() + 1; i < iso_size; i++) {
-        iso_vec.push_back(iso_ptr[i]);
-      }
-
-      UHDR_ERR_CHECK(uhdr_gainmap_metadata_frac::decodeGainmapMetadata(iso_vec, &decodedMetadata));
-      UHDR_ERR_CHECK(uhdr_gainmap_metadata_frac::gainmapMetadataFractionToFloat(&decodedMetadata,
-                                                                                &uhdr_metadata));
-    } else {
-      UHDR_ERR_CHECK(getMetadataFromXMP(static_cast<uint8_t*>(jpeg_dec_obj_gm.getXMPPtr()),
-                                        jpeg_dec_obj_gm.getXMPSize(), &uhdr_metadata));
-    }
+    UHDR_ERR_CHECK(parseGainMapMetadata(static_cast<uint8_t*>(jpeg_dec_obj_gm.getIsoMetadataPtr()),
+                                        jpeg_dec_obj_gm.getIsoMetadataSize(),
+                                        static_cast<uint8_t*>(jpeg_dec_obj_gm.getXMPPtr()),
+                                        jpeg_dec_obj_gm.getXMPSize(), &uhdr_metadata))
     if (gainmap_metadata != nullptr) {
       gainmap_metadata->min_content_boost = uhdr_metadata.min_content_boost;
       gainmap_metadata->max_content_boost = uhdr_metadata.max_content_boost;
@@ -1341,6 +1356,11 @@ uhdr_error_info_t JpegR::parseJpegInfo(uhdr_compressed_image_t* jpeg_image, j_in
       image_info->xmpData.resize(jpeg_dec_obj.getXMPSize(), 0);
       memcpy(static_cast<void*>(image_info->xmpData.data()), jpeg_dec_obj.getXMPPtr(),
              jpeg_dec_obj.getXMPSize());
+    }
+    if (jpeg_dec_obj.getIsoMetadataSize() != 0) {
+      image_info->isoData.resize(jpeg_dec_obj.getIsoMetadataSize(), 0);
+      memcpy(static_cast<void*>(image_info->isoData.data()), jpeg_dec_obj.getIsoMetadataPtr(),
+             jpeg_dec_obj.getIsoMetadataSize());
     }
   }
   if (img_width != nullptr && img_height != nullptr) {

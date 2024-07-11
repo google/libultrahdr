@@ -1216,8 +1216,9 @@ uhdr_error_info_t uhdr_dec_probe(uhdr_codec_private_t* dec) {
     if (status.error_code != UHDR_CODEC_OK) return status;
 
     ultrahdr::uhdr_gainmap_metadata_ext_t metadata;
-    status = ultrahdr::getMetadataFromXMP(gainmap_image.xmpData.data(),
-                                          gainmap_image.xmpData.size(), &metadata);
+    status = jpegr.parseGainMapMetadata(gainmap_image.isoData.data(), gainmap_image.isoData.size(),
+                                        gainmap_image.xmpData.data(), gainmap_image.xmpData.size(),
+                                        &metadata);
     if (status.error_code != UHDR_CODEC_OK) return status;
     handle->m_metadata.max_content_boost = metadata.max_content_boost;
     handle->m_metadata.min_content_boost = metadata.min_content_boost;
@@ -1238,8 +1239,6 @@ uhdr_error_info_t uhdr_dec_probe(uhdr_codec_private_t* dec) {
     handle->m_icc = std::move(primary_image.iccData);
     handle->m_icc_block.data = handle->m_icc.data();
     handle->m_icc_block.data_sz = handle->m_icc_block.capacity = handle->m_icc.size();
-    handle->m_base_xmp = std::move(primary_image.xmpData);
-    handle->m_gainmap_xmp = std::move(gainmap_image.xmpData);
   }
 
   return status;
@@ -1443,8 +1442,6 @@ void uhdr_reset_decoder(uhdr_codec_private_t* dec) {
     memset(&handle->m_exif_block, 0, sizeof handle->m_exif_block);
     handle->m_icc.clear();
     memset(&handle->m_icc_block, 0, sizeof handle->m_icc_block);
-    handle->m_base_xmp.clear();
-    handle->m_gainmap_xmp.clear();
     memset(&handle->m_metadata, 0, sizeof handle->m_metadata);
     handle->m_probe_call_status = g_no_error;
     handle->m_decode_call_status = g_no_error;

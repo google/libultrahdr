@@ -289,8 +289,6 @@ struct uhdr_decoder_private : uhdr_codec_private {
   uhdr_mem_block_t m_exif_block;
   std::vector<uint8_t> m_icc;
   uhdr_mem_block_t m_icc_block;
-  std::vector<uint8_t> m_base_xmp;
-  std::vector<uint8_t> m_gainmap_xmp;
   uhdr_gainmap_metadata_t m_metadata;
   uhdr_error_info_t m_probe_call_status;
   uhdr_error_info_t m_decode_call_status;
