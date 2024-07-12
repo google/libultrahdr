@@ -44,9 +44,6 @@ using namespace photos_editing_formats::image_io;
 
 namespace ultrahdr {
 
-// Default gamma value for gain map
-static const float kGainMapGammaDefault = 1.0f;
-
 // Gain map metadata
 static const bool kWriteXmpMetadata = true;
 static const bool kWriteIso21496_1Metadata = false;
@@ -141,10 +138,12 @@ int GetCPUCoreCount() {
   return cpuCoreCount;
 }
 
-JpegR::JpegR(size_t mapDimensionScaleFactor, int mapCompressQuality, bool useMultiChannelGainMap) {
+JpegR::JpegR(size_t mapDimensionScaleFactor, int mapCompressQuality, bool useMultiChannelGainMap,
+             float gamma) {
   mMapDimensionScaleFactor = mapDimensionScaleFactor;
   mMapCompressQuality = mapCompressQuality;
   mUseMultiChannelGainMap = useMultiChannelGainMap;
+  mGamma = gamma;
 }
 
 /*
@@ -492,7 +491,7 @@ uhdr_error_info_t JpegR::generateGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_
 
   gainmap_metadata->max_content_boost = hdr_white_nits / kSdrWhiteNits;
   gainmap_metadata->min_content_boost = 1.0f;
-  gainmap_metadata->gamma = kGainMapGammaDefault;
+  gainmap_metadata->gamma = mGamma;
   gainmap_metadata->offset_sdr = 0.0f;
   gainmap_metadata->offset_hdr = 0.0f;
   gainmap_metadata->hdr_capacity_min = 1.0f;

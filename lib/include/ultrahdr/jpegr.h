@@ -37,6 +37,8 @@ static const int kMapCompressQualityDefault = 85;
 
 // Gain map calculation
 static const bool kUseMultiChannelGainMapDefault = false;
+// Default gamma value for gain map
+static const float kGainMapGammaDefault = 1.0f;
 
 // The current JPEGR version that we encode to
 static const char* const kGainMapVersion = "1.0";
@@ -79,7 +81,8 @@ class JpegR {
  public:
   JpegR(size_t mapDimensionScaleFactor = kMapDimensionScaleFactorDefault,
         int mapCompressQuality = kMapCompressQualityDefault,
-        bool useMultiChannelGainMap = kUseMultiChannelGainMapDefault);
+        bool useMultiChannelGainMap = kUseMultiChannelGainMapDefault,
+        float gamma = kGainMapGammaDefault);
 
   /*!\brief Encode API-0.
    *
@@ -282,6 +285,26 @@ class JpegR {
    * \return quality factor
    */
   int getMapCompressQuality() { return this->mMapCompressQuality; }
+
+  /*!\brief set gain map gamma
+   *
+   * NOTE: Applicable only in encoding scenario
+   *
+   * \param[in]       gamma      gamma parameter that is used for gain map calculation
+   *
+   * \return none
+   */
+  void setGainMapGamma(int gamma) {
+    this->mGamma = gamma;
+  }
+
+  /*!\brief get gain map gamma
+   *
+   * NOTE: Applicable only in encoding scenario
+   *
+   * \return gamma parameter
+   */
+  int getGainMapGamma() { return this->mGamma; }
 
   /*!\brief enable / disable multi channel gain map
    *
@@ -550,9 +573,10 @@ class JpegR {
                                   int quality);
 
   // Configurations
-  size_t mMapDimensionScaleFactor;  // gainmap scale factor
-  int mMapCompressQuality;          // gainmap quality factor
-  bool mUseMultiChannelGainMap;     // enable multichannel gainmap
+  size_t     mMapDimensionScaleFactor;  // gain map scale factor
+  int        mMapCompressQuality;       // gain map quality factor
+  bool       mUseMultiChannelGainMap;   // enable multichannel gain map
+  float      mGamma;                    // gain map gamma parameter
 };
 
 struct GlobalTonemapOutputs {
