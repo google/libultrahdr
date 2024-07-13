@@ -73,6 +73,7 @@ typedef enum uhdr_img_fmt {
   UHDR_IMG_FMT_12bppYCbCr411 = 9,  /**< 8-bit-per component 4:1:1 YCbCr planar format */
   UHDR_IMG_FMT_10bppYCbCr410 = 10, /**< 8-bit-per component 4:1:0 YCbCr planar format */
   UHDR_IMG_FMT_24bppRGB888 = 11,   /**< 8-bit-per component RGB interleaved format */
+  UHDR_IMG_FMT_30bppYCbCr444 = 12, /**< 10-bit-per component 4:4:4 YCbCr planar format */
 } uhdr_img_fmt_t;                  /**< alias for enum uhdr_img_fmt */
 
 /*!\brief List of supported color gamuts */
