@@ -69,8 +69,8 @@ struct Color {
 
 typedef Color (*ColorTransformFn)(Color);
 typedef float (*ColorCalculationFn)(Color);
-typedef Color (*getPixelFn)(uhdr_raw_image_t*, size_t, size_t);
-typedef Color (*samplePixelFn)(uhdr_raw_image_t*, size_t, size_t, size_t);
+typedef Color (*GetPixelFn)(uhdr_raw_image_t*, size_t, size_t);
+typedef Color (*SamplePixelFn)(uhdr_raw_image_t*, size_t, size_t, size_t);
 
 static inline float clampPixelFloat(float value) {
   return (value < 0.0f) ? 0.0f : (value > kMaxPixelFloat) ? kMaxPixelFloat : value;
@@ -467,7 +467,17 @@ ColorCalculationFn getLuminanceFn(uhdr_color_gamut_t gamut);
 /*
  * Get function to linearize transfer characteristics
  */
-ColorTransformFn getInverseOetf(uhdr_color_transfer_t transfer);
+ColorTransformFn getInverseOetfFn(uhdr_color_transfer_t transfer);
+
+/*
+ * Get function to read pixels from raw image for a given color format
+ */
+GetPixelFn getPixelFn(uhdr_img_fmt_t format);
+
+/*
+ * Get function to sample pixels from raw image for a given color format
+ */
+SamplePixelFn getsamplePixelFn(uhdr_img_fmt_t format);
 
 /*
  * Get max display mastering luminance in nits
@@ -515,11 +525,13 @@ uhdr_error_info_t convertYuv_neon(uhdr_raw_image_t* image, uhdr_color_gamut_t sr
  *
  * Apply the transformation by determining transformed YUV for each of the 4 Y + 1 UV; each Y gets
  * this result, and UV gets the averaged result.
- *
- * The chroma channels should be less than or equal to half the image's width and height
- * respectively, since input is 4:2:0 subsampled.
  */
 void transformYuv420(uhdr_raw_image_t* image, const std::array<float, 9>& coeffs);
+
+/*
+ * Performs a color gamut transformation on an entire YUV444 image.
+ */
+void transformYuv444(uhdr_raw_image_t* image, const std::array<float, 9>& coeffs);
 
 ////////////////////////////////////////////////////////////////////////////////
 // Gain map calculations
@@ -561,16 +573,13 @@ Color applyGain(Color e, Color gain, uhdr_gainmap_metadata_ext_t* metadata, floa
 Color applyGainLUT(Color e, Color gain, GainLUT& gainLUT);
 
 /*
- * Helper for sampling from YUV 4ab images.
+ * Get pixel from the image at the provided location.
  */
 Color getYuv444Pixel(uhdr_raw_image_t* image, size_t x, size_t y);
 Color getYuv422Pixel(uhdr_raw_image_t* image, size_t x, size_t y);
 Color getYuv420Pixel(uhdr_raw_image_t* image, size_t x, size_t y);
-
-/*
- * Helper for sampling from P010 images.
- */
 Color getP010Pixel(uhdr_raw_image_t* image, size_t x, size_t y);
+Color getYuv444Pixel10bit(uhdr_raw_image_t* image, size_t x, size_t y);
 
 /*
  * Sample the image at the provided location, with a weighting based on nearby
@@ -579,14 +588,8 @@ Color getP010Pixel(uhdr_raw_image_t* image, size_t x, size_t y);
 Color sampleYuv444(uhdr_raw_image_t* map, size_t map_scale_factor, size_t x, size_t y);
 Color sampleYuv422(uhdr_raw_image_t* map, size_t map_scale_factor, size_t x, size_t y);
 Color sampleYuv420(uhdr_raw_image_t* map, size_t map_scale_factor, size_t x, size_t y);
-
-/*
- * Sample the image at the provided location, with a weighting based on nearby
- * pixels and the map scale factor.
- *
- * Expect narrow-range image data for P010.
- */
 Color sampleP010(uhdr_raw_image_t* map, size_t map_scale_factor, size_t x, size_t y);
+Color sampleYuv44410bit(uhdr_raw_image_t* image, size_t map_scale_factor, size_t x, size_t y);
 
 /*
  * Sample the gain value for the map from a given x,y coordinate on a scale
@@ -622,7 +625,8 @@ uhdr_error_info_t copy_raw_image(uhdr_raw_image_t* src, uhdr_raw_image_t* dst);
 /*
  * Helper for preparing encoder raw inputs for encoding
  */
-std::unique_ptr<uhdr_raw_image_ext_t> convert_raw_input_to_ycbcr(uhdr_raw_image_t* src);
+std::unique_ptr<uhdr_raw_image_ext_t> convert_raw_input_to_ycbcr(
+    uhdr_raw_image_t* src, bool chroma_sampling_enabled = false);
 
 /*
  * Helper for converting float to fraction

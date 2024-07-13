@@ -45,7 +45,7 @@ uhdr_raw_image_ext::uhdr_raw_image_ext(uhdr_img_fmt_t fmt_, uhdr_color_gamut_t c
   int aligned_width = ALIGNM(w_, align_stride_to);
 
   int bpp = 1;
-  if (fmt_ == UHDR_IMG_FMT_24bppYCbCrP010) {
+  if (fmt_ == UHDR_IMG_FMT_24bppYCbCrP010 || fmt_ == UHDR_IMG_FMT_30bppYCbCr444) {
     bpp = 2;
   } else if (fmt_ == UHDR_IMG_FMT_24bppRGB888) {
     bpp = 3;
@@ -61,6 +61,9 @@ uhdr_raw_image_ext::uhdr_raw_image_ext(uhdr_img_fmt_t fmt_, uhdr_color_gamut_t c
   if (fmt_ == UHDR_IMG_FMT_24bppYCbCrP010) {
     plane_2_sz = (2 /* planes */ * ((aligned_width / 2) * (h_ / 2) * bpp));
     plane_3_sz = 0;
+  } else if (fmt_ == UHDR_IMG_FMT_30bppYCbCr444 || fmt_ == UHDR_IMG_FMT_24bppYCbCr444) {
+    plane_2_sz = bpp * aligned_width * h_;
+    plane_3_sz = bpp * aligned_width * h_;
   } else if (fmt_ == UHDR_IMG_FMT_12bppYCbCr420) {
     plane_2_sz = (((aligned_width / 2) * (h_ / 2) * bpp));
     plane_3_sz = (((aligned_width / 2) * (h_ / 2) * bpp));
@@ -79,6 +82,11 @@ uhdr_raw_image_ext::uhdr_raw_image_ext(uhdr_img_fmt_t fmt_, uhdr_color_gamut_t c
     this->stride[UHDR_PLANE_UV] = aligned_width;
     this->planes[UHDR_PLANE_V] = nullptr;
     this->stride[UHDR_PLANE_V] = 0;
+  } else if (fmt_ == UHDR_IMG_FMT_30bppYCbCr444 || fmt_ == UHDR_IMG_FMT_24bppYCbCr444) {
+    this->planes[UHDR_PLANE_U] = data + plane_1_sz;
+    this->stride[UHDR_PLANE_U] = aligned_width;
+    this->planes[UHDR_PLANE_V] = data + plane_1_sz + plane_2_sz;
+    this->stride[UHDR_PLANE_V] = aligned_width;
   } else if (fmt_ == UHDR_IMG_FMT_12bppYCbCr420) {
     this->planes[UHDR_PLANE_U] = data + plane_1_sz;
     this->stride[UHDR_PLANE_U] = aligned_width / 2;

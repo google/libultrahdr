@@ -242,7 +242,16 @@ uhdr_error_info_t convertYuv_neon(uhdr_raw_image_t* image, uhdr_color_gamut_t sr
       return status;
   }
 
-  transformYuv420_neon(image, coeffs);
+  if (image->fmt == UHDR_IMG_FMT_12bppYCbCr420) {
+    transformYuv420_neon(image, coeffs);
+  } else {
+    status.error_code = UHDR_CODEC_UNSUPPORTED_FEATURE;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "No implementation available for performing gamut conversion for color format %d",
+             image->fmt);
+    return status;
+  }
 
   return status;
 }
