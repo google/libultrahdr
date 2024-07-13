@@ -174,6 +174,65 @@ void transformYuv420_neon(uhdr_raw_image_t* image, const int16_t* coeffs_ptr) {
   } while (++h < image->h / 2);
 }
 
+void transformYuv444_neon(uhdr_raw_image_t* image, const int16_t* coeffs_ptr) {
+  // Implementation assumes image buffer is multiple of 16.
+  assert(image->w % 16 == 0);
+  uint8_t* y_ptr = static_cast<uint8_t*>(image->planes[UHDR_PLANE_Y]);
+  uint8_t* u_ptr = static_cast<uint8_t*>(image->planes[UHDR_PLANE_U]);
+  uint8_t* v_ptr = static_cast<uint8_t*>(image->planes[UHDR_PLANE_V]);
+
+  const int16x8_t coeffs = vld1q_s16(coeffs_ptr);
+  const uint16x8_t uv_bias = vreinterpretq_u16_s16(vdupq_n_s16(-128));
+  size_t h = 0;
+  do {
+    size_t w = 0;
+    do {
+      uint8x16_t y = vld1q_u8(y_ptr + w);
+      uint8x16_t u = vld1q_u8(u_ptr + w);
+      uint8x16_t v = vld1q_u8(v_ptr + w);
+
+      // 128 bias for UV given we are using libjpeg; see:
+      // https://github.com/kornelski/libjpeg/blob/master/structure.doc
+      int16x8_t u_wide_low_s16 =
+          vreinterpretq_s16_u16(vaddw_u8(uv_bias, vget_low_u8(u)));  // -128 + u
+      int16x8_t v_wide_low_s16 =
+          vreinterpretq_s16_u16(vaddw_u8(uv_bias, vget_low_u8(v)));  // -128 + v
+      int16x8_t u_wide_high_s16 =
+          vreinterpretq_s16_u16(vaddw_u8(uv_bias, vget_high_u8(u)));  // -128 + u
+      int16x8_t v_wide_high_s16 =
+          vreinterpretq_s16_u16(vaddw_u8(uv_bias, vget_high_u8(v)));  // -128 + v
+
+      const int16x8_t y_lo =
+          yConversion_neon(vget_low_u8(y), u_wide_low_s16, v_wide_low_s16, coeffs);
+      const int16x8_t y_hi =
+          yConversion_neon(vget_high_u8(y), u_wide_high_s16, v_wide_high_s16, coeffs);
+
+      const int16x8_t new_u_lo = uConversion_neon(u_wide_low_s16, v_wide_low_s16, coeffs);
+      const int16x8_t new_v_lo = vConversion_neon(u_wide_low_s16, v_wide_low_s16, coeffs);
+      const int16x8_t new_u_hi = uConversion_neon(u_wide_high_s16, v_wide_high_s16, coeffs);
+      const int16x8_t new_v_hi = vConversion_neon(u_wide_high_s16, v_wide_high_s16, coeffs);
+
+      // Narrow from 16-bit to 8-bit with saturation.
+      const uint8x16_t y_output = vcombine_u8(vqmovun_s16(y_lo), vqmovun_s16(y_hi));
+      const uint8x8_t u_output_lo = vqmovun_s16(vaddq_s16(new_u_lo, vdupq_n_s16(128)));
+      const uint8x8_t u_output_hi = vqmovun_s16(vaddq_s16(new_u_hi, vdupq_n_s16(128)));
+      const uint8x8_t v_output_lo = vqmovun_s16(vaddq_s16(new_v_lo, vdupq_n_s16(128)));
+      const uint8x8_t v_output_hi = vqmovun_s16(vaddq_s16(new_v_hi, vdupq_n_s16(128)));
+      const uint8x16_t u_output = vcombine_u8(u_output_lo, u_output_hi);
+      const uint8x16_t v_output = vcombine_u8(v_output_lo, v_output_hi);
+
+      vst1q_u8(y_ptr + w, y_output);
+      vst1q_u8(u_ptr + w, u_output);
+      vst1q_u8(v_ptr + w, v_output);
+
+      w += 16;
+    } while (w < image->w);
+    y_ptr += image->stride[UHDR_PLANE_Y];
+    u_ptr += image->stride[UHDR_PLANE_U];
+    v_ptr += image->stride[UHDR_PLANE_V];
+  } while (++h < image->h);
+}
+
 uhdr_error_info_t convertYuv_neon(uhdr_raw_image_t* image, uhdr_color_gamut_t src_encoding,
                                   uhdr_color_gamut_t dst_encoding) {
   uhdr_error_info_t status = g_no_error;
@@ -242,7 +301,18 @@ uhdr_error_info_t convertYuv_neon(uhdr_raw_image_t* image, uhdr_color_gamut_t sr
       return status;
   }
 
-  transformYuv420_neon(image, coeffs);
+  if (image->fmt == UHDR_IMG_FMT_12bppYCbCr420) {
+    transformYuv420_neon(image, coeffs);
+  } else if (image->fmt == UHDR_IMG_FMT_24bppYCbCr444) {
+    transformYuv444_neon(image, coeffs);
+  } else {
+    status.error_code = UHDR_CODEC_UNSUPPORTED_FEATURE;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "No implementation available for performing gamut conversion for color format %d",
+             image->fmt);
+    return status;
+  }
 
   return status;
 }
