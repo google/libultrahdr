@@ -488,7 +488,7 @@ UHDR_EXTERN uhdr_error_info_t uhdr_enc_set_gainmap_gamma(uhdr_codec_private_t* e
     return status;
   }
 
-  handle->m_metadata.gamma = gamma;
+  handle->m_gamma = gamma;
 
   return status;
 }
@@ -932,7 +932,7 @@ uhdr_error_info_t uhdr_encode(uhdr_codec_private_t* enc) {
     ultrahdr::JpegR jpegr(handle->m_gainmap_scale_factor,
                           handle->m_quality.find(UHDR_GAIN_MAP_IMG)->second,
                           handle->m_use_multi_channel_gainmap,
-                          handle->m_metadata.gamma);
+                          handle->m_gamma);
     if (handle->m_compressed_images.find(UHDR_BASE_IMG) != handle->m_compressed_images.end() &&
         handle->m_compressed_images.find(UHDR_GAIN_MAP_IMG) != handle->m_compressed_images.end()) {
       auto& base_entry = handle->m_compressed_images.find(UHDR_BASE_IMG)->second;
@@ -1026,6 +1026,7 @@ void uhdr_reset_encoder(uhdr_codec_private_t* enc) {
     handle->m_output_format = UHDR_CODEC_JPG;
     handle->m_gainmap_scale_factor = ultrahdr::kMapDimensionScaleFactorDefault;
     handle->m_use_multi_channel_gainmap = ultrahdr::kUseMultiChannelGainMapDefault;
+    handle->m_gamma = ultrahdr::kGainMapGammaDefault;
 
     handle->m_sailed = false;
     handle->m_compressed_output_buffer.reset();
