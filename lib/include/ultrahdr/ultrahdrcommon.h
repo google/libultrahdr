@@ -264,6 +264,7 @@ struct uhdr_encoder_private : uhdr_codec_private {
   uhdr_codec_t m_output_format;
   int m_gainmap_scale_factor;
   bool m_use_multi_channel_gainmap;
+  float m_gamma;
 
   // internal data
   bool m_sailed;
