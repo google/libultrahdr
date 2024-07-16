@@ -1268,6 +1268,7 @@ static void usage(const char* name) {
   fprintf(stderr,
           "    -Q    quality factor to be used while encoding gain map image, optional. [0-100], "
           "85 : default. \n");
+  fprintf(stderr, "    -G    gamma value for calculating gain map, float type. 1.0: default.\n");
   fprintf(
       stderr,
       "    -M    enable / disable multi channel gain map, optional. [0:no (default), 1:yes]. \n");
