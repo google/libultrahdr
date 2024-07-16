@@ -590,12 +590,12 @@ uint8_t encodeGain(float y_sdr, float y_hdr, uhdr_gainmap_metadata_ext_t* metada
     gain = y_hdr / y_sdr;
   }
 
-  float log2_normalized_gamma_gain = metadata->gamma * log2(gain);
-  log2_normalized_gamma_gain = fmin(log2_normalized_gamma_gain, log2MaxContentBoost);
-  log2_normalized_gamma_gain = fmax(log2_normalized_gamma_gain, log2MinContentBoost);
-
-  return static_cast<uint8_t>((log2_normalized_gamma_gain - log2MinContentBoost) /
-                              (log2MaxContentBoost - log2MinContentBoost) * 255.0f);
+  if (gain < metadata->min_content_boost) gain = metadata->min_content_boost;
+  if (gain > metadata->max_content_boost) gain = metadata->max_content_boost;
+  float gain_normalized =
+      (log2(gain) - log2MinContentBoost) / (log2MaxContentBoost - log2MinContentBoost);
+  float gain_normalized_gamma = powf(gain_normalized, metadata->gamma);
+  return static_cast<uint8_t>(gain_normalized_gamma * 255.0f);
 }
 
 Color applyGain(Color e, float gain, uhdr_gainmap_metadata_ext_t* metadata) {
