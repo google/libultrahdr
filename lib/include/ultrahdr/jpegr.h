@@ -77,7 +77,7 @@ class JpegR {
         size_t mapDimensionScaleFactor = kMapDimensionScaleFactorDefault,
         int mapCompressQuality = kMapCompressQualityDefault,
         bool useMultiChannelGainMap = kUseMultiChannelGainMapDefault,
-        float gamma = kGainMapGammaDefault);
+        float gamma = kGainMapGammaDefault, uhdr_enc_preset_t preset = UHDR_USAGE_REALTIME);
 
   /*!\brief Encode API-0.
    *
@@ -571,6 +571,7 @@ class JpegR {
   int mMapCompressQuality;          // gain map quality factor
   bool mUseMultiChannelGainMap;     // enable multichannel gain map
   float mGamma;                     // gain map gamma parameter
+  uhdr_enc_preset_t mEncPreset;     // encoding speed preset
 };
 
 struct GlobalTonemapOutputs {

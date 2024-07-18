@@ -194,7 +194,7 @@ struct GainLUT {
 
   GainLUT(uhdr_gainmap_metadata_ext_t* metadata, float displayBoost) {
     this->mGammaInv = 1.0f / metadata->gamma;
-    float boostFactor = displayBoost > 0 ? displayBoost / metadata->max_content_boost : 1.0f;
+    float boostFactor = displayBoost > 0 ? displayBoost / metadata->hdr_capacity_max : 1.0f;
     for (int32_t idx = 0; idx < kGainFactorNumEntries; idx++) {
       float value = static_cast<float>(idx) / static_cast<float>(kGainFactorNumEntries - 1);
       float logBoost = log2(metadata->min_content_boost) * (1.0f - value) +
@@ -540,23 +540,17 @@ void transformYuv444(uhdr_raw_image_t* image, const std::array<float, 9>& coeffs
 
 /*
  * Calculate the 8-bit unsigned integer gain value for the given SDR and HDR
- * luminances in linear space, and the hdr ratio to encode against.
- *
- * Note: since this library always uses gamma of 1.0, offsetSdr of 0.0, and
- * offsetHdr of 0.0, this function doesn't handle different metadata values for
- * these fields.
+ * luminances in linear space and gainmap metadata fields.
  */
 uint8_t encodeGain(float y_sdr, float y_hdr, uhdr_gainmap_metadata_ext_t* metadata);
 uint8_t encodeGain(float y_sdr, float y_hdr, uhdr_gainmap_metadata_ext_t* metadata,
                    float log2MinContentBoost, float log2MaxContentBoost);
+float computeGain(float sdr, float hdr);
+uint8_t affineMapGain(float gainlog2, float mingainlog2, float maxgainlog2, float gamma);
 
 /*
  * Calculates the linear luminance in nits after applying the given gain
  * value, with the given hdr ratio, to the given sdr input in the range [0, 1].
- *
- * Note: similar to encodeGain(), this function only supports gamma 1.0,
- * offsetSdr 0.0, offsetHdr 0.0, hdrCapacityMin 1.0, and hdrCapacityMax equal to
- * gainMapMax, as this library encodes.
  */
 Color applyGain(Color e, float gain, uhdr_gainmap_metadata_ext_t* metadata);
 Color applyGain(Color e, float gain, uhdr_gainmap_metadata_ext_t* metadata, float displayBoost);
@@ -565,10 +559,6 @@ Color applyGainLUT(Color e, float gain, GainLUT& gainLUT);
 /*
  * Apply gain in R, G and B channels, with the given hdr ratio, to the given sdr input
  * in the range [0, 1].
- *
- * Note: similar to encodeGain(), this function only supports gamma 1.0,
- * offsetSdr 0.0, offsetHdr 0.0, hdrCapacityMin 1.0, and hdrCapacityMax equal to
- * gainMapMax, as this library encodes.
  */
 Color applyGain(Color e, Color gain, uhdr_gainmap_metadata_ext_t* metadata);
 Color applyGain(Color e, Color gain, uhdr_gainmap_metadata_ext_t* metadata, float displayBoost);

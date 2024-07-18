@@ -115,6 +115,12 @@ typedef enum uhdr_img_label {
   UHDR_GAIN_MAP_IMG, /**< Gain map image */
 } uhdr_img_label_t;  /**< alias for enum uhdr_img_label */
 
+/*!\brief uhdr encoder usage parameter */
+typedef enum uhdr_enc_preset {
+  UHDR_USAGE_REALTIME,     /**< real time preset */
+  UHDR_USAGE_BEST_QUALITY, /**< best encoding quality preset */
+} uhdr_enc_preset_t;       /**< alias for enum uhdr_img_label */
+
 /*!\brief Algorithm return codes */
 typedef enum uhdr_codec_err {
 
@@ -351,6 +357,17 @@ UHDR_EXTERN uhdr_error_info_t uhdr_enc_set_gainmap_scale_factor(uhdr_codec_priva
  *                           #UHDR_CODEC_INVALID_PARAM otherwise.
  */
 UHDR_EXTERN uhdr_error_info_t uhdr_enc_set_gainmap_gamma(uhdr_codec_private_t* enc, float gamma);
+
+/*!\brief Set encoding preset. Tunes the encoder configurations for performance or quality.
+ *
+ * \param[in]  enc  encoder instance.
+ * \param[in]  preset  encoding preset
+ *
+ * \return uhdr_error_info_t #UHDR_CODEC_OK if operation succeeds,
+ *                           #UHDR_CODEC_INVALID_PARAM otherwise.
+ */
+UHDR_EXTERN uhdr_error_info_t uhdr_enc_set_preset(uhdr_codec_private_t* enc,
+                                                  uhdr_enc_preset_t preset);
 
 /*!\brief Set output image compression format.
  *
