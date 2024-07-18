@@ -490,7 +490,7 @@ SamplePixelFn getSamplePixelFn(uhdr_img_fmt_t format) {
 float getMaxDisplayMasteringLuminance(uhdr_color_transfer_t transfer) {
   switch (transfer) {
     case UHDR_CT_LINEAR:
-      // TODO: configure maxCLL correctly for linear tf
+      // TODO: configure MDML correctly for linear tf
       return kHlgMaxNits;
     case UHDR_CT_HLG:
       return kHlgMaxNits;
@@ -647,6 +647,22 @@ uint8_t encodeGain(float y_sdr, float y_hdr, uhdr_gainmap_metadata_ext_t* metada
   return static_cast<uint8_t>(gain_normalized_gamma * 255.0f);
 }
 
+float computeGain(float sdr, float hdr) {
+  if (sdr == 0.0f) return 0.0f;  // for sdr black return no gain
+  if (hdr == 0.0f) {  // for hdr black, return a gain large enough to attenuate the sdr pel
+    float offset = (1.0f / 64);
+    return log2(offset / (offset + sdr));
+  }
+  return log2(hdr / sdr);
+}
+
+uint8_t affineMapGain(float gainlog2, float mingainlog2, float maxgainlog2, float gamma) {
+  float mappedVal = (gainlog2 - mingainlog2) / (maxgainlog2 - mingainlog2);
+  if (gamma != 1.0f) mappedVal = pow(mappedVal, gamma);
+  mappedVal *= 255;
+  return CLIP3(mappedVal + 0.5f, 0, 255);
+}
+
 Color applyGain(Color e, float gain, uhdr_gainmap_metadata_ext_t* metadata) {
   gain = pow(gain, 1.0f / metadata->gamma);
   float logBoost =
@@ -659,7 +675,7 @@ Color applyGain(Color e, float gain, uhdr_gainmap_metadata_ext_t* metadata, floa
   gain = pow(gain, 1.0f / metadata->gamma);
   float logBoost =
       log2(metadata->min_content_boost) * (1.0f - gain) + log2(metadata->max_content_boost) * gain;
-  float gainFactor = exp2(logBoost * displayBoost / metadata->max_content_boost);
+  float gainFactor = exp2(logBoost * displayBoost / metadata->hdr_capacity_max);
   return e * gainFactor;
 }
 
@@ -694,9 +710,9 @@ Color applyGain(Color e, Color gain, uhdr_gainmap_metadata_ext_t* metadata, floa
                     log2(metadata->max_content_boost) * gain.g;
   float logBoostB = log2(metadata->min_content_boost) * (1.0f - gain.b) +
                     log2(metadata->max_content_boost) * gain.b;
-  float gainFactorR = exp2(logBoostR * displayBoost / metadata->max_content_boost);
-  float gainFactorG = exp2(logBoostG * displayBoost / metadata->max_content_boost);
-  float gainFactorB = exp2(logBoostB * displayBoost / metadata->max_content_boost);
+  float gainFactorR = exp2(logBoostR * displayBoost / metadata->hdr_capacity_max);
+  float gainFactorG = exp2(logBoostG * displayBoost / metadata->hdr_capacity_max);
+  float gainFactorB = exp2(logBoostB * displayBoost / metadata->hdr_capacity_max);
   return {{{e.r * gainFactorR, e.g * gainFactorG, e.b * gainFactorB}}};
 }
 

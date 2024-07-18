@@ -113,6 +113,9 @@ void UltraHdrEncFuzzer::process() {
     // gainmap scale factor
     auto gm_scale_factor = mFdp.ConsumeIntegralInRange<int>(1, 128);
 
+    // encoding speed preset
+    auto enc_preset = static_cast<uhdr_enc_preset_t>(mFdp.ConsumeIntegralInRange<int>(0, 1));
+
     std::unique_ptr<uint32_t[]> bufferHdr = nullptr;
     std::unique_ptr<uint16_t[]> bufferYHdr = nullptr;
     std::unique_ptr<uint16_t[]> bufferUVHdr = nullptr;
@@ -265,6 +268,7 @@ void UltraHdrEncFuzzer::process() {
     ON_ERR(uhdr_enc_set_quality(enc_handle, gainmap_quality, UHDR_GAIN_MAP_IMG))
     ON_ERR(uhdr_enc_set_gainmap_scale_factor(enc_handle, gm_scale_factor))
     ON_ERR(uhdr_enc_set_using_multi_channel_gainmap(enc_handle, multi_channel_gainmap))
+    ON_ERR(uhdr_enc_set_preset(enc_handle, enc_preset))
 
     uhdr_error_info_t status = {UHDR_CODEC_OK, 0, ""};
     if (muxSwitch == 0 || muxSwitch == 1) {  // api 0 or api 1
