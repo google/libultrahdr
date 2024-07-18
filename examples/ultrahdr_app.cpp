@@ -1450,12 +1450,12 @@ int main(int argc, char* argv[]) {
     }
   }
   if (mode == 0) {
-    if (width <= 0) {
+    if (width <= 0 && gainmap_metadata_cfg_file == nullptr) {
       std::cerr << "did not receive valid image width for encoding. width :  " << width
                 << std::endl;
       return -1;
     }
-    if (height <= 0) {
+    if (height <= 0 && gainmap_metadata_cfg_file == nullptr) {
       std::cerr << "did not receive valid image height for encoding. height :  " << height
                 << std::endl;
       return -1;
