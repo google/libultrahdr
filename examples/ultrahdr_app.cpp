@@ -1001,7 +1001,7 @@ bool UltraHdrAppInput::convertRgba1010102ToYUV444Image() {
       } else {
         y = (y * 876.0f) + 64.0f + 0.5f;
         u = (u * 896.0f) + 512.0f + 0.5f;
-         v = (v * 896.0f) + 512.0f + 0.5f;
+        v = (v * 896.0f) + 512.0f + 0.5f;
 
         y = CLIP3(y, 64.0f, 940.0f);
         u = CLIP3(u, 64.0f, 960.0f);
@@ -1235,45 +1235,50 @@ static void usage(const char* name) {
   fprintf(stderr, "    -m    mode of operation. [0:encode, 1:decode] \n");
   fprintf(stderr, "\n## encoder options : \n");
   fprintf(stderr,
-          "    -p    raw 10 bit input resource, required for encoding scenarios 0, 1, 2, 3. \n");
-  fprintf(stderr, "    -y    raw 8 bit input resource, required for encoding scenarios 1, 2. \n");
-  fprintf(stderr,
-          "    -a    raw 10 bit input resource color format, optional. [0:p010, 5:rgba1010102 "
-          "(default)] \n");
-  fprintf(stderr,
-          "    -b    raw 8 bit input resource color format, optional. [1:yuv420, 3:rgba8888 "
-          "(default)] \n");
-  fprintf(stderr,
-          "    -i    compressed 8 bit jpeg file path, required for encoding scenarios 2, 3, 4. \n");
-  fprintf(stderr,
-          "    -g    compressed 8 bit gainmap file path, required for encoding scenario 4. \n");
-  fprintf(stderr, "    -f    gainmap metadata config file, required for encoding scenario 4. \n");
-  fprintf(stderr, "    -w    input file width. \n");
-  fprintf(stderr, "    -h    input file height. \n");
-  fprintf(stderr,
-          "    -C    10 bit input color gamut, optional. [0:bt709, 1:p3 (default), 2:bt2100] \n");
-  fprintf(stderr,
-          "    -c    8 bit input color gamut, optional. [0:bt709 (default), 1:p3, 2:bt2100] \n");
+          "    -p    raw hdr intent input resource (10-bit), required for encoding scenarios 0, 1, "
+          "2, 3. \n");
   fprintf(
       stderr,
-      "    -t    10 bit input transfer function, optional. [0:linear, 1:hlg (default), 2:pq] \n");
+      "    -y    raw sdr intent input resource (8-bit), required for encoding scenarios 1, 2. \n");
   fprintf(stderr,
-          "    -q    quality factor to be used while encoding 8 bit image, optional. [0-100], 95 : "
+          "    -a    raw hdr intent color format, optional. [0:p010, 5:rgba1010102 (default)] \n");
+  fprintf(stderr,
+          "    -b    raw sdr intent color format, optional. [1:yuv420, 3:rgba8888 (default)] \n");
+  fprintf(stderr,
+          "    -i    compressed sdr intent input resource (jpeg), required for encoding scenarios "
+          "2, 3, 4. \n");
+  fprintf(
+      stderr,
+      "    -g    compressed gainmap input resource (jpeg), required for encoding scenario 4. \n");
+  fprintf(stderr, "    -f    gainmap metadata config file, required for encoding scenario 4. \n");
+  fprintf(stderr, "    -w    input file width, required for encoding scenarios 0, 1, 2, 3. \n");
+  fprintf(stderr, "    -h    input file height, required for encoding scenarios 0, 1, 2, 3. \n");
+  fprintf(stderr,
+          "    -C    hdr intent color gamut, optional. [0:bt709, 1:p3 (default), 2:bt2100] \n");
+  fprintf(stderr,
+          "    -c    sdr intent color gamut, optional. [0:bt709 (default), 1:p3, 2:bt2100] \n");
+  fprintf(stderr,
+          "    -t    hdr intent color transfer, optional. [0:linear, 1:hlg (default), 2:pq] \n");
+  fprintf(stderr,
+          "    -q    quality factor to be used while encoding sdr intent, optional. [0-100], 95 : "
           "default.\n");
   fprintf(stderr, "    -e    compute psnr, optional. [0:no (default), 1:yes] \n");
   fprintf(stderr,
-          "    -R    color range for hdr intent, optional. [0:narrow-range (default), "
+          "    -R    color range of hdr intent, optional. [0:narrow-range (default), "
           "1:full-range]. \n");
-  fprintf(stderr, "    -s    gain map scale factor, optional. [factor > 0 (4 : default)]. \n");
+  fprintf(
+      stderr,
+      "    -s    gainmap image downsample factor, optional. [positive integer (4 : default)]. \n");
   fprintf(stderr,
           "    -Q    quality factor to be used while encoding gain map image, optional. [0-100], "
           "85 : default. \n");
-  fprintf(stderr, "    -G    gamma value for calculating gain map, float type. 1.0: default.\n");
-  fprintf(
-      stderr,
-      "    -M    enable / disable multi channel gain map, optional. [0:no (default), 1:yes]. \n");
+  fprintf(stderr,
+          "    -G    gamma correction to be applied on the gainmap image, optional. [positive real "
+          "number (1.0 : default)].\n");
+  fprintf(stderr,
+          "    -M    select multi channel gain map, optional. [0:disable (default), 1:enable]. \n");
   fprintf(stderr, "\n## decoder options : \n");
-  fprintf(stderr, "    -j    ultra hdr compressed input resource. \n");
+  fprintf(stderr, "    -j    ultra hdr compressed input resource, required. \n");
   fprintf(
       stderr,
       "    -o    output transfer function, optional. [0:linear, 1:hlg (default), 2:pq, 3:srgb] \n");
@@ -1337,6 +1342,11 @@ static void usage(const char* name) {
   fprintf(stderr,
           "    ultrahdr_app -m 0 -i cosmat_1920x1080_420_8bit.jpg -g cosmat_1920x1080_420_8bit.jpg "
           "-f metadata.cfg\n");
+  fprintf(stderr, "\n## encode at high quality :\n");
+  fprintf(stderr,
+          "    ultrahdr_app -m 0 -p hdr_intent.raw -y sdr_intent.raw -w 640 -h 480 -c <select> -C "
+          "<select> -t <select> -s 1 -M 1 -Q 98 -q 98\n");
+
   fprintf(stderr, "\n## decode api :\n");
   fprintf(stderr, "    ultrahdr_app -m 1 -j cosmat_1920x1080_hdr.jpg \n");
   fprintf(stderr, "    ultrahdr_app -m 1 -j cosmat_1920x1080_hdr.jpg -o 3 -O 3\n");
