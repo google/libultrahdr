@@ -294,9 +294,7 @@ class JpegR {
    *
    * \return none
    */
-  void setGainMapGamma(int gamma) {
-    this->mGamma = gamma;
-  }
+  void setGainMapGamma(float gamma) { this->mGamma = gamma; }
 
   /*!\brief get gain map gamma
    *
@@ -304,7 +302,7 @@ class JpegR {
    *
    * \return gamma parameter
    */
-  int getGainMapGamma() { return this->mGamma; }
+  float getGainMapGamma() { return this->mGamma; }
 
   /*!\brief enable / disable multi channel gain map
    *
