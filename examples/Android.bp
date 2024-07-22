@@ -38,4 +38,12 @@ cc_binary {
         "libjpegencoder",
         "libultrahdr",
     ],
+    target: {
+        android: {
+            shared_libs: [
+                "libEGL",
+                "libGLESv3",
+            ],
+        },
+    },
 }

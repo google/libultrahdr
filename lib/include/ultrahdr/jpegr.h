@@ -79,10 +79,14 @@ typedef struct jpegr_info_struct* jr_info_ptr;
 
 class JpegR {
  public:
-  JpegR(size_t mapDimensionScaleFactor = kMapDimensionScaleFactorDefault,
-        int mapCompressQuality = kMapCompressQualityDefault,
-        bool useMultiChannelGainMap = kUseMultiChannelGainMapDefault,
-        float gamma = kGainMapGammaDefault);
+  JpegR(
+#ifdef UHDR_ENABLE_GLES
+      uhdr_opengl_ctxt_t* uhdrGLESCtxt = nullptr,
+#endif
+      size_t mapDimensionScaleFactor = kMapDimensionScaleFactorDefault,
+      int mapCompressQuality = kMapCompressQualityDefault,
+      bool useMultiChannelGainMap = kUseMultiChannelGainMapDefault,
+      float gamma = kGainMapGammaDefault);
 
   /*!\brief Encode API-0.
    *
@@ -571,10 +575,13 @@ class JpegR {
                                   int quality);
 
   // Configurations
-  size_t     mMapDimensionScaleFactor;  // gain map scale factor
-  int        mMapCompressQuality;       // gain map quality factor
-  bool       mUseMultiChannelGainMap;   // enable multichannel gain map
-  float      mGamma;                    // gain map gamma parameter
+#ifdef UHDR_ENABLE_GLES
+  uhdr_opengl_ctxt_t* mUhdrGLESCtxt;  // opengl es context
+#endif
+  size_t mMapDimensionScaleFactor;  // gain map scale factor
+  int mMapCompressQuality;          // gain map quality factor
+  bool mUseMultiChannelGainMap;     // enable multichannel gain map
+  float mGamma;                     // gain map gamma parameter
 };
 
 struct GlobalTonemapOutputs {
