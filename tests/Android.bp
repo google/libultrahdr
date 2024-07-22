@@ -44,6 +44,15 @@ cc_test {
         "libjpegencoder",
         "libultrahdr",
     ],
+    target: {
+        android: {
+            cflags: ["-DUHDR_ENABLE_GLES"],
+            shared_libs: [
+                "libEGL",
+                "libGLESv3",
+            ],
+        },
+    },
     data: [
         "./data/*.*",
     ],

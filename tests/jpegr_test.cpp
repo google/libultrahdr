@@ -2203,6 +2203,9 @@ class Profiler {
 
 class JpegRBenchmark : public JpegR {
  public:
+#ifdef UHDR_ENABLE_GLES
+  JpegRBenchmark(uhdr_opengl_ctxt_t* uhdrGLCtxt) : JpegR(uhdrGLCtxt) {}
+#endif
   void BenchmarkGenerateGainMap(uhdr_raw_image_t* yuv420Image, uhdr_raw_image_t* p010Image,
                                 uhdr_gainmap_metadata_ext_t* metadata,
                                 std::unique_ptr<uhdr_raw_image_ext_t>& gainmap);
@@ -2304,7 +2307,14 @@ TEST(JpegRTest, ProfileGainMapFuncs) {
 
   std::unique_ptr<uhdr_raw_image_ext_t> gainmap;
 
+#ifdef UHDR_ENABLE_GLES
+  uhdr_opengl_ctxt_t glCtxt;
+  glCtxt.init_opengl_ctxt();
+  JpegRBenchmark benchmark(glCtxt.mErrorStatus.error_code == UHDR_CODEC_OK ? &glCtxt : nullptr);
+#else
   JpegRBenchmark benchmark;
+#endif
+
   ASSERT_NO_FATAL_FAILURE(
       benchmark.BenchmarkGenerateGainMap(&sdr_intent, &hdr_intent, &metadata, gainmap));
 
@@ -2326,6 +2336,10 @@ TEST(JpegRTest, ProfileGainMapFuncs) {
 
   ASSERT_NO_FATAL_FAILURE(
       benchmark.BenchmarkApplyGainMap(&sdr_intent, gainmap.get(), &metadata, &output));
+
+#ifdef UHDR_ENABLE_GLES
+  glCtxt.delete_opengl_ctxt();
+#endif
 }
 
 }  // namespace ultrahdr

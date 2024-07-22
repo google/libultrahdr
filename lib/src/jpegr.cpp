@@ -44,6 +44,15 @@ using namespace photos_editing_formats::image_io;
 
 namespace ultrahdr {
 
+#ifdef UHDR_ENABLE_GLES
+bool isBufferDataContiguous(uhdr_raw_image_t* img);
+
+uhdr_error_info_t applyGainMapGLES(uhdr_raw_image_t* sdr_intent, uhdr_raw_image_t* gainmap_img,
+                                   uhdr_gainmap_metadata_ext_t* gainmap_metadata,
+                                   uhdr_color_transfer_t output_ct, float display_boost,
+                                   uhdr_raw_image_t* dest, uhdr_opengl_ctxt_t* opengl_ctxt);
+#endif
+
 // Gain map metadata
 static const bool kWriteXmpMetadata = true;
 static const bool kWriteIso21496_1Metadata = false;
@@ -138,8 +147,15 @@ int GetCPUCoreCount() {
   return cpuCoreCount;
 }
 
-JpegR::JpegR(size_t mapDimensionScaleFactor, int mapCompressQuality, bool useMultiChannelGainMap,
-             float gamma) {
+JpegR::JpegR(
+#ifdef UHDR_ENABLE_GLES
+    uhdr_opengl_ctxt_t* uhdrGLESCtxt,
+#endif
+    size_t mapDimensionScaleFactor, int mapCompressQuality, bool useMultiChannelGainMap,
+    float gamma) {
+#ifdef UHDR_ENABLE_GLES
+  mUhdrGLESCtxt = uhdrGLESCtxt;
+#endif
   mMapDimensionScaleFactor = mapDimensionScaleFactor;
   mMapCompressQuality = mapCompressQuality;
   mUseMultiChannelGainMap = useMultiChannelGainMap;
@@ -1122,6 +1138,24 @@ uhdr_error_info_t JpegR::applyGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_ima
              gainmap_img->fmt);
     return status;
   }
+
+#ifdef UHDR_ENABLE_GLES
+  if (mUhdrGLESCtxt != nullptr) {
+    if (((sdr_intent->fmt == UHDR_IMG_FMT_12bppYCbCr420 && sdr_intent->w % 2 == 0 &&
+          sdr_intent->h % 2 == 0) ||
+         (sdr_intent->fmt == UHDR_IMG_FMT_16bppYCbCr422 && sdr_intent->w % 2 == 0) ||
+         (sdr_intent->fmt == UHDR_IMG_FMT_24bppYCbCr444)) &&
+        isBufferDataContiguous(sdr_intent) && isBufferDataContiguous(gainmap_img) &&
+        isBufferDataContiguous(dest)) {
+      // TODO: both inputs and outputs of GLES implementation assumes that raw image is contiguous
+      // and without strides. If not, handle the same by using temp copy
+      float display_boost = (std::min)(max_display_boost, gainmap_metadata->hdr_capacity_max);
+
+      return applyGainMapGLES(sdr_intent, gainmap_img, gainmap_metadata, output_ct, display_boost,
+                              dest, mUhdrGLESCtxt);
+    }
+  }
+#endif
 
   {
     float primary_aspect_ratio = (float)sdr_intent->w / sdr_intent->h;

@@ -35,4 +35,13 @@ cc_benchmark {
         "libjpeg",
         "liblog",
     ],
+    target: {
+        android: {
+            cflags: ["-DUHDR_ENABLE_GLES"],
+            shared_libs: [
+                "libEGL",
+                "libGLESv3",
+            ],
+        },
+    },
 }

@@ -68,6 +68,20 @@ jobs:
             build-system: cmake
             cmake-opts: '-G "Visual Studio 17 2022" -DUHDR_BUILD_TESTS=1 -DUHDR_ENABLE_INSTALL=0 -DUHDR_BUILD_DEPS=1 -DUHDR_BUILD_FUZZERS=0'
 
+          - name: ubuntu-latest-gcc-cmake-nogles
+            os: ubuntu-latest
+            cc: gcc
+            cxx: g++
+            build-system: cmake
+            cmake-opts: '-DUHDR_BUILD_TESTS=1 -DUHDR_ENABLE_INSTALL=0 -DUHDR_BUILD_FUZZERS=0 -DUHDR_ENABLE_GLES=0'
+
+          - name: windows-latest-vs-cmake-nogles
+            os: windows-latest
+            cc: clang
+            cxx: clang++
+            build-system: cmake
+            cmake-opts: '-G "Visual Studio 17 2022" -DUHDR_BUILD_TESTS=1 -DUHDR_ENABLE_INSTALL=0 -DUHDR_BUILD_DEPS=1 -DUHDR_BUILD_FUZZERS=0 -DUHDR_ENABLE_GLES=0'
+
     runs-on: ${{ matrix.os }}
 
     steps:
