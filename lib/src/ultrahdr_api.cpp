@@ -1011,6 +1011,7 @@ void uhdr_reset_encoder(uhdr_codec_private_t* enc) {
     // clear entries and restore defaults
     for (auto it : handle->m_effects) delete it;
     handle->m_effects.clear();
+    handle->m_sailed = false;
     handle->m_raw_images.clear();
     handle->m_compressed_images.clear();
     handle->m_quality.clear();
@@ -1024,7 +1025,6 @@ void uhdr_reset_encoder(uhdr_codec_private_t* enc) {
     handle->m_use_multi_channel_gainmap = ultrahdr::kUseMultiChannelGainMapDefault;
     handle->m_gamma = ultrahdr::kGainMapGammaDefault;
 
-    handle->m_sailed = false;
     handle->m_compressed_output_buffer.reset();
     handle->m_encode_call_status = g_no_error;
 #ifdef UHDR_ENABLE_OPENGL
@@ -1456,6 +1456,7 @@ void uhdr_reset_decoder(uhdr_codec_private_t* dec) {
     // clear entries and restore defaults
     for (auto it : handle->m_effects) delete it;
     handle->m_effects.clear();
+    handle->m_sailed = false;
     handle->m_uhdr_compressed_img.reset();
     handle->m_output_fmt = UHDR_IMG_FMT_64bppRGBAHalfFloat;
     handle->m_output_ct = UHDR_CT_LINEAR;
@@ -1463,7 +1464,6 @@ void uhdr_reset_decoder(uhdr_codec_private_t* dec) {
 
     // ready to be configured
     handle->m_probed = false;
-    handle->m_sailed = false;
     handle->m_decoded_img_buffer.reset();
     handle->m_gainmap_img_buffer.reset();
     handle->m_img_wd = 0;
@@ -1504,6 +1504,16 @@ uhdr_error_info_t uhdr_add_effect_mirror(uhdr_codec_private_t* codec,
     return status;
   }
 
+  if (codec->m_sailed) {
+    status.error_code = UHDR_CODEC_INVALID_OPERATION;
+    status.has_detail = 1;
+    snprintf(
+        status.detail, sizeof status.detail,
+        "An earlier call to uhdr_encode()/uhdr_decode() has switched the context from configurable "
+        "state to end state. The context is no longer configurable. To reuse, call reset()");
+    return status;
+  }
+
   codec->m_effects.push_back(new ultrahdr::uhdr_mirror_effect_t(direction));
 
   return status;
@@ -1527,6 +1537,16 @@ uhdr_error_info_t uhdr_add_effect_rotate(uhdr_codec_private_t* codec, int degree
     return status;
   }
 
+  if (codec->m_sailed) {
+    status.error_code = UHDR_CODEC_INVALID_OPERATION;
+    status.has_detail = 1;
+    snprintf(
+        status.detail, sizeof status.detail,
+        "An earlier call to uhdr_encode()/uhdr_decode() has switched the context from configurable "
+        "state to end state. The context is no longer configurable. To reuse, call reset()");
+    return status;
+  }
+
   codec->m_effects.push_back(new ultrahdr::uhdr_rotate_effect_t(degrees));
 
   return status;
@@ -1543,6 +1563,16 @@ uhdr_error_info_t uhdr_add_effect_crop(uhdr_codec_private_t* codec, int left, in
     return status;
   }
 
+  if (codec->m_sailed) {
+    status.error_code = UHDR_CODEC_INVALID_OPERATION;
+    status.has_detail = 1;
+    snprintf(
+        status.detail, sizeof status.detail,
+        "An earlier call to uhdr_encode()/uhdr_decode() has switched the context from configurable "
+        "state to end state. The context is no longer configurable. To reuse, call reset()");
+    return status;
+  }
+
   codec->m_effects.push_back(new ultrahdr::uhdr_crop_effect_t(left, right, top, bottom));
 
   return status;
@@ -1555,6 +1585,16 @@ uhdr_error_info_t uhdr_add_effect_resize(uhdr_codec_private_t* codec, int width,
     status.error_code = UHDR_CODEC_INVALID_PARAM;
     status.has_detail = 1;
     snprintf(status.detail, sizeof status.detail, "received nullptr for uhdr codec instance");
+    return status;
+  }
+
+  if (codec->m_sailed) {
+    status.error_code = UHDR_CODEC_INVALID_OPERATION;
+    status.has_detail = 1;
+    snprintf(
+        status.detail, sizeof status.detail,
+        "An earlier call to uhdr_encode()/uhdr_decode() has switched the context from configurable "
+        "state to end state. The context is no longer configurable. To reuse, call reset()");
     return status;
   }
 
