@@ -678,6 +678,9 @@ Color applyGainLUT(Color e, float gain, GainLUT& gainLUT) {
 }
 
 Color applyGain(Color e, Color gain, uhdr_gainmap_metadata_ext_t* metadata) {
+  gain.r = pow(gain.r, 1.0f / metadata->gamma);
+  gain.g = pow(gain.g, 1.0f / metadata->gamma);
+  gain.b = pow(gain.b, 1.0f / metadata->gamma);
   float logBoostR = log2(metadata->min_content_boost) * (1.0f - gain.r) +
                     log2(metadata->max_content_boost) * gain.r;
   float logBoostG = log2(metadata->min_content_boost) * (1.0f - gain.g) +
@@ -691,6 +694,9 @@ Color applyGain(Color e, Color gain, uhdr_gainmap_metadata_ext_t* metadata) {
 }
 
 Color applyGain(Color e, Color gain, uhdr_gainmap_metadata_ext_t* metadata, float displayBoost) {
+  gain.r = pow(gain.r, 1.0f / metadata->gamma);
+  gain.g = pow(gain.g, 1.0f / metadata->gamma);
+  gain.b = pow(gain.b, 1.0f / metadata->gamma);
   float logBoostR = log2(metadata->min_content_boost) * (1.0f - gain.r) +
                     log2(metadata->max_content_boost) * gain.r;
   float logBoostG = log2(metadata->min_content_boost) * (1.0f - gain.g) +
