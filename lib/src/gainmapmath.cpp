@@ -124,11 +124,11 @@ Color srgbInvOetfLUT(Color e_gamma) {
 }
 
 float srgbOetf(float e) {
-  constexpr float kThreshold = 0.00304;
+  constexpr float kThreshold = 0.0031308;
   constexpr float kLowSlope = 12.92;
   constexpr float kHighOffset = 0.055;
   constexpr float kPowerExponent = 1.0 / 2.4;
-  if (e < kThreshold) {
+  if (e <= kThreshold) {
     return kLowSlope * e;
   }
   return (1.0 + kHighOffset) * std::pow(e, kPowerExponent) - kHighOffset;
@@ -289,18 +289,9 @@ float pqOetfLUT(float e) {
 
 Color pqOetfLUT(Color e) { return {{{pqOetfLUT(e.r), pqOetfLUT(e.g), pqOetfLUT(e.b)}}}; }
 
-// Derived from the inverse of the Reference PQ OETF.
-static const float kPqInvA = 128.0f, kPqInvB = 107.0f, kPqInvC = 2413.0f, kPqInvD = 2392.0f,
-                   kPqInvE = 6.2773946361f, kPqInvF = 0.0126833f;
-
 float pqInvOetf(float e_gamma) {
-  // This equation blows up if e_gamma is 0.0, and checking on <= 0.0 doesn't
-  // always catch 0.0. So, check on 0.0001, since anything this small will
-  // effectively be crushed to zero anyways.
-  if (e_gamma <= 0.0001f) return 0.0f;
-  return pow(
-      (kPqInvA * pow(e_gamma, kPqInvF) - kPqInvB) / (kPqInvC - kPqInvD * pow(e_gamma, kPqInvF)),
-      kPqInvE);
+  float val = pow(e_gamma, (1 / kPqM2));
+  return pow((((std::max)(val - kPqC1, 0.0f)) / (kPqC2 - kPqC3 * val)), 1 / kPqM1);
 }
 
 Color pqInvOetf(Color e_gamma) {
