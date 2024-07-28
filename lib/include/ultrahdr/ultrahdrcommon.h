@@ -249,6 +249,7 @@ struct uhdr_codec_private {
 #ifdef UHDR_ENABLE_OPENGL
   ultrahdr::uhdr_opengl_ctxt_t m_uhdr_gl_ctxt;
 #endif
+  bool m_sailed;
 
   virtual ~uhdr_codec_private();
 };
@@ -267,7 +268,6 @@ struct uhdr_encoder_private : uhdr_codec_private {
   float m_gamma;
 
   // internal data
-  bool m_sailed;
   std::unique_ptr<ultrahdr::uhdr_compressed_image_ext_t> m_compressed_output_buffer;
   uhdr_error_info_t m_encode_call_status;
 };
@@ -281,7 +281,6 @@ struct uhdr_decoder_private : uhdr_codec_private {
 
   // internal data
   bool m_probed;
-  bool m_sailed;
   std::unique_ptr<ultrahdr::uhdr_raw_image_ext_t> m_decoded_img_buffer;
   std::unique_ptr<ultrahdr::uhdr_raw_image_ext_t> m_gainmap_img_buffer;
   int m_img_wd, m_img_ht;
