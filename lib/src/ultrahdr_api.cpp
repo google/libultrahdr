@@ -24,6 +24,14 @@
 #include "ultrahdr/jpegr.h"
 #include "ultrahdr/jpegrutils.h"
 
+#include "image_io/base/data_segment_data_source.h"
+#include "image_io/jpeg/jpeg_info.h"
+#include "image_io/jpeg/jpeg_info_builder.h"
+#include "image_io/jpeg/jpeg_marker.h"
+#include "image_io/jpeg/jpeg_scanner.h"
+
+using namespace photos_editing_formats::image_io;
+
 namespace ultrahdr {
 
 uhdr_memory_block::uhdr_memory_block(size_t capacity) {
@@ -367,10 +375,42 @@ uhdr_error_info_t uhdr_enc_validate_and_set_compressed_img(uhdr_codec_private_t*
     return status;
   }
 
+  std::shared_ptr<DataSegment> seg =
+      DataSegment::Create(DataRange(0, img->data_sz), static_cast<const uint8_t*>(img->data),
+                          DataSegment::BufferDispositionPolicy::kDontDelete);
+  DataSegmentDataSource data_source(seg);
+  JpegInfoBuilder jpeg_info_builder;
+  JpegScanner jpeg_scanner(nullptr);
+  jpeg_scanner.Run(&data_source, &jpeg_info_builder);
+  data_source.Reset();
+  if (jpeg_scanner.HasError()) {
+    status.error_code = UHDR_CODEC_INVALID_PARAM;
+    snprintf(status.detail, sizeof status.detail,
+             "received bad/corrupted jpeg image as part of input configuration");
+    return status;
+  }
+
+  const auto& image_ranges = jpeg_info_builder.GetInfo().GetImageRanges();
+  if (image_ranges.empty()) {
+    status.error_code = UHDR_CODEC_INVALID_PARAM;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "compressed image received as part of input config contains no valid jpeg images");
+    return status;
+  }
+
+  if (image_ranges.size() > 1) {
+    ALOGW(
+        "compressed image received as part of input config contains multiple jpeg images, "
+        "selecting first image for intent %d, rest are ignored",
+        intent);
+  }
+
   auto entry = std::make_unique<ultrahdr::uhdr_compressed_image_ext_t>(img->cg, img->ct, img->range,
-                                                                       img->data_sz);
-  memcpy(entry->data, img->data, img->data_sz);
-  entry->data_sz = img->data_sz;
+                                                                       image_ranges[0].GetLength());
+  memcpy(entry->data, static_cast<uint8_t*>(img->data) + image_ranges[0].GetBegin(),
+         image_ranges[0].GetLength());
+  entry->data_sz = image_ranges[0].GetLength();
   handle->m_compressed_images.insert_or_assign(intent, std::move(entry));
 
   return status;
