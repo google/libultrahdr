@@ -34,6 +34,17 @@ using namespace photos_editing_formats::image_io;
 
 namespace ultrahdr {
 
+// if max dimension is not defined, default to 8k resolution
+#ifndef UHDR_MAX_DIMENSION
+#define UHDR_MAX_DIMENSION 8192
+#endif
+static_assert(UHDR_MAX_DIMENSION >= (std::max)(kMinHeight, kMinWidth),
+              "configured UHDR_MAX_DIMENSION must be atleast max(minWidth, minHeight)");
+static_assert(UHDR_MAX_DIMENSION <= JPEG_MAX_DIMENSION,
+              "configured UHDR_MAX_DIMENSION must be <= JPEG_MAX_DIMENSION");
+const int kMaxWidth = UHDR_MAX_DIMENSION;
+const int kMaxHeight = UHDR_MAX_DIMENSION;
+
 uhdr_memory_block::uhdr_memory_block(size_t capacity) {
   m_buffer = std::make_unique<uint8_t[]>(capacity);
   m_capacity = capacity;

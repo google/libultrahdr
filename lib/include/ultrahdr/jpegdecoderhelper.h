@@ -39,11 +39,6 @@ extern "C" {
 
 namespace ultrahdr {
 
-// constraint on max width and max height is only due to device alloc constraints
-// can tune these values basing on the target device
-static const int kMaxWidth = 8192;
-static const int kMaxHeight = 8192;
-
 /*!\brief List of supported operations */
 typedef enum {
   PARSE_STREAM = (1 << 0),   /**< Parse jpeg header, APPn markers (Exif, Icc, Xmp, Iso) */
