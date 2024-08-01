@@ -236,7 +236,7 @@ uhdr_error_info_t JpegDecoderHelper::decode(const void* image, int length, decod
       jpeg_destroy_decompress(&cinfo);
       return status;
     }
-    if (cinfo.image_width > kMaxWidth || cinfo.image_height > kMaxHeight) {
+    if ((int)cinfo.image_width > kMaxWidth || (int)cinfo.image_height > kMaxHeight) {
       status.error_code = UHDR_CODEC_ERROR;
       status.has_detail = 1;
       snprintf(

@@ -1655,12 +1655,12 @@ status_t JpegR::areInputArgumentsValid(jr_uncompressed_ptr p010_image_ptr,
           p010_image_ptr->height);
     return ERROR_JPEGR_UNSUPPORTED_WIDTH_HEIGHT;
   }
-  if (p010_image_ptr->width < kMinWidth || p010_image_ptr->height < kMinHeight) {
+  if ((int)p010_image_ptr->width < kMinWidth || (int)p010_image_ptr->height < kMinHeight) {
     ALOGE("Image dimensions cannot be less than %dx%d, image dimensions %zux%zu", kMinWidth,
           kMinHeight, p010_image_ptr->width, p010_image_ptr->height);
     return ERROR_JPEGR_UNSUPPORTED_WIDTH_HEIGHT;
   }
-  if (p010_image_ptr->width > kMaxWidth || p010_image_ptr->height > kMaxHeight) {
+  if ((int)p010_image_ptr->width > kMaxWidth || (int)p010_image_ptr->height > kMaxHeight) {
     ALOGE("Image dimensions cannot be larger than %dx%d, image dimensions %zux%zu", kMaxWidth,
           kMaxHeight, p010_image_ptr->width, p010_image_ptr->height);
     return ERROR_JPEGR_UNSUPPORTED_WIDTH_HEIGHT;
