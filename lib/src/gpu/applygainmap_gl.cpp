@@ -20,7 +20,7 @@
 
 namespace ultrahdr {
 
-static const std::string applyGainMapVertexShader = R"__SHADER__(#version 300 es
+extern const std::string vertex_shader = R"__SHADER__(#version 300 es
   precision highp float;
 
   layout(location = 0) in vec4 aPos;
@@ -274,7 +274,7 @@ uhdr_error_info_t applyGainMapGLES(uhdr_raw_image_t* sdr_intent, uhdr_raw_image_
   }
 
   shaderProgram = opengl_ctxt->create_shader_program(
-      applyGainMapVertexShader.c_str(),
+      vertex_shader.c_str(),
       getApplyGainMapFragmentShader(sdr_intent->fmt, gainmap_img->fmt, output_ct).c_str());
   RET_IF_ERR()
 

@@ -217,20 +217,35 @@ uhdr_error_info_t apply_effects(uhdr_encoder_private* enc) {
 }
 
 uhdr_error_info_t apply_effects(uhdr_decoder_private* dec) {
+  void *gl_ctxt = nullptr, *disp_texture_ptr = nullptr, *gm_texture_ptr = nullptr;
+#ifdef UHDR_ENABLE_GLES
+  GLuint pm_texture = 0, gm_texture = 0;
+  if (dec->m_enable_gles) {
+    gl_ctxt = &dec->m_uhdr_gl_ctxt;
+    auto decoded_img = dec->m_decoded_img_buffer.get();
+    auto gainmap_img = dec->m_gainmap_img_buffer.get();
+    pm_texture = dec->m_uhdr_gl_ctxt.create_texture(decoded_img->fmt, decoded_img->w,
+                                                    decoded_img->h, decoded_img->planes[0]);
+    disp_texture_ptr = static_cast<void*>(&pm_texture);
+    gm_texture = dec->m_uhdr_gl_ctxt.create_texture(gainmap_img->fmt, gainmap_img->w,
+                                                    gainmap_img->h, gainmap_img->planes[0]);
+    gm_texture_ptr = static_cast<void*>(&gm_texture);
+  }
+#endif
   for (auto& it : dec->m_effects) {
     std::unique_ptr<ultrahdr::uhdr_raw_image_ext_t> disp_img = nullptr;
     std::unique_ptr<ultrahdr::uhdr_raw_image_ext_t> gm_img = nullptr;
 
     if (nullptr != dynamic_cast<uhdr_rotate_effect_t*>(it)) {
-      disp_img =
-          apply_rotate(dynamic_cast<uhdr_rotate_effect_t*>(it), dec->m_decoded_img_buffer.get());
-      gm_img =
-          apply_rotate(dynamic_cast<uhdr_rotate_effect_t*>(it), dec->m_gainmap_img_buffer.get());
+      disp_img = apply_rotate(dynamic_cast<uhdr_rotate_effect_t*>(it),
+                              dec->m_decoded_img_buffer.get(), gl_ctxt, disp_texture_ptr);
+      gm_img = apply_rotate(dynamic_cast<uhdr_rotate_effect_t*>(it),
+                            dec->m_gainmap_img_buffer.get(), gl_ctxt, gm_texture_ptr);
     } else if (nullptr != dynamic_cast<uhdr_mirror_effect_t*>(it)) {
-      disp_img =
-          apply_mirror(dynamic_cast<uhdr_mirror_effect_t*>(it), dec->m_decoded_img_buffer.get());
-      gm_img =
-          apply_mirror(dynamic_cast<uhdr_mirror_effect_t*>(it), dec->m_gainmap_img_buffer.get());
+      disp_img = apply_mirror(dynamic_cast<uhdr_mirror_effect_t*>(it),
+                              dec->m_decoded_img_buffer.get(), gl_ctxt, disp_texture_ptr);
+      gm_img = apply_mirror(dynamic_cast<uhdr_mirror_effect_t*>(it),
+                            dec->m_gainmap_img_buffer.get(), gl_ctxt, gm_texture_ptr);
     } else if (nullptr != dynamic_cast<uhdr_crop_effect_t*>(it)) {
       auto crop_effect = dynamic_cast<uhdr_crop_effect_t*>(it);
       uhdr_raw_image_t* disp = dec->m_decoded_img_buffer.get();
@@ -289,8 +304,9 @@ uhdr_error_info_t apply_effects(uhdr_decoder_private* dec) {
         return status;
       }
 
-      apply_crop(disp, left, top, right - left, bottom - top);
-      apply_crop(gm, gm_left, gm_top, (gm_right - gm_left), (gm_bottom - gm_top));
+      apply_crop(disp, left, top, right - left, bottom - top, gl_ctxt, disp_texture_ptr);
+      apply_crop(gm, gm_left, gm_top, (gm_right - gm_left), (gm_bottom - gm_top), gl_ctxt,
+                 gm_texture_ptr);
       continue;
     } else if (nullptr != dynamic_cast<uhdr_resize_effect_t*>(it)) {
       auto resize_effect = dynamic_cast<uhdr_resize_effect_t*>(it);
@@ -311,10 +327,12 @@ uhdr_error_info_t apply_effects(uhdr_decoder_private* dec) {
                  dst_w, dst_h, dst_gm_w, dst_gm_h);
         return status;
       }
-      disp_img = apply_resize(dynamic_cast<uhdr_resize_effect_t*>(it),
-                              dec->m_decoded_img_buffer.get(), dst_w, dst_h);
-      gm_img = apply_resize(dynamic_cast<uhdr_resize_effect_t*>(it),
-                            dec->m_gainmap_img_buffer.get(), dst_gm_w, dst_gm_h);
+      disp_img =
+          apply_resize(dynamic_cast<uhdr_resize_effect_t*>(it), dec->m_decoded_img_buffer.get(),
+                       dst_w, dst_h, gl_ctxt, disp_texture_ptr);
+      gm_img =
+          apply_resize(dynamic_cast<uhdr_resize_effect_t*>(it), dec->m_gainmap_img_buffer.get(),
+                       dst_gm_w, dst_gm_h, gl_ctxt, gm_texture_ptr);
     }
 
     if (disp_img == nullptr || gm_img == nullptr) {
@@ -328,7 +346,18 @@ uhdr_error_info_t apply_effects(uhdr_decoder_private* dec) {
     dec->m_decoded_img_buffer = std::move(disp_img);
     dec->m_gainmap_img_buffer = std::move(gm_img);
   }
-
+#ifdef UHDR_ENABLE_GLES
+  if (dec->m_enable_gles) {
+    auto decoded_img = dec->m_decoded_img_buffer.get();
+    auto gainmap_img = dec->m_gainmap_img_buffer.get();
+    dec->m_uhdr_gl_ctxt.read_texture(static_cast<GLuint*>(disp_texture_ptr), decoded_img->fmt,
+                                     decoded_img->w, decoded_img->h, decoded_img->planes[0]);
+    dec->m_uhdr_gl_ctxt.read_texture(static_cast<GLuint*>(gm_texture_ptr), gainmap_img->fmt,
+                                     gainmap_img->w, gainmap_img->h, gainmap_img->planes[0]);
+    if (pm_texture) glDeleteTextures(1, &pm_texture);
+    if (gm_texture) glDeleteTextures(1, &gm_texture);
+  }
+#endif
   return g_no_error;
 }
 
@@ -1507,7 +1536,8 @@ uhdr_error_info_t uhdr_decode(uhdr_codec_private_t* dec) {
 
 #ifdef UHDR_ENABLE_GLES
   ultrahdr::uhdr_opengl_ctxt_t* uhdrGLESCtxt = nullptr;
-  if (handle->m_enable_gles && handle->m_output_ct != UHDR_CT_SRGB) {
+  if (handle->m_enable_gles &&
+      (handle->m_output_ct != UHDR_CT_SRGB || handle->m_effects.size() > 0)) {
     handle->m_uhdr_gl_ctxt.init_opengl_ctxt();
     status = handle->m_uhdr_gl_ctxt.mErrorStatus;
     if (status.error_code != UHDR_CODEC_OK) return status;

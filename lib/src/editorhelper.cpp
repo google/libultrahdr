@@ -186,7 +186,17 @@ uhdr_resize_effect::uhdr_resize_effect(int width, int height) : m_width{width}, 
 }
 
 std::unique_ptr<uhdr_raw_image_ext_t> apply_rotate(ultrahdr::uhdr_rotate_effect_t* desc,
-                                                   uhdr_raw_image_t* src) {
+                                                   uhdr_raw_image_t* src,
+                                                   [[maybe_unused]] void* gl_ctxt,
+                                                   [[maybe_unused]] void* texture) {
+#ifdef UHDR_ENABLE_GLES
+  if ((src->fmt == UHDR_IMG_FMT_32bppRGBA1010102 || src->fmt == UHDR_IMG_FMT_32bppRGBA8888 ||
+       src->fmt == UHDR_IMG_FMT_64bppRGBAHalfFloat || src->fmt == UHDR_IMG_FMT_8bppYCbCr400) &&
+      isBufferDataContiguous(src) && gl_ctxt != nullptr) {
+    return apply_rotate_gles(desc, src, static_cast<ultrahdr::uhdr_opengl_ctxt*>(gl_ctxt),
+                             static_cast<GLuint*>(texture));
+  }
+#endif
   std::unique_ptr<uhdr_raw_image_ext_t> dst;
 
   if (desc->m_degree == 90 || desc->m_degree == 270) {
@@ -251,7 +261,17 @@ std::unique_ptr<uhdr_raw_image_ext_t> apply_rotate(ultrahdr::uhdr_rotate_effect_
 }
 
 std::unique_ptr<uhdr_raw_image_ext_t> apply_mirror(ultrahdr::uhdr_mirror_effect_t* desc,
-                                                   uhdr_raw_image_t* src) {
+                                                   uhdr_raw_image_t* src,
+                                                   [[maybe_unused]] void* gl_ctxt,
+                                                   [[maybe_unused]] void* texture) {
+#ifdef UHDR_ENABLE_GLES
+  if ((src->fmt == UHDR_IMG_FMT_32bppRGBA1010102 || src->fmt == UHDR_IMG_FMT_32bppRGBA8888 ||
+       src->fmt == UHDR_IMG_FMT_64bppRGBAHalfFloat || src->fmt == UHDR_IMG_FMT_8bppYCbCr400) &&
+      isBufferDataContiguous(src) && gl_ctxt != nullptr) {
+    return apply_mirror_gles(desc, src, static_cast<ultrahdr::uhdr_opengl_ctxt*>(gl_ctxt),
+                             static_cast<GLuint*>(texture));
+  }
+#endif
   std::unique_ptr<uhdr_raw_image_ext_t> dst = std::make_unique<uhdr_raw_image_ext_t>(
       src->fmt, src->cg, src->ct, src->range, src->w, src->h, 64);
 
@@ -306,7 +326,17 @@ std::unique_ptr<uhdr_raw_image_ext_t> apply_mirror(ultrahdr::uhdr_mirror_effect_
   return dst;
 }
 
-void apply_crop(uhdr_raw_image_t* src, int left, int top, int wd, int ht) {
+void apply_crop(uhdr_raw_image_t* src, int left, int top, int wd, int ht,
+                [[maybe_unused]] void* gl_ctxt, [[maybe_unused]] void* texture) {
+#ifdef UHDR_ENABLE_GLES
+  if ((src->fmt == UHDR_IMG_FMT_32bppRGBA1010102 || src->fmt == UHDR_IMG_FMT_32bppRGBA8888 ||
+       src->fmt == UHDR_IMG_FMT_64bppRGBAHalfFloat || src->fmt == UHDR_IMG_FMT_8bppYCbCr400) &&
+      isBufferDataContiguous(src) && gl_ctxt != nullptr) {
+    return apply_crop_gles(src, left, top, wd, ht,
+                           static_cast<ultrahdr::uhdr_opengl_ctxt*>(gl_ctxt),
+                           static_cast<GLuint*>(texture));
+  }
+#endif
   if (src->fmt == UHDR_IMG_FMT_24bppYCbCrP010) {
     uint16_t* src_buffer = static_cast<uint16_t*>(src->planes[UHDR_PLANE_Y]);
     src->planes[UHDR_PLANE_Y] = &src_buffer[top * src->stride[UHDR_PLANE_Y] + left];
@@ -344,7 +374,17 @@ void apply_crop(uhdr_raw_image_t* src, int left, int top, int wd, int ht) {
 }
 
 std::unique_ptr<uhdr_raw_image_ext_t> apply_resize(ultrahdr::uhdr_resize_effect_t* desc,
-                                                   uhdr_raw_image_t* src, int dst_w, int dst_h) {
+                                                   uhdr_raw_image_t* src, int dst_w, int dst_h,
+                                                   [[maybe_unused]] void* gl_ctxt,
+                                                   [[maybe_unused]] void* texture) {
+#ifdef UHDR_ENABLE_GLES
+  if ((src->fmt == UHDR_IMG_FMT_32bppRGBA1010102 || src->fmt == UHDR_IMG_FMT_32bppRGBA8888 ||
+       src->fmt == UHDR_IMG_FMT_64bppRGBAHalfFloat || src->fmt == UHDR_IMG_FMT_8bppYCbCr400) &&
+      isBufferDataContiguous(src) && gl_ctxt != nullptr) {
+    return apply_resize_gles(src, dst_w, dst_h, static_cast<ultrahdr::uhdr_opengl_ctxt*>(gl_ctxt),
+                             static_cast<GLuint*>(texture));
+  }
+#endif
   std::unique_ptr<uhdr_raw_image_ext_t> dst = std::make_unique<uhdr_raw_image_ext_t>(
       src->fmt, src->cg, src->ct, src->range, dst_w, dst_h, 64);
 

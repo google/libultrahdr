@@ -119,16 +119,41 @@ extern void rotate_buffer_clockwise_neon(T* src_buffer, T* dst_buffer, int src_w
                                          int src_stride, int dst_stride, int degrees);
 #endif
 
+#ifdef UHDR_ENABLE_GLES
+
+std::unique_ptr<uhdr_raw_image_ext_t> apply_resize_gles(uhdr_raw_image_t* src, int dst_w, int dst_h,
+                                                        uhdr_opengl_ctxt* gl_ctxt,
+                                                        GLuint* srcTexture);
+
+std::unique_ptr<uhdr_raw_image_ext_t> apply_mirror_gles(ultrahdr::uhdr_mirror_effect_t* desc,
+                                                        uhdr_raw_image_t* src,
+                                                        uhdr_opengl_ctxt* gl_ctxt,
+                                                        GLuint* srcTexture);
+
+std::unique_ptr<uhdr_raw_image_ext_t> apply_rotate_gles(ultrahdr::uhdr_rotate_effect_t* desc,
+                                                        uhdr_raw_image_t* src,
+                                                        uhdr_opengl_ctxt* gl_ctxt,
+                                                        GLuint* srcTexture);
+
+void apply_crop_gles(uhdr_raw_image_t* src, int left, int top, int wd, int ht,
+                     uhdr_opengl_ctxt* gl_ctxt, GLuint* srcTexture);
+#endif
+
 std::unique_ptr<uhdr_raw_image_ext_t> apply_rotate(ultrahdr::uhdr_rotate_effect_t* desc,
-                                                   uhdr_raw_image_t* src);
+                                                   uhdr_raw_image_t* src, void* gl_ctxt = nullptr,
+                                                   void* texture = nullptr);
 
 std::unique_ptr<uhdr_raw_image_ext_t> apply_mirror(ultrahdr::uhdr_mirror_effect_t* desc,
-                                                   uhdr_raw_image_t* src);
+                                                   uhdr_raw_image_t* src, void* gl_ctxt = nullptr,
+                                                   void* texture = nullptr);
 
 std::unique_ptr<uhdr_raw_image_ext_t> apply_resize(ultrahdr::uhdr_resize_effect_t* desc,
-                                                   uhdr_raw_image* src, int dst_w, int dst_h);
+                                                   uhdr_raw_image* src, int dst_w, int dst_h,
+                                                   void* gl_ctxt = nullptr,
+                                                   void* texture = nullptr);
 
-void apply_crop(uhdr_raw_image_t* src, int left, int top, int wd, int ht);
+void apply_crop(uhdr_raw_image_t* src, int left, int top, int wd, int ht, void* gl_ctxt = nullptr,
+                void* texture = nullptr);
 
 }  // namespace ultrahdr
 
