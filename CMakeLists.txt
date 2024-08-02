@@ -97,6 +97,7 @@ option_if_not_defined(UHDR_ENABLE_LOGS "Build with verbose logging " FALSE)
 option_if_not_defined(UHDR_ENABLE_INSTALL "Add install and uninstall targets for libuhdr package" TRUE)
 option_if_not_defined(UHDR_ENABLE_INTRINSICS "Build with intrinsics " TRUE)
 option_if_not_defined(UHDR_ENABLE_OPENGL "Build with gpu acceleration " FALSE)
+option_if_not_defined(UHDR_ENABLE_WERROR "Build with -Werror" FALSE)
 
 # pre-requisites
 if(UHDR_BUILD_TESTS AND EMSCRIPTEN)
@@ -187,6 +188,7 @@ if(UHDR_BUILD_FUZZERS)
   add_compile_options(-fsanitize=fuzzer-no-link)
 endif()
 
+set(UHDR_WERROR_FLAGS "")
 if(MSVC)
   add_definitions(-D_CRT_SECURE_NO_WARNINGS)
   # Disable specific warnings
@@ -220,6 +222,11 @@ else()
   elseif(ARCH STREQUAL "aarch64")
     add_compile_options(-march=armv8-a)
     add_compile_options(-fno-lax-vector-conversions)
+  endif()
+
+  if(UHDR_ENABLE_WERROR)
+    CheckCompilerOption("-Werror" SUPPORTS_WERROR)
+    set(UHDR_WERROR_FLAGS "-Werror")
   endif()
 endif()
 
@@ -466,6 +473,7 @@ target_include_directories(${IMAGEIO_TARGET_NAME} PRIVATE
 
 set(UHDR_CORE_LIB_NAME core)
 add_library(${UHDR_CORE_LIB_NAME} STATIC ${UHDR_CORE_SRCS_LIST})
+target_compile_options(${UHDR_CORE_LIB_NAME} PRIVATE ${UHDR_WERROR_FLAGS})
 if(NOT JPEG_FOUND)
   add_dependencies(${UHDR_CORE_LIB_NAME} ${JPEGTURBO_TARGET_NAME})
 endif()
@@ -488,6 +496,7 @@ target_link_libraries(${UHDR_CORE_LIB_NAME} PRIVATE ${COMMON_LIBS_LIST} ${IMAGEI
 if(UHDR_BUILD_EXAMPLES)
   add_executable(ultrahdr_app "${EXAMPLES_DIR}/ultrahdr_app.cpp")
   add_dependencies(ultrahdr_app ${UHDR_CORE_LIB_NAME})
+  target_compile_options(ultrahdr_app PRIVATE ${UHDR_WERROR_FLAGS})
   if(UHDR_BUILD_FUZZERS)
     target_link_options(ultrahdr_app PRIVATE -fsanitize=fuzzer-no-link)
   endif()
@@ -513,6 +522,7 @@ endif()
 if(UHDR_BUILD_TESTS)
   add_executable(ultrahdr_unit_test ${UHDR_TEST_SRCS_LIST})
   add_dependencies(ultrahdr_unit_test ${GTEST_TARGET_NAME} ${UHDR_CORE_LIB_NAME})
+  target_compile_options(ultrahdr_unit_test PRIVATE ${UHDR_WERROR_FLAGS})
   target_include_directories(ultrahdr_unit_test PRIVATE
     ${PRIVATE_INCLUDE_DIR}
     ${GTEST_INCLUDE_DIRS}
@@ -527,6 +537,7 @@ endif()
 if(UHDR_BUILD_BENCHMARK)
   add_executable(ultrahdr_bm ${UHDR_BM_SRCS_LIST})
   add_dependencies(ultrahdr_bm ${BM_TARGET_NAME} ${UHDR_CORE_LIB_NAME})
+  target_compile_options(ultrahdr_bm PRIVATE ${UHDR_WERROR_FLAGS})
   target_include_directories(ultrahdr_bm PRIVATE
     ${PRIVATE_INCLUDE_DIR}
     ${BENCHMARK_INCLUDE_DIR}
@@ -575,6 +586,7 @@ endif()
 if(UHDR_BUILD_FUZZERS)
   add_executable(ultrahdr_enc_fuzzer ${FUZZERS_DIR}/ultrahdr_enc_fuzzer.cpp)
   add_dependencies(ultrahdr_enc_fuzzer ${UHDR_CORE_LIB_NAME})
+  target_compile_options(ultrahdr_enc_fuzzer PRIVATE ${UHDR_WERROR_FLAGS})
   target_include_directories(ultrahdr_enc_fuzzer PRIVATE ${PRIVATE_INCLUDE_DIR})
   if(DEFINED ENV{LIB_FUZZING_ENGINE})
     target_link_options(ultrahdr_enc_fuzzer PRIVATE $ENV{LIB_FUZZING_ENGINE})
@@ -585,6 +597,7 @@ if(UHDR_BUILD_FUZZERS)
 
   add_executable(ultrahdr_dec_fuzzer ${FUZZERS_DIR}/ultrahdr_dec_fuzzer.cpp)
   add_dependencies(ultrahdr_dec_fuzzer ${UHDR_CORE_LIB_NAME})
+  target_compile_options(ultrahdr_dec_fuzzer PRIVATE ${UHDR_WERROR_FLAGS})
   target_include_directories(ultrahdr_dec_fuzzer PRIVATE ${PRIVATE_INCLUDE_DIR})
   if(DEFINED ENV{LIB_FUZZING_ENGINE})
     target_link_options(ultrahdr_dec_fuzzer PRIVATE $ENV{LIB_FUZZING_ENGINE})
@@ -597,6 +610,7 @@ endif()
 set(UHDR_TARGET_NAME uhdr)
 add_library(${UHDR_TARGET_NAME})
 add_dependencies(${UHDR_TARGET_NAME} ${UHDR_CORE_LIB_NAME})
+target_compile_options(${UHDR_TARGET_NAME} PRIVATE ${UHDR_WERROR_FLAGS})
 if(UHDR_ENABLE_OPENGL)
   target_link_libraries(${UHDR_TARGET_NAME} PRIVATE ${EGL_LIBRARIES} ${GLESV2_LIBRARIES} ${GLESV3_LIBRARIES})
 endif()
