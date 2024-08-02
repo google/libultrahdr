@@ -45,8 +45,6 @@ using namespace photos_editing_formats::image_io;
 namespace ultrahdr {
 
 #ifdef UHDR_ENABLE_GLES
-bool isBufferDataContiguous(uhdr_raw_image_t* img);
-
 uhdr_error_info_t applyGainMapGLES(uhdr_raw_image_t* sdr_intent, uhdr_raw_image_t* gainmap_img,
                                    uhdr_gainmap_metadata_ext_t* gainmap_metadata,
                                    uhdr_color_transfer_t output_ct, float display_boost,

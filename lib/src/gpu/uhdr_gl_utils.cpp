@@ -27,6 +27,9 @@ uhdr_opengl_ctxt::uhdr_opengl_ctxt() {
   mQuadVBO = 0;
   mQuadEBO = 0;
   mErrorStatus = g_no_error;
+  for (int i = 0; i < UHDR_RESIZE + 1; i++) {
+    mShaderProgram[i] = 0;
+  }
 }
 
 uhdr_opengl_ctxt::~uhdr_opengl_ctxt() { delete_opengl_ctxt(); }
@@ -185,7 +188,9 @@ GLuint uhdr_opengl_ctxt::create_texture(uhdr_img_fmt_t fmt, int w, int h, void* 
       glTexImage2D(GL_TEXTURE_2D, 0, GL_R8, w, h * 3 / 2, 0, GL_RED, GL_UNSIGNED_BYTE, data);
       break;
     case UHDR_IMG_FMT_8bppYCbCr400:
+      glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
       glTexImage2D(GL_TEXTURE_2D, 0, GL_R8, w, h, 0, GL_RED, GL_UNSIGNED_BYTE, data);
+      glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
       break;
     case UHDR_IMG_FMT_32bppRGBA8888:
       glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, data);
@@ -330,6 +335,26 @@ void uhdr_opengl_ctxt::check_gl_errors(const char* msg) {
   }
 }
 
+void uhdr_opengl_ctxt::read_texture(GLuint* texture, uhdr_img_fmt_t fmt, int w, int h, void* data) {
+  GLuint frm_buffer;
+  glGenFramebuffers(1, &frm_buffer);
+  glBindFramebuffer(GL_FRAMEBUFFER, frm_buffer);
+  glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, *texture, 0);
+  if (fmt == UHDR_IMG_FMT_32bppRGBA8888) {
+    glReadPixels(0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, data);
+  } else if (fmt == UHDR_IMG_FMT_32bppRGBA1010102) {
+    glReadPixels(0, 0, w, h, GL_RGBA, GL_UNSIGNED_INT_2_10_10_10_REV, data);
+  } else if (fmt == UHDR_IMG_FMT_64bppRGBAHalfFloat) {
+    glReadPixels(0, 0, w, h, GL_RGBA, GL_HALF_FLOAT, data);
+  } else if (fmt == UHDR_IMG_FMT_8bppYCbCr400) {
+    glPixelStorei(GL_PACK_ALIGNMENT, 1);
+    glReadPixels(0, 0, w, h, GL_RED, GL_UNSIGNED_BYTE, data);
+    glPixelStorei(GL_PACK_ALIGNMENT, 4);
+  }
+  glBindFramebuffer(GL_FRAMEBUFFER, 0);
+  glDeleteFramebuffers(1, &frm_buffer);
+}
+
 void uhdr_opengl_ctxt::reset_opengl_ctxt() {
   delete_opengl_ctxt();
   mErrorStatus = g_no_error;
@@ -361,6 +386,11 @@ void uhdr_opengl_ctxt::delete_opengl_ctxt() {
     eglTerminate(mEGLDisplay);
     mEGLDisplay = EGL_NO_DISPLAY;
   }
+  for (int i = 0; i < UHDR_RESIZE + 1; i++) {
+    if (mShaderProgram[i]) {
+      glDeleteProgram(mShaderProgram[i]);
+      mShaderProgram[i] = 0;
+    }
+  }
 }
-
 }  // namespace ultrahdr

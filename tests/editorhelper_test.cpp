@@ -223,7 +223,18 @@ class EditorHelperTest
       : filename(std::get<0>(GetParam())),
         width(std::get<1>(GetParam())),
         height(std::get<2>(GetParam())),
-        fmt(std::get<3>(GetParam())){};
+        fmt(std::get<3>(GetParam())) {
+#ifdef UHDR_ENABLE_GLES
+    gl_ctxt = new uhdr_opengl_ctxt();
+    opengl_ctxt = static_cast<uhdr_opengl_ctxt*>(gl_ctxt);
+    opengl_ctxt->init_opengl_ctxt();
+    if (opengl_ctxt->mErrorStatus.error_code != UHDR_CODEC_OK) {
+      opengl_ctxt->delete_opengl_ctxt();
+      delete opengl_ctxt;
+      gl_ctxt = nullptr;
+    }
+#endif
+  };
 
   ~EditorHelperTest() {
     int count = sizeof img_a.planes / sizeof img_a.planes[0];
@@ -233,6 +244,14 @@ class EditorHelperTest
         img_a.planes[i] = nullptr;
       }
     }
+#ifdef UHDR_ENABLE_GLES
+    if (gl_ctxt) {
+      uhdr_opengl_ctxt* opengl_ctxt = static_cast<uhdr_opengl_ctxt*>(gl_ctxt);
+      opengl_ctxt->delete_opengl_ctxt();
+      delete opengl_ctxt;
+    }
+    if (Texture) glDeleteTextures(1, &Texture);
+#endif
   }
 
   std::string filename;
@@ -240,19 +259,37 @@ class EditorHelperTest
   int height;
   uhdr_img_fmt_t fmt;
   uhdr_raw_image_t img_a{};
+  void* gl_ctxt = nullptr;
+  void* texture = nullptr;
+#ifdef UHDR_ENABLE_GLES
+  GLuint Texture = 0;
+  uhdr_opengl_ctxt* opengl_ctxt = nullptr;
+#endif
 };
 
 TEST_P(EditorHelperTest, Rotate) {
   initImageHandle(&img_a, width, height, fmt);
   ASSERT_TRUE(loadFile(filename.c_str(), &img_a)) << "unable to load file " << filename;
   ultrahdr::uhdr_rotate_effect_t r90(90), r180(180), r270(270);
-  auto dst = apply_rotate(&r90, &img_a);
-  dst = apply_rotate(&r90, dst.get());
-  dst = apply_rotate(&r180, dst.get());
-  dst = apply_rotate(&r270, dst.get());
-  dst = apply_rotate(&r90, dst.get());
-  dst = apply_rotate(&r90, dst.get());
-  dst = apply_rotate(&r270, dst.get());
+#ifdef UHDR_ENABLE_GLES
+  if (gl_ctxt != nullptr) {
+    Texture = opengl_ctxt->create_texture(img_a.fmt, img_a.w, img_a.h, img_a.planes[0]);
+    texture = static_cast<void*>(&Texture);
+  }
+#endif
+  auto dst = apply_rotate(&r90, &img_a, gl_ctxt, texture);
+  dst = apply_rotate(&r90, dst.get(), gl_ctxt, texture);
+  dst = apply_rotate(&r180, dst.get(), gl_ctxt, texture);
+  dst = apply_rotate(&r270, dst.get(), gl_ctxt, texture);
+  dst = apply_rotate(&r90, dst.get(), gl_ctxt, texture);
+  dst = apply_rotate(&r90, dst.get(), gl_ctxt, texture);
+  dst = apply_rotate(&r270, dst.get(), gl_ctxt, texture);
+#ifdef UHDR_ENABLE_GLES
+  if (gl_ctxt != nullptr) {
+    opengl_ctxt->read_texture(static_cast<GLuint*>(texture), dst->fmt, dst->w, dst->h,
+                              dst->planes[0]);
+  }
+#endif
   ASSERT_NO_FATAL_FAILURE(compareImg(&img_a, dst.get()))
       << "failed for resolution " << width << " x " << height << " format: " << fmt;
 }
@@ -261,10 +298,22 @@ TEST_P(EditorHelperTest, Mirror) {
   initImageHandle(&img_a, width, height, fmt);
   ASSERT_TRUE(loadFile(filename.c_str(), &img_a)) << "unable to load file " << filename;
   ultrahdr::uhdr_mirror_effect_t mhorz(UHDR_MIRROR_HORIZONTAL), mvert(UHDR_MIRROR_VERTICAL);
-  auto dst = apply_mirror(&mhorz, &img_a);
-  dst = apply_mirror(&mvert, dst.get());
-  dst = apply_mirror(&mhorz, dst.get());
-  dst = apply_mirror(&mvert, dst.get());
+#ifdef UHDR_ENABLE_GLES
+  if (gl_ctxt != nullptr) {
+    Texture = opengl_ctxt->create_texture(img_a.fmt, img_a.w, img_a.h, img_a.planes[0]);
+    texture = static_cast<void*>(&Texture);
+  }
+#endif
+  auto dst = apply_mirror(&mhorz, &img_a, gl_ctxt, texture);
+  dst = apply_mirror(&mvert, dst.get(), gl_ctxt, texture);
+  dst = apply_mirror(&mhorz, dst.get(), gl_ctxt, texture);
+  dst = apply_mirror(&mvert, dst.get(), gl_ctxt, texture);
+#ifdef UHDR_ENABLE_GLES
+  if (gl_ctxt != nullptr) {
+    opengl_ctxt->read_texture(static_cast<GLuint*>(texture), dst->fmt, dst->w, dst->h,
+                              dst->planes[0]);
+  }
+#endif
   ASSERT_NO_FATAL_FAILURE(compareImg(&img_a, dst.get()))
       << "failed for resolution " << width << " x " << height << " format: " << fmt;
 }
@@ -285,8 +334,19 @@ TEST_P(EditorHelperTest, Crop) {
   initImageHandle(&img_a, width, height, fmt);
   ASSERT_TRUE(loadFile(filename.c_str(), &img_a)) << "unable to load file " << filename;
   uhdr_raw_image_t img_copy = img_a;
-  apply_crop(&img_copy, left, top, crop_wd, crop_ht);
-
+#ifdef UHDR_ENABLE_GLES
+  if (gl_ctxt != nullptr) {
+    Texture = opengl_ctxt->create_texture(img_a.fmt, img_a.w, img_a.h, img_a.planes[0]);
+    texture = static_cast<void*>(&Texture);
+  }
+#endif
+  apply_crop(&img_copy, left, top, crop_wd, crop_ht, gl_ctxt, texture);
+#ifdef UHDR_ENABLE_GLES
+  if (gl_ctxt != nullptr) {
+    opengl_ctxt->read_texture(static_cast<GLuint*>(texture), img_copy.fmt, img_copy.w, img_copy.h,
+                              img_copy.planes[0]);
+  }
+#endif
   ASSERT_EQ(img_a.fmt, img_copy.fmt) << msg;
   ASSERT_EQ(img_a.cg, img_copy.cg) << msg;
   ASSERT_EQ(img_a.ct, img_copy.ct) << msg;
@@ -311,8 +371,19 @@ TEST_P(EditorHelperTest, Resize) {
   initImageHandle(&img_a, width, height, fmt);
   ASSERT_TRUE(loadFile(filename.c_str(), &img_a)) << "unable to load file " << filename;
   ultrahdr::uhdr_resize_effect_t resize(width / 2, height / 2);
-  auto dst = apply_resize(&resize, &img_a, width / 2, height / 2);
-
+#ifdef UHDR_ENABLE_GLES
+  if (gl_ctxt != nullptr) {
+    Texture = opengl_ctxt->create_texture(img_a.fmt, img_a.w, img_a.h, img_a.planes[0]);
+    texture = static_cast<void*>(&Texture);
+  }
+#endif
+  auto dst = apply_resize(&resize, &img_a, width / 2, height / 2, gl_ctxt, texture);
+#ifdef UHDR_ENABLE_GLES
+  if (gl_ctxt != nullptr) {
+    opengl_ctxt->read_texture(static_cast<GLuint*>(texture), dst->fmt, dst->w, dst->h,
+                              dst->planes[0]);
+  }
+#endif
   ASSERT_EQ(img_a.fmt, dst->fmt) << msg;
   ASSERT_EQ(img_a.cg, dst->cg) << msg;
   ASSERT_EQ(img_a.ct, dst->ct) << msg;
@@ -334,25 +405,55 @@ TEST_P(EditorHelperTest, MultipleEffects) {
   ultrahdr::uhdr_rotate_effect_t r90(90), r180(180), r270(270);
   ultrahdr::uhdr_mirror_effect_t mhorz(UHDR_MIRROR_HORIZONTAL), mvert(UHDR_MIRROR_VERTICAL);
   ultrahdr::uhdr_resize_effect_t resize(width / 2, height / 2);
-  auto dst = apply_mirror(&mhorz, &img_a);
-  dst = apply_rotate(&r180, dst.get());
-  dst = apply_mirror(&mhorz, dst.get());
-  dst = apply_rotate(&r180, dst.get());
+#ifdef UHDR_ENABLE_GLES
+  if (gl_ctxt != nullptr) {
+    Texture = opengl_ctxt->create_texture(img_a.fmt, img_a.w, img_a.h, img_a.planes[0]);
+    texture = static_cast<void*>(&Texture);
+  }
+#endif
+  auto dst = apply_mirror(&mhorz, &img_a, gl_ctxt, texture);
+  dst = apply_rotate(&r180, dst.get(), gl_ctxt, texture);
+  dst = apply_mirror(&mhorz, dst.get(), gl_ctxt, texture);
+  dst = apply_rotate(&r180, dst.get(), gl_ctxt, texture);
+#ifdef UHDR_ENABLE_GLES
+  if (gl_ctxt != nullptr) {
+    opengl_ctxt->read_texture(static_cast<GLuint*>(texture), dst->fmt, dst->w, dst->h,
+                              dst->planes[0]);
+  }
+#endif
   ASSERT_NO_FATAL_FAILURE(compareImg(&img_a, dst.get())) << msg;
 
-  dst = apply_mirror(&mhorz, dst.get());
-  dst = apply_rotate(&r90, dst.get());
-  dst = apply_rotate(&r90, dst.get());
-  dst = apply_mirror(&mvert, dst.get());
+  dst = apply_mirror(&mhorz, dst.get(), gl_ctxt, texture);
+  dst = apply_rotate(&r90, dst.get(), gl_ctxt, texture);
+  dst = apply_rotate(&r90, dst.get(), gl_ctxt, texture);
+  dst = apply_mirror(&mvert, dst.get(), gl_ctxt, texture);
+#ifdef UHDR_ENABLE_GLES
+  if (gl_ctxt != nullptr) {
+    opengl_ctxt->read_texture(static_cast<GLuint*>(texture), dst->fmt, dst->w, dst->h,
+                              dst->planes[0]);
+  }
+#endif
   ASSERT_NO_FATAL_FAILURE(compareImg(&img_a, dst.get())) << msg;
 
-  dst = apply_rotate(&r270, dst.get());
-  dst = apply_mirror(&mvert, dst.get());
-  dst = apply_rotate(&r90, dst.get());
-  dst = apply_mirror(&mhorz, dst.get());
+  dst = apply_rotate(&r270, dst.get(), gl_ctxt, texture);
+  dst = apply_mirror(&mvert, dst.get(), gl_ctxt, texture);
+  dst = apply_rotate(&r90, dst.get(), gl_ctxt, texture);
+  dst = apply_mirror(&mhorz, dst.get(), gl_ctxt, texture);
+#ifdef UHDR_ENABLE_GLES
+  if (gl_ctxt != nullptr) {
+    opengl_ctxt->read_texture(static_cast<GLuint*>(texture), dst->fmt, dst->w, dst->h,
+                              dst->planes[0]);
+  }
+#endif
   ASSERT_NO_FATAL_FAILURE(compareImg(&img_a, dst.get())) << msg;
 
-  dst = apply_resize(&resize, dst.get(), width * 2, height * 2);
+  dst = apply_resize(&resize, dst.get(), width * 2, height * 2, gl_ctxt, texture);
+#ifdef UHDR_ENABLE_GLES
+  if (gl_ctxt != nullptr) {
+    opengl_ctxt->read_texture(static_cast<GLuint*>(texture), dst->fmt, dst->w, dst->h,
+                              dst->planes[0]);
+  }
+#endif
   ASSERT_EQ(img_a.fmt, dst->fmt) << msg;
   ASSERT_EQ(img_a.cg, dst->cg) << msg;
   ASSERT_EQ(img_a.ct, dst->ct) << msg;
@@ -370,7 +471,13 @@ TEST_P(EditorHelperTest, MultipleEffects) {
                         " format: " + std::to_string(fmt);
   }
   uhdr_raw_image_ext_t* img_copy = dst.get();
-  apply_crop(img_copy, left, top, crop_wd, crop_ht);
+  apply_crop(img_copy, left, top, crop_wd, crop_ht, gl_ctxt, texture);
+#ifdef UHDR_ENABLE_GLES
+  if (gl_ctxt != nullptr) {
+    opengl_ctxt->read_texture(static_cast<GLuint*>(texture), img_copy->fmt, img_copy->w,
+                              img_copy->h, img_copy->planes[0]);
+  }
+#endif
   ASSERT_EQ(dst->fmt, img_copy->fmt) << msg;
   ASSERT_EQ(dst->cg, img_copy->cg) << msg;
   ASSERT_EQ(dst->ct, img_copy->ct) << msg;
