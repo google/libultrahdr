@@ -540,9 +540,9 @@ TEST_F(GainMapMathTest, ColorDivideFloat) {
 TEST_F(GainMapMathTest, SrgbLuminance) {
   EXPECT_FLOAT_EQ(srgbLuminance(RgbBlack()), 0.0f);
   EXPECT_FLOAT_EQ(srgbLuminance(RgbWhite()), 1.0f);
-  EXPECT_FLOAT_EQ(srgbLuminance(RgbRed()), 0.2126f);
-  EXPECT_FLOAT_EQ(srgbLuminance(RgbGreen()), 0.7152f);
-  EXPECT_FLOAT_EQ(srgbLuminance(RgbBlue()), 0.0722f);
+  EXPECT_FLOAT_EQ(srgbLuminance(RgbRed()), 0.212639f);
+  EXPECT_FLOAT_EQ(srgbLuminance(RgbGreen()), 0.715169f);
+  EXPECT_FLOAT_EQ(srgbLuminance(RgbBlue()), 0.072192f);
 }
 
 TEST_F(GainMapMathTest, SrgbYuvToRgb) {
@@ -607,9 +607,9 @@ TEST_F(GainMapMathTest, SrgbTransferFunction) {
 TEST_F(GainMapMathTest, P3Luminance) {
   EXPECT_FLOAT_EQ(p3Luminance(RgbBlack()), 0.0f);
   EXPECT_FLOAT_EQ(p3Luminance(RgbWhite()), 1.0f);
-  EXPECT_FLOAT_EQ(p3Luminance(RgbRed()), 0.20949f);
-  EXPECT_FLOAT_EQ(p3Luminance(RgbGreen()), 0.72160f);
-  EXPECT_FLOAT_EQ(p3Luminance(RgbBlue()), 0.06891f);
+  EXPECT_FLOAT_EQ(p3Luminance(RgbRed()), 0.2289746f);
+  EXPECT_FLOAT_EQ(p3Luminance(RgbGreen()), 0.6917385f);
+  EXPECT_FLOAT_EQ(p3Luminance(RgbBlue()), 0.0792869f);
 }
 
 TEST_F(GainMapMathTest, P3YuvToRgb) {
@@ -666,8 +666,8 @@ TEST_F(GainMapMathTest, Bt2100Luminance) {
   EXPECT_FLOAT_EQ(bt2100Luminance(RgbBlack()), 0.0f);
   EXPECT_FLOAT_EQ(bt2100Luminance(RgbWhite()), 1.0f);
   EXPECT_FLOAT_EQ(bt2100Luminance(RgbRed()), 0.2627f);
-  EXPECT_FLOAT_EQ(bt2100Luminance(RgbGreen()), 0.6780f);
-  EXPECT_FLOAT_EQ(bt2100Luminance(RgbBlue()), 0.0593f);
+  EXPECT_FLOAT_EQ(bt2100Luminance(RgbGreen()), 0.677998f);
+  EXPECT_FLOAT_EQ(bt2100Luminance(RgbBlue()), 0.059302f);
 }
 
 TEST_F(GainMapMathTest, Bt2100YuvToRgb) {
