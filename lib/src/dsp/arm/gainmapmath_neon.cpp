@@ -35,11 +35,18 @@ namespace ultrahdr {
 // {Y1, Y2, U1, U2, V1, V2, 0, 0}
 
 // Yuv Bt709 -> Yuv Bt601
-// Y' = (1.0f * Y) + ( 0.101579f * U) + ( 0.196076f * V)
-// U' = (0.0f * Y) + ( 0.989854f * U) + (-0.110653f * V)
-// V' = (0.0f * Y) + (-0.072453f * U) + ( 0.983398f * V)
+// Y' = (1.0 * Y) + ( 0.101579 * U) + ( 0.196076 * V)
+// U' = (0.0 * Y) + ( 0.989854 * U) + (-0.110653 * V)
+// V' = (0.0 * Y) + (-0.072453 * U) + ( 0.983398 * V)
 ALIGNED(16)
 const int16_t kYuv709To601_coeffs_neon[8] = {1664, 3213, 16218, -1813, -1187, 16112, 0, 0};
+
+// Yuv Bt709 -> Display P3
+// Y' = (1.0 * Y) + ( 0.017545 * U) + ( 0.03677 * V)
+// U' = (0.0 * Y) + ( 0.998169 * U) + (-0.019968 * V)
+// V' = (0.0 * Y) + (-0.011378 * U) + ( 0.997393 * V)
+ALIGNED(16)
+const int16_t kYuv709ToP3_coeffs_neon[8] = {287, 602, 16354, -327, -186, 16341, 0, 0};
 
 // Yuv Bt709 -> Yuv Bt2100
 // Y' = (1.0f * Y) + (-0.016969f * U) + ( 0.096312f * V)
@@ -48,33 +55,47 @@ const int16_t kYuv709To601_coeffs_neon[8] = {1664, 3213, 16218, -1813, -1187, 16
 ALIGNED(16)
 const int16_t kYuv709To2100_coeffs_neon[8] = {-278, 1578, 16307, -839, 189, 16427, 0, 0};
 
-// Yuv Bt601 -> Yuv Bt709
-// Y' = (1.0f * Y) + (-0.118188f * U) + (-0.212685f * V),
-// U' = (0.0f * Y) + ( 1.018640f * U) + ( 0.114618f * V),
-// V' = (0.0f * Y) + ( 0.075049f * U) + ( 1.025327f * V);
+// Yuv Display P3 -> Yuv Bt601
+// Y' = (1.0 * Y) + ( 0.086028 * U) + ( 0.161445 * V)
+// U' = (0.0 * Y) + ( 0.990631 * U) + (-0.091109 * V)
+// V' = (0.0 * Y) + (-0.061361 * U) + ( 0.98474 * V)
 ALIGNED(16)
-const int16_t kYuv601To709_coeffs_neon[8] = {-1936, -3485, 16689, 1878, 1230, 16799, 0, 0};
+const int16_t kYuvP3To601_coeffs_neon[8] = {1409, 2645, 16230, -1493, -1005, 16134, 0, 0};
 
-// Yuv Bt601 -> Yuv Bt2100
-// Y' = (1.0f * Y) + (-0.128245f * U) + (-0.115879f * V)
-// U' = (0.0f * Y) + ( 1.010016f * U) + ( 0.061592f * V)
-// V' = (0.0f * Y) + ( 0.086969f * U) + ( 1.029350f * V)
+// Yuv Display P3 -> Yuv Bt709
+// Y' = (1.0 * Y) + (-0.018002 * U) + (-0.037226 * V)
+// U' = (0.0 * Y) + ( 1.002063 * U) + ( 0.020061 * V)
+// V' = (0.0 * Y) + ( 0.011431 * U) + ( 1.002843 * V)
 ALIGNED(16)
-const int16_t kYuv601To2100_coeffs_neon[8] = {-2101, -1899, 16548, 1009, 1425, 16865, 0, 0};
+const int16_t kYuvP3To709_coeffs_neon[8] = {-295, -610, 16418, 329, 187, 16431, 0, 0};
+
+// Yuv Display P3 -> Yuv Bt2100
+// Y' = (1.0 * Y) + (-0.033905 * U) + ( 0.059019 * V)
+// U' = (0.0 * Y) + ( 0.996774 * U) + ( -0.03137 * V)
+// V' = (0.0 * Y) + ( 0.022992 * U) + ( 1.005718 * V)
+ALIGNED(16)
+const int16_t kYuvP3To2100_coeffs_neon[8] = {-555, 967, 16331, -514, 377, 16478, 0, 0};
+
+// Yuv Bt2100 -> Yuv Bt601
+// Y' = (1.0 * Y) + ( 0.117887 * U) + ( 0.105521 * V)
+// U' = (0.0 * Y) + ( 0.995211 * U) + (-0.059549 * V)
+// V' = (0.0 * Y) + (-0.084085 * U) + ( 0.976518 * V)
+ALIGNED(16)
+const int16_t kYuv2100To601_coeffs_neon[8] = {1931, 1729, 16306, -976, -1378, 15999, 0, 0};
 
 // Yuv Bt2100 -> Yuv Bt709
-// Y' = (1.0f * Y) + ( 0.018149f * U) + (-0.095132f * V)
-// U' = (0.0f * Y) + ( 1.004123f * U) + ( 0.051267f * V)
-// V' = (0.0f * Y) + (-0.011524f * U) + ( 0.996782f * V)
+// Y' = (1.0 * Y) + ( 0.018149 * U) + (-0.095132 * V)
+// U' = (0.0 * Y) + ( 1.004123 * U) + ( 0.051267 * V)
+// V' = (0.0 * Y) + (-0.011524 * U) + ( 0.996782 * V)
 ALIGNED(16)
 const int16_t kYuv2100To709_coeffs_neon[8] = {297, -1559, 16452, 840, -189, 16331, 0, 0};
 
-// Yuv Bt2100 -> Yuv Bt601
-// Y' = (1.0f * Y) + ( 0.117887f * U) + ( 0.105521f * V)
-// U' = (0.0f * Y) + ( 0.995211f * U) + (-0.059549f * V)
-// V' = (0.0f * Y) + (-0.084085f * U) + ( 0.976518f * V)
+// Yuv Bt2100 -> Yuv Display P3
+// Y' = (1.0 * Y) + ( 0.035343 * U) + ( -0.057581 * V)
+// U' = (0.0 * Y) + ( 1.002515 * U) + ( 0.03127 * V)
+// V' = (0.0 * Y) + (-0.022919 * U) + ( 0.9936 * V)
 ALIGNED(16)
-const int16_t kYuv2100To601_coeffs_neon[8] = {1931, 1729, 16306, -976, -1378, 15999, 0, 0};
+const int16_t kYuv2100ToP3_coeffs_neon[8] = {579, -943, 16425, 512, -376, 16279, 0, 0};
 
 static inline int16x8_t yConversion_neon(uint8x8_t y, int16x8_t u, int16x8_t v, int16x8_t coeffs) {
   int32x4_t lo = vmull_lane_s16(vget_low_s16(u), vget_low_s16(coeffs), 0);
@@ -240,11 +261,14 @@ uhdr_error_info_t convertYuv_neon(uhdr_raw_image_t* image, uhdr_color_gamut_t sr
 
   switch (src_encoding) {
     case UHDR_CG_BT_709:
-      switch (dst_encoding) {
+      switch ((int)dst_encoding) {
+        case UHDR_CG_BT_601:
+          coeffs = kYuv709To601_coeffs_neon;
+          break;
         case UHDR_CG_BT_709:
           return status;
         case UHDR_CG_DISPLAY_P3:
-          coeffs = kYuv709To601_coeffs_neon;
+          coeffs = kYuv709ToP3_coeffs_neon;
           break;
         case UHDR_CG_BT_2100:
           coeffs = kYuv709To2100_coeffs_neon;
@@ -258,14 +282,17 @@ uhdr_error_info_t convertYuv_neon(uhdr_raw_image_t* image, uhdr_color_gamut_t sr
       }
       break;
     case UHDR_CG_DISPLAY_P3:
-      switch (dst_encoding) {
+      switch ((int)dst_encoding) {
+        case UHDR_CG_BT_601:
+          coeffs = kYuvP3To601_coeffs_neon;
+          break;
         case UHDR_CG_BT_709:
-          coeffs = kYuv601To709_coeffs_neon;
+          coeffs = kYuvP3To709_coeffs_neon;
           break;
         case UHDR_CG_DISPLAY_P3:
           return status;
         case UHDR_CG_BT_2100:
-          coeffs = kYuv601To2100_coeffs_neon;
+          coeffs = kYuvP3To2100_coeffs_neon;
           break;
         default:
           status.error_code = UHDR_CODEC_INVALID_PARAM;
@@ -276,12 +303,15 @@ uhdr_error_info_t convertYuv_neon(uhdr_raw_image_t* image, uhdr_color_gamut_t sr
       }
       break;
     case UHDR_CG_BT_2100:
-      switch (dst_encoding) {
+      switch ((int)dst_encoding) {
+        case UHDR_CG_BT_601:
+          coeffs = kYuv2100To601_coeffs_neon;
+          break;
         case UHDR_CG_BT_709:
           coeffs = kYuv2100To709_coeffs_neon;
           break;
         case UHDR_CG_DISPLAY_P3:
-          coeffs = kYuv2100To601_coeffs_neon;
+          coeffs = kYuv2100ToP3_coeffs_neon;
           break;
         case UHDR_CG_BT_2100:
           return status;
