@@ -569,12 +569,12 @@ uhdr_error_info_t uhdr_enc_set_raw_image(uhdr_codec_private_t* enc, uhdr_raw_ima
              "invalid input color gamut %d, expects one of {UHDR_CG_BT_2100, UHDR_CG_DISPLAY_P3, "
              "UHDR_CG_BT_709}",
              img->cg);
-  } else if (img->fmt == UHDR_IMG_FMT_12bppYCbCr420 && img->ct != UHDR_CT_SRGB) {
+  } else if (intent == UHDR_SDR_IMG && img->ct != UHDR_CT_SRGB) {
     status.error_code = UHDR_CODEC_INVALID_PARAM;
     status.has_detail = 1;
     snprintf(status.detail, sizeof status.detail,
              "invalid input color transfer for sdr intent image %d, expects UHDR_CT_SRGB", img->ct);
-  } else if (img->fmt == UHDR_IMG_FMT_24bppYCbCrP010 &&
+  } else if (intent == UHDR_HDR_IMG &&
              (img->ct != UHDR_CT_HLG && img->ct != UHDR_CT_LINEAR && img->ct != UHDR_CT_PQ)) {
     status.error_code = UHDR_CODEC_INVALID_PARAM;
     status.has_detail = 1;
@@ -656,6 +656,25 @@ uhdr_error_info_t uhdr_enc_set_raw_image(uhdr_codec_private_t* enc, uhdr_raw_ima
       snprintf(status.detail, sizeof status.detail,
                "chroma_v stride must not be smaller than width / 2, stride=%d, width=%d",
                img->stride[UHDR_PLANE_V], img->w);
+    } else if (img->range != UHDR_CR_FULL_RANGE) {
+      status.error_code = UHDR_CODEC_INVALID_PARAM;
+      status.has_detail = 1;
+      snprintf(status.detail, sizeof status.detail,
+               "invalid range, expects one of {UHDR_CR_FULL_RANGE}");
+    }
+  } else if (img->fmt == UHDR_IMG_FMT_32bppRGBA1010102 || img->fmt == UHDR_IMG_FMT_32bppRGBA8888) {
+    if (img->planes[UHDR_PLANE_PACKED] == nullptr) {
+      status.error_code = UHDR_CODEC_INVALID_PARAM;
+      status.has_detail = 1;
+      snprintf(status.detail, sizeof status.detail,
+               "received nullptr for data field(s) rgb plane packed ptr %p",
+               img->planes[UHDR_PLANE_PACKED]);
+    } else if (img->stride[UHDR_PLANE_PACKED] < img->w) {
+      status.error_code = UHDR_CODEC_INVALID_PARAM;
+      status.has_detail = 1;
+      snprintf(status.detail, sizeof status.detail,
+               "rgb planar stride must not be smaller than width, stride=%d, width=%d",
+               img->stride[UHDR_PLANE_PACKED], img->w);
     } else if (img->range != UHDR_CR_FULL_RANGE) {
       status.error_code = UHDR_CODEC_INVALID_PARAM;
       status.has_detail = 1;
