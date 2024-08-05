@@ -470,11 +470,12 @@ UHDR_EXTERN uhdr_error_info_t uhdr_enc_set_gainmap_scale_factor(uhdr_codec_priva
     return status;
   }
 
-  if (gainmap_scale_factor <= 0) {
+  if (gainmap_scale_factor <= 0 || gainmap_scale_factor > 128) {
     status.error_code = UHDR_CODEC_INVALID_PARAM;
     status.has_detail = 1;
     snprintf(status.detail, sizeof status.detail,
-             "unsupported gainmap scale factor %d, expects to be > 0", gainmap_scale_factor);
+             "gainmap scale factor is expected to be in range (0, 128], received %d",
+             gainmap_scale_factor);
     return status;
   }
 

@@ -612,7 +612,7 @@ uhdr_error_info_t JpegR::generateGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_
     scaleFactor = (scaleFactor >= DCTSIZE) ? (scaleFactor / DCTSIZE) : 1;
     ALOGW(
         "configured gainmap scale factor is resulting in gainmap width and/or height to be zero, "
-        "image width %d, image height %d, scale factor %d. Modiyfing gainmap scale factor to %d ",
+        "image width %d, image height %d, scale factor %d. Modifying gainmap scale factor to %d ",
         (int)image_width, (int)image_height, (int)mMapDimensionScaleFactor, scaleFactor);
     setMapDimensionScaleFactor(scaleFactor);
     map_width = image_width / mMapDimensionScaleFactor;
