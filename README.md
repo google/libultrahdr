@@ -140,10 +140,10 @@ libultrahdr includes two classes of APIs, one to compress and the other to decom
 
 | Scenario  | Hdr intent raw | Sdr intent raw | Sdr intent compressed | Gain map compressed | Quality |   Exif   | Use Case |
 |:---------:| :----------: | :----------: | :---------------------: | :-------------------: | :-------: | :---------: | :-------- |
-| API - 0 | P010 |    No   |  No  |  No  | Optional| Optional | Used if, only hdr raw intent is present. [^1] |
-| API - 1 | P010 | YUV420  |  No  |  No  | Optional| Optional | Used if, hdr raw and sdr raw intents are present.[^2] |
-| API - 2 | P010 | YUV420  | Yes  |  No  |    No   |    No    | Used if, hdr raw, sdr raw and sdr compressed intents are present.[^3] |
-| API - 3 | P010 |    No   | Yes  |  No  |    No   |    No    | Used if, hdr raw and sdr compressed intents are present.[^4] |
+| API - 0 | P010 or rgb1010102 |    No   |  No  |  No  | Optional| Optional | Used if, only hdr raw intent is present. [^1] |
+| API - 1 | P010 or rgb1010102 | YUV420 or rgba8888 |  No  |  No  | Optional| Optional | Used if, hdr raw and sdr raw intents are present.[^2] |
+| API - 2 | P010 or rgb1010102 | YUV420 or rgba8888 | Yes  |  No  |    No   |    No    | Used if, hdr raw, sdr raw and sdr compressed intents are present.[^3] |
+| API - 3 | P010 or rgb1010102 |    No   | Yes  |  No  |    No   |    No    | Used if, hdr raw and sdr compressed intents are present.[^4] |
 | API - 4 |  No  |    No   | Yes  | Yes  |    No   |    No    | Used if, sdr compressed, gain map compressed and GainMap Metadata are present.[^5] |
 
 [^1]: Tonemap hdr to sdr. Compute gain map from hdr and sdr. Compress sdr and gainmap at quality configured. Add exif if provided. Combine sdr compressed, gainmap in multi picture format with gainmap metadata.
