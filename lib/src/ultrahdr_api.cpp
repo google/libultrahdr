@@ -1540,7 +1540,7 @@ void uhdr_reset_decoder(uhdr_codec_private_t* dec) {
 }
 
 uhdr_error_info_t uhdr_enable_gpu_acceleration(uhdr_codec_private_t* codec,
-                                               [[maybe_unused]] bool enable) {
+                                               [[maybe_unused]] int enable) {
   uhdr_error_info_t status = g_no_error;
 
   if (codec == nullptr) {

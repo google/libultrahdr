@@ -672,7 +672,7 @@ UHDR_EXTERN void uhdr_reset_decoder(uhdr_codec_private_t* dec);
  * otherwise.
  */
 UHDR_EXTERN uhdr_error_info_t uhdr_enable_gpu_acceleration(uhdr_codec_private_t* codec,
-                                                           bool enable);
+                                                           int enable);
 
 /*!\brief Add image editing operations (pre-encode or post-decode).
  * Below functions list the set of edits supported. Program can set any combination of these during
