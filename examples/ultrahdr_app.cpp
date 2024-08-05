@@ -1016,7 +1016,7 @@ bool UltraHdrAppInput::convertRgba1010102ToYUV444Image() {
   mDecodedUhdrYuv444Image.fmt = static_cast<uhdr_img_fmt_t>(UHDR_IMG_FMT_48bppYCbCr444);
   mDecodedUhdrYuv444Image.cg = mDecodedUhdrRgbImage.cg;
   mDecodedUhdrYuv444Image.ct = mDecodedUhdrRgbImage.ct;
-  mDecodedUhdrYuv444Image.range = UHDR_CR_LIMITED_RANGE;
+  mDecodedUhdrYuv444Image.range = mRawP010Image.range;
   mDecodedUhdrYuv444Image.w = mDecodedUhdrRgbImage.w;
   mDecodedUhdrYuv444Image.h = mDecodedUhdrRgbImage.h;
   mDecodedUhdrYuv444Image.planes[UHDR_PLANE_Y] =
@@ -1091,8 +1091,13 @@ void UltraHdrAppInput::computeRGBHdrPSNR() {
     std::cerr << "invalid src or dst pointer for psnr computation " << std::endl;
     return;
   }
-  if (mOTf != mHdrTf) {
-    std::cout << "input transfer function and output format are not compatible, psnr results "
+  if (mRawRgba1010102Image.ct != mDecodedUhdrRgbImage.ct) {
+    std::cout << "input transfer function and output format are not compatible, rgb psnr results "
+                 "may be unreliable"
+              << std::endl;
+  }
+  if (mRawRgba1010102Image.cg != mDecodedUhdrRgbImage.cg) {
+    std::cout << "input color gamut and output color gamut are not identical, rgb psnr results "
                  "may be unreliable"
               << std::endl;
   }
@@ -1122,8 +1127,7 @@ void UltraHdrAppInput::computeRGBHdrPSNR() {
   meanSquareError = (double)bSqError / (mDecodedUhdrRgbImage.w * mDecodedUhdrRgbImage.h);
   mPsnr[2] = meanSquareError ? 10 * log10((double)1023 * 1023 / meanSquareError) : 100;
 
-  std::cout << "psnr r :: " << mPsnr[0] << " psnr g :: " << mPsnr[1] << " psnr b :: " << mPsnr[2]
-            << std::endl;
+  std::cout << "psnr rgb: \t" << mPsnr[0] << " \t " << mPsnr[1] << " \t " << mPsnr[2] << std::endl;
 }
 
 void UltraHdrAppInput::computeRGBSdrPSNR() {
@@ -1164,8 +1168,7 @@ void UltraHdrAppInput::computeRGBSdrPSNR() {
   meanSquareError = (double)bSqError / (mDecodedUhdrRgbImage.w * mDecodedUhdrRgbImage.h);
   mPsnr[2] = meanSquareError ? 10 * log10((double)255 * 255 / meanSquareError) : 100;
 
-  std::cout << "psnr r :: " << mPsnr[0] << " psnr g :: " << mPsnr[1] << " psnr b :: " << mPsnr[2]
-            << std::endl;
+  std::cout << "psnr rgb: \t" << mPsnr[0] << " \t " << mPsnr[1] << " \t " << mPsnr[2] << std::endl;
 }
 
 void UltraHdrAppInput::computeYUVHdrPSNR() {
@@ -1185,8 +1188,18 @@ void UltraHdrAppInput::computeYUVHdrPSNR() {
     std::cerr << "invalid src or dst pointer for psnr computation " << std::endl;
     return;
   }
-  if (mOTf != mHdrTf) {
-    std::cout << "input transfer function and output format are not compatible, psnr results "
+  if (mRawP010Image.ct != mDecodedUhdrYuv444Image.ct) {
+    std::cout << "input transfer function and output format are not compatible, yuv psnr results "
+                 "may be unreliable"
+              << std::endl;
+  }
+  if (mRawP010Image.cg != mDecodedUhdrYuv444Image.cg) {
+    std::cout << "input color gamut and output color gamut are not identical, yuv psnr results "
+                 "may be unreliable"
+              << std::endl;
+  }
+  if (mRawP010Image.range != mDecodedUhdrYuv444Image.range) {
+    std::cout << "input range and output range are not identical, yuv psnr results "
                  "may be unreliable"
               << std::endl;
   }
@@ -1233,8 +1246,7 @@ void UltraHdrAppInput::computeYUVHdrPSNR() {
   meanSquareError = (double)vSqError / (mDecodedUhdrYuv444Image.w * mDecodedUhdrYuv444Image.h / 4);
   mPsnr[2] = meanSquareError ? 10 * log10((double)1023 * 1023 / meanSquareError) : 100;
 
-  std::cout << "psnr y :: " << mPsnr[0] << " psnr u :: " << mPsnr[1] << " psnr v :: " << mPsnr[2]
-            << std::endl;
+  std::cout << "psnr yuv: \t" << mPsnr[0] << " \t " << mPsnr[1] << " \t " << mPsnr[2] << std::endl;
 }
 
 void UltraHdrAppInput::computeYUVSdrPSNR() {
@@ -1287,8 +1299,7 @@ void UltraHdrAppInput::computeYUVSdrPSNR() {
   meanSquareError = (double)vSqError / (mDecodedUhdrYuv444Image.w * mDecodedUhdrYuv444Image.h / 4);
   mPsnr[2] = meanSquareError ? 10 * log10((double)255 * 255 / meanSquareError) : 100;
 
-  std::cout << "psnr y :: " << mPsnr[0] << " psnr u :: " << mPsnr[1] << " psnr v :: " << mPsnr[2]
-            << std::endl;
+  std::cout << "psnr yuv: \t" << mPsnr[0] << " \t " << mPsnr[1] << " \t " << mPsnr[2] << std::endl;
 }
 
 static void usage(const char* name) {
@@ -1326,9 +1337,8 @@ static void usage(const char* name) {
   fprintf(stderr,
           "    -R    color range of hdr intent, optional. [0:narrow-range (default), "
           "1:full-range]. \n");
-  fprintf(
-      stderr,
-      "    -s    gainmap image downsample factor, optional. [positive integer (4 : default)]. \n");
+  fprintf(stderr,
+          "    -s    gainmap image downsample factor, optional. [(0 - 128] (4 : default)]. \n");
   fprintf(stderr,
           "    -Q    quality factor to be used while encoding gain map image, optional. [0-100], "
           "85 : default. \n");

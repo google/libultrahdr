@@ -8,4 +8,4 @@ Version: @PROJECT_VERSION@
 Requires.private: libjpeg
 Cflags: -I${includedir}
 Libs: -L${libdir} -l@UHDR_TARGET_NAME@
-Libs.private: @CMAKE_THREAD_LIBS_INIT@
+Libs.private: @CMAKE_THREAD_LIBS_INIT@ @EGL_LIBRARIES@ @OPENGLES3_LIBRARIES@

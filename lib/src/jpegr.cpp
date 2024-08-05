@@ -1422,8 +1422,7 @@ static float ReinhardMap(float y_hdr, float headroom) {
   return out * y_hdr;
 }
 
-GlobalTonemapOutputs globalTonemap(const std::array<float, 3>& rgb_in, float headroom,
-        float y_in) {
+GlobalTonemapOutputs globalTonemap(const std::array<float, 3>& rgb_in, float headroom, float y_in) {
   constexpr float kOotfGamma = 1.2f;
 
   // Apply OOTF and Scale to Headroom to get HDR values that are referenced to
@@ -1508,7 +1507,6 @@ uhdr_error_info_t JpegR::toneMap(uhdr_raw_image_t* hdr_intent, uhdr_raw_image_t*
     return status;
   }
 
-
   ColorCalculationFn hdrLuminanceFn = getLuminanceFn(hdr_intent->cg);
   if (hdrLuminanceFn == nullptr) {
     uhdr_error_info_t status;
@@ -1572,8 +1570,8 @@ uhdr_error_info_t JpegR::toneMap(uhdr_raw_image_t* hdr_intent, uhdr_raw_image_t*
   std::function<void()> toneMapInternal;
 
   toneMapInternal = [hdr_intent, luma_data, cb_data, cr_data, hdrInvOetf, hdrGamutConversionFn,
-                     hdrYuvToRgbFn, luma_stride, cb_stride, cr_stride, hdr_white_nits,
-                     get_pixel_fn, hdrLuminanceFn, &jobQueue]() -> void {
+                     hdrYuvToRgbFn, luma_stride, cb_stride, cr_stride, hdr_white_nits, get_pixel_fn,
+                     hdrLuminanceFn, &jobQueue]() -> void {
     size_t rowStart, rowEnd;
     int hfactor = hdr_intent->fmt == UHDR_IMG_FMT_24bppYCbCrP010 ? 2 : 1;
     int vfactor = hdr_intent->fmt == UHDR_IMG_FMT_24bppYCbCrP010 ? 2 : 1;
@@ -1592,9 +1590,8 @@ uhdr_error_info_t JpegR::toneMap(uhdr_raw_image_t* hdr_intent, uhdr_raw_image_t*
               Color hdr_rgb = hdrInvOetf(hdr_rgb_gamma);
 
               GlobalTonemapOutputs tonemap_outputs =
-                  globalTonemap({hdr_rgb.r, hdr_rgb.g, hdr_rgb.b},
-                                 hdr_white_nits / kSdrWhiteNits,
-                                 hdrLuminanceFn({{{hdr_rgb.r, hdr_rgb.g, hdr_rgb.b}}}));
+                  globalTonemap({hdr_rgb.r, hdr_rgb.g, hdr_rgb.b}, hdr_white_nits / kSdrWhiteNits,
+                                hdrLuminanceFn({{{hdr_rgb.r, hdr_rgb.g, hdr_rgb.b}}}));
               Color sdr_rgb_linear_bt2100 = {
                   {{tonemap_outputs.rgb_out[0], tonemap_outputs.rgb_out[1],
                     tonemap_outputs.rgb_out[2]}}};
