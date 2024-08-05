@@ -111,7 +111,7 @@ void UltraHdrEncFuzzer::process() {
     height = (height >> 1) << 1;
 
     // gainmap scale factor
-    auto gm_scale_factor = mFdp.ConsumeIntegralInRange<int>(1, std::min(width, height));
+    auto gm_scale_factor = mFdp.ConsumeIntegralInRange<int>(1, 128);
 
     std::unique_ptr<uint32_t[]> bufferHdr = nullptr;
     std::unique_ptr<uint16_t[]> bufferYHdr = nullptr;
@@ -119,7 +119,6 @@ void UltraHdrEncFuzzer::process() {
     std::unique_ptr<uint8_t[]> bufferYSdr = nullptr;
     std::unique_ptr<uint8_t[]> bufferUVSdr = nullptr;
     std::unique_ptr<uint8_t[]> gainMapImageRaw = nullptr;
-    std::unique_ptr<uint8_t[]> jpegBufferRaw = nullptr;
     uhdr_codec_private_t* enc_handle = uhdr_create_encoder();
     if (!enc_handle) {
       ALOGE("Failed to create encoder");
