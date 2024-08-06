@@ -553,7 +553,9 @@ struct GlobalTonemapOutputs {
 // `rgb_out` is returned in this same range. `headroom` describes the ratio
 // between the HDR and SDR peak luminances and must be > 1. The `y_sdr` output
 // is in the range [0.0, 1.0] while `y_hdr` is in the range [0.0, headroom].
-GlobalTonemapOutputs globalTonemap(const std::array<float, 3>& rgb_in, float headroom);
+GlobalTonemapOutputs globalTonemap(const std::array<float, 3>& rgb_in,
+                                   float headroom,
+                                   float luminance);
 
 }  // namespace ultrahdr
 
