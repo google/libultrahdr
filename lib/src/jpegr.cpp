@@ -44,8 +44,14 @@ using namespace photos_editing_formats::image_io;
 
 namespace ultrahdr {
 
-// Default gamma value for gain map
-static const float kGainMapGammaDefault = 1.0f;
+#ifdef UHDR_ENABLE_GLES
+bool isBufferDataContiguous(uhdr_raw_image_t* img);
+
+uhdr_error_info_t applyGainMapGLES(uhdr_raw_image_t* sdr_intent, uhdr_raw_image_t* gainmap_img,
+                                   uhdr_gainmap_metadata_ext_t* gainmap_metadata,
+                                   uhdr_color_transfer_t output_ct, float display_boost,
+                                   uhdr_raw_image_t* dest, uhdr_opengl_ctxt_t* opengl_ctxt);
+#endif
 
 // Gain map metadata
 static const bool kWriteXmpMetadata = true;
@@ -141,10 +147,19 @@ int GetCPUCoreCount() {
   return cpuCoreCount;
 }
 
-JpegR::JpegR(size_t mapDimensionScaleFactor, int mapCompressQuality, bool useMultiChannelGainMap) {
+JpegR::JpegR(
+#ifdef UHDR_ENABLE_GLES
+    uhdr_opengl_ctxt_t* uhdrGLESCtxt,
+#endif
+    size_t mapDimensionScaleFactor, int mapCompressQuality, bool useMultiChannelGainMap,
+    float gamma) {
+#ifdef UHDR_ENABLE_GLES
+  mUhdrGLESCtxt = uhdrGLESCtxt;
+#endif
   mMapDimensionScaleFactor = mapDimensionScaleFactor;
   mMapCompressQuality = mapCompressQuality;
   mUseMultiChannelGainMap = useMultiChannelGainMap;
+  mGamma = gamma;
 }
 
 /*
@@ -173,9 +188,22 @@ static void copyJpegWithoutExif(uhdr_compressed_image_t* pDest, uhdr_compressed_
 /* Encode API-0 */
 uhdr_error_info_t JpegR::encodeJPEGR(uhdr_raw_image_t* hdr_intent, uhdr_compressed_image_t* dest,
                                      int quality, uhdr_mem_block_t* exif) {
+  uhdr_img_fmt_t sdr_intent_fmt;
+  if (hdr_intent->fmt == UHDR_IMG_FMT_24bppYCbCrP010) {
+    sdr_intent_fmt = UHDR_IMG_FMT_12bppYCbCr420;
+  } else if (hdr_intent->fmt == UHDR_IMG_FMT_30bppYCbCr444) {
+    sdr_intent_fmt = UHDR_IMG_FMT_24bppYCbCr444;
+  } else {
+    uhdr_error_info_t status;
+    status.error_code = UHDR_CODEC_INVALID_PARAM;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail, "unsupported hdr intent color format %d",
+             hdr_intent->fmt);
+    return status;
+  }
   std::unique_ptr<uhdr_raw_image_ext_t> sdr_intent = std::make_unique<uhdr_raw_image_ext_t>(
-      UHDR_IMG_FMT_12bppYCbCr420, UHDR_CG_UNSPECIFIED, UHDR_CT_UNSPECIFIED, UHDR_CR_UNSPECIFIED,
-      hdr_intent->w, hdr_intent->h, 64);
+      sdr_intent_fmt, UHDR_CG_UNSPECIFIED, UHDR_CT_UNSPECIFIED, UHDR_CR_UNSPECIFIED, hdr_intent->w,
+      hdr_intent->h, 64);
 
   // tone map
   UHDR_ERR_CHECK(toneMap(hdr_intent, sdr_intent.get()));
@@ -183,8 +211,9 @@ uhdr_error_info_t JpegR::encodeJPEGR(uhdr_raw_image_t* hdr_intent, uhdr_compress
   // generate gain map
   uhdr_gainmap_metadata_ext_t metadata(kJpegrVersion);
   std::unique_ptr<uhdr_raw_image_ext_t> gainmap;
-  UHDR_ERR_CHECK(generateGainMap(sdr_intent.get(), hdr_intent, &metadata, gainmap, /* sdr_is_601 */ false,
-          /* use_luminance */ false));
+  UHDR_ERR_CHECK(generateGainMap(sdr_intent.get(), hdr_intent, &metadata, gainmap,
+                                 /* sdr_is_601 */ false,
+                                 /* use_luminance */ false));
 
   // compress gain map
   JpegEncoderHelper jpeg_enc_obj_gm;
@@ -223,8 +252,7 @@ uhdr_error_info_t JpegR::encodeJPEGR(uhdr_raw_image_t* hdr_intent, uhdr_raw_imag
   std::shared_ptr<DataStruct> icc = IccHelper::writeIccProfile(UHDR_CT_SRGB, sdr_intent->cg);
 
   // convert to bt601 YUV encoding for JPEG encode
-#if (defined(UHDR_ENABLE_INTRINSICS) && (defined(__ARM_NEON__) || defined(__ARM_NEON)) && \
-     defined(__aarch64__))
+#if (defined(UHDR_ENABLE_INTRINSICS) && (defined(__ARM_NEON__) || defined(__ARM_NEON)))
   UHDR_ERR_CHECK(convertYuv_neon(sdr_intent, sdr_intent->cg, UHDR_CG_DISPLAY_P3));
 #else
   UHDR_ERR_CHECK(convertYuv(sdr_intent, sdr_intent->cg, UHDR_CG_DISPLAY_P3));
@@ -422,7 +450,18 @@ uhdr_error_info_t JpegR::convertYuv(uhdr_raw_image_t* image, uhdr_color_gamut_t 
       return status;
   }
 
-  transformYuv420(image, *coeffs_ptr);
+  if (image->fmt == UHDR_IMG_FMT_12bppYCbCr420) {
+    transformYuv420(image, *coeffs_ptr);
+  } else if (image->fmt == UHDR_IMG_FMT_24bppYCbCr444) {
+    transformYuv444(image, *coeffs_ptr);
+  } else {
+    status.error_code = UHDR_CODEC_UNSUPPORTED_FEATURE;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "No implementation available for performing gamut conversion for color format %d",
+             image->fmt);
+    return status;
+  }
 
   return status;
 }
@@ -450,12 +489,13 @@ uhdr_error_info_t JpegR::generateGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_
              sdr_intent->fmt);
     return status;
   }
-  if (hdr_intent->fmt != UHDR_IMG_FMT_24bppYCbCrP010) {
+  if (hdr_intent->fmt != UHDR_IMG_FMT_24bppYCbCrP010 &&
+      hdr_intent->fmt != UHDR_IMG_FMT_30bppYCbCr444) {
     status.error_code = UHDR_CODEC_UNSUPPORTED_FEATURE;
     status.has_detail = 1;
     snprintf(status.detail, sizeof status.detail,
              "generate gainmap method expects hdr intent color format to be one of "
-             "{UHDR_IMG_FMT_24bppYCbCrP010}. Received %d",
+             "{UHDR_IMG_FMT_24bppYCbCrP010, UHDR_IMG_FMT_30bppYCbCr444}. Received %d",
              hdr_intent->fmt);
     return status;
   }
@@ -470,7 +510,7 @@ uhdr_error_info_t JpegR::generateGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_
     }
   }*/
 
-  ColorTransformFn hdrInvOetf = getInverseOetf(hdr_intent->ct);
+  ColorTransformFn hdrInvOetf = getInverseOetfFn(hdr_intent->ct);
   if (hdrInvOetf == nullptr) {
     status.error_code = UHDR_CODEC_UNSUPPORTED_FEATURE;
     status.has_detail = 1;
@@ -492,7 +532,7 @@ uhdr_error_info_t JpegR::generateGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_
 
   gainmap_metadata->max_content_boost = hdr_white_nits / kSdrWhiteNits;
   gainmap_metadata->min_content_boost = 1.0f;
-  gainmap_metadata->gamma = kGainMapGammaDefault;
+  gainmap_metadata->gamma = mGamma;
   gainmap_metadata->offset_sdr = 0.0f;
   gainmap_metadata->offset_hdr = 0.0f;
   gainmap_metadata->hdr_capacity_min = 1.0f;
@@ -541,23 +581,22 @@ uhdr_error_info_t JpegR::generateGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_
     return status;
   }
 
-  samplePixelFn sdr_sample_pixel_fn = nullptr;
-  switch (sdr_intent->fmt) {
-    case UHDR_IMG_FMT_24bppYCbCr444:
-      sdr_sample_pixel_fn = sampleYuv444;
-      break;
-    case UHDR_IMG_FMT_16bppYCbCr422:
-      sdr_sample_pixel_fn = sampleYuv422;
-      break;
-    case UHDR_IMG_FMT_12bppYCbCr420:
-      sdr_sample_pixel_fn = sampleYuv420;
-      break;
-    default:
-      status.error_code = UHDR_CODEC_UNSUPPORTED_FEATURE;
-      status.has_detail = 1;
-      snprintf(status.detail, sizeof status.detail,
-               "Unsupported sdr intent color format in apply gainmap %d", sdr_intent->fmt);
-      return status;
+  SamplePixelFn sdr_sample_pixel_fn = getSamplePixelFn(sdr_intent->fmt);
+  if (sdr_sample_pixel_fn == nullptr) {
+    status.error_code = UHDR_CODEC_UNSUPPORTED_FEATURE;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "No implementation available for reading pixels for color format %d", sdr_intent->fmt);
+    return status;
+  }
+
+  SamplePixelFn hdr_sample_pixel_fn = getSamplePixelFn(hdr_intent->fmt);
+  if (hdr_sample_pixel_fn == nullptr) {
+    status.error_code = UHDR_CODEC_UNSUPPORTED_FEATURE;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "No implementation available for reading pixels for color format %d", hdr_intent->fmt);
+    return status;
   }
 
   if (sdr_is_601) {
@@ -573,7 +612,7 @@ uhdr_error_info_t JpegR::generateGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_
     scaleFactor = (scaleFactor >= DCTSIZE) ? (scaleFactor / DCTSIZE) : 1;
     ALOGW(
         "configured gainmap scale factor is resulting in gainmap width and/or height to be zero, "
-        "image width %d, image height %d, scale factor %d. Modiyfing gainmap scale factor to %d ",
+        "image width %d, image height %d, scale factor %d. Modifying gainmap scale factor to %d ",
         (int)image_width, (int)image_height, (int)mMapDimensionScaleFactor, scaleFactor);
     setMapDimensionScaleFactor(scaleFactor);
     map_width = image_width / mMapDimensionScaleFactor;
@@ -589,11 +628,10 @@ uhdr_error_info_t JpegR::generateGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_
   const int jobSizeInRows = 1;
   size_t rowStep = threads == 1 ? map_height : jobSizeInRows;
   JobQueue jobQueue;
-  std::function<void()> generateMap = [this, sdr_intent, hdr_intent, gainmap_metadata, dest,
-                                       hdrInvOetf, hdrGamutConversionFn, luminanceFn, sdrYuvToRgbFn,
-                                       hdrYuvToRgbFn, sdr_sample_pixel_fn, hdr_white_nits,
-                                       log2MinBoost, log2MaxBoost, use_luminance, &jobQueue]()
-                                       -> void {
+  std::function<void()> generateMap =
+      [this, sdr_intent, hdr_intent, gainmap_metadata, dest, hdrInvOetf, hdrGamutConversionFn,
+       luminanceFn, sdrYuvToRgbFn, hdrYuvToRgbFn, sdr_sample_pixel_fn, hdr_sample_pixel_fn,
+       hdr_white_nits, log2MinBoost, log2MaxBoost, use_luminance, &jobQueue]() -> void {
     size_t rowStart, rowEnd;
     while (jobQueue.dequeueJob(rowStart, rowEnd)) {
       for (size_t y = rowStart; y < rowEnd; ++y) {
@@ -607,7 +645,7 @@ uhdr_error_info_t JpegR::generateGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_
           Color sdr_rgb = srgbInvOetf(sdr_rgb_gamma);
 #endif
 
-          Color hdr_yuv_gamma = sampleP010(hdr_intent, mMapDimensionScaleFactor, x, y);
+          Color hdr_yuv_gamma = hdr_sample_pixel_fn(hdr_intent, mMapDimensionScaleFactor, x, y);
           Color hdr_rgb_gamma = hdrYuvToRgbFn(hdr_yuv_gamma);
           Color hdr_rgb = hdrInvOetf(hdr_rgb_gamma);
           hdr_rgb = hdrGamutConversionFn(hdr_rgb);
@@ -929,6 +967,42 @@ uhdr_error_info_t JpegR::getJPEGRInfo(uhdr_compressed_image_t* uhdr_compressed_i
   return g_no_error;
 }
 
+uhdr_error_info_t JpegR::parseGainMapMetadata(uint8_t* iso_data, int iso_size, uint8_t* xmp_data,
+                                              int xmp_size,
+                                              uhdr_gainmap_metadata_ext_t* uhdr_metadata) {
+  if (iso_size > 0) {
+    if (iso_size < (int)kIsoNameSpace.size() + 1) {
+      uhdr_error_info_t status;
+      status.error_code = UHDR_CODEC_ERROR;
+      status.has_detail = 1;
+      snprintf(status.detail, sizeof status.detail,
+               "iso block size needs to be atleast %d but got %d", (int)kIsoNameSpace.size() + 1,
+               iso_size);
+      return status;
+    }
+    uhdr_gainmap_metadata_frac decodedMetadata;
+    std::vector<uint8_t> iso_vec;
+    for (int i = (int)kIsoNameSpace.size() + 1; i < iso_size; i++) {
+      iso_vec.push_back(iso_data[i]);
+    }
+
+    UHDR_ERR_CHECK(uhdr_gainmap_metadata_frac::decodeGainmapMetadata(iso_vec, &decodedMetadata));
+    UHDR_ERR_CHECK(uhdr_gainmap_metadata_frac::gainmapMetadataFractionToFloat(&decodedMetadata,
+                                                                              uhdr_metadata));
+  } else if (xmp_size > 0) {
+    UHDR_ERR_CHECK(getMetadataFromXMP(xmp_data, xmp_size, uhdr_metadata));
+  } else {
+    uhdr_error_info_t status;
+    status.error_code = UHDR_CODEC_INVALID_PARAM;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "received no valid buffer to parse gainmap metadata");
+    return status;
+  }
+
+  return g_no_error;
+}
+
 /* Decode API */
 uhdr_error_info_t JpegR::decodeJPEGR(uhdr_compressed_image_t* uhdr_compressed_img,
                                      uhdr_raw_image_t* dest, float max_display_boost,
@@ -957,31 +1031,10 @@ uhdr_error_info_t JpegR::decodeJPEGR(uhdr_compressed_image_t* uhdr_compressed_im
 
   uhdr_gainmap_metadata_ext_t uhdr_metadata;
   if (gainmap_metadata != nullptr || output_ct != UHDR_CT_SRGB) {
-    uint8_t* iso_ptr = static_cast<uint8_t*>(jpeg_dec_obj_gm.getIsoMetadataPtr());
-    if (iso_ptr != nullptr) {
-      size_t iso_size = jpeg_dec_obj_gm.getIsoMetadataSize();
-      if (iso_size < kIsoNameSpace.size() + 1) {
-        uhdr_error_info_t status;
-        status.error_code = UHDR_CODEC_ERROR;
-        status.has_detail = 1;
-        snprintf(status.detail, sizeof status.detail,
-                 "iso block size needs to be atleast %d but got %d", (int)kIsoNameSpace.size() + 1,
-                 (int)iso_size);
-        return status;
-      }
-      uhdr_gainmap_metadata_frac decodedMetadata;
-      std::vector<uint8_t> iso_vec;
-      for (size_t i = kIsoNameSpace.size() + 1; i < iso_size; i++) {
-        iso_vec.push_back(iso_ptr[i]);
-      }
-
-      UHDR_ERR_CHECK(uhdr_gainmap_metadata_frac::decodeGainmapMetadata(iso_vec, &decodedMetadata));
-      UHDR_ERR_CHECK(uhdr_gainmap_metadata_frac::gainmapMetadataFractionToFloat(&decodedMetadata,
-                                                                                &uhdr_metadata));
-    } else {
-      UHDR_ERR_CHECK(getMetadataFromXMP(static_cast<uint8_t*>(jpeg_dec_obj_gm.getXMPPtr()),
-                                        jpeg_dec_obj_gm.getXMPSize(), &uhdr_metadata));
-    }
+    UHDR_ERR_CHECK(parseGainMapMetadata(static_cast<uint8_t*>(jpeg_dec_obj_gm.getIsoMetadataPtr()),
+                                        jpeg_dec_obj_gm.getIsoMetadataSize(),
+                                        static_cast<uint8_t*>(jpeg_dec_obj_gm.getXMPPtr()),
+                                        jpeg_dec_obj_gm.getXMPSize(), &uhdr_metadata))
     if (gainmap_metadata != nullptr) {
       gainmap_metadata->min_content_boost = uhdr_metadata.min_content_boost;
       gainmap_metadata->max_content_boost = uhdr_metadata.max_content_boost;
@@ -1086,6 +1139,24 @@ uhdr_error_info_t JpegR::applyGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_ima
     return status;
   }
 
+#ifdef UHDR_ENABLE_GLES
+  if (mUhdrGLESCtxt != nullptr) {
+    if (((sdr_intent->fmt == UHDR_IMG_FMT_12bppYCbCr420 && sdr_intent->w % 2 == 0 &&
+          sdr_intent->h % 2 == 0) ||
+         (sdr_intent->fmt == UHDR_IMG_FMT_16bppYCbCr422 && sdr_intent->w % 2 == 0) ||
+         (sdr_intent->fmt == UHDR_IMG_FMT_24bppYCbCr444)) &&
+        isBufferDataContiguous(sdr_intent) && isBufferDataContiguous(gainmap_img) &&
+        isBufferDataContiguous(dest)) {
+      // TODO: both inputs and outputs of GLES implementation assumes that raw image is contiguous
+      // and without strides. If not, handle the same by using temp copy
+      float display_boost = (std::min)(max_display_boost, gainmap_metadata->hdr_capacity_max);
+
+      return applyGainMapGLES(sdr_intent, gainmap_img, gainmap_metadata, output_ct, display_boost,
+                              dest, mUhdrGLESCtxt);
+    }
+  }
+#endif
+
   {
     float primary_aspect_ratio = (float)sdr_intent->w / sdr_intent->h;
     float gainmap_aspect_ratio = (float)gainmap_img->w / gainmap_img->h;
@@ -1113,25 +1184,14 @@ uhdr_error_info_t JpegR::applyGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_ima
   float display_boost = (std::min)(max_display_boost, gainmap_metadata->max_content_boost);
   GainLUT gainLUT(gainmap_metadata, display_boost);
 
-  getPixelFn get_pixel_fn = nullptr;
-  switch (sdr_intent->fmt) {
-    case UHDR_IMG_FMT_24bppYCbCr444:
-      get_pixel_fn = getYuv444Pixel;
-      break;
-    case UHDR_IMG_FMT_16bppYCbCr422:
-      get_pixel_fn = getYuv422Pixel;
-      break;
-    case UHDR_IMG_FMT_12bppYCbCr420:
-      get_pixel_fn = getYuv420Pixel;
-      break;
-    default: {
-      uhdr_error_info_t status;
-      status.error_code = UHDR_CODEC_UNSUPPORTED_FEATURE;
-      status.has_detail = 1;
-      snprintf(status.detail, sizeof status.detail,
-               "Unsupported sdr intent color format in apply gainmap %d", sdr_intent->fmt);
-      return status;
-    }
+  GetPixelFn get_pixel_fn = getPixelFn(sdr_intent->fmt);
+  if (get_pixel_fn == nullptr) {
+    uhdr_error_info_t status;
+    status.error_code = UHDR_CODEC_UNSUPPORTED_FEATURE;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "No implementation available for reading pixels for color format %d", sdr_intent->fmt);
+    return status;
   }
 
   JobQueue jobQueue;
@@ -1343,6 +1403,11 @@ uhdr_error_info_t JpegR::parseJpegInfo(uhdr_compressed_image_t* jpeg_image, j_in
       memcpy(static_cast<void*>(image_info->xmpData.data()), jpeg_dec_obj.getXMPPtr(),
              jpeg_dec_obj.getXMPSize());
     }
+    if (jpeg_dec_obj.getIsoMetadataSize() != 0) {
+      image_info->isoData.resize(jpeg_dec_obj.getIsoMetadataSize(), 0);
+      memcpy(static_cast<void*>(image_info->isoData.data()), jpeg_dec_obj.getIsoMetadataPtr(),
+             jpeg_dec_obj.getIsoMetadataSize());
+    }
   }
   if (img_width != nullptr && img_height != nullptr) {
     *img_width = imgWidth;
@@ -1396,24 +1461,39 @@ uint8_t ScaleTo8Bit(float value) {
 }
 
 uhdr_error_info_t JpegR::toneMap(uhdr_raw_image_t* hdr_intent, uhdr_raw_image_t* sdr_intent) {
-  if (sdr_intent->fmt != UHDR_IMG_FMT_12bppYCbCr420) {
-    uhdr_error_info_t status;
-    status.error_code = UHDR_CODEC_UNSUPPORTED_FEATURE;
-    status.has_detail = 1;
-    snprintf(status.detail, sizeof status.detail,
-             "tonemap method expects sdr intent color format to be one of "
-             "{UHDR_IMG_FMT_12bppYCbCr420}. Received %d",
-             sdr_intent->fmt);
-    return status;
-  }
-  if (hdr_intent->fmt != UHDR_IMG_FMT_24bppYCbCrP010) {
+  if (hdr_intent->fmt != UHDR_IMG_FMT_24bppYCbCrP010 &&
+      hdr_intent->fmt != UHDR_IMG_FMT_30bppYCbCr444) {
     uhdr_error_info_t status;
     status.error_code = UHDR_CODEC_UNSUPPORTED_FEATURE;
     status.has_detail = 1;
     snprintf(status.detail, sizeof status.detail,
              "tonemap method expects hdr intent color format to be one of "
-             "{UHDR_IMG_FMT_24bppYCbCrP010}. Received %d",
+             "{UHDR_IMG_FMT_24bppYCbCrP010, UHDR_IMG_FMT_30bppYCbCr444}. Received %d",
              hdr_intent->fmt);
+    return status;
+  }
+
+  if (hdr_intent->fmt == UHDR_IMG_FMT_24bppYCbCrP010 &&
+      sdr_intent->fmt != UHDR_IMG_FMT_12bppYCbCr420) {
+    uhdr_error_info_t status;
+    status.error_code = UHDR_CODEC_UNSUPPORTED_FEATURE;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "tonemap method expects sdr intent color format to be UHDR_IMG_FMT_12bppYCbCr420, if "
+             "hdr intent color format is UHDR_IMG_FMT_24bppYCbCrP010. Received %d",
+             sdr_intent->fmt);
+    return status;
+  }
+
+  if (hdr_intent->fmt == UHDR_IMG_FMT_30bppYCbCr444 &&
+      sdr_intent->fmt != UHDR_IMG_FMT_24bppYCbCr444) {
+    uhdr_error_info_t status;
+    status.error_code = UHDR_CODEC_UNSUPPORTED_FEATURE;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "tonemap method expects sdr intent color format to be UHDR_IMG_FMT_24bppYCbCr444, if "
+             "hdr intent color format is UHDR_IMG_FMT_30bppYCbCr444. Received %d",
+             sdr_intent->fmt);
     return status;
   }
 
@@ -1427,6 +1507,7 @@ uhdr_error_info_t JpegR::toneMap(uhdr_raw_image_t* hdr_intent, uhdr_raw_image_t*
              hdr_intent->cg);
     return status;
   }
+
 
   ColorCalculationFn hdrLuminanceFn = getLuminanceFn(hdr_intent->cg);
   if (hdrLuminanceFn == nullptr) {
@@ -1461,6 +1542,16 @@ uhdr_error_info_t JpegR::toneMap(uhdr_raw_image_t* hdr_intent, uhdr_raw_image_t*
     return status;
   }
 
+  GetPixelFn get_pixel_fn = getPixelFn(hdr_intent->fmt);
+  if (get_pixel_fn == nullptr) {
+    uhdr_error_info_t status;
+    status.error_code = UHDR_CODEC_UNSUPPORTED_FEATURE;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "No implementation available for reading pixels for color format %d", hdr_intent->fmt);
+    return status;
+  }
+
   sdr_intent->cg = UHDR_CG_DISPLAY_P3;
   sdr_intent->ct = UHDR_CT_SRGB;
   sdr_intent->range = UHDR_CR_FULL_RANGE;
@@ -1474,7 +1565,8 @@ uhdr_error_info_t JpegR::toneMap(uhdr_raw_image_t* hdr_intent, uhdr_raw_image_t*
   size_t cr_stride = sdr_intent->stride[UHDR_PLANE_V];
   size_t height = hdr_intent->h;
   const int threads = (std::min)(GetCPUCoreCount(), 4);
-  const int jobSizeInRows = 2;  // 420 subsampling
+  // for 420 subsampling, process 2 rows at once
+  const int jobSizeInRows = hdr_intent->fmt == UHDR_IMG_FMT_24bppYCbCrP010 ? 2 : 1;
   size_t rowStep = threads == 1 ? height : jobSizeInRows;
   JobQueue jobQueue;
   std::function<void()> toneMapInternal;
@@ -1483,16 +1575,19 @@ uhdr_error_info_t JpegR::toneMap(uhdr_raw_image_t* hdr_intent, uhdr_raw_image_t*
                      hdrYuvToRgbFn, luma_stride, cb_stride, cr_stride, hdr_white_nits,
                      hdrLuminanceFn, &jobQueue]() -> void {
     size_t rowStart, rowEnd;
+    int hfactor = hdr_intent->fmt == UHDR_IMG_FMT_24bppYCbCrP010 ? 2 : 1;
+    int vfactor = hdr_intent->fmt == UHDR_IMG_FMT_24bppYCbCrP010 ? 2 : 1;
+
     while (jobQueue.dequeueJob(rowStart, rowEnd)) {
-      for (size_t y = rowStart; y < rowEnd; y += 2) {
-        for (size_t x = 0; x < hdr_intent->w; x += 2) {
+      for (size_t y = rowStart; y < rowEnd; y += vfactor) {
+        for (size_t x = 0; x < hdr_intent->w; x += hfactor) {
           // We assume the input is P010, and output is YUV420
           float sdr_u_gamma = 0.0f;
           float sdr_v_gamma = 0.0f;
 
-          for (int i = 0; i < 2; i++) {
-            for (int j = 0; j < 2; j++) {
-              Color hdr_yuv_gamma = getP010Pixel(hdr_intent, x + j, y + i);
+          for (int i = 0; i < vfactor; i++) {
+            for (int j = 0; j < hfactor; j++) {
+              Color hdr_yuv_gamma = get_pixel_fn(hdr_intent, x + j, y + i);
               Color hdr_rgb_gamma = hdrYuvToRgbFn(hdr_yuv_gamma);
               Color hdr_rgb = hdrInvOetf(hdr_rgb_gamma);
 
@@ -1520,10 +1615,10 @@ uhdr_error_info_t JpegR::toneMap(uhdr_raw_image_t* hdr_intent, uhdr_raw_image_t*
               sdr_v_gamma += sdr_yuv_gamma.v;
             }
           }
-          sdr_u_gamma *= 0.25f;
-          sdr_v_gamma *= 0.25f;
-          cb_data[x / 2 + (y / 2) * cb_stride] = ScaleTo8Bit(sdr_u_gamma);
-          cr_data[x / 2 + (y / 2) * cr_stride] = ScaleTo8Bit(sdr_v_gamma);
+          sdr_u_gamma /= (hfactor * vfactor);
+          sdr_v_gamma /= (hfactor * vfactor);
+          cb_data[x / hfactor + (y / vfactor) * cb_stride] = ScaleTo8Bit(sdr_u_gamma);
+          cr_data[x / hfactor + (y / vfactor) * cr_stride] = ScaleTo8Bit(sdr_v_gamma);
         }
       }
     }

@@ -124,11 +124,11 @@ Color srgbInvOetfLUT(Color e_gamma) {
 }
 
 float srgbOetf(float e) {
-  constexpr float kThreshold = 0.00304;
+  constexpr float kThreshold = 0.0031308;
   constexpr float kLowSlope = 12.92;
   constexpr float kHighOffset = 0.055;
   constexpr float kPowerExponent = 1.0 / 2.4;
-  if (e < kThreshold) {
+  if (e <= kThreshold) {
     return kLowSlope * e;
   }
   return (1.0 + kHighOffset) * std::pow(e, kPowerExponent) - kHighOffset;
@@ -289,18 +289,9 @@ float pqOetfLUT(float e) {
 
 Color pqOetfLUT(Color e) { return {{{pqOetfLUT(e.r), pqOetfLUT(e.g), pqOetfLUT(e.b)}}}; }
 
-// Derived from the inverse of the Reference PQ OETF.
-static const float kPqInvA = 128.0f, kPqInvB = 107.0f, kPqInvC = 2413.0f, kPqInvD = 2392.0f,
-                   kPqInvE = 6.2773946361f, kPqInvF = 0.0126833f;
-
 float pqInvOetf(float e_gamma) {
-  // This equation blows up if e_gamma is 0.0, and checking on <= 0.0 doesn't
-  // always catch 0.0. So, check on 0.0001, since anything this small will
-  // effectively be crushed to zero anyways.
-  if (e_gamma <= 0.0001f) return 0.0f;
-  return pow(
-      (kPqInvA * pow(e_gamma, kPqInvF) - kPqInvB) / (kPqInvC - kPqInvD * pow(e_gamma, kPqInvF)),
-      kPqInvE);
+  float val = pow(e_gamma, (1 / kPqM2));
+  return pow((((std::max)(val - kPqC1, 0.0f)) / (kPqC2 - kPqC3 * val)), 1 / kPqM1);
 }
 
 Color pqInvOetf(Color e_gamma) {
@@ -323,39 +314,39 @@ Color pqInvOetfLUT(Color e_gamma) {
 // Color conversions
 
 Color bt709ToP3(Color e) {
-  return {{{0.82254f * e.r + 0.17755f * e.g + 0.00006f * e.b,
-            0.03312f * e.r + 0.96684f * e.g + -0.00001f * e.b,
-            0.01706f * e.r + 0.07240f * e.g + 0.91049f * e.b}}};
+  return {{{clampPixelFloat(0.82254f * e.r + 0.17755f * e.g + 0.00006f * e.b),
+            clampPixelFloat(0.03312f * e.r + 0.96684f * e.g + -0.00001f * e.b),
+            clampPixelFloat(0.01706f * e.r + 0.07240f * e.g + 0.91049f * e.b)}}};
 }
 
 Color bt709ToBt2100(Color e) {
-  return {{{0.62740f * e.r + 0.32930f * e.g + 0.04332f * e.b,
-            0.06904f * e.r + 0.91958f * e.g + 0.01138f * e.b,
-            0.01636f * e.r + 0.08799f * e.g + 0.89555f * e.b}}};
+  return {{{clampPixelFloat(0.62740f * e.r + 0.32930f * e.g + 0.04332f * e.b),
+            clampPixelFloat(0.06904f * e.r + 0.91958f * e.g + 0.01138f * e.b),
+            clampPixelFloat(0.01636f * e.r + 0.08799f * e.g + 0.89555f * e.b)}}};
 }
 
 Color p3ToBt709(Color e) {
-  return {{{1.22482f * e.r + -0.22490f * e.g + -0.00007f * e.b,
-            -0.04196f * e.r + 1.04199f * e.g + 0.00001f * e.b,
-            -0.01961f * e.r + -0.07865f * e.g + 1.09831f * e.b}}};
+  return {{{clampPixelFloat(1.22482f * e.r + -0.22490f * e.g + -0.00007f * e.b),
+            clampPixelFloat(-0.04196f * e.r + 1.04199f * e.g + 0.00001f * e.b),
+            clampPixelFloat(-0.01961f * e.r + -0.07865f * e.g + 1.09831f * e.b)}}};
 }
 
 Color p3ToBt2100(Color e) {
-  return {{{0.75378f * e.r + 0.19862f * e.g + 0.04754f * e.b,
-            0.04576f * e.r + 0.94177f * e.g + 0.01250f * e.b,
-            -0.00121f * e.r + 0.01757f * e.g + 0.98359f * e.b}}};
+  return {{{clampPixelFloat(0.75378f * e.r + 0.19862f * e.g + 0.04754f * e.b),
+            clampPixelFloat(0.04576f * e.r + 0.94177f * e.g + 0.01250f * e.b),
+            clampPixelFloat(-0.00121f * e.r + 0.01757f * e.g + 0.98359f * e.b)}}};
 }
 
 Color bt2100ToBt709(Color e) {
-  return {{{1.66045f * e.r + -0.58764f * e.g + -0.07286f * e.b,
-            -0.12445f * e.r + 1.13282f * e.g + -0.00837f * e.b,
-            -0.01811f * e.r + -0.10057f * e.g + 1.11878f * e.b}}};
+  return {{{clampPixelFloat(1.66045f * e.r + -0.58764f * e.g + -0.07286f * e.b),
+            clampPixelFloat(-0.12445f * e.r + 1.13282f * e.g + -0.00837f * e.b),
+            clampPixelFloat(-0.01811f * e.r + -0.10057f * e.g + 1.11878f * e.b)}}};
 }
 
 Color bt2100ToP3(Color e) {
-  return {{{1.34369f * e.r + -0.28223f * e.g + -0.06135f * e.b,
-            -0.06533f * e.r + 1.07580f * e.g + -0.01051f * e.b,
-            0.00283f * e.r + -0.01957f * e.g + 1.01679f * e.b}}};
+  return {{{clampPixelFloat(1.34369f * e.r + -0.28223f * e.g + -0.06135f * e.b),
+            clampPixelFloat(-0.06533f * e.r + 1.07580f * e.g + -0.01051f * e.b),
+            clampPixelFloat(0.00283f * e.r + -0.01957f * e.g + 1.01679f * e.b)}}};
 }
 
 // TODO: confirm we always want to convert like this before calculating
@@ -432,7 +423,7 @@ ColorCalculationFn getLuminanceFn(uhdr_color_gamut_t gamut) {
   return nullptr;
 }
 
-ColorTransformFn getInverseOetf(uhdr_color_transfer_t transfer) {
+ColorTransformFn getInverseOetfFn(uhdr_color_transfer_t transfer) {
   switch (transfer) {
     case UHDR_CT_LINEAR:
       return identityConversion;
@@ -455,6 +446,42 @@ ColorTransformFn getInverseOetf(uhdr_color_transfer_t transfer) {
       return srgbInvOetf;
 #endif
     case UHDR_CT_UNSPECIFIED:
+      return nullptr;
+  }
+  return nullptr;
+}
+
+GetPixelFn getPixelFn(uhdr_img_fmt_t format) {
+  switch (format) {
+    case UHDR_IMG_FMT_24bppYCbCr444:
+      return getYuv444Pixel;
+    case UHDR_IMG_FMT_16bppYCbCr422:
+      return getYuv422Pixel;
+    case UHDR_IMG_FMT_12bppYCbCr420:
+      return getYuv420Pixel;
+    case UHDR_IMG_FMT_24bppYCbCrP010:
+      return getP010Pixel;
+    case UHDR_IMG_FMT_30bppYCbCr444:
+      return getYuv444Pixel10bit;
+    default:
+      return nullptr;
+  }
+  return nullptr;
+}
+
+SamplePixelFn getSamplePixelFn(uhdr_img_fmt_t format) {
+  switch (format) {
+    case UHDR_IMG_FMT_24bppYCbCr444:
+      return sampleYuv444;
+    case UHDR_IMG_FMT_16bppYCbCr422:
+      return sampleYuv422;
+    case UHDR_IMG_FMT_12bppYCbCr420:
+      return sampleYuv420;
+    case UHDR_IMG_FMT_24bppYCbCrP010:
+      return sampleP010;
+    case UHDR_IMG_FMT_30bppYCbCr444:
+      return sampleYuv44410bit;
+    default:
       return nullptr;
   }
   return nullptr;
@@ -576,6 +603,28 @@ void transformYuv420(uhdr_raw_image_t* image, const std::array<float, 9>& coeffs
   }
 }
 
+void transformYuv444(uhdr_raw_image_t* image, const std::array<float, 9>& coeffs) {
+  for (size_t y = 0; y < image->h; ++y) {
+    for (size_t x = 0; x < image->w; ++x) {
+      Color yuv = getYuv444Pixel(image, x, y);
+      yuv = yuvColorGamutConversion(yuv, coeffs);
+
+      size_t pixel_y_idx = x + y * image->stride[UHDR_PLANE_Y];
+      uint8_t& y1_uint = reinterpret_cast<uint8_t*>(image->planes[UHDR_PLANE_Y])[pixel_y_idx];
+
+      size_t pixel_u_idx = x + y * image->stride[UHDR_PLANE_U];
+      uint8_t& u_uint = reinterpret_cast<uint8_t*>(image->planes[UHDR_PLANE_U])[pixel_u_idx];
+
+      size_t pixel_v_idx = x + y * image->stride[UHDR_PLANE_V];
+      uint8_t& v_uint = reinterpret_cast<uint8_t*>(image->planes[UHDR_PLANE_V])[pixel_v_idx];
+
+      y1_uint = static_cast<uint8_t>(CLIP3((yuv.y * 255.0f + 0.5f), 0, 255));
+      u_uint = static_cast<uint8_t>(CLIP3((yuv.u * 255.0f + 128.0f + 0.5f), 0, 255));
+      v_uint = static_cast<uint8_t>(CLIP3((yuv.v * 255.0f + 128.0f + 0.5f), 0, 255));
+    }
+  }
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 // Gain map calculations
 uint8_t encodeGain(float y_sdr, float y_hdr, uhdr_gainmap_metadata_ext_t* metadata) {
@@ -590,12 +639,12 @@ uint8_t encodeGain(float y_sdr, float y_hdr, uhdr_gainmap_metadata_ext_t* metada
     gain = y_hdr / y_sdr;
   }
 
-  float log2_normalized_gamma_gain = metadata->gamma * log2(gain);
-  log2_normalized_gamma_gain = fmin(log2_normalized_gamma_gain, log2MaxContentBoost);
-  log2_normalized_gamma_gain = fmax(log2_normalized_gamma_gain, log2MinContentBoost);
-
-  return static_cast<uint8_t>((log2_normalized_gamma_gain - log2MinContentBoost) /
-                              (log2MaxContentBoost - log2MinContentBoost) * 255.0f);
+  if (gain < metadata->min_content_boost) gain = metadata->min_content_boost;
+  if (gain > metadata->max_content_boost) gain = metadata->max_content_boost;
+  float gain_normalized =
+      (log2(gain) - log2MinContentBoost) / (log2MaxContentBoost - log2MinContentBoost);
+  float gain_normalized_gamma = powf(gain_normalized, metadata->gamma);
+  return static_cast<uint8_t>(gain_normalized_gamma * 255.0f);
 }
 
 Color applyGain(Color e, float gain, uhdr_gainmap_metadata_ext_t* metadata) {
@@ -620,6 +669,9 @@ Color applyGainLUT(Color e, float gain, GainLUT& gainLUT) {
 }
 
 Color applyGain(Color e, Color gain, uhdr_gainmap_metadata_ext_t* metadata) {
+  gain.r = pow(gain.r, 1.0f / metadata->gamma);
+  gain.g = pow(gain.g, 1.0f / metadata->gamma);
+  gain.b = pow(gain.b, 1.0f / metadata->gamma);
   float logBoostR = log2(metadata->min_content_boost) * (1.0f - gain.r) +
                     log2(metadata->max_content_boost) * gain.r;
   float logBoostG = log2(metadata->min_content_boost) * (1.0f - gain.g) +
@@ -633,6 +685,9 @@ Color applyGain(Color e, Color gain, uhdr_gainmap_metadata_ext_t* metadata) {
 }
 
 Color applyGain(Color e, Color gain, uhdr_gainmap_metadata_ext_t* metadata, float displayBoost) {
+  gain.r = pow(gain.r, 1.0f / metadata->gamma);
+  gain.g = pow(gain.g, 1.0f / metadata->gamma);
+  gain.b = pow(gain.b, 1.0f / metadata->gamma);
   float logBoostR = log2(metadata->min_content_boost) * (1.0f - gain.r) +
                     log2(metadata->max_content_boost) * gain.r;
   float logBoostG = log2(metadata->min_content_boost) * (1.0f - gain.g) +
@@ -687,6 +742,33 @@ Color getYuv420Pixel(uhdr_raw_image_t* image, size_t x, size_t y) {
   return getYuv4abPixel(image, x, y, 2, 2);
 }
 
+Color getYuv444Pixel10bit(uhdr_raw_image_t* image, size_t x, size_t y) {
+  uint16_t* luma_data = reinterpret_cast<uint16_t*>(image->planes[UHDR_PLANE_Y]);
+  size_t luma_stride = image->stride[UHDR_PLANE_Y];
+  uint16_t* cb_data = reinterpret_cast<uint16_t*>(image->planes[UHDR_PLANE_U]);
+  size_t cb_stride = image->stride[UHDR_PLANE_U];
+  uint16_t* cr_data = reinterpret_cast<uint16_t*>(image->planes[UHDR_PLANE_V]);
+  size_t cr_stride = image->stride[UHDR_PLANE_V];
+
+  size_t pixel_y_idx = y * luma_stride + x;
+  size_t pixel_u_idx = y * cb_stride + x;
+  size_t pixel_v_idx = y * cr_stride + x;
+
+  uint16_t y_uint = luma_data[pixel_y_idx];
+  uint16_t u_uint = cb_data[pixel_u_idx];
+  uint16_t v_uint = cr_data[pixel_v_idx];
+
+  if (image->range == UHDR_CR_FULL_RANGE) {
+    return {{{static_cast<float>(y_uint) / 1023.0f, static_cast<float>(u_uint) / 1023.0f - 0.5f,
+              static_cast<float>(v_uint) / 1023.0f - 0.5f}}};
+  }
+
+  // Conversions include taking narrow-range into account.
+  return {{{static_cast<float>(y_uint - 64) * (1 / 876.0f),
+            static_cast<float>(u_uint - 64) * (1 / 896.0f) - 0.5f,
+            static_cast<float>(v_uint - 64) * (1 / 896.0f) - 0.5f}}};
+}
+
 Color getP010Pixel(uhdr_raw_image_t* image, size_t x, size_t y) {
   uint16_t* luma_data = reinterpret_cast<uint16_t*>(image->planes[UHDR_PLANE_Y]);
   size_t luma_stride = image->stride[UHDR_PLANE_Y];
@@ -713,7 +795,7 @@ Color getP010Pixel(uhdr_raw_image_t* image, size_t x, size_t y) {
 }
 
 static Color samplePixels(uhdr_raw_image_t* image, size_t map_scale_factor, size_t x, size_t y,
-                          getPixelFn get_pixel_fn) {
+                          GetPixelFn get_pixel_fn) {
   Color e = {{{0.0f, 0.0f, 0.0f}}};
   for (size_t dy = 0; dy < map_scale_factor; ++dy) {
     for (size_t dx = 0; dx < map_scale_factor; ++dx) {
@@ -738,6 +820,10 @@ Color sampleYuv420(uhdr_raw_image_t* image, size_t map_scale_factor, size_t x, s
 
 Color sampleP010(uhdr_raw_image_t* image, size_t map_scale_factor, size_t x, size_t y) {
   return samplePixels(image, map_scale_factor, x, y, getP010Pixel);
+}
+
+Color sampleYuv44410bit(uhdr_raw_image_t* image, size_t map_scale_factor, size_t x, size_t y) {
+  return samplePixels(image, map_scale_factor, x, y, getYuv444Pixel10bit);
 }
 
 // TODO: do we need something more clever for filtering either the map or images
@@ -966,10 +1052,10 @@ Color sampleMap3Channel(uhdr_raw_image_t* map, size_t map_scale_factor, size_t x
 }
 
 uint32_t colorToRgba1010102(Color e_gamma) {
-  return (0x3ff & static_cast<uint32_t>(e_gamma.r * 1023.0f)) |
-         ((0x3ff & static_cast<uint32_t>(e_gamma.g * 1023.0f)) << 10) |
-         ((0x3ff & static_cast<uint32_t>(e_gamma.b * 1023.0f)) << 20) |
-         (0x3 << 30);  // Set alpha to 1.0
+  uint32_t r = CLIP3((e_gamma.r * 1023 + 0.5f), 0.0f, 1023.0f);
+  uint32_t g = CLIP3((e_gamma.g * 1023 + 0.5f), 0.0f, 1023.0f);
+  uint32_t b = CLIP3((e_gamma.b * 1023 + 0.5f), 0.0f, 1023.0f);
+  return (r | (g << 10) | (b << 20) | (0x3 << 30));  // Set alpha to 1.0
 }
 
 uint64_t colorToRgbaF16(Color e_gamma) {
@@ -977,7 +1063,8 @@ uint64_t colorToRgbaF16(Color e_gamma) {
          (((uint64_t)floatToHalf(e_gamma.b)) << 32) | (((uint64_t)floatToHalf(1.0f)) << 48);
 }
 
-std::unique_ptr<uhdr_raw_image_ext_t> convert_raw_input_to_ycbcr(uhdr_raw_image_t* src) {
+std::unique_ptr<uhdr_raw_image_ext_t> convert_raw_input_to_ycbcr(uhdr_raw_image_t* src,
+                                                                 bool chroma_sampling_enabled) {
   std::unique_ptr<uhdr_raw_image_ext_t> dst = nullptr;
   Color (*rgbToyuv)(Color) = nullptr;
 
@@ -993,7 +1080,7 @@ std::unique_ptr<uhdr_raw_image_ext_t> convert_raw_input_to_ycbcr(uhdr_raw_image_
     }
   }
 
-  if (src->fmt == UHDR_IMG_FMT_32bppRGBA1010102) {
+  if (src->fmt == UHDR_IMG_FMT_32bppRGBA1010102 && chroma_sampling_enabled) {
     dst = std::make_unique<uhdr_raw_image_ext_t>(UHDR_IMG_FMT_24bppYCbCrP010, src->cg, src->ct,
                                                  UHDR_CR_FULL_RANGE, src->w, src->h, 64);
 
@@ -1051,7 +1138,45 @@ std::unique_ptr<uhdr_raw_image_ext_t> convert_raw_input_to_ycbcr(uhdr_raw_image_
         vData[dst->stride[UHDR_PLANE_UV] * (i / 2) + j] = uint16_t(pixel[0].v) << 6;
       }
     }
-  } else if (src->fmt == UHDR_IMG_FMT_32bppRGBA8888) {
+  } else if (src->fmt == UHDR_IMG_FMT_32bppRGBA1010102) {
+    dst = std::make_unique<uhdr_raw_image_ext_t>(UHDR_IMG_FMT_30bppYCbCr444, src->cg, src->ct,
+                                                 UHDR_CR_FULL_RANGE, src->w, src->h, 64);
+
+    uint32_t* rgbData = static_cast<uint32_t*>(src->planes[UHDR_PLANE_PACKED]);
+    unsigned int srcStride = src->stride[UHDR_PLANE_PACKED];
+
+    uint16_t* yData = static_cast<uint16_t*>(dst->planes[UHDR_PLANE_Y]);
+    uint16_t* uData = static_cast<uint16_t*>(dst->planes[UHDR_PLANE_U]);
+    uint16_t* vData = static_cast<uint16_t*>(dst->planes[UHDR_PLANE_V]);
+
+    for (size_t i = 0; i < dst->h; i++) {
+      for (size_t j = 0; j < dst->w; j++) {
+        Color pixel;
+
+        pixel.r = float(rgbData[srcStride * i + j] & 0x3ff);
+        pixel.g = float((rgbData[srcStride * i + j] >> 10) & 0x3ff);
+        pixel.b = float((rgbData[srcStride * i + j] >> 20) & 0x3ff);
+
+        // Now we only support the RGB input being full range
+        pixel /= 1023.0f;
+        pixel = (*rgbToyuv)(pixel);
+
+        pixel.y = (pixel.y * 1023.0f) + 0.5f;
+        pixel.y = CLIP3(pixel.y, 0.0f, 1023.0f);
+
+        yData[dst->stride[UHDR_PLANE_Y] * i + j] = uint16_t(pixel.y);
+
+        pixel.u = (pixel.u * 1023.0f) + 512.0f + 0.5f;
+        pixel.v = (pixel.v * 1023.0f) + 512.0f + 0.5f;
+
+        pixel.u = CLIP3(pixel.u, 0.0f, 1023.0f);
+        pixel.v = CLIP3(pixel.v, 0.0f, 1023.0f);
+
+        uData[dst->stride[UHDR_PLANE_U] * i + j] = uint16_t(pixel.u);
+        vData[dst->stride[UHDR_PLANE_V] * i + j] = uint16_t(pixel.v);
+      }
+    }
+  } else if (src->fmt == UHDR_IMG_FMT_32bppRGBA8888 && chroma_sampling_enabled) {
     dst = std::make_unique<uhdr_raw_image_ext_t>(UHDR_IMG_FMT_12bppYCbCr420, src->cg, src->ct,
                                                  UHDR_CR_FULL_RANGE, src->w, src->h, 64);
     uint32_t* rgbData = static_cast<uint32_t*>(src->planes[UHDR_PLANE_PACKED]);
@@ -1104,6 +1229,41 @@ std::unique_ptr<uhdr_raw_image_ext_t> convert_raw_input_to_ycbcr(uhdr_raw_image_
 
         uData[dst->stride[UHDR_PLANE_U] * (i / 2) + (j / 2)] = uint8_t(pixel[0].u);
         vData[dst->stride[UHDR_PLANE_V] * (i / 2) + (j / 2)] = uint8_t(pixel[0].v);
+      }
+    }
+  } else if (src->fmt == UHDR_IMG_FMT_32bppRGBA8888) {
+    dst = std::make_unique<uhdr_raw_image_ext_t>(UHDR_IMG_FMT_24bppYCbCr444, src->cg, src->ct,
+                                                 UHDR_CR_FULL_RANGE, src->w, src->h, 64);
+    uint32_t* rgbData = static_cast<uint32_t*>(src->planes[UHDR_PLANE_PACKED]);
+    unsigned int srcStride = src->stride[UHDR_PLANE_PACKED];
+
+    uint8_t* yData = static_cast<uint8_t*>(dst->planes[UHDR_PLANE_Y]);
+    uint8_t* uData = static_cast<uint8_t*>(dst->planes[UHDR_PLANE_U]);
+    uint8_t* vData = static_cast<uint8_t*>(dst->planes[UHDR_PLANE_V]);
+    for (size_t i = 0; i < dst->h; i++) {
+      for (size_t j = 0; j < dst->w; j++) {
+        Color pixel;
+
+        pixel.r = float(rgbData[srcStride * i + j] & 0xff);
+        pixel.g = float((rgbData[srcStride * i + j] >> 8) & 0xff);
+        pixel.b = float((rgbData[srcStride * i + j] >> 16) & 0xff);
+
+        // Now we only support the RGB input being full range
+        pixel /= 255.0f;
+        pixel = (*rgbToyuv)(pixel);
+
+        pixel.y = pixel.y * 255.0f + 0.5f;
+        pixel.y = CLIP3(pixel.y, 0.0f, 255.0f);
+        yData[dst->stride[UHDR_PLANE_Y] * i + j] = uint8_t(pixel.y);
+
+        pixel.u = pixel.u * 255.0f + 0.5 + 128.0f;
+        pixel.v = pixel.v * 255.0f + 0.5 + 128.0f;
+
+        pixel.u = CLIP3(pixel.u, 0.0f, 255.0f);
+        pixel.v = CLIP3(pixel.v, 0.0f, 255.0f);
+
+        uData[dst->stride[UHDR_PLANE_U] * i + j] = uint8_t(pixel.u);
+        vData[dst->stride[UHDR_PLANE_V] * i + j] = uint8_t(pixel.v);
       }
     }
   } else if (src->fmt == UHDR_IMG_FMT_12bppYCbCr420 || src->fmt == UHDR_IMG_FMT_24bppYCbCrP010) {

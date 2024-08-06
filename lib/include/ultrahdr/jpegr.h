@@ -37,6 +37,8 @@ static const int kMapCompressQualityDefault = 85;
 
 // Gain map calculation
 static const bool kUseMultiChannelGainMapDefault = false;
+// Default gamma value for gain map
+static const float kGainMapGammaDefault = 1.0f;
 
 // The current JPEGR version that we encode to
 static const char* const kGainMapVersion = "1.0";
@@ -56,6 +58,7 @@ struct jpeg_info_struct {
   std::vector<uint8_t> iccData = std::vector<uint8_t>(0);
   std::vector<uint8_t> exifData = std::vector<uint8_t>(0);
   std::vector<uint8_t> xmpData = std::vector<uint8_t>(0);
+  std::vector<uint8_t> isoData = std::vector<uint8_t>(0);
   size_t width;
   size_t height;
   size_t numComponents;
@@ -76,10 +79,14 @@ typedef struct jpegr_info_struct* jr_info_ptr;
 
 class JpegR {
  public:
-
-  JpegR(size_t mapDimensionScaleFactor = kMapDimensionScaleFactorDefault,
-        int mapCompressQuality = kMapCompressQualityDefault,
-        bool useMultiChannelGainMap = kUseMultiChannelGainMapDefault);
+  JpegR(
+#ifdef UHDR_ENABLE_GLES
+      uhdr_opengl_ctxt_t* uhdrGLESCtxt = nullptr,
+#endif
+      size_t mapDimensionScaleFactor = kMapDimensionScaleFactorDefault,
+      int mapCompressQuality = kMapCompressQualityDefault,
+      bool useMultiChannelGainMap = kUseMultiChannelGainMapDefault,
+      float gamma = kGainMapGammaDefault);
 
   /*!\brief Encode API-0.
    *
@@ -283,6 +290,24 @@ class JpegR {
    */
   int getMapCompressQuality() { return this->mMapCompressQuality; }
 
+  /*!\brief set gain map gamma
+   *
+   * NOTE: Applicable only in encoding scenario
+   *
+   * \param[in]       gamma      gamma parameter that is used for gain map calculation
+   *
+   * \return none
+   */
+  void setGainMapGamma(float gamma) { this->mGamma = gamma; }
+
+  /*!\brief get gain map gamma
+   *
+   * NOTE: Applicable only in encoding scenario
+   *
+   * \return gamma parameter
+   */
+  float getGainMapGamma() { return this->mGamma; }
+
   /*!\brief enable / disable multi channel gain map
    *
    * NOTE: Applicable only in encoding scenario
@@ -356,6 +381,21 @@ class JpegR {
    * \deprecated This function is deprecated. Use its actual
    */
   status_t getJPEGRInfo(jr_compressed_ptr jpegr_image_ptr, jr_info_ptr jpegr_image_info_ptr);
+
+  /*!\brief This function receives iso block and / or xmp block and parses gainmap metadata and fill
+   * the output descriptor. If both iso block and xmp block are available, then iso block is
+   * preferred over xmp.
+   *
+   * \param[in]       iso_data                  iso memory block
+   * \param[in]       iso_size                  iso block size
+   * \param[in]       xmp_data                  xmp memory block
+   * \param[in]       xmp_size                  xmp block size
+   * \param[in, out]  gainmap_metadata          gainmap metadata descriptor
+   *
+   * \return uhdr_error_info_t #UHDR_CODEC_OK if operation succeeds, uhdr_codec_err_t otherwise.
+   */
+  uhdr_error_info_t parseGainMapMetadata(uint8_t* iso_data, int iso_size, uint8_t* xmp_data,
+                                         int xmp_size, uhdr_gainmap_metadata_ext_t* uhdr_metadata);
 
  protected:
   /*!\brief This method takes hdr intent and sdr intent and computes gainmap coefficient.
@@ -535,9 +575,13 @@ class JpegR {
                                   int quality);
 
   // Configurations
-  size_t mMapDimensionScaleFactor;  // gainmap scale factor
-  int mMapCompressQuality;          // gainmap quality factor
-  bool mUseMultiChannelGainMap;     // enable multichannel gainmap
+#ifdef UHDR_ENABLE_GLES
+  uhdr_opengl_ctxt_t* mUhdrGLESCtxt;  // opengl es context
+#endif
+  size_t mMapDimensionScaleFactor;  // gain map scale factor
+  int mMapCompressQuality;          // gain map quality factor
+  bool mUseMultiChannelGainMap;     // enable multichannel gain map
+  float mGamma;                     // gain map gamma parameter
 };
 
 struct GlobalTonemapOutputs {

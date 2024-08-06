@@ -19,13 +19,9 @@
 
 //#define LOG_NDEBUG 0
 
-#ifdef UHDR_ENABLE_OPENGL
+#ifdef UHDR_ENABLE_GLES
 #include <EGL/egl.h>
-#ifndef UHDR_ENABLE_GLESV3
-#include <GLES2/gl2.h>
-#else
 #include <GLES3/gl3.h>
-#endif
 #endif
 
 #include <deque>
@@ -201,34 +197,92 @@ typedef struct uhdr_gainmap_metadata_ext : uhdr_gainmap_metadata {
   std::string version;         /**< Ultra HDR format version */
 } uhdr_gainmap_metadata_ext_t; /**< alias for struct uhdr_gainmap_metadata */
 
-#ifdef UHDR_ENABLE_OPENGL
+#ifdef UHDR_ENABLE_GLES
 
 /**\brief OpenGL context */
 typedef struct uhdr_opengl_ctxt {
-  EGLDisplay mEGLDisplay;         /**< EGL display connection */
-  EGLContext mEGLContext;         /**< EGL rendering context */
-  EGLSurface mEGLSurface;         /**< EGL surface for rendering */
-  EGLConfig mEGLConfig;           /**< EGL frame buffer configuration */
-  uhdr_error_info_t mErrorStatus; /**< OpenGL context status */
+  // EGL Context
+  EGLDisplay mEGLDisplay;              /**< EGL display connection */
+  EGLContext mEGLContext;              /**< EGL rendering context */
+  EGLSurface mEGLSurface;              /**< EGL surface for rendering */
+  EGLConfig mEGLConfig;                /**< EGL frame buffer configuration */
+
+  // GLES Context
+  GLuint mQuadVAO, mQuadVBO, mQuadEBO; /**< GL objects */
+
+  uhdr_error_info_t mErrorStatus;      /**< Context status */
 
   uhdr_opengl_ctxt();
   ~uhdr_opengl_ctxt();
 
-  /*!\brief Initialize the OpenGL context
+  /*!\brief Initializes the OpenGL context. Mainly it prepares EGL. We want a GLES3.0 context and a
+   * surface that supports pbuffer. Once this is done and surface is made current, the gl state is
+   * initialized
    *
-   * \return uhdr_error_info_t #UHDR_CODEC_OK if operation succeeds, uhdr_codec_err_t otherwise.
+   * \return none
    */
-  uhdr_error_info_t init_opengl_ctxt();
+  void init_opengl_ctxt();
 
-  /*!\brief Reset opengl_ctxt instance.
+  /*!\brief This method is used to compile a shader
    *
-   * Deletes the current OpenGL context and reinitializes it.
+   * \param[in]   type    shader type
+   * \param[in]   source  shader source code
    *
-   * \return uhdr_error_info_t #UHDR_CODEC_OK if operation succeeds, uhdr_codec_err_t otherwise.
+   * \return GLuint #shader_id if operation succeeds, 0 otherwise.
    */
-  uhdr_error_info_t reset_opengl_ctxt();
+  GLuint compile_shader(GLenum type, const char* source);
 
-  /*!\brief Deletes the current OpenGL context.
+  /*!\brief This method is used to create a shader program
+   *
+   * \param[in]   vertex_source      vertex shader source code
+   * \param[in]   fragment_source    fragment shader source code
+   *
+   * \return GLuint #shader_program_id if operation succeeds, 0 otherwise.
+   */
+  GLuint create_shader_program(const char* vertex_source, const char* fragment_source);
+
+  /*!\brief This method is used to create a 2D texture for a raw image
+   * NOTE: For multichannel planar image, this method assumes the channel data to be contiguous
+   * NOTE: For any channel, this method assumes width and stride to be identical
+   *
+   * \param[in]   fmt       image format
+   * \param[in]   w         image width
+   * \param[in]   h         image height
+   * \param[in]   data      image data
+   *
+   * \return GLuint #texture_id if operation succeeds, 0 otherwise.
+   */
+  GLuint create_texture(uhdr_img_fmt_t fmt, int w, int h, void* data);
+
+  /*!\brief This method is used to set up quad buffers and arrays
+   *
+   * \return none
+   */
+  void setup_quad();
+
+  /*!\brief This method is used to set up frame buffer for a 2D texture
+   *
+   * \param[in]   texture         texture id
+   *
+   * \return GLuint #framebuffer_id if operation succeeds, 0 otherwise.
+   */
+  GLuint setup_framebuffer(GLuint& texture);
+
+  /*!\brief Checks for gl errors. On error, internal error state is updated with details
+   *
+   * \param[in]   msg     useful description for logging
+   *
+   * \return none
+   */
+  void check_gl_errors(const char* msg);
+
+  /*!\brief Reset the current context to default state for reuse
+   *
+   * \return none
+   */
+  void reset_opengl_ctxt();
+
+  /*!\brief Deletes the current context
    *
    * \return none
    */
@@ -246,9 +300,11 @@ typedef struct uhdr_opengl_ctxt {
 
 struct uhdr_codec_private {
   std::deque<ultrahdr::uhdr_effect_desc_t*> m_effects;
-#ifdef UHDR_ENABLE_OPENGL
+#ifdef UHDR_ENABLE_GLES
   ultrahdr::uhdr_opengl_ctxt_t m_uhdr_gl_ctxt;
+  bool m_enable_gles;
 #endif
+  bool m_sailed;
 
   virtual ~uhdr_codec_private();
 };
@@ -264,9 +320,9 @@ struct uhdr_encoder_private : uhdr_codec_private {
   uhdr_codec_t m_output_format;
   int m_gainmap_scale_factor;
   bool m_use_multi_channel_gainmap;
+  float m_gamma;
 
   // internal data
-  bool m_sailed;
   std::unique_ptr<ultrahdr::uhdr_compressed_image_ext_t> m_compressed_output_buffer;
   uhdr_error_info_t m_encode_call_status;
 };
@@ -280,7 +336,6 @@ struct uhdr_decoder_private : uhdr_codec_private {
 
   // internal data
   bool m_probed;
-  bool m_sailed;
   std::unique_ptr<ultrahdr::uhdr_raw_image_ext_t> m_decoded_img_buffer;
   std::unique_ptr<ultrahdr::uhdr_raw_image_ext_t> m_gainmap_img_buffer;
   int m_img_wd, m_img_ht;
@@ -289,8 +344,6 @@ struct uhdr_decoder_private : uhdr_codec_private {
   uhdr_mem_block_t m_exif_block;
   std::vector<uint8_t> m_icc;
   uhdr_mem_block_t m_icc_block;
-  std::vector<uint8_t> m_base_xmp;
-  std::vector<uint8_t> m_gainmap_xmp;
   uhdr_gainmap_metadata_t m_metadata;
   uhdr_error_info_t m_probe_call_status;
   uhdr_error_info_t m_decode_call_status;

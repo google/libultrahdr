@@ -232,6 +232,20 @@ std::unique_ptr<uhdr_raw_image_ext_t> apply_rotate(ultrahdr::uhdr_rotate_effect_
     uint64_t* dst_buffer = static_cast<uint64_t*>(dst->planes[UHDR_PLANE_PACKED]);
     desc->m_rotate_uint64_t(src_buffer, dst_buffer, src->w, src->h, src->stride[UHDR_PLANE_PACKED],
                             dst->stride[UHDR_PLANE_PACKED], desc->m_degree);
+  } else if (src->fmt == UHDR_IMG_FMT_24bppYCbCr444) {
+    for (int i = 0; i < 3; i++) {
+      uint8_t* src_buffer = static_cast<uint8_t*>(src->planes[i]);
+      uint8_t* dst_buffer = static_cast<uint8_t*>(dst->planes[i]);
+      desc->m_rotate_uint8_t(src_buffer, dst_buffer, src->w, src->h, src->stride[i], dst->stride[i],
+                             desc->m_degree);
+    }
+  } else if (src->fmt == UHDR_IMG_FMT_30bppYCbCr444) {
+    for (int i = 0; i < 3; i++) {
+      uint16_t* src_buffer = static_cast<uint16_t*>(src->planes[i]);
+      uint16_t* dst_buffer = static_cast<uint16_t*>(dst->planes[i]);
+      desc->m_rotate_uint16_t(src_buffer, dst_buffer, src->w, src->h, src->stride[i],
+                              dst->stride[i], desc->m_degree);
+    }
   }
   return dst;
 }
@@ -274,6 +288,20 @@ std::unique_ptr<uhdr_raw_image_ext_t> apply_mirror(ultrahdr::uhdr_mirror_effect_
     uint64_t* dst_buffer = static_cast<uint64_t*>(dst->planes[UHDR_PLANE_PACKED]);
     desc->m_mirror_uint64_t(src_buffer, dst_buffer, src->w, src->h, src->stride[UHDR_PLANE_PACKED],
                             dst->stride[UHDR_PLANE_PACKED], desc->m_direction);
+  } else if (src->fmt == UHDR_IMG_FMT_24bppYCbCr444) {
+    for (int i = 0; i < 3; i++) {
+      uint8_t* src_buffer = static_cast<uint8_t*>(src->planes[i]);
+      uint8_t* dst_buffer = static_cast<uint8_t*>(dst->planes[i]);
+      desc->m_mirror_uint8_t(src_buffer, dst_buffer, src->w, src->h, src->stride[i], dst->stride[i],
+                             desc->m_direction);
+    }
+  } else if (src->fmt == UHDR_IMG_FMT_30bppYCbCr444) {
+    for (int i = 0; i < 3; i++) {
+      uint16_t* src_buffer = static_cast<uint16_t*>(src->planes[i]);
+      uint16_t* dst_buffer = static_cast<uint16_t*>(dst->planes[i]);
+      desc->m_mirror_uint16_t(src_buffer, dst_buffer, src->w, src->h, src->stride[i],
+                              dst->stride[i], desc->m_direction);
+    }
   }
   return dst;
 }
@@ -300,6 +328,16 @@ void apply_crop(uhdr_raw_image_t* src, int left, int top, int wd, int ht) {
   } else if (src->fmt == UHDR_IMG_FMT_64bppRGBAHalfFloat) {
     uint64_t* src_buffer = static_cast<uint64_t*>(src->planes[UHDR_PLANE_PACKED]);
     src->planes[UHDR_PLANE_PACKED] = &src_buffer[top * src->stride[UHDR_PLANE_PACKED] + left];
+  } else if (src->fmt == UHDR_IMG_FMT_24bppYCbCr444) {
+    for (int i = 0; i < 3; i++) {
+      uint8_t* src_buffer = static_cast<uint8_t*>(src->planes[i]);
+      src->planes[i] = &src_buffer[top * src->stride[i] + left];
+    }
+  } else if (src->fmt == UHDR_IMG_FMT_30bppYCbCr444) {
+    for (int i = 0; i < 3; i++) {
+      uint16_t* src_buffer = static_cast<uint16_t*>(src->planes[i]);
+      src->planes[i] = &src_buffer[top * src->stride[i] + left];
+    }
   }
   src->w = wd;
   src->h = ht;
@@ -343,6 +381,20 @@ std::unique_ptr<uhdr_raw_image_ext_t> apply_resize(ultrahdr::uhdr_resize_effect_
     uint64_t* dst_buffer = static_cast<uint64_t*>(dst->planes[UHDR_PLANE_PACKED]);
     desc->m_resize_uint64_t(src_buffer, dst_buffer, src->w, src->h, dst->w, dst->h,
                             src->stride[UHDR_PLANE_PACKED], dst->stride[UHDR_PLANE_PACKED]);
+  } else if (src->fmt == UHDR_IMG_FMT_24bppYCbCr444) {
+    for (int i = 0; i < 3; i++) {
+      uint8_t* src_buffer = static_cast<uint8_t*>(src->planes[i]);
+      uint8_t* dst_buffer = static_cast<uint8_t*>(dst->planes[i]);
+      desc->m_resize_uint8_t(src_buffer, dst_buffer, src->w, src->h, dst->w, dst->h, src->stride[i],
+                             dst->stride[i]);
+    }
+  } else if (src->fmt == UHDR_IMG_FMT_30bppYCbCr444) {
+    for (int i = 0; i < 3; i++) {
+      uint16_t* src_buffer = static_cast<uint16_t*>(src->planes[i]);
+      uint16_t* dst_buffer = static_cast<uint16_t*>(dst->planes[i]);
+      desc->m_resize_uint16_t(src_buffer, dst_buffer, src->w, src->h, dst->w, dst->h,
+                              src->stride[i], dst->stride[i]);
+    }
   }
   return dst;
 }

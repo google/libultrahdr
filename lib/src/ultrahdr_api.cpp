@@ -24,6 +24,14 @@
 #include "ultrahdr/jpegr.h"
 #include "ultrahdr/jpegrutils.h"
 
+#include "image_io/base/data_segment_data_source.h"
+#include "image_io/jpeg/jpeg_info.h"
+#include "image_io/jpeg/jpeg_info_builder.h"
+#include "image_io/jpeg/jpeg_marker.h"
+#include "image_io/jpeg/jpeg_scanner.h"
+
+using namespace photos_editing_formats::image_io;
+
 namespace ultrahdr {
 
 uhdr_memory_block::uhdr_memory_block(size_t capacity) {
@@ -45,7 +53,7 @@ uhdr_raw_image_ext::uhdr_raw_image_ext(uhdr_img_fmt_t fmt_, uhdr_color_gamut_t c
   int aligned_width = ALIGNM(w_, align_stride_to);
 
   int bpp = 1;
-  if (fmt_ == UHDR_IMG_FMT_24bppYCbCrP010) {
+  if (fmt_ == UHDR_IMG_FMT_24bppYCbCrP010 || fmt_ == UHDR_IMG_FMT_30bppYCbCr444) {
     bpp = 2;
   } else if (fmt_ == UHDR_IMG_FMT_24bppRGB888) {
     bpp = 3;
@@ -61,6 +69,9 @@ uhdr_raw_image_ext::uhdr_raw_image_ext(uhdr_img_fmt_t fmt_, uhdr_color_gamut_t c
   if (fmt_ == UHDR_IMG_FMT_24bppYCbCrP010) {
     plane_2_sz = (2 /* planes */ * ((aligned_width / 2) * (h_ / 2) * bpp));
     plane_3_sz = 0;
+  } else if (fmt_ == UHDR_IMG_FMT_30bppYCbCr444 || fmt_ == UHDR_IMG_FMT_24bppYCbCr444) {
+    plane_2_sz = bpp * aligned_width * h_;
+    plane_3_sz = bpp * aligned_width * h_;
   } else if (fmt_ == UHDR_IMG_FMT_12bppYCbCr420) {
     plane_2_sz = (((aligned_width / 2) * (h_ / 2) * bpp));
     plane_3_sz = (((aligned_width / 2) * (h_ / 2) * bpp));
@@ -79,6 +90,11 @@ uhdr_raw_image_ext::uhdr_raw_image_ext(uhdr_img_fmt_t fmt_, uhdr_color_gamut_t c
     this->stride[UHDR_PLANE_UV] = aligned_width;
     this->planes[UHDR_PLANE_V] = nullptr;
     this->stride[UHDR_PLANE_V] = 0;
+  } else if (fmt_ == UHDR_IMG_FMT_30bppYCbCr444 || fmt_ == UHDR_IMG_FMT_24bppYCbCr444) {
+    this->planes[UHDR_PLANE_U] = data + plane_1_sz;
+    this->stride[UHDR_PLANE_U] = aligned_width;
+    this->planes[UHDR_PLANE_V] = data + plane_1_sz + plane_2_sz;
+    this->stride[UHDR_PLANE_V] = aligned_width;
   } else if (fmt_ == UHDR_IMG_FMT_12bppYCbCr420) {
     this->planes[UHDR_PLANE_U] = data + plane_1_sz;
     this->stride[UHDR_PLANE_U] = aligned_width / 2;
@@ -194,18 +210,6 @@ uhdr_error_info_t apply_effects(uhdr_encoder_private* enc) {
     enc->m_raw_images.insert_or_assign(UHDR_HDR_IMG, std::move(hdr_img));
     if (sdr_img != nullptr) {
       enc->m_raw_images.insert_or_assign(UHDR_SDR_IMG, std::move(sdr_img));
-    }
-  }
-  if (enc->m_effects.size() > 0) {
-    auto it = enc->m_effects.back();
-    if (nullptr != dynamic_cast<uhdr_crop_effect_t*>(it) &&
-        enc->m_raw_images.find(UHDR_SDR_IMG) != enc->m_raw_images.end()) {
-      // As cropping is handled via pointer arithmetic as opposed to buffer copy, u and v data of
-      // yuv420 inputs are no longer contiguous. As the library does not accept distinct buffer
-      // pointers for u and v for 420 input, copy the sdr intent to a contiguous buffer
-      auto& sdr_raw_entry = enc->m_raw_images.find(UHDR_SDR_IMG)->second;
-      enc->m_raw_images.insert_or_assign(UHDR_SDR_IMG,
-                                         convert_raw_input_to_ycbcr(sdr_raw_entry.get()));
     }
   }
 
@@ -371,10 +375,42 @@ uhdr_error_info_t uhdr_enc_validate_and_set_compressed_img(uhdr_codec_private_t*
     return status;
   }
 
+  std::shared_ptr<DataSegment> seg =
+      DataSegment::Create(DataRange(0, img->data_sz), static_cast<const uint8_t*>(img->data),
+                          DataSegment::BufferDispositionPolicy::kDontDelete);
+  DataSegmentDataSource data_source(seg);
+  JpegInfoBuilder jpeg_info_builder;
+  JpegScanner jpeg_scanner(nullptr);
+  jpeg_scanner.Run(&data_source, &jpeg_info_builder);
+  data_source.Reset();
+  if (jpeg_scanner.HasError()) {
+    status.error_code = UHDR_CODEC_INVALID_PARAM;
+    snprintf(status.detail, sizeof status.detail,
+             "received bad/corrupted jpeg image as part of input configuration");
+    return status;
+  }
+
+  const auto& image_ranges = jpeg_info_builder.GetInfo().GetImageRanges();
+  if (image_ranges.empty()) {
+    status.error_code = UHDR_CODEC_INVALID_PARAM;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "compressed image received as part of input config contains no valid jpeg images");
+    return status;
+  }
+
+  if (image_ranges.size() > 1) {
+    ALOGW(
+        "compressed image received as part of input config contains multiple jpeg images, "
+        "selecting first image for intent %d, rest are ignored",
+        intent);
+  }
+
   auto entry = std::make_unique<ultrahdr::uhdr_compressed_image_ext_t>(img->cg, img->ct, img->range,
-                                                                       img->data_sz);
-  memcpy(entry->data, img->data, img->data_sz);
-  entry->data_sz = img->data_sz;
+                                                                       image_ranges[0].GetLength());
+  memcpy(entry->data, static_cast<uint8_t*>(img->data) + image_ranges[0].GetBegin(),
+         image_ranges[0].GetLength());
+  entry->data_sz = image_ranges[0].GetLength();
   handle->m_compressed_images.insert_or_assign(intent, std::move(entry));
 
   return status;
@@ -434,11 +470,12 @@ UHDR_EXTERN uhdr_error_info_t uhdr_enc_set_gainmap_scale_factor(uhdr_codec_priva
     return status;
   }
 
-  if (gainmap_scale_factor <= 0) {
+  if (gainmap_scale_factor <= 0 || gainmap_scale_factor > 128) {
     status.error_code = UHDR_CODEC_INVALID_PARAM;
     status.has_detail = 1;
     snprintf(status.detail, sizeof status.detail,
-             "unsupported gainmap scale factor %d, expects to be > 0", gainmap_scale_factor);
+             "gainmap scale factor is expected to be in range (0, 128], received %d",
+             gainmap_scale_factor);
     return status;
   }
 
@@ -454,6 +491,40 @@ UHDR_EXTERN uhdr_error_info_t uhdr_enc_set_gainmap_scale_factor(uhdr_codec_priva
   }
 
   handle->m_gainmap_scale_factor = gainmap_scale_factor;
+
+  return status;
+}
+
+UHDR_EXTERN uhdr_error_info_t uhdr_enc_set_gainmap_gamma(uhdr_codec_private_t* enc, float gamma) {
+  uhdr_error_info_t status = g_no_error;
+
+  if (dynamic_cast<uhdr_encoder_private*>(enc) == nullptr) {
+    status.error_code = UHDR_CODEC_INVALID_PARAM;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail, "received nullptr for uhdr codec instance");
+    return status;
+  }
+
+  if (gamma <= 0.0f) {
+    status.error_code = UHDR_CODEC_INVALID_PARAM;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail, "unsupported gainmap gamma %f, expects to be > 0",
+             gamma);
+    return status;
+  }
+
+  uhdr_encoder_private* handle = dynamic_cast<uhdr_encoder_private*>(enc);
+
+  if (handle->m_sailed) {
+    status.error_code = UHDR_CODEC_INVALID_OPERATION;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "An earlier call to uhdr_encode() has switched the context from configurable state to "
+             "end state. The context is no longer configurable. To reuse, call reset()");
+    return status;
+  }
+
+  handle->m_gamma = gamma;
 
   return status;
 }
@@ -499,12 +570,12 @@ uhdr_error_info_t uhdr_enc_set_raw_image(uhdr_codec_private_t* enc, uhdr_raw_ima
              "invalid input color gamut %d, expects one of {UHDR_CG_BT_2100, UHDR_CG_DISPLAY_P3, "
              "UHDR_CG_BT_709}",
              img->cg);
-  } else if (img->fmt == UHDR_IMG_FMT_12bppYCbCr420 && img->ct != UHDR_CT_SRGB) {
+  } else if (intent == UHDR_SDR_IMG && img->ct != UHDR_CT_SRGB) {
     status.error_code = UHDR_CODEC_INVALID_PARAM;
     status.has_detail = 1;
     snprintf(status.detail, sizeof status.detail,
              "invalid input color transfer for sdr intent image %d, expects UHDR_CT_SRGB", img->ct);
-  } else if (img->fmt == UHDR_IMG_FMT_24bppYCbCrP010 &&
+  } else if (intent == UHDR_HDR_IMG &&
              (img->ct != UHDR_CT_HLG && img->ct != UHDR_CT_LINEAR && img->ct != UHDR_CT_PQ)) {
     status.error_code = UHDR_CODEC_INVALID_PARAM;
     status.has_detail = 1;
@@ -586,6 +657,25 @@ uhdr_error_info_t uhdr_enc_set_raw_image(uhdr_codec_private_t* enc, uhdr_raw_ima
       snprintf(status.detail, sizeof status.detail,
                "chroma_v stride must not be smaller than width / 2, stride=%d, width=%d",
                img->stride[UHDR_PLANE_V], img->w);
+    } else if (img->range != UHDR_CR_FULL_RANGE) {
+      status.error_code = UHDR_CODEC_INVALID_PARAM;
+      status.has_detail = 1;
+      snprintf(status.detail, sizeof status.detail,
+               "invalid range, expects one of {UHDR_CR_FULL_RANGE}");
+    }
+  } else if (img->fmt == UHDR_IMG_FMT_32bppRGBA1010102 || img->fmt == UHDR_IMG_FMT_32bppRGBA8888) {
+    if (img->planes[UHDR_PLANE_PACKED] == nullptr) {
+      status.error_code = UHDR_CODEC_INVALID_PARAM;
+      status.has_detail = 1;
+      snprintf(status.detail, sizeof status.detail,
+               "received nullptr for data field(s) rgb plane packed ptr %p",
+               img->planes[UHDR_PLANE_PACKED]);
+    } else if (img->stride[UHDR_PLANE_PACKED] < img->w) {
+      status.error_code = UHDR_CODEC_INVALID_PARAM;
+      status.has_detail = 1;
+      snprintf(status.detail, sizeof status.detail,
+               "rgb planar stride must not be smaller than width, stride=%d, width=%d",
+               img->stride[UHDR_PLANE_PACKED], img->w);
     } else if (img->range != UHDR_CR_FULL_RANGE) {
       status.error_code = UHDR_CODEC_INVALID_PARAM;
       status.has_detail = 1;
@@ -894,9 +984,12 @@ uhdr_error_info_t uhdr_encode(uhdr_codec_private_t* enc) {
       exif.capacity = exif.data_sz = handle->m_exif.size();
     }
 
-    ultrahdr::JpegR jpegr(handle->m_gainmap_scale_factor,
-                          handle->m_quality.find(UHDR_GAIN_MAP_IMG)->second,
-                          handle->m_use_multi_channel_gainmap);
+    ultrahdr::JpegR jpegr(
+#ifdef UHDR_ENABLE_GLES
+        nullptr,
+#endif
+        handle->m_gainmap_scale_factor, handle->m_quality.find(UHDR_GAIN_MAP_IMG)->second,
+        handle->m_use_multi_channel_gainmap, handle->m_gamma);
     if (handle->m_compressed_images.find(UHDR_BASE_IMG) != handle->m_compressed_images.end() &&
         handle->m_compressed_images.find(UHDR_GAIN_MAP_IMG) != handle->m_compressed_images.end()) {
       auto& base_entry = handle->m_compressed_images.find(UHDR_BASE_IMG)->second;
@@ -979,6 +1072,11 @@ void uhdr_reset_encoder(uhdr_codec_private_t* enc) {
     // clear entries and restore defaults
     for (auto it : handle->m_effects) delete it;
     handle->m_effects.clear();
+#ifdef UHDR_ENABLE_GLES
+    handle->m_uhdr_gl_ctxt.reset_opengl_ctxt();
+    handle->m_enable_gles = false;
+#endif
+    handle->m_sailed = false;
     handle->m_raw_images.clear();
     handle->m_compressed_images.clear();
     handle->m_quality.clear();
@@ -990,13 +1088,10 @@ void uhdr_reset_encoder(uhdr_codec_private_t* enc) {
     handle->m_output_format = UHDR_CODEC_JPG;
     handle->m_gainmap_scale_factor = ultrahdr::kMapDimensionScaleFactorDefault;
     handle->m_use_multi_channel_gainmap = ultrahdr::kUseMultiChannelGainMapDefault;
+    handle->m_gamma = ultrahdr::kGainMapGammaDefault;
 
-    handle->m_sailed = false;
     handle->m_compressed_output_buffer.reset();
     handle->m_encode_call_status = g_no_error;
-#ifdef UHDR_ENABLE_OPENGL
-    handle->m_uhdr_gl_ctxt.reset_opengl_ctxt();
-#endif
   }
 }
 
@@ -1216,8 +1311,9 @@ uhdr_error_info_t uhdr_dec_probe(uhdr_codec_private_t* dec) {
     if (status.error_code != UHDR_CODEC_OK) return status;
 
     ultrahdr::uhdr_gainmap_metadata_ext_t metadata;
-    status = ultrahdr::getMetadataFromXMP(gainmap_image.xmpData.data(),
-                                          gainmap_image.xmpData.size(), &metadata);
+    status = jpegr.parseGainMapMetadata(gainmap_image.isoData.data(), gainmap_image.isoData.size(),
+                                        gainmap_image.xmpData.data(), gainmap_image.xmpData.size(),
+                                        &metadata);
     if (status.error_code != UHDR_CODEC_OK) return status;
     handle->m_metadata.max_content_boost = metadata.max_content_boost;
     handle->m_metadata.min_content_boost = metadata.min_content_boost;
@@ -1238,8 +1334,6 @@ uhdr_error_info_t uhdr_dec_probe(uhdr_codec_private_t* dec) {
     handle->m_icc = std::move(primary_image.iccData);
     handle->m_icc_block.data = handle->m_icc.data();
     handle->m_icc_block.data_sz = handle->m_icc_block.capacity = handle->m_icc.size();
-    handle->m_base_xmp = std::move(primary_image.xmpData);
-    handle->m_gainmap_xmp = std::move(gainmap_image.xmpData);
   }
 
   return status;
@@ -1378,7 +1472,19 @@ uhdr_error_info_t uhdr_decode(uhdr_codec_private_t* dec) {
       UHDR_CG_UNSPECIFIED, UHDR_CT_UNSPECIFIED, UHDR_CR_UNSPECIFIED, handle->m_gainmap_wd,
       handle->m_gainmap_ht, 1);
 
+#ifdef UHDR_ENABLE_GLES
+  ultrahdr::uhdr_opengl_ctxt_t* uhdrGLESCtxt = nullptr;
+  if (handle->m_enable_gles && handle->m_output_ct != UHDR_CT_SRGB) {
+    handle->m_uhdr_gl_ctxt.init_opengl_ctxt();
+    status = handle->m_uhdr_gl_ctxt.mErrorStatus;
+    if (status.error_code != UHDR_CODEC_OK) return status;
+    uhdrGLESCtxt = &handle->m_uhdr_gl_ctxt;
+  }
+  ultrahdr::JpegR jpegr(uhdrGLESCtxt);
+#else
   ultrahdr::JpegR jpegr;
+#endif
+
   status =
       jpegr.decodeJPEGR(handle->m_uhdr_compressed_img.get(), handle->m_decoded_img_buffer.get(),
                         handle->m_output_max_disp_boost, handle->m_output_ct, handle->m_output_fmt,
@@ -1424,6 +1530,11 @@ void uhdr_reset_decoder(uhdr_codec_private_t* dec) {
     // clear entries and restore defaults
     for (auto it : handle->m_effects) delete it;
     handle->m_effects.clear();
+#ifdef UHDR_ENABLE_GLES
+    handle->m_uhdr_gl_ctxt.reset_opengl_ctxt();
+    handle->m_enable_gles = false;
+#endif
+    handle->m_sailed = false;
     handle->m_uhdr_compressed_img.reset();
     handle->m_output_fmt = UHDR_IMG_FMT_64bppRGBAHalfFloat;
     handle->m_output_ct = UHDR_CT_LINEAR;
@@ -1431,7 +1542,6 @@ void uhdr_reset_decoder(uhdr_codec_private_t* dec) {
 
     // ready to be configured
     handle->m_probed = false;
-    handle->m_sailed = false;
     handle->m_decoded_img_buffer.reset();
     handle->m_gainmap_img_buffer.reset();
     handle->m_img_wd = 0;
@@ -1443,15 +1553,38 @@ void uhdr_reset_decoder(uhdr_codec_private_t* dec) {
     memset(&handle->m_exif_block, 0, sizeof handle->m_exif_block);
     handle->m_icc.clear();
     memset(&handle->m_icc_block, 0, sizeof handle->m_icc_block);
-    handle->m_base_xmp.clear();
-    handle->m_gainmap_xmp.clear();
     memset(&handle->m_metadata, 0, sizeof handle->m_metadata);
     handle->m_probe_call_status = g_no_error;
     handle->m_decode_call_status = g_no_error;
-#ifdef UHDR_ENABLE_OPENGL
-    handle->m_uhdr_gl_ctxt.reset_opengl_ctxt();
-#endif
   }
+}
+
+uhdr_error_info_t uhdr_enable_gpu_acceleration(uhdr_codec_private_t* codec,
+                                               [[maybe_unused]] int enable) {
+  uhdr_error_info_t status = g_no_error;
+
+  if (codec == nullptr) {
+    status.error_code = UHDR_CODEC_INVALID_PARAM;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail, "received nullptr for uhdr codec instance");
+    return status;
+  }
+
+  if (codec->m_sailed) {
+    status.error_code = UHDR_CODEC_INVALID_OPERATION;
+    status.has_detail = 1;
+    snprintf(
+        status.detail, sizeof status.detail,
+        "An earlier call to uhdr_encode()/uhdr_decode() has switched the context from configurable "
+        "state to end state. The context is no longer configurable. To reuse, call reset()");
+    return status;
+  }
+
+#ifdef UHDR_ENABLE_GLES
+  codec->m_enable_gles = enable;
+#endif
+
+  return status;
 }
 
 uhdr_error_info_t uhdr_add_effect_mirror(uhdr_codec_private_t* codec,
@@ -1471,6 +1604,16 @@ uhdr_error_info_t uhdr_add_effect_mirror(uhdr_codec_private_t* codec,
     snprintf(
         status.detail, sizeof status.detail,
         "unsupported direction, expects one of {UHDR_MIRROR_HORIZONTAL, UHDR_MIRROR_VERTICAL}");
+    return status;
+  }
+
+  if (codec->m_sailed) {
+    status.error_code = UHDR_CODEC_INVALID_OPERATION;
+    status.has_detail = 1;
+    snprintf(
+        status.detail, sizeof status.detail,
+        "An earlier call to uhdr_encode()/uhdr_decode() has switched the context from configurable "
+        "state to end state. The context is no longer configurable. To reuse, call reset()");
     return status;
   }
 
@@ -1497,6 +1640,16 @@ uhdr_error_info_t uhdr_add_effect_rotate(uhdr_codec_private_t* codec, int degree
     return status;
   }
 
+  if (codec->m_sailed) {
+    status.error_code = UHDR_CODEC_INVALID_OPERATION;
+    status.has_detail = 1;
+    snprintf(
+        status.detail, sizeof status.detail,
+        "An earlier call to uhdr_encode()/uhdr_decode() has switched the context from configurable "
+        "state to end state. The context is no longer configurable. To reuse, call reset()");
+    return status;
+  }
+
   codec->m_effects.push_back(new ultrahdr::uhdr_rotate_effect_t(degrees));
 
   return status;
@@ -1513,6 +1666,16 @@ uhdr_error_info_t uhdr_add_effect_crop(uhdr_codec_private_t* codec, int left, in
     return status;
   }
 
+  if (codec->m_sailed) {
+    status.error_code = UHDR_CODEC_INVALID_OPERATION;
+    status.has_detail = 1;
+    snprintf(
+        status.detail, sizeof status.detail,
+        "An earlier call to uhdr_encode()/uhdr_decode() has switched the context from configurable "
+        "state to end state. The context is no longer configurable. To reuse, call reset()");
+    return status;
+  }
+
   codec->m_effects.push_back(new ultrahdr::uhdr_crop_effect_t(left, right, top, bottom));
 
   return status;
@@ -1525,6 +1688,16 @@ uhdr_error_info_t uhdr_add_effect_resize(uhdr_codec_private_t* codec, int width,
     status.error_code = UHDR_CODEC_INVALID_PARAM;
     status.has_detail = 1;
     snprintf(status.detail, sizeof status.detail, "received nullptr for uhdr codec instance");
+    return status;
+  }
+
+  if (codec->m_sailed) {
+    status.error_code = UHDR_CODEC_INVALID_OPERATION;
+    status.has_detail = 1;
+    snprintf(
+        status.detail, sizeof status.detail,
+        "An earlier call to uhdr_encode()/uhdr_decode() has switched the context from configurable "
+        "state to end state. The context is no longer configurable. To reuse, call reset()");
     return status;
   }
 

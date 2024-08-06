@@ -38,6 +38,13 @@ cc_defaults {
         darwin: {
             enabled: false,
         },
+        android: {
+            cflags: ["-DUHDR_ENABLE_GLES"],
+            shared_libs: [
+                "libEGL",
+                "libGLESv3",
+            ],
+        },
     },
     fuzz_config: {
         cc: [

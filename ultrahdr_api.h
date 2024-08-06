@@ -73,6 +73,7 @@ typedef enum uhdr_img_fmt {
   UHDR_IMG_FMT_12bppYCbCr411 = 9,  /**< 8-bit-per component 4:1:1 YCbCr planar format */
   UHDR_IMG_FMT_10bppYCbCr410 = 10, /**< 8-bit-per component 4:1:0 YCbCr planar format */
   UHDR_IMG_FMT_24bppRGB888 = 11,   /**< 8-bit-per component RGB interleaved format */
+  UHDR_IMG_FMT_30bppYCbCr444 = 12, /**< 10-bit-per component 4:4:4 YCbCr planar format */
 } uhdr_img_fmt_t;                  /**< alias for enum uhdr_img_fmt */
 
 /*!\brief List of supported color gamuts */
@@ -340,6 +341,16 @@ uhdr_enc_set_using_multi_channel_gainmap(uhdr_codec_private_t* enc, int use_mult
 UHDR_EXTERN uhdr_error_info_t uhdr_enc_set_gainmap_scale_factor(uhdr_codec_private_t* enc,
                                                                 int gain_map_scale_factor);
 
+/*!\brief Set gain map gamma, default value is 1.0f
+ *
+ * \param[in]  enc  encoder instance.
+ * \param[in]  gamma  gain map gamma
+ *
+ * \return uhdr_error_info_t #UHDR_CODEC_OK if operation succeeds,
+ *                           #UHDR_CODEC_INVALID_PARAM otherwise.
+ */
+UHDR_EXTERN uhdr_error_info_t uhdr_enc_set_gainmap_gamma(uhdr_codec_private_t* enc, float gamma);
+
 /*!\brief Set output image compression format.
  *
  * \param[in]  enc  encoder instance.
@@ -371,6 +382,8 @@ UHDR_EXTERN uhdr_error_info_t uhdr_enc_set_output_format(uhdr_codec_private_t* e
  *   - uhdr_enc_set_gainmap_scale_factor()
  * - If the application wants to enable multi channel gain map
  *   - uhdr_enc_set_using_multi_channel_gainmap()
+ * - If the application wants to set gainmap image gamma
+ *   - uhdr_enc_set_gainmap_gamma()
  * - If the application wants to control target compression format
  *   - uhdr_enc_set_output_format()
  * - The program calls uhdr_encode() to encode data. This call would initiate the process of
@@ -412,6 +425,7 @@ UHDR_EXTERN uhdr_error_info_t uhdr_enc_set_output_format(uhdr_codec_private_t* e
  * - uhdr_enc_set_output_format() // optional
  * - uhdr_enc_set_gainmap_scale_factor() // optional
  * - uhdr_enc_set_using_multi_channel_gainmap() // optional
+ * - uhdr_enc_set_gainmap_gamma() // optional
  * - uhdr_encode()
  * - uhdr_get_encoded_stream()
  * - uhdr_release_encoder()
@@ -604,6 +618,8 @@ UHDR_EXTERN uhdr_gainmap_metadata_t* uhdr_dec_get_gain_map_metadata(uhdr_codec_p
  *   - uhdr_dec_set_out_color_transfer()
  * - If the application wants to control the output display boost,
  *   - uhdr_dec_set_out_max_display_boost()
+ * - If the application wants to enable/disable gpu acceleration,
+ *   - uhdr_enable_gpu_acceleration()
  * - The program calls uhdr_decode() to decode uhdr stream. This call would initiate the process
  * of decoding base image and gain map image. These two are combined to give the final rendition
  * image.
@@ -644,6 +660,19 @@ UHDR_EXTERN void uhdr_reset_decoder(uhdr_codec_private_t* dec);
 // ===============================================================================================
 // Common APIs
 // ===============================================================================================
+
+/*!\brief Enable/Disable GPU acceleration.
+ * If enabled, certain operations (if possible) of uhdr encode/decode will be offloaded to GPU.
+ * NOTE: It is entirely possible for this API to have no effect on the encode/decode operation
+ *
+ * \param[in]  codec  codec instance.
+ * \param[in]  enable  choice
+ *
+ * \return uhdr_error_info_t #UHDR_CODEC_OK if operation succeeds, #UHDR_CODEC_INVALID_PARAM
+ * otherwise.
+ */
+UHDR_EXTERN uhdr_error_info_t uhdr_enable_gpu_acceleration(uhdr_codec_private_t* codec,
+                                                           int enable);
 
 /*!\brief Add image editing operations (pre-encode or post-decode).
  * Below functions list the set of edits supported. Program can set any combination of these during
