@@ -1520,7 +1520,7 @@ uhdr_error_info_t JpegR::toneMap(uhdr_raw_image_t* hdr_intent, uhdr_raw_image_t*
     return status;
   }
 
-  ColorTransformFn hdrInvOetf = getInverseOetf(hdr_intent->ct);
+  ColorTransformFn hdrInvOetf = getInverseOetfFn(hdr_intent->ct);
   if (hdrInvOetf == nullptr) {
     uhdr_error_info_t status;
     status.error_code = UHDR_CODEC_UNSUPPORTED_FEATURE;
@@ -1573,7 +1573,7 @@ uhdr_error_info_t JpegR::toneMap(uhdr_raw_image_t* hdr_intent, uhdr_raw_image_t*
 
   toneMapInternal = [hdr_intent, luma_data, cb_data, cr_data, hdrInvOetf, hdrGamutConversionFn,
                      hdrYuvToRgbFn, luma_stride, cb_stride, cr_stride, hdr_white_nits,
-                     hdrLuminanceFn, &jobQueue]() -> void {
+                     get_pixel_fn, hdrLuminanceFn, &jobQueue]() -> void {
     size_t rowStart, rowEnd;
     int hfactor = hdr_intent->fmt == UHDR_IMG_FMT_24bppYCbCrP010 ? 2 : 1;
     int vfactor = hdr_intent->fmt == UHDR_IMG_FMT_24bppYCbCrP010 ? 2 : 1;
