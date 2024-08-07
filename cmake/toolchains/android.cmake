@@ -25,7 +25,7 @@ if(NOT ANDROID_PLATFORM)
 endif()
 
 # Choose target architecture with:
-# -DANDROID_ABI={armeabi-v7a, armeabi-v7a with NEON, arm64-v8a, x86, x86_64}
+# -DANDROID_ABI={armeabi-v7a, arm64-v8a, x86, x86_64}
 if(NOT ANDROID_ABI)
   set(ANDROID_ABI arm64-v8a)
 endif()

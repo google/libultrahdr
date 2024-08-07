@@ -102,9 +102,10 @@ typedef enum uhdr_color_range {
 
 /*!\brief List of supported codecs */
 typedef enum uhdr_codec {
-  UHDR_CODEC_JPG, /**< Compress {Hdr, Sdr rendition} to an {Sdr rendition + Gain Map} using
-                  jpeg */
-} uhdr_codec_t;   /**< alias for enum uhdr_codec */
+  UHDR_CODEC_JPG,  /**< Compress {Hdr, Sdr rendition} to an {Sdr rendition + Gain Map} using jpeg */
+  UHDR_CODEC_HEIF, /**< Compress {Hdr, Sdr rendition} to an {Sdr rendition + Gain Map} using heif */
+  UHDR_CODEC_AVIF, /**< Compress {Hdr, Sdr rendition} to an {Sdr rendition + Gain Map} using avif */
+} uhdr_codec_t;    /**< alias for enum uhdr_codec */
 
 /*!\brief Image identifiers in gain map technology */
 typedef enum uhdr_img_label {
@@ -671,8 +672,7 @@ UHDR_EXTERN void uhdr_reset_decoder(uhdr_codec_private_t* dec);
  * \return uhdr_error_info_t #UHDR_CODEC_OK if operation succeeds, #UHDR_CODEC_INVALID_PARAM
  * otherwise.
  */
-UHDR_EXTERN uhdr_error_info_t uhdr_enable_gpu_acceleration(uhdr_codec_private_t* codec,
-                                                           int enable);
+UHDR_EXTERN uhdr_error_info_t uhdr_enable_gpu_acceleration(uhdr_codec_private_t* codec, int enable);
 
 /*!\brief Add image editing operations (pre-encode or post-decode).
  * Below functions list the set of edits supported. Program can set any combination of these during
