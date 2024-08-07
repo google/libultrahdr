@@ -49,6 +49,20 @@ static constexpr uint8_t kIsoMetadataNameSpace[] = {
     'o', ':', 't', 's', ':', '2', '1', '4', '9', '6', ':', '-', '1', '\0',
 };
 
+const int kMinWidth = 8;
+const int kMinHeight = 8;
+
+// if max dimension is not defined, default to 8k resolution
+#ifndef UHDR_MAX_DIMENSION
+#define UHDR_MAX_DIMENSION 8192
+#endif
+static_assert(UHDR_MAX_DIMENSION >= (std::max)(kMinHeight, kMinWidth),
+              "configured UHDR_MAX_DIMENSION must be atleast max(minWidth, minHeight)");
+static_assert(UHDR_MAX_DIMENSION <= JPEG_MAX_DIMENSION,
+              "configured UHDR_MAX_DIMENSION must be <= JPEG_MAX_DIMENSION");
+const int kMaxWidth = UHDR_MAX_DIMENSION;
+const int kMaxHeight = UHDR_MAX_DIMENSION;
+
 /*!\brief module for managing input */
 struct jpeg_source_mgr_impl : jpeg_source_mgr {
   jpeg_source_mgr_impl(const uint8_t* ptr, int len);

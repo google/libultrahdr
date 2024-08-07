@@ -147,15 +147,9 @@ int GetCPUCoreCount() {
   return cpuCoreCount;
 }
 
-JpegR::JpegR(
-#ifdef UHDR_ENABLE_GLES
-    uhdr_opengl_ctxt_t* uhdrGLESCtxt,
-#endif
-    size_t mapDimensionScaleFactor, int mapCompressQuality, bool useMultiChannelGainMap,
-    float gamma) {
-#ifdef UHDR_ENABLE_GLES
+JpegR::JpegR(void* uhdrGLESCtxt, size_t mapDimensionScaleFactor, int mapCompressQuality,
+             bool useMultiChannelGainMap, float gamma) {
   mUhdrGLESCtxt = uhdrGLESCtxt;
-#endif
   mMapDimensionScaleFactor = mapDimensionScaleFactor;
   mMapCompressQuality = mapCompressQuality;
   mUseMultiChannelGainMap = useMultiChannelGainMap;
@@ -1152,7 +1146,7 @@ uhdr_error_info_t JpegR::applyGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_ima
       float display_boost = (std::min)(max_display_boost, gainmap_metadata->hdr_capacity_max);
 
       return applyGainMapGLES(sdr_intent, gainmap_img, gainmap_metadata, output_ct, display_boost,
-                              dest, mUhdrGLESCtxt);
+                              dest, static_cast<uhdr_opengl_ctxt_t*>(mUhdrGLESCtxt));
     }
   }
 #endif

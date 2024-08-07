@@ -34,17 +34,6 @@ using namespace photos_editing_formats::image_io;
 
 namespace ultrahdr {
 
-// if max dimension is not defined, default to 8k resolution
-#ifndef UHDR_MAX_DIMENSION
-#define UHDR_MAX_DIMENSION 8192
-#endif
-static_assert(UHDR_MAX_DIMENSION >= (std::max)(kMinHeight, kMinWidth),
-              "configured UHDR_MAX_DIMENSION must be atleast max(minWidth, minHeight)");
-static_assert(UHDR_MAX_DIMENSION <= JPEG_MAX_DIMENSION,
-              "configured UHDR_MAX_DIMENSION must be <= JPEG_MAX_DIMENSION");
-const int kMaxWidth = UHDR_MAX_DIMENSION;
-const int kMaxHeight = UHDR_MAX_DIMENSION;
-
 uhdr_memory_block::uhdr_memory_block(size_t capacity) {
   m_buffer = std::make_unique<uint8_t[]>(capacity);
   m_capacity = capacity;
@@ -599,13 +588,13 @@ uhdr_error_info_t uhdr_enc_set_raw_image(uhdr_codec_private_t* enc, uhdr_raw_ima
     status.has_detail = 1;
     snprintf(status.detail, sizeof status.detail,
              "image dimensions cannot be odd, received image dimensions %dx%d", img->w, img->h);
-  } else if (img->w < ultrahdr::kMinWidth || img->h < ultrahdr::kMinHeight) {
+  } else if ((int)img->w < ultrahdr::kMinWidth || (int)img->h < ultrahdr::kMinHeight) {
     status.error_code = UHDR_CODEC_INVALID_PARAM;
     status.has_detail = 1;
     snprintf(status.detail, sizeof status.detail,
              "image dimensions cannot be less than %dx%d, received image dimensions %dx%d",
              ultrahdr::kMinWidth, ultrahdr::kMinHeight, img->w, img->h);
-  } else if (img->w > ultrahdr::kMaxWidth || img->h > ultrahdr::kMaxHeight) {
+  } else if ((int)img->w > ultrahdr::kMaxWidth || (int)img->h > ultrahdr::kMaxHeight) {
     status.error_code = UHDR_CODEC_INVALID_PARAM;
     status.has_detail = 1;
     snprintf(status.detail, sizeof status.detail,
@@ -995,12 +984,9 @@ uhdr_error_info_t uhdr_encode(uhdr_codec_private_t* enc) {
       exif.capacity = exif.data_sz = handle->m_exif.size();
     }
 
-    ultrahdr::JpegR jpegr(
-#ifdef UHDR_ENABLE_GLES
-        nullptr,
-#endif
-        handle->m_gainmap_scale_factor, handle->m_quality.find(UHDR_GAIN_MAP_IMG)->second,
-        handle->m_use_multi_channel_gainmap, handle->m_gamma);
+    ultrahdr::JpegR jpegr(nullptr, handle->m_gainmap_scale_factor,
+                          handle->m_quality.find(UHDR_GAIN_MAP_IMG)->second,
+                          handle->m_use_multi_channel_gainmap, handle->m_gamma);
     if (handle->m_compressed_images.find(UHDR_BASE_IMG) != handle->m_compressed_images.end() &&
         handle->m_compressed_images.find(UHDR_GAIN_MAP_IMG) != handle->m_compressed_images.end()) {
       auto& base_entry = handle->m_compressed_images.find(UHDR_BASE_IMG)->second;
