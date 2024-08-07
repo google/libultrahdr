@@ -44,12 +44,6 @@ static const float kGainMapGammaDefault = 1.0f;
 static const char* const kGainMapVersion = "1.0";
 static const char* const kJpegrVersion = "1.0";
 
-// Gain Map width is (image_width / kMapDimensionScaleFactor). If we were to
-// compress 420 GainMap in jpeg, then we need at least 2 samples. For Grayscale
-// 1 sample is sufficient. We are using 2 here anyways
-static const int kMinWidth = 2 * kMapDimensionScaleFactorDefault;
-static const int kMinHeight = 2 * kMapDimensionScaleFactorDefault;
-
 /*
  * Holds information of jpeg image
  */
@@ -79,14 +73,11 @@ typedef struct jpegr_info_struct* jr_info_ptr;
 
 class JpegR {
  public:
-  JpegR(
-#ifdef UHDR_ENABLE_GLES
-      uhdr_opengl_ctxt_t* uhdrGLESCtxt = nullptr,
-#endif
-      size_t mapDimensionScaleFactor = kMapDimensionScaleFactorDefault,
-      int mapCompressQuality = kMapCompressQualityDefault,
-      bool useMultiChannelGainMap = kUseMultiChannelGainMapDefault,
-      float gamma = kGainMapGammaDefault);
+  JpegR(void* uhdrGLESCtxt = nullptr,
+        size_t mapDimensionScaleFactor = kMapDimensionScaleFactorDefault,
+        int mapCompressQuality = kMapCompressQualityDefault,
+        bool useMultiChannelGainMap = kUseMultiChannelGainMapDefault,
+        float gamma = kGainMapGammaDefault);
 
   /*!\brief Encode API-0.
    *
@@ -575,9 +566,7 @@ class JpegR {
                                   int quality);
 
   // Configurations
-#ifdef UHDR_ENABLE_GLES
-  uhdr_opengl_ctxt_t* mUhdrGLESCtxt;  // opengl es context
-#endif
+  void* mUhdrGLESCtxt;              // opengl es context
   size_t mMapDimensionScaleFactor;  // gain map scale factor
   int mMapCompressQuality;          // gain map quality factor
   bool mUseMultiChannelGainMap;     // enable multichannel gain map
