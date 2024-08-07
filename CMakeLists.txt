@@ -16,7 +16,7 @@
 
 cmake_minimum_required(VERSION 3.13)
 
-project(libuhdr VERSION 1.0 LANGUAGES C CXX
+project(libuhdr VERSION 1.8 LANGUAGES C CXX
         DESCRIPTION "Library for encoding and decoding ultrahdr images")
 
 ###########################################################
@@ -214,7 +214,9 @@ else()
   elseif(ARCH STREQUAL "arm")
     add_compile_options(-march=armv7-a)
     add_compile_options(-marm)
-    add_compile_options(-mfloat-abi=hard)
+    if(NOT ANDROID_ABI)
+      add_compile_options(-mfloat-abi=hard)
+    endif()
     add_compile_options(-mfpu=neon-vfpv3)
     add_compile_options(-fno-lax-vector-conversions)
   elseif(ARCH STREQUAL "aarch64")
@@ -292,6 +294,12 @@ if(MSVC AND UHDR_BUILD_TESTS)
 endif()
 if(DEFINED CMAKE_TOOLCHAIN_FILE)
   list(APPEND UHDR_CMAKE_ARGS -DCMAKE_TOOLCHAIN_FILE:FILEPATH=${CMAKE_TOOLCHAIN_FILE})
+endif()
+if(DEFINED ANDROID_PLATFORM)
+  list(APPEND UHDR_CMAKE_ARGS -DANDROID_PLATFORM=${ANDROID_PLATFORM})
+endif()
+if(DEFINED ANDROID_ABI)
+  list(APPEND UHDR_CMAKE_ARGS -DANDROID_ABI=${ANDROID_ABI})
 endif()
 if(DEFINED UHDR_ANDROID_NDK_PATH)
   list(APPEND UHDR_CMAKE_ARGS -DUHDR_ANDROID_NDK_PATH=${UHDR_ANDROID_NDK_PATH})

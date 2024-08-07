@@ -1092,8 +1092,8 @@ void UltraHdrAppInput::computeRGBHdrPSNR() {
     return;
   }
   if (mRawRgba1010102Image.ct != mDecodedUhdrRgbImage.ct) {
-    std::cout << "input transfer function and output format are not compatible, rgb psnr results "
-                 "may be unreliable"
+    std::cout << "input color transfer and output color transfer are not identical, rgb psnr "
+                 "results may be unreliable"
               << std::endl;
   }
   if (mRawRgba1010102Image.cg != mDecodedUhdrRgbImage.cg) {
@@ -1189,8 +1189,8 @@ void UltraHdrAppInput::computeYUVHdrPSNR() {
     return;
   }
   if (mRawP010Image.ct != mDecodedUhdrYuv444Image.ct) {
-    std::cout << "input transfer function and output format are not compatible, yuv psnr results "
-                 "may be unreliable"
+    std::cout << "input color transfer and output color transfer are not identical, yuv psnr "
+                 "results may be unreliable"
               << std::endl;
   }
   if (mRawP010Image.cg != mDecodedUhdrYuv444Image.cg) {
@@ -1338,13 +1338,14 @@ static void usage(const char* name) {
           "    -R    color range of hdr intent, optional. [0:narrow-range (default), "
           "1:full-range]. \n");
   fprintf(stderr,
-          "    -s    gainmap image downsample factor, optional. [(0 - 128] (4 : default)]. \n");
+          "    -s    gainmap image downsample factor, optional. [integer values in range [1 - 128] "
+          "(4 : default)]. \n");
   fprintf(stderr,
           "    -Q    quality factor to be used while encoding gain map image, optional. [0-100], "
           "85 : default. \n");
   fprintf(stderr,
-          "    -G    gamma correction to be applied on the gainmap image, optional. [positive real "
-          "number (1.0 : default)].\n");
+          "    -G    gamma correction to be applied on the gainmap image, optional. [any positive "
+          "real number (1.0 : default)].\n");
   fprintf(stderr,
           "    -M    select multi channel gain map, optional. [0:disable (default), 1:enable]. \n");
   fprintf(stderr, "    -x    binary input resource containing exif data to insert, optional. \n");
@@ -1603,7 +1604,7 @@ int main(int argc, char* argv[]) {
                               enable_gles);
     if (!appInput.decode()) return -1;
   } else {
-    std::cerr << "unrecognized input mode " << mode << std::endl;
+    if (argc > 1) std::cerr << "did not receive valid mode of operation " << mode << std::endl;
     usage(argv[0]);
     return -1;
   }
