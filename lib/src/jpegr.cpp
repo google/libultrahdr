@@ -2077,9 +2077,9 @@ status_t JpegR::encodeJPEGR(jr_compressed_ptr yuv420jpg_image_ptr,
   input.range = UHDR_CR_UNSPECIFIED;
 
   uhdr_compressed_image_t gainmap;
-  gainmap.data = yuv420jpg_image_ptr->data;
-  gainmap.data_sz = yuv420jpg_image_ptr->length;
-  gainmap.capacity = yuv420jpg_image_ptr->maxLength;
+  gainmap.data = gainmapjpg_image_ptr->data;
+  gainmap.data_sz = gainmapjpg_image_ptr->length;
+  gainmap.capacity = gainmapjpg_image_ptr->maxLength;
   gainmap.cg = UHDR_CG_UNSPECIFIED;
   gainmap.ct = UHDR_CT_UNSPECIFIED;
   gainmap.range = UHDR_CR_UNSPECIFIED;
