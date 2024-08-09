@@ -1132,6 +1132,8 @@ TEST_F(GainMapMathTest, applyGainLUT) {
     metadata.min_content_boost = 1.0f / static_cast<float>(boost);
     metadata.max_content_boost = static_cast<float>(boost);
     metadata.gamma = 1.0f;
+    metadata.hdr_capacity_max = metadata.max_content_boost;
+    metadata.hdr_capacity_min = metadata.min_content_boost;
     GainLUT gainLUT(&metadata);
     GainLUT gainLUTWithBoost(&metadata, metadata.max_content_boost);
     for (size_t idx = 0; idx < kGainFactorNumEntries; idx++) {
@@ -1165,6 +1167,8 @@ TEST_F(GainMapMathTest, applyGainLUT) {
     metadata.min_content_boost = 1.0f;
     metadata.max_content_boost = static_cast<float>(boost);
     metadata.gamma = 1.0f;
+    metadata.hdr_capacity_max = metadata.max_content_boost;
+    metadata.hdr_capacity_min = metadata.min_content_boost;
     GainLUT gainLUT(&metadata);
     GainLUT gainLUTWithBoost(&metadata, metadata.max_content_boost);
     for (size_t idx = 0; idx < kGainFactorNumEntries; idx++) {
@@ -1198,6 +1202,8 @@ TEST_F(GainMapMathTest, applyGainLUT) {
     metadata.min_content_boost = 1.0f / powf(static_cast<float>(boost), 1.0f / 3.0f);
     metadata.max_content_boost = static_cast<float>(boost);
     metadata.gamma = 1.0f;
+    metadata.hdr_capacity_max = metadata.max_content_boost;
+    metadata.hdr_capacity_min = metadata.min_content_boost;
     GainLUT gainLUT(&metadata);
     GainLUT gainLUTWithBoost(&metadata, metadata.max_content_boost);
     for (size_t idx = 0; idx < kGainFactorNumEntries; idx++) {
@@ -1257,64 +1263,59 @@ TEST_F(GainMapMathTest, ColorConversionLookup) {
 }
 
 TEST_F(GainMapMathTest, EncodeGain) {
-  uhdr_gainmap_metadata_ext_t metadata;
+  float min_boost = log2(1.0f / 4.0f);
+  float max_boost = log2(4.0f);
+  float gamma = 1.0f;
 
-  metadata.min_content_boost = 1.0f / 4.0f;
-  metadata.max_content_boost = 4.0f;
-  metadata.gamma = 1.0f;
+  EXPECT_EQ(affineMapGain(computeGain(0.0f, 1.0f), min_boost, max_boost, 1.0f), 128);
+  EXPECT_EQ(affineMapGain(computeGain(1.0f, 0.0f), min_boost, max_boost, 1.0f), 0);
+  EXPECT_EQ(affineMapGain(computeGain(0.5f, 0.0f), min_boost, max_boost, 1.0f), 0);
+  EXPECT_EQ(affineMapGain(computeGain(1.0f, 1.0), min_boost, max_boost, 1.0f), 128);
 
-  EXPECT_EQ(encodeGain(0.0f, 0.0f, &metadata), 127);
-  EXPECT_EQ(encodeGain(0.0f, 1.0f, &metadata), 127);
-  EXPECT_EQ(encodeGain(1.0f, 0.0f, &metadata), 0);
-  EXPECT_EQ(encodeGain(0.5f, 0.0f, &metadata), 0);
+  EXPECT_EQ(affineMapGain(computeGain(1.0f, 4.0f), min_boost, max_boost, 1.0f), 255);
+  EXPECT_EQ(affineMapGain(computeGain(1.0f, 5.0f), min_boost, max_boost, 1.0f), 255);
+  EXPECT_EQ(affineMapGain(computeGain(4.0f, 1.0f), min_boost, max_boost, 1.0f), 0);
+  EXPECT_EQ(affineMapGain(computeGain(4.0f, 0.5f), min_boost, max_boost, 1.0f), 0);
+  EXPECT_EQ(affineMapGain(computeGain(1.0f, 2.0f), min_boost, max_boost, 1.0f), 191);
+  EXPECT_EQ(affineMapGain(computeGain(2.0f, 1.0f), min_boost, max_boost, 1.0f), 64);
 
-  EXPECT_EQ(encodeGain(1.0f, 1.0f, &metadata), 127);
-  EXPECT_EQ(encodeGain(1.0f, 4.0f, &metadata), 255);
-  EXPECT_EQ(encodeGain(1.0f, 5.0f, &metadata), 255);
-  EXPECT_EQ(encodeGain(4.0f, 1.0f, &metadata), 0);
-  EXPECT_EQ(encodeGain(4.0f, 0.5f, &metadata), 0);
-  EXPECT_EQ(encodeGain(1.0f, 2.0f, &metadata), 191);
-  EXPECT_EQ(encodeGain(2.0f, 1.0f, &metadata), 63);
+  min_boost = log2(1.0f / 2.0f);
+  max_boost = log2(2.0f);
 
-  metadata.max_content_boost = 2.0f;
-  metadata.min_content_boost = 1.0f / 2.0f;
+  EXPECT_EQ(affineMapGain(computeGain(1.0f, 2.0f), min_boost, max_boost, 1.0f), 255);
+  EXPECT_EQ(affineMapGain(computeGain(2.0f, 1.0f), min_boost, max_boost, 1.0f), 0);
+  EXPECT_EQ(affineMapGain(computeGain(1.0f, 1.41421f), min_boost, max_boost, 1.0f), 191);
+  EXPECT_EQ(affineMapGain(computeGain(1.41421f, 1.0f), min_boost, max_boost, 1.0f), 64);
 
-  EXPECT_EQ(encodeGain(1.0f, 2.0f, &metadata), 255);
-  EXPECT_EQ(encodeGain(2.0f, 1.0f, &metadata), 0);
-  EXPECT_EQ(encodeGain(1.0f, 1.41421f, &metadata), 191);
-  EXPECT_EQ(encodeGain(1.41421f, 1.0f, &metadata), 63);
+  min_boost = log2(1.0f / 8.0f);
+  max_boost = log2(8.0f);
 
-  metadata.max_content_boost = 8.0f;
-  metadata.min_content_boost = 1.0f / 8.0f;
+  EXPECT_EQ(affineMapGain(computeGain(1.0f, 8.0f), min_boost, max_boost, 1.0f), 255);
+  EXPECT_EQ(affineMapGain(computeGain(8.0f, 1.0f), min_boost, max_boost, 1.0f), 0);
+  EXPECT_EQ(affineMapGain(computeGain(1.0f, 2.82843f), min_boost, max_boost, 1.0f), 191);
+  EXPECT_EQ(affineMapGain(computeGain(2.82843f, 1.0f), min_boost, max_boost, 1.0f), 64);
 
-  EXPECT_EQ(encodeGain(1.0f, 8.0f, &metadata), 255);
-  EXPECT_EQ(encodeGain(8.0f, 1.0f, &metadata), 0);
-  EXPECT_EQ(encodeGain(1.0f, 2.82843f, &metadata), 191);
-  EXPECT_EQ(encodeGain(2.82843f, 1.0f, &metadata), 63);
+  min_boost = log2(1.0f);
+  max_boost = log2(8.0f);
 
-  metadata.max_content_boost = 8.0f;
-  metadata.min_content_boost = 1.0f;
+  EXPECT_EQ(affineMapGain(computeGain(0.0f, 0.0f), min_boost, max_boost, 1.0f), 0);
+  EXPECT_EQ(affineMapGain(computeGain(1.0f, 0.0f), min_boost, max_boost, 1.0f), 0);
+  EXPECT_EQ(affineMapGain(computeGain(1.0f, 1.0f), min_boost, max_boost, 1.0f), 0);
+  EXPECT_EQ(affineMapGain(computeGain(1.0f, 8.0f), min_boost, max_boost, 1.0f), 255);
+  EXPECT_EQ(affineMapGain(computeGain(1.0f, 4.0f), min_boost, max_boost, 1.0f), 170);
+  EXPECT_EQ(affineMapGain(computeGain(1.0f, 2.0f), min_boost, max_boost, 1.0f), 85);
 
-  EXPECT_EQ(encodeGain(0.0f, 0.0f, &metadata), 0);
-  EXPECT_EQ(encodeGain(1.0f, 0.0f, &metadata), 0);
+  min_boost = log2(1.0f / 2.0f);
+  max_boost = log2(8.0f);
 
-  EXPECT_EQ(encodeGain(1.0f, 1.0f, &metadata), 0);
-  EXPECT_EQ(encodeGain(1.0f, 8.0f, &metadata), 255);
-  EXPECT_EQ(encodeGain(1.0f, 4.0f, &metadata), 170);
-  EXPECT_EQ(encodeGain(1.0f, 2.0f, &metadata), 85);
-
-  metadata.max_content_boost = 8.0f;
-  metadata.min_content_boost = 0.5f;
-
-  EXPECT_EQ(encodeGain(0.0f, 0.0f, &metadata), 63);
-  EXPECT_EQ(encodeGain(1.0f, 0.0f, &metadata), 0);
-
-  EXPECT_EQ(encodeGain(1.0f, 1.0f, &metadata), 63);
-  EXPECT_EQ(encodeGain(1.0f, 8.0f, &metadata), 255);
-  EXPECT_EQ(encodeGain(1.0f, 4.0f, &metadata), 191);
-  EXPECT_EQ(encodeGain(1.0f, 2.0f, &metadata), 127);
-  EXPECT_EQ(encodeGain(1.0f, 0.7071f, &metadata), 31);
-  EXPECT_EQ(encodeGain(1.0f, 0.5f, &metadata), 0);
+  EXPECT_EQ(affineMapGain(computeGain(0.0f, 0.0f), min_boost, max_boost, 1.0f), 64);
+  EXPECT_EQ(affineMapGain(computeGain(1.0f, 0.0f), min_boost, max_boost, 1.0f), 0);
+  EXPECT_EQ(affineMapGain(computeGain(1.0f, 1.0f), min_boost, max_boost, 1.0f), 64);
+  EXPECT_EQ(affineMapGain(computeGain(1.0f, 8.0f), min_boost, max_boost, 1.0f), 255);
+  EXPECT_EQ(affineMapGain(computeGain(1.0f, 4.0f), min_boost, max_boost, 1.0f), 191);
+  EXPECT_EQ(affineMapGain(computeGain(1.0f, 2.0f), min_boost, max_boost, 1.0f), 128);
+  EXPECT_EQ(affineMapGain(computeGain(1.0f, 0.7071f), min_boost, max_boost, 1.0f), 32);
+  EXPECT_EQ(affineMapGain(computeGain(1.0f, 0.5f), min_boost, max_boost, 1.0f), 0);
 }
 
 TEST_F(GainMapMathTest, ApplyGain) {
@@ -1322,6 +1323,8 @@ TEST_F(GainMapMathTest, ApplyGain) {
 
   metadata.min_content_boost = 1.0f / 4.0f;
   metadata.max_content_boost = 4.0f;
+  metadata.hdr_capacity_max = metadata.max_content_boost;
+  metadata.hdr_capacity_min = metadata.min_content_boost;
   metadata.gamma = 1.0f;
   float displayBoost = metadata.max_content_boost;
 
@@ -1337,6 +1340,8 @@ TEST_F(GainMapMathTest, ApplyGain) {
 
   metadata.max_content_boost = 2.0f;
   metadata.min_content_boost = 1.0f / 2.0f;
+  metadata.hdr_capacity_max = metadata.max_content_boost;
+  metadata.hdr_capacity_min = metadata.min_content_boost;
 
   EXPECT_RGB_NEAR(applyGain(RgbWhite(), 0.0f, &metadata), RgbWhite() / 2.0f);
   EXPECT_RGB_NEAR(applyGain(RgbWhite(), 0.25f, &metadata), RgbWhite() / 1.41421f);
@@ -1346,6 +1351,8 @@ TEST_F(GainMapMathTest, ApplyGain) {
 
   metadata.max_content_boost = 8.0f;
   metadata.min_content_boost = 1.0f / 8.0f;
+  metadata.hdr_capacity_max = metadata.max_content_boost;
+  metadata.hdr_capacity_min = metadata.min_content_boost;
 
   EXPECT_RGB_NEAR(applyGain(RgbWhite(), 0.0f, &metadata), RgbWhite() / 8.0f);
   EXPECT_RGB_NEAR(applyGain(RgbWhite(), 0.25f, &metadata), RgbWhite() / 2.82843f);
@@ -1355,6 +1362,8 @@ TEST_F(GainMapMathTest, ApplyGain) {
 
   metadata.max_content_boost = 8.0f;
   metadata.min_content_boost = 1.0f;
+  metadata.hdr_capacity_max = metadata.max_content_boost;
+  metadata.hdr_capacity_min = metadata.min_content_boost;
 
   EXPECT_RGB_NEAR(applyGain(RgbWhite(), 0.0f, &metadata), RgbWhite());
   EXPECT_RGB_NEAR(applyGain(RgbWhite(), 1.0f / 3.0f, &metadata), RgbWhite() * 2.0f);
@@ -1363,6 +1372,8 @@ TEST_F(GainMapMathTest, ApplyGain) {
 
   metadata.max_content_boost = 8.0f;
   metadata.min_content_boost = 0.5f;
+  metadata.hdr_capacity_max = metadata.max_content_boost;
+  metadata.hdr_capacity_min = metadata.min_content_boost;
 
   EXPECT_RGB_NEAR(applyGain(RgbWhite(), 0.0f, &metadata), RgbWhite() / 2.0f);
   EXPECT_RGB_NEAR(applyGain(RgbWhite(), 0.25f, &metadata), RgbWhite());
@@ -1373,6 +1384,8 @@ TEST_F(GainMapMathTest, ApplyGain) {
   Color e = {{{0.0f, 0.5f, 1.0f}}};
   metadata.max_content_boost = 4.0f;
   metadata.min_content_boost = 1.0f / 4.0f;
+  metadata.hdr_capacity_max = metadata.max_content_boost;
+  metadata.hdr_capacity_min = metadata.min_content_boost;
 
   EXPECT_RGB_NEAR(applyGain(e, 0.0f, &metadata), e / 4.0f);
   EXPECT_RGB_NEAR(applyGain(e, 0.25f, &metadata), e / 2.0f);
