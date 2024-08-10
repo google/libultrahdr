@@ -1218,7 +1218,7 @@ void UltraHdrAppInput::computeYUVHdrPSNR() {
         if (mRawP010Image.range == UHDR_CR_LIMITED_RANGE) uSrc = CLIP3(uSrc, 64, 960);
         int uDst = uDataDst[mDecodedUhdrYuv444Image.stride[UHDR_PLANE_U] * i + j] & 0x3ff;
         uDst += uDataDst[mDecodedUhdrYuv444Image.stride[UHDR_PLANE_U] * i + j + 1] & 0x3ff;
-        uDst += uDataDst[mDecodedUhdrYuv444Image.stride[UHDR_PLANE_U] * (i + 1) + j + 1] & 0x3ff;
+        uDst += uDataDst[mDecodedUhdrYuv444Image.stride[UHDR_PLANE_U] * (i + 1) + j] & 0x3ff;
         uDst += uDataDst[mDecodedUhdrYuv444Image.stride[UHDR_PLANE_U] * (i + 1) + j + 1] & 0x3ff;
         uDst = (uDst + 2) >> 2;
         uSqError += (uSrc - uDst) * (uSrc - uDst);
