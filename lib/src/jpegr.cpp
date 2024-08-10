@@ -525,7 +525,7 @@ uhdr_error_info_t JpegR::generateGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_
   }
 
   gainmap_metadata->max_content_boost = hdr_white_nits / kSdrWhiteNits;
-  gainmap_metadata->min_content_boost = 1.0f;
+  gainmap_metadata->min_content_boost = use_luminance ? 1.0f : 0.01f;
   gainmap_metadata->gamma = mGamma;
   gainmap_metadata->offset_sdr = 0.0f;
   gainmap_metadata->offset_hdr = 0.0f;
