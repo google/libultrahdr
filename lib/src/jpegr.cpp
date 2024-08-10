@@ -233,6 +233,15 @@ uhdr_error_info_t JpegR::encodeJPEGR(uhdr_raw_image_t* hdr_intent, uhdr_compress
 uhdr_error_info_t JpegR::encodeJPEGR(uhdr_raw_image_t* hdr_intent, uhdr_raw_image_t* sdr_intent,
                                      uhdr_compressed_image_t* dest, int quality,
                                      uhdr_mem_block_t* exif) {
+  std::shared_ptr<DataStruct> icc = IccHelper::writeIccProfile(UHDR_CT_SRGB, sdr_intent->cg);
+
+  // convert to bt601 YUV encoding for JPEG encode
+#if (defined(UHDR_ENABLE_INTRINSICS) && (defined(__ARM_NEON__) || defined(__ARM_NEON)))
+  UHDR_ERR_CHECK(convertYuv_neon(sdr_intent, sdr_intent->cg, UHDR_CG_DISPLAY_P3));
+#else
+  UHDR_ERR_CHECK(convertYuv(sdr_intent, sdr_intent->cg, UHDR_CG_DISPLAY_P3));
+#endif
+
   // generate gain map
   uhdr_gainmap_metadata_ext_t metadata(kJpegrVersion);
   std::unique_ptr<uhdr_raw_image_ext_t> gainmap;
@@ -242,15 +251,6 @@ uhdr_error_info_t JpegR::encodeJPEGR(uhdr_raw_image_t* hdr_intent, uhdr_raw_imag
   JpegEncoderHelper jpeg_enc_obj_gm;
   UHDR_ERR_CHECK(compressGainMap(gainmap.get(), &jpeg_enc_obj_gm));
   uhdr_compressed_image_t gainmap_compressed = jpeg_enc_obj_gm.getCompressedImage();
-
-  std::shared_ptr<DataStruct> icc = IccHelper::writeIccProfile(UHDR_CT_SRGB, sdr_intent->cg);
-
-  // convert to bt601 YUV encoding for JPEG encode
-#if (defined(UHDR_ENABLE_INTRINSICS) && (defined(__ARM_NEON__) || defined(__ARM_NEON)))
-  UHDR_ERR_CHECK(convertYuv_neon(sdr_intent, sdr_intent->cg, UHDR_CG_DISPLAY_P3));
-#else
-  UHDR_ERR_CHECK(convertYuv(sdr_intent, sdr_intent->cg, UHDR_CG_DISPLAY_P3));
-#endif
 
   // compress sdr image
   JpegEncoderHelper jpeg_enc_obj_sdr;
