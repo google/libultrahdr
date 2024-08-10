@@ -17,6 +17,12 @@
 test "${SRC}" != "" || exit 1
 test "${WORK}" != "" || exit 1
 
+#Opt out of shift sanitizer in undefined sanitizer
+if [[ $SANITIZER = *undefined* ]]; then
+  CFLAGS="$CFLAGS -fno-sanitize=shift"
+  CXXFLAGS="$CXXFLAGS -fno-sanitize=shift"
+fi
+
 # Build libultrahdr
 build_dir=$WORK/build
 rm -rf ${build_dir}
