@@ -1086,16 +1086,6 @@ uhdr_error_info_t JpegR::applyGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_ima
              gainmap_metadata->offset_hdr);
     return status;
   }
-  if (gainmap_metadata->hdr_capacity_min != gainmap_metadata->min_content_boost) {
-    uhdr_error_info_t status;
-    status.error_code = UHDR_CODEC_UNSUPPORTED_FEATURE;
-    status.has_detail = 1;
-    snprintf(status.detail, sizeof status.detail,
-             "Unsupported gainmap metadata, min_content_boost. Min content boost is expected to be "
-             "same as hdr capacity min. Min content boost %f, Hdr Capacity min %f",
-             gainmap_metadata->min_content_boost, gainmap_metadata->hdr_capacity_min);
-    return status;
-  }
   if (gainmap_metadata->hdr_capacity_max != gainmap_metadata->max_content_boost) {
     uhdr_error_info_t status;
     status.error_code = UHDR_CODEC_UNSUPPORTED_FEATURE;
