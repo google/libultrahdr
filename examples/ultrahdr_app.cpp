@@ -829,8 +829,8 @@ bool UltraHdrAppInput::convertP010ToRGBImage() {
         v0 = CLIP3(v0, 0.0f, 1023.0f);
 
         y0 = y0 / 1023.0f;
-        u0 = u0 / 1023.0f;
-        v0 = v0 / 1023.0f;
+        u0 = u0 / 1023.0f - 0.5f;
+        v0 = v0 / 1023.0f - 0.5f;
       } else {
         y0 = CLIP3(y0, 64.0f, 940.0f);
         u0 = CLIP3(u0, 64.0f, 960.0f);
@@ -1048,8 +1048,8 @@ bool UltraHdrAppInput::convertRgba1010102ToYUV444Image() {
       b0 /= 1023.0f;
 
       float y = coeffs[0] * r0 + coeffs[1] * g0 + coeffs[2] * b0;
-      float u = coeffs[3] * r0 + coeffs[4] * g0 + coeffs[5] * b0;
-      float v = coeffs[6] * r0 + coeffs[7] * g0 + coeffs[8] * b0;
+      float u = coeffs[3] * r0 + coeffs[4] * g0 + coeffs[5] * b0 + 0.5f;
+      float v = coeffs[6] * r0 + coeffs[7] * g0 + coeffs[8] * b0 + 0.5f;
 
       if (mRawP010Image.range == UHDR_CR_FULL_RANGE) {
         y = y * 1023.0f;
