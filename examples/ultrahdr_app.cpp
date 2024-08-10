@@ -1208,14 +1208,14 @@ void UltraHdrAppInput::computeYUVHdrPSNR() {
   for (size_t i = 0; i < mDecodedUhdrYuv444Image.h; i++) {
     for (size_t j = 0; j < mDecodedUhdrYuv444Image.w; j++) {
       int ySrc = (yDataSrc[mRawP010Image.stride[UHDR_PLANE_Y] * i + j] >> 6) & 0x3ff;
-      ySrc = CLIP3(ySrc, 64, 940);
+      if (mRawP010Image.range == UHDR_CR_LIMITED_RANGE) ySrc = CLIP3(ySrc, 64, 940);
       int yDst = yDataDst[mDecodedUhdrYuv444Image.stride[UHDR_PLANE_Y] * i + j] & 0x3ff;
       ySqError += (ySrc - yDst) * (ySrc - yDst);
 
       if (i % 2 == 0 && j % 2 == 0) {
         int uSrc =
             (uDataSrc[mRawP010Image.stride[UHDR_PLANE_UV] * (i / 2) + (j / 2) * 2] >> 6) & 0x3ff;
-        uSrc = CLIP3(uSrc, 64, 960);
+        if (mRawP010Image.range == UHDR_CR_LIMITED_RANGE) uSrc = CLIP3(uSrc, 64, 960);
         int uDst = uDataDst[mDecodedUhdrYuv444Image.stride[UHDR_PLANE_U] * i + j] & 0x3ff;
         uDst += uDataDst[mDecodedUhdrYuv444Image.stride[UHDR_PLANE_U] * i + j + 1] & 0x3ff;
         uDst += uDataDst[mDecodedUhdrYuv444Image.stride[UHDR_PLANE_U] * (i + 1) + j + 1] & 0x3ff;
@@ -1225,10 +1225,10 @@ void UltraHdrAppInput::computeYUVHdrPSNR() {
 
         int vSrc =
             (vDataSrc[mRawP010Image.stride[UHDR_PLANE_UV] * (i / 2) + (j / 2) * 2] >> 6) & 0x3ff;
-        vSrc = CLIP3(vSrc, 64, 960);
+        if (mRawP010Image.range == UHDR_CR_LIMITED_RANGE) vSrc = CLIP3(vSrc, 64, 960);
         int vDst = vDataDst[mDecodedUhdrYuv444Image.stride[UHDR_PLANE_V] * i + j] & 0x3ff;
         vDst += vDataDst[mDecodedUhdrYuv444Image.stride[UHDR_PLANE_V] * i + j + 1] & 0x3ff;
-        vDst += vDataDst[mDecodedUhdrYuv444Image.stride[UHDR_PLANE_V] * (i + 1) + j + 1] & 0x3ff;
+        vDst += vDataDst[mDecodedUhdrYuv444Image.stride[UHDR_PLANE_V] * (i + 1) + j] & 0x3ff;
         vDst += vDataDst[mDecodedUhdrYuv444Image.stride[UHDR_PLANE_V] * (i + 1) + j + 1] & 0x3ff;
         vDst = (vDst + 2) >> 2;
         vSqError += (vSrc - vDst) * (vSrc - vDst);
