@@ -829,8 +829,8 @@ bool UltraHdrAppInput::convertP010ToRGBImage() {
         v0 = CLIP3(v0, 0.0f, 1023.0f);
 
         y0 = y0 / 1023.0f;
-        u0 = u0 / 1023.0f;
-        v0 = v0 / 1023.0f;
+        u0 = u0 / 1023.0f - 0.5f;
+        v0 = v0 / 1023.0f - 0.5f;
       } else {
         y0 = CLIP3(y0, 64.0f, 940.0f);
         u0 = CLIP3(u0, 64.0f, 960.0f);
@@ -1007,7 +1007,7 @@ bool UltraHdrAppInput::convertRgba1010102ToYUV444Image() {
   } else if (mDecodedUhdrRgbImage.cg == UHDR_CG_BT_2100) {
     coeffs = BT2020RGBtoYUVMatrix;
   } else if (mDecodedUhdrRgbImage.cg == UHDR_CG_DISPLAY_P3) {
-    coeffs = BT601RGBtoYUVMatrix;
+    coeffs = BT2020RGBtoYUVMatrix;  // Dichen debug
   } else {
     std::cerr << "color matrix not present for gamut " << mDecodedUhdrRgbImage.cg
               << " using BT2020Matrix" << std::endl;
@@ -1052,9 +1052,9 @@ bool UltraHdrAppInput::convertRgba1010102ToYUV444Image() {
       float v = coeffs[6] * r0 + coeffs[7] * g0 + coeffs[8] * b0;
 
       if (mRawP010Image.range == UHDR_CR_FULL_RANGE) {
-        y = y * 1023.0f;
-        u = u * 1023.0f;
-        v = v * 1023.0f;
+        y = y * 1023.0f + 0.5f;
+        u = (u + 0.5f) * 1023.0f + 0.5f;
+        v = (v + 0.5f) * 1023.0f + 0.5f;
 
         y = CLIP3(y, 0.0f, 1023.0f);
         u = CLIP3(u, 0.0f, 1023.0f);
@@ -1208,14 +1208,14 @@ void UltraHdrAppInput::computeYUVHdrPSNR() {
   for (size_t i = 0; i < mDecodedUhdrYuv444Image.h; i++) {
     for (size_t j = 0; j < mDecodedUhdrYuv444Image.w; j++) {
       int ySrc = (yDataSrc[mRawP010Image.stride[UHDR_PLANE_Y] * i + j] >> 6) & 0x3ff;
-      ySrc = CLIP3(ySrc, 64, 940);
+      if (mRawP010Image.range = UHDR_CR_LIMITED_RANGE) ySrc = CLIP3(ySrc, 64, 940);
       int yDst = yDataDst[mDecodedUhdrYuv444Image.stride[UHDR_PLANE_Y] * i + j] & 0x3ff;
       ySqError += (ySrc - yDst) * (ySrc - yDst);
 
       if (i % 2 == 0 && j % 2 == 0) {
         int uSrc =
             (uDataSrc[mRawP010Image.stride[UHDR_PLANE_UV] * (i / 2) + (j / 2) * 2] >> 6) & 0x3ff;
-        uSrc = CLIP3(uSrc, 64, 960);
+        if (mRawP010Image.range = UHDR_CR_LIMITED_RANGE) uSrc = CLIP3(uSrc, 64, 960);
         int uDst = uDataDst[mDecodedUhdrYuv444Image.stride[UHDR_PLANE_U] * i + j] & 0x3ff;
         uDst += uDataDst[mDecodedUhdrYuv444Image.stride[UHDR_PLANE_U] * i + j + 1] & 0x3ff;
         uDst += uDataDst[mDecodedUhdrYuv444Image.stride[UHDR_PLANE_U] * (i + 1) + j + 1] & 0x3ff;
@@ -1225,7 +1225,7 @@ void UltraHdrAppInput::computeYUVHdrPSNR() {
 
         int vSrc =
             (vDataSrc[mRawP010Image.stride[UHDR_PLANE_UV] * (i / 2) + (j / 2) * 2] >> 6) & 0x3ff;
-        vSrc = CLIP3(vSrc, 64, 960);
+        if (mRawP010Image.range = UHDR_CR_LIMITED_RANGE) vSrc = CLIP3(vSrc, 64, 960);
         int vDst = vDataDst[mDecodedUhdrYuv444Image.stride[UHDR_PLANE_V] * i + j] & 0x3ff;
         vDst += vDataDst[mDecodedUhdrYuv444Image.stride[UHDR_PLANE_V] * i + j + 1] & 0x3ff;
         vDst += vDataDst[mDecodedUhdrYuv444Image.stride[UHDR_PLANE_V] * (i + 1) + j + 1] & 0x3ff;
