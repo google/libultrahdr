@@ -60,6 +60,19 @@ const float BT2020RGBtoYUVMatrix[9] = {0.2627,
                                        (-0.6780 / 1.4746),
                                        (-0.0593 / 1.4746)};
 
+const float BT709ToBT2100RGB[9] = {0.627404, 0.329282, 0.043314, 0.069097, 0.919541,
+                                   0.011362, 0.016392, 0.088013, 0.895595};
+const float BT2100ToBT709RGB[9] = {1.660491,  -0.587641, -0.07285,  -0.124551, 1.1329,
+                                   -0.008349, -0.018151, -0.100579, 1.11873};
+const float BT709ToP3RGB[9] = {0.822462,  0.177537, 0.000001, 0.033194, 0.966807,
+                               -0.000001, 0.017083, 0.072398, 0.91052};
+const float P3ToBT709RGB[9] = {1.22494, -0.22494,  0,         -0.042057, 1.042057,
+                               0,       -0.019638, -0.078636, 1.098274};
+const float P3toBT2100RGB[9] = {0.753833, 0.198597, 0.04757,  0.045744, 0.941777,
+                                0.012479, -0.00121, 0.017601, 0.983608};
+const float BT2100ToP3RGB[9] = {1.343578, -0.282179, -0.061399, -0.065298, 1.075788,
+                                -0.01049, 0.002822,  -0.019598, 1.016777};
+
 // remove these once introduced in ultrahdr_api.h
 const int UHDR_IMG_FMT_48bppYCbCr444 = 101;
 
@@ -362,6 +375,7 @@ class UltraHdrAppInput {
   void computeRGBSdrPSNR();
   void computeYUVHdrPSNR();
   void computeYUVSdrPSNR();
+  void convertDestGamutRgba1010102();
 
   const char* mHdrIntentRawFile;
   const char* mSdrIntentRawFile;
@@ -1096,6 +1110,7 @@ void UltraHdrAppInput::computeRGBHdrPSNR() {
                  "results may be unreliable"
               << std::endl;
   }
+
   if (mRawRgba1010102Image.cg != mDecodedUhdrRgbImage.cg) {
     std::cout << "input color gamut and output color gamut are not identical, rgb psnr results "
                  "may be unreliable"
@@ -1300,6 +1315,67 @@ void UltraHdrAppInput::computeYUVSdrPSNR() {
   mPsnr[2] = meanSquareError ? 10 * log10((double)255 * 255 / meanSquareError) : 100;
 
   std::cout << "psnr yuv: \t" << mPsnr[0] << " \t " << mPsnr[1] << " \t " << mPsnr[2] << std::endl;
+}
+
+void UltraHdrAppInput::convertDestGamutRgba1010102() {
+  if (mDecodedUhdrRgbImage.cg == mHdrCg) return;
+
+  const float* coeffs = nullptr;
+  if (mDecodedUhdrRgbImage.cg == UHDR_CG_BT_709) {
+    if (mHdrCg == UHDR_CG_BT_2100)
+      coeffs = BT709ToBT2100RGB;
+    else if (mHdrCg == UHDR_CG_DISPLAY_P3)
+      coeffs = BT709ToP3RGB;
+  } else if (mDecodedUhdrRgbImage.cg == UHDR_CG_BT_2100) {
+    if (mHdrCg == UHDR_CG_BT_709)
+      coeffs = BT2100ToBT709RGB;
+    else if (mHdrCg == UHDR_CG_DISPLAY_P3)
+      coeffs = BT2100ToP3RGB;
+  } else if (mDecodedUhdrRgbImage.cg == UHDR_CG_DISPLAY_P3) {
+    if (mHdrCg == UHDR_CG_BT_709)
+      coeffs = P3ToBT709RGB;
+    else if (mHdrCg == UHDR_CG_BT_2100)
+      coeffs = P3toBT2100RGB;
+  }
+  if (coeffs == nullptr) {
+    std::cerr << "color matrix not present for gamut " << mDecodedUhdrRgbImage.cg
+              << " using BT2020Matrix" << std::endl;
+    return;
+  }
+
+  uint32_t* rgbData = static_cast<uint32_t*>(mDecodedUhdrRgbImage.planes[UHDR_PLANE_PACKED]);
+
+  for (size_t i = 0; i < mDecodedUhdrRgbImage.h; i++) {
+    for (size_t j = 0; j < mDecodedUhdrRgbImage.w; j++) {
+      float r0 = float(rgbData[mDecodedUhdrRgbImage.stride[UHDR_PLANE_PACKED] * i + j] & 0x3ff);
+      float g0 =
+          float((rgbData[mDecodedUhdrRgbImage.stride[UHDR_PLANE_PACKED] * i + j] >> 10) & 0x3ff);
+      float b0 =
+          float((rgbData[mDecodedUhdrRgbImage.stride[UHDR_PLANE_PACKED] * i + j] >> 20) & 0x3ff);
+
+      r0 /= 1023.0f;
+      g0 /= 1023.0f;
+      b0 /= 1023.0f;
+
+      float r = coeffs[0] * r0 + coeffs[1] * g0 + coeffs[2] * b0;
+      float g = coeffs[3] * r0 + coeffs[4] * g0 + coeffs[5] * b0;
+      float b = coeffs[6] * r0 + coeffs[7] * g0 + coeffs[8] * b0;
+
+      r = CLIP3(r * 1023.0f + 0.5f, 0.0f, 1023.0f);
+      g = CLIP3(g * 1023.0f + 0.5f, 0.0f, 1023.0f);
+      b = CLIP3(b * 1023.0f + 0.5f, 0.0f, 1023.0f);
+
+      int32_t rOut = int32_t(r);
+      int32_t gOut = int32_t(g);
+      int32_t bOut = int32_t(b);
+      rgbData[mDecodedUhdrRgbImage.stride[UHDR_PLANE_PACKED] * i + j] =
+          (0x3ff & rOut) | ((0x3ff & gOut) << 10) | ((0x3ff & bOut) << 20) |
+          (0x3 << 30);  // Set alpha to 1.0
+    }
+  }
+  mDecodedUhdrRgbImage.cg = mHdrCg;
+
+  return;
 }
 
 static void usage(const char* name) {
@@ -1582,6 +1658,7 @@ int main(int argc, char* argv[]) {
           appInput.computeYUVSdrPSNR();
         }
       } else if (out_cf == UHDR_IMG_FMT_32bppRGBA1010102 && hdr_intent_raw_file != nullptr) {
+        appInput.convertDestGamutRgba1010102();
         if (hdr_cf == UHDR_IMG_FMT_24bppYCbCrP010) {
           appInput.convertP010ToRGBImage();
         }
