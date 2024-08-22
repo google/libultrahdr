@@ -66,6 +66,7 @@ cc_library {
         android: {
             srcs: [
                 "lib/src/gpu/applygainmap_gl.cpp",
+                "lib/src/gpu/editorhelper_gl.cpp",
                 "lib/src/gpu/uhdr_gl_utils.cpp",
             ],
             cflags: ["-DUHDR_ENABLE_GLES"],
