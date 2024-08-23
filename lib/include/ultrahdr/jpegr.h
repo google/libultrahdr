@@ -78,7 +78,8 @@ class JpegR {
         int mapCompressQuality = kMapCompressQualityDefault,
         bool useMultiChannelGainMap = kUseMultiChannelGainMapDefault,
         float gamma = kGainMapGammaDefault, uhdr_enc_preset_t preset = UHDR_USAGE_REALTIME,
-        float minContentBoost = FLT_MIN, float maxContentBoost = FLT_MAX);
+        float minContentBoost = FLT_MIN, float maxContentBoost = FLT_MAX,
+        float maxDispBrightness = -1.0f);
 
   /*!\brief Encode API-0.
    *
@@ -547,6 +548,14 @@ class JpegR {
   uhdr_error_info_t convertYuv(uhdr_raw_image_t* image, uhdr_color_gamut_t src_encoding,
                                uhdr_color_gamut_t dst_encoding);
 
+  /*!\brief Get max display brightness in nits
+   *
+   * \param[in]  transfer       intent's color transfer characteristics
+   *
+   * \return max display brightness in nits
+   */
+  float getMasteringDisplayMaxLuminance(uhdr_color_transfer_t transfer);
+
   /*
    * This method will check the validity of the input arguments.
    *
@@ -593,6 +602,7 @@ class JpegR {
   uhdr_enc_preset_t mEncPreset;     // encoding speed preset
   float mMinContentBoost;           // min content boost recommendation
   float mMaxContentBoost;           // max content boost recommendation
+  float mMaxDispBrightness;         // mastering display max luminance in nits
 };
 
 struct GlobalTonemapOutputs {

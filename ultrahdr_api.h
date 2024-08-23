@@ -425,6 +425,19 @@ UHDR_EXTERN uhdr_error_info_t uhdr_enc_set_preset(uhdr_codec_private_t* enc,
 UHDR_EXTERN uhdr_error_info_t uhdr_enc_set_output_format(uhdr_codec_private_t* enc,
                                                          uhdr_codec_t media_type);
 
+/*!\brief Set maximum hdr display brightness in nits. For #UHDR_CT_HLG content, this defaults to
+ * 1000 nits. For #UHDR_CT_PQ content, this defaults to 10000 nits. This configuration is required
+ * if the hdr intent color transfer is #UHDR_CT_LINEAR.
+ *
+ * \param[in]  enc  encoder instance.
+ * \param[in]  nits  max display brightness in nits. Any positive real number in range [203, 10000]
+ *
+ * \return uhdr_error_info_t #UHDR_CODEC_OK if operation succeeds,
+ *                           #UHDR_CODEC_INVALID_PARAM otherwise.
+ */
+UHDR_EXTERN uhdr_error_info_t uhdr_enc_set_max_display_brightness(uhdr_codec_private_t* enc,
+                                                                  float nits);
+
 /*!\brief Encode process call
  * After initializing the encoder context, call to this function will submit data for encoding. If
  * the call is successful, the encoded output is stored internally and is accessible via
