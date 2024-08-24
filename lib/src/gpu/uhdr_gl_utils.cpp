@@ -93,12 +93,12 @@ GLuint uhdr_opengl_ctxt::compile_shader(GLenum type, const char* source) {
     // Info log length includes the null terminator, so 1 means that the info log is an empty
     // string.
     if (logLength > 1) {
-      char log[logLength];
-      glGetShaderInfoLog(shader, logLength, nullptr, log);
+      std::vector<char> log(logLength);
+      glGetShaderInfoLog(shader, logLength, nullptr, log.data());
       mErrorStatus.error_code = UHDR_CODEC_ERROR;
       mErrorStatus.has_detail = 1;
       snprintf(mErrorStatus.detail, sizeof mErrorStatus.detail,
-               "Unable to compile shader, error log: %s", log);
+               "Unable to compile shader, error log: %s", log.data());
     } else {
       mErrorStatus.error_code = UHDR_CODEC_ERROR;
       mErrorStatus.has_detail = 1;
@@ -160,12 +160,12 @@ GLuint uhdr_opengl_ctxt::create_shader_program(const char* vertex_source,
     // Info log length includes the null terminator, so 1 means that the info log is an empty
     // string.
     if (logLength > 1) {
-      char log[logLength];
-      glGetProgramInfoLog(program, logLength, nullptr, log);
+      std::vector<char> log(logLength);
+      glGetProgramInfoLog(program, logLength, nullptr, log.data());
       mErrorStatus.error_code = UHDR_CODEC_ERROR;
       mErrorStatus.has_detail = 1;
       snprintf(mErrorStatus.detail, sizeof mErrorStatus.detail,
-               "Unable to link shader program, error log: %s", log);
+               "Unable to link shader program, error log: %s", log.data());
     } else {
       mErrorStatus.error_code = UHDR_CODEC_ERROR;
       mErrorStatus.has_detail = 1;

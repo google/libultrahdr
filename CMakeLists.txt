@@ -16,7 +16,7 @@
 
 cmake_minimum_required(VERSION 3.13)
 
-project(libuhdr VERSION 1.8 LANGUAGES C CXX
+project(libuhdr VERSION 1.1.0 LANGUAGES C CXX
         DESCRIPTION "Library for encoding and decoding ultrahdr images")
 
 ###########################################################

@@ -235,8 +235,9 @@ bool isBufferDataContiguous(uhdr_raw_image_t* img) {
     uint16_t* y = static_cast<uint16_t*>(img->planes[UHDR_PLANE_Y]);
     uint16_t* u = static_cast<uint16_t*>(img->planes[UHDR_PLANE_UV]);
     std::ptrdiff_t sz = u - y;
+    long pixels = img->w * img->h;
     return img->stride[UHDR_PLANE_Y] == img->w && img->stride[UHDR_PLANE_UV] == img->w &&
-           sz == img->w * img->h;
+           sz == pixels;
   } else if (img->fmt == UHDR_IMG_FMT_12bppYCbCr420 || img->fmt == UHDR_IMG_FMT_24bppYCbCr444 ||
              img->fmt == UHDR_IMG_FMT_16bppYCbCr422) {
     int h_samp_factor = img->fmt == UHDR_IMG_FMT_24bppYCbCr444 ? 1 : 2;
@@ -245,10 +246,11 @@ bool isBufferDataContiguous(uhdr_raw_image_t* img) {
     uint8_t* u = static_cast<uint8_t*>(img->planes[UHDR_PLANE_U]);
     uint8_t* v = static_cast<uint8_t*>(img->planes[UHDR_PLANE_V]);
     std::ptrdiff_t sz_a = u - y, sz_b = v - u;
+    long pixels = img->w * img->h;
     return img->stride[UHDR_PLANE_Y] == img->w &&
            img->stride[UHDR_PLANE_U] == img->w / h_samp_factor &&
-           img->stride[UHDR_PLANE_V] == img->w / h_samp_factor && sz_a == img->w * img->h &&
-           sz_b == img->w * img->h / (h_samp_factor * v_samp_factor);
+           img->stride[UHDR_PLANE_V] == img->w / h_samp_factor && sz_a == pixels &&
+           sz_b == pixels / (h_samp_factor * v_samp_factor);
   }
   return false;
 }

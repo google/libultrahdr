@@ -71,6 +71,7 @@ typedef Color (*ColorTransformFn)(Color);
 typedef float (*ColorCalculationFn)(Color);
 typedef Color (*GetPixelFn)(uhdr_raw_image_t*, size_t, size_t);
 typedef Color (*SamplePixelFn)(uhdr_raw_image_t*, size_t, size_t, size_t);
+typedef void (*PutPixelFn)(uhdr_raw_image_t*, size_t, size_t, Color&);
 
 static inline float clampPixelFloat(float value) {
   return (value < 0.0f) ? 0.0f : (value > kMaxPixelFloat) ? kMaxPixelFloat : value;
@@ -480,6 +481,16 @@ GetPixelFn getPixelFn(uhdr_img_fmt_t format);
 SamplePixelFn getSamplePixelFn(uhdr_img_fmt_t format);
 
 /*
+ * Get function to put pixels to raw image for a given color format
+ */
+PutPixelFn putPixelFn(uhdr_img_fmt_t format);
+
+/*
+ * Returns true if the pixel format is rgb
+ */
+bool isPixelFormatRgb(uhdr_img_fmt_t format);
+
+/*
  * Get max display mastering luminance in nits
  */
 float getMaxDisplayMasteringLuminance(uhdr_color_transfer_t transfer);
@@ -572,6 +583,8 @@ Color getYuv422Pixel(uhdr_raw_image_t* image, size_t x, size_t y);
 Color getYuv420Pixel(uhdr_raw_image_t* image, size_t x, size_t y);
 Color getP010Pixel(uhdr_raw_image_t* image, size_t x, size_t y);
 Color getYuv444Pixel10bit(uhdr_raw_image_t* image, size_t x, size_t y);
+Color getRgba8888Pixel(uhdr_raw_image_t* image, size_t x, size_t y);
+Color getRgba1010102Pixel(uhdr_raw_image_t* image, size_t x, size_t y);
 
 /*
  * Sample the image at the provided location, with a weighting based on nearby
@@ -582,6 +595,14 @@ Color sampleYuv422(uhdr_raw_image_t* map, size_t map_scale_factor, size_t x, siz
 Color sampleYuv420(uhdr_raw_image_t* map, size_t map_scale_factor, size_t x, size_t y);
 Color sampleP010(uhdr_raw_image_t* map, size_t map_scale_factor, size_t x, size_t y);
 Color sampleYuv44410bit(uhdr_raw_image_t* image, size_t map_scale_factor, size_t x, size_t y);
+Color sampleRgba8888(uhdr_raw_image_t* image, size_t map_scale_factor, size_t x, size_t y);
+Color sampleRgba1010102(uhdr_raw_image_t* image, size_t map_scale_factor, size_t x, size_t y);
+
+/*
+ * Put pixel in the image at the provided location.
+ */
+void putRgba8888Pixel(uhdr_raw_image_t* image, size_t x, size_t y, Color& pixel);
+void putYuv444Pixel(uhdr_raw_image_t* image, size_t x, size_t y, Color& pixel);
 
 /*
  * Sample the gain value for the map from a given x,y coordinate on a scale
@@ -612,6 +633,7 @@ uint64_t colorToRgbaF16(Color e_gamma);
 /*
  * Helper for copying raw image descriptor
  */
+std::unique_ptr<uhdr_raw_image_ext_t> copy_raw_image(uhdr_raw_image_t* src);
 uhdr_error_info_t copy_raw_image(uhdr_raw_image_t* src, uhdr_raw_image_t* dst);
 
 /*
