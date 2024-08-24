@@ -16,7 +16,7 @@
 
 cmake_minimum_required(VERSION 3.13)
 
-project(libuhdr VERSION 1.8 LANGUAGES C CXX
+project(libuhdr VERSION 1.1.0 LANGUAGES C CXX
         DESCRIPTION "Library for encoding and decoding ultrahdr images")
 
 ###########################################################
@@ -617,7 +617,10 @@ if(${CMAKE_SYSTEM_NAME} MATCHES "Android")
   target_link_libraries(${UHDR_TARGET_NAME} PRIVATE ${log-lib})
 endif()
 target_link_libraries(${UHDR_TARGET_NAME} PRIVATE ${JPEG_LIBRARIES})
-set_target_properties(${UHDR_TARGET_NAME} PROPERTIES VERSION ${PROJECT_VERSION} SOVERSION ${PROJECT_VERSION_MAJOR} PUBLIC_HEADER ultrahdr_api.h)
+set_target_properties(${UHDR_TARGET_NAME}
+                      PROPERTIES VERSION ${PROJECT_VERSION}
+                      SOVERSION ${PROJECT_VERSION_MAJOR}
+                      PUBLIC_HEADER ultrahdr_api.h)
 combine_static_libs(${UHDR_CORE_LIB_NAME} ${UHDR_TARGET_NAME})
 
 if(UHDR_ENABLE_INSTALL)

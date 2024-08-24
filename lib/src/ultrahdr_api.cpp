@@ -783,7 +783,7 @@ uhdr_error_info_t uhdr_enc_set_raw_image(uhdr_codec_private_t* enc, uhdr_raw_ima
     return status;
   }
 
-  std::unique_ptr<ultrahdr::uhdr_raw_image_ext_t> entry = ultrahdr::convert_raw_input_to_ycbcr(img);
+  std::unique_ptr<ultrahdr::uhdr_raw_image_ext_t> entry = ultrahdr::copy_raw_image(img);
   if (entry == nullptr) {
     status.error_code = UHDR_CODEC_UNKNOWN_ERROR;
     status.has_detail = 1;
