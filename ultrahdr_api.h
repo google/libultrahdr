@@ -297,10 +297,17 @@ UHDR_EXTERN uhdr_error_info_t uhdr_enc_set_compressed_image(uhdr_codec_private_t
                                                             uhdr_compressed_image_t* img,
                                                             uhdr_img_label_t intent);
 
-/*!\brief Add gain map image descriptor and gainmap metadata info to encoder context. The function
- * internally goes through all the fields of the image descriptor and checks for their sanity. If no
- * anomalies are seen then the image is added to internal list. Repeated calls to this function will
- * replace the old entry with the current.
+/*!\brief Add gain map image descriptor and gainmap metadata info that was used to generate the
+ * aforth gainmap image to encoder context. The function internally goes through all the fields of
+ * the image descriptor and checks for their sanity. If no anomalies are seen then the image is
+ * added to internal list. Repeated calls to this function will replace the old entry with the
+ * current.
+ *
+ * NOTE: There are apis that allow configuration of gainmap info separately. For instance
+ * #uhdr_enc_set_gainmap_gamma, #uhdr_enc_set_gainmap_scale_factor, ... They have no effect on the
+ * information that is configured via this api. The information configured here is treated as
+ * immutable and used as-is in encoding scenario where gainmap computations are intended to be
+ * by-passed.
  *
  * \param[in]  enc  encoder instance.
  * \param[in]  img  gain map image desciptor.
@@ -372,7 +379,7 @@ UHDR_EXTERN uhdr_error_info_t uhdr_enc_set_gainmap_scale_factor(uhdr_codec_priva
  * for gamma correction of all planes separately. Default gamma value is 1.0.
  *
  * \param[in]  enc  encoder instance.
- * \param[in]  gamma  gamma of gainmap image. Any positive real number.
+ * \param[in]  gamma  gamma of gainmap image. Any positive real number > 0.0.
  *
  * \return uhdr_error_info_t #UHDR_CODEC_OK if operation succeeds,
  *                           #UHDR_CODEC_INVALID_PARAM otherwise.
@@ -526,8 +533,9 @@ UHDR_EXTERN void uhdr_reset_encoder(uhdr_codec_private_t* enc);
  * @param[in]  data  pointer to input compressed stream
  * @param[in]  size  size of compressed stream
  *
- * @returns 1 if the input data has a primary image, gain map image and gain map metadata. 0
- * otherwise.
+ * @returns 1 if the input data has a primary image, gain map image and gain map metadata. 0 if any
+ *          errors are encountered during parsing process or if the image does not have primary
+ *          image or gainmap image or gainmap metadata
  */
 UHDR_EXTERN int is_uhdr_image(void* data, int size);
 
@@ -561,10 +569,12 @@ UHDR_EXTERN void uhdr_release_decoder(uhdr_codec_private_t* dec);
 UHDR_EXTERN uhdr_error_info_t uhdr_dec_set_image(uhdr_codec_private_t* dec,
                                                  uhdr_compressed_image_t* img);
 
-/*!\brief Set output image format
+/*!\brief Set output image color format
  *
  * \param[in]  dec  decoder instance.
- * \param[in]  fmt  output image format.
+ * \param[in]  fmt  output image color format. Supported values are
+ *                  #UHDR_IMG_FMT_64bppRGBAHalfFloat, #UHDR_IMG_FMT_32bppRGBA1010102,
+ *                  #UHDR_IMG_FMT_32bppRGBA8888
  *
  * \return uhdr_error_info_t #UHDR_CODEC_OK if operation succeeds,
  *                           #UHDR_CODEC_INVALID_PARAM otherwise.
@@ -572,7 +582,11 @@ UHDR_EXTERN uhdr_error_info_t uhdr_dec_set_image(uhdr_codec_private_t* dec,
 UHDR_EXTERN uhdr_error_info_t uhdr_dec_set_out_img_format(uhdr_codec_private_t* dec,
                                                           uhdr_img_fmt_t fmt);
 
-/*!\brief Set output color transfer
+/*!\brief Set output image color transfer characteristics. It should be noted that not all
+ * combinations of output color format and output transfer function are supported. #UHDR_CT_SRGB
+ * output color transfer shall be paired with #UHDR_IMG_FMT_32bppRGBA8888 only. #UHDR_CT_HLG,
+ * #UHDR_CT_PQ shall be paired with #UHDR_IMG_FMT_32bppRGBA1010102. #UHDR_CT_LINEAR shall be paired
+ * with #UHDR_IMG_FMT_64bppRGBAHalfFloat.
  *
  * \param[in]  dec  decoder instance.
  * \param[in]  ct  output color transfer
@@ -583,10 +597,12 @@ UHDR_EXTERN uhdr_error_info_t uhdr_dec_set_out_img_format(uhdr_codec_private_t* 
 UHDR_EXTERN uhdr_error_info_t uhdr_dec_set_out_color_transfer(uhdr_codec_private_t* dec,
                                                               uhdr_color_transfer_t ct);
 
-/*!\brief Set output max display boost
+/*!\brief Set output display's HDR capacity. Value MUST be in linear scale. This value determines
+ * the weight by which the gain map coefficients are scaled. If no value is configured, no weight is
+ * applied to gainmap image.
  *
  * \param[in]  dec  decoder instance.
- * \param[in]  display_boost  max display boost
+ * \param[in]  display_boost  hdr capacity of target display. Any real number >= 1.0f
  *
  * \return uhdr_error_info_t #UHDR_CODEC_OK if operation succeeds,
  *                           #UHDR_CODEC_INVALID_PARAM otherwise.
