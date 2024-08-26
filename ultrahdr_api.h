@@ -379,6 +379,20 @@ UHDR_EXTERN uhdr_error_info_t uhdr_enc_set_gainmap_scale_factor(uhdr_codec_priva
  */
 UHDR_EXTERN uhdr_error_info_t uhdr_enc_set_gainmap_gamma(uhdr_codec_private_t* enc, float gamma);
 
+/*!\brief Set min max content boost. This configuration is treated as a recommendation by the
+ * library. It is entirely possible for the library to use a different set of values. Value MUST be
+ * in linear scale.
+ *
+ * \param[in]  enc  encoder instance.
+ * \param[in]  min_boost min content boost. Any positive real number > 0.0f
+ * \param[in]  max_boost max content boost. Any positive real number >= min_boost
+ *
+ * \return uhdr_error_info_t #UHDR_CODEC_OK if operation succeeds,
+ *                           #UHDR_CODEC_INVALID_PARAM otherwise.
+ */
+UHDR_EXTERN uhdr_error_info_t uhdr_enc_set_min_max_content_boost(uhdr_codec_private_t* enc,
+                                                                 float min_boost, float max_boost);
+
 /*!\brief Set encoding preset. Tunes the encoder configurations for performance or quality. Default
  * configuration is #UHDR_USAGE_REALTIME.
  *

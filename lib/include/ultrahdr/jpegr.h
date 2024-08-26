@@ -77,7 +77,8 @@ class JpegR {
         size_t mapDimensionScaleFactor = kMapDimensionScaleFactorDefault,
         int mapCompressQuality = kMapCompressQualityDefault,
         bool useMultiChannelGainMap = kUseMultiChannelGainMapDefault,
-        float gamma = kGainMapGammaDefault, uhdr_enc_preset_t preset = UHDR_USAGE_REALTIME);
+        float gamma = kGainMapGammaDefault, uhdr_enc_preset_t preset = UHDR_USAGE_REALTIME,
+        float minContentBoost = FLT_MIN, float maxContentBoost = FLT_MAX);
 
   /*!\brief Encode API-0.
    *
@@ -242,7 +243,6 @@ class JpegR {
                                  jr_info_ptr uhdr_image_info);
 
   /*!\brief set gain map dimension scale factor
-   *
    * NOTE: Applicable only in encoding scenario
    *
    * \param[in]       mapDimensionScaleFactor      scale factor
@@ -254,7 +254,6 @@ class JpegR {
   }
 
   /*!\brief get gain map dimension scale factor
-   *
    * NOTE: Applicable only in encoding scenario
    *
    * \return mapDimensionScaleFactor
@@ -262,7 +261,6 @@ class JpegR {
   size_t getMapDimensionScaleFactor() { return this->mMapDimensionScaleFactor; }
 
   /*!\brief set gain map compression quality factor
-   *
    * NOTE: Applicable only in encoding scenario
    *
    * \param[in]       mapCompressQuality      quality factor for gain map image compression
@@ -274,7 +272,6 @@ class JpegR {
   }
 
   /*!\brief get gain map quality factor
-   *
    * NOTE: Applicable only in encoding scenario
    *
    * \return quality factor
@@ -282,7 +279,6 @@ class JpegR {
   int getMapCompressQuality() { return this->mMapCompressQuality; }
 
   /*!\brief set gain map gamma
-   *
    * NOTE: Applicable only in encoding scenario
    *
    * \param[in]       gamma      gamma parameter that is used for gain map calculation
@@ -292,7 +288,6 @@ class JpegR {
   void setGainMapGamma(float gamma) { this->mGamma = gamma; }
 
   /*!\brief get gain map gamma
-   *
    * NOTE: Applicable only in encoding scenario
    *
    * \return gamma parameter
@@ -300,7 +295,6 @@ class JpegR {
   float getGainMapGamma() { return this->mGamma; }
 
   /*!\brief enable / disable multi channel gain map
-   *
    * NOTE: Applicable only in encoding scenario
    *
    * \param[in]       useMultiChannelGainMap      enable / disable multi channel gain map
@@ -312,12 +306,37 @@ class JpegR {
   }
 
   /*!\brief check if multi channel gain map is enabled
-   *
    * NOTE: Applicable only in encoding scenario
    *
    * \return true if multi channel gain map is enabled, false otherwise
    */
   bool isUsingMultiChannelGainMap() { return this->mUseMultiChannelGainMap; }
+
+  /*!\brief set gain map min and max content boost
+   * NOTE: Applicable only in encoding scenario
+   *
+   * \param[in]       minBoost      gain map min content boost
+   * \param[in]       maxBoost      gain map max content boost
+   *
+   * \return none
+   */
+  void setGainMapMinMaxContentBoost(float minBoost, float maxBoost) {
+    this->mMinContentBoost = minBoost;
+    this->mMaxContentBoost = maxBoost;
+  }
+
+  /*!\brief get gain map min max content boost
+   * NOTE: Applicable only in encoding scenario
+   *
+   * \param[out]       minBoost      gain map min content boost
+   * \param[out]       maxBoost      gain map max content boost
+   *
+   * \return none
+   */
+  void getGainMapMinMaxContentBoost(float& minBoost, float& maxBoost) {
+    minBoost = this->mMinContentBoost;
+    maxBoost = this->mMaxContentBoost;
+  }
 
   /* \brief Alias of Encode API-0.
    *
@@ -572,6 +591,8 @@ class JpegR {
   bool mUseMultiChannelGainMap;     // enable multichannel gain map
   float mGamma;                     // gain map gamma parameter
   uhdr_enc_preset_t mEncPreset;     // encoding speed preset
+  float mMinContentBoost;           // min content boost recommendation
+  float mMaxContentBoost;           // max content boost recommendation
 };
 
 struct GlobalTonemapOutputs {
