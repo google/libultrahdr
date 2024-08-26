@@ -353,6 +353,8 @@ struct uhdr_encoder_private : uhdr_codec_private {
   bool m_use_multi_channel_gainmap;
   float m_gamma;
   uhdr_enc_preset_t m_enc_preset;
+  float m_min_content_boost;
+  float m_max_content_boost;
 
   // internal data
   std::unique_ptr<ultrahdr::uhdr_compressed_image_ext_t> m_compressed_output_buffer;

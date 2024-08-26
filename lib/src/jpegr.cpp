@@ -146,13 +146,16 @@ int GetCPUCoreCount() {
 }
 
 JpegR::JpegR(void* uhdrGLESCtxt, size_t mapDimensionScaleFactor, int mapCompressQuality,
-             bool useMultiChannelGainMap, float gamma, uhdr_enc_preset_t preset) {
+             bool useMultiChannelGainMap, float gamma, uhdr_enc_preset_t preset,
+             float minContentBoost, float maxContentBoost) {
   mUhdrGLESCtxt = uhdrGLESCtxt;
   mMapDimensionScaleFactor = mapDimensionScaleFactor;
   mMapCompressQuality = mapCompressQuality;
   mUseMultiChannelGainMap = useMultiChannelGainMap;
   mGamma = gamma;
   mEncPreset = preset;
+  mMinContentBoost = minContentBoost;
+  mMaxContentBoost = maxContentBoost;
 }
 
 /*
@@ -808,6 +811,14 @@ uhdr_error_info_t JpegR::generateGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_
     // black from any sdr luminance. Allowing further excursion might not offer any benefit and on
     // the downside can cause bigger error during affine map and inverse map.
     min_content_boost_log2 = (std::max)(-13.0f, min_content_boost_log2);
+    if (this->mMaxContentBoost != FLT_MAX) {
+      float suggestion = log2(this->mMaxContentBoost);
+      max_content_boost_log2 = (std::min)(max_content_boost_log2, suggestion);
+    }
+    if (this->mMinContentBoost != FLT_MIN) {
+      float suggestion = log2(this->mMinContentBoost);
+      min_content_boost_log2 = (std::max)(min_content_boost_log2, suggestion);
+    }
     if (fabs(max_content_boost_log2 - min_content_boost_log2) < FLT_EPSILON) {
       max_content_boost_log2 += 0.1;  // to avoid div by zero during affine transform
     }
