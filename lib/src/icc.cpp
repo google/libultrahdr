@@ -652,7 +652,18 @@ uhdr_color_gamut_t IccHelper::readIccColorGamut(void* icc_data, size_t icc_size)
   }
 
   uint8_t* icc_bytes = reinterpret_cast<uint8_t*>(icc_data) + kICCIdentifierSize;
-
+  auto alignment_needs = alignof(ICCHeader);
+  uint8_t* aligned_block = nullptr;
+  if (((uintptr_t)icc_bytes) % alignment_needs != 0) {
+    aligned_block = static_cast<uint8_t*>(
+        ::operator new[](icc_size - kICCIdentifierSize, std::align_val_t(alignment_needs)));
+    if (!aligned_block) {
+      ALOGE("unable allocate memory, icc parsing failed");
+      return UHDR_CG_UNSPECIFIED;
+    }
+    std::memcpy(aligned_block, icc_bytes, icc_size - kICCIdentifierSize);
+    icc_bytes = aligned_block;
+  }
   ICCHeader* header = reinterpret_cast<ICCHeader*>(icc_bytes);
 
   // Use 0 to indicate not found, since offsets are always relative to start
@@ -665,6 +676,7 @@ uhdr_color_gamut_t IccHelper::readIccColorGamut(void* icc_data, size_t icc_size)
           "Insufficient buffer size during icc parsing. tag index %zu, header %zu, tag size %zu, "
           "icc size %zu",
           tag_idx, kICCIdentifierSize + sizeof(ICCHeader), kTagTableEntrySize, icc_size);
+      if (aligned_block) ::operator delete[](aligned_block, std::align_val_t(alignment_needs));
       return UHDR_CG_UNSPECIFIED;
     }
     uint32_t* tag_entry_start =
@@ -689,6 +701,7 @@ uhdr_color_gamut_t IccHelper::readIccColorGamut(void* icc_data, size_t icc_size)
       kICCIdentifierSize + green_primary_offset + green_primary_size > icc_size ||
       blue_primary_offset == 0 || blue_primary_size != kColorantTagSize ||
       kICCIdentifierSize + blue_primary_offset + blue_primary_size > icc_size) {
+    if (aligned_block) ::operator delete[](aligned_block, std::align_val_t(alignment_needs));
     return UHDR_CG_UNSPECIFIED;
   }
 
@@ -698,17 +711,19 @@ uhdr_color_gamut_t IccHelper::readIccColorGamut(void* icc_data, size_t icc_size)
 
   // Serialize tags as we do on encode and compare what we find to that to
   // determine the gamut (since we don't have a need yet for full deserialize).
+  uhdr_color_gamut_t gamut = UHDR_CG_UNSPECIFIED;
   if (tagsEqualToMatrix(kSRGB, red_tag, green_tag, blue_tag)) {
-    return UHDR_CG_BT_709;
+    gamut = UHDR_CG_BT_709;
   } else if (tagsEqualToMatrix(kDisplayP3, red_tag, green_tag, blue_tag)) {
-    return UHDR_CG_DISPLAY_P3;
+    gamut = UHDR_CG_DISPLAY_P3;
   } else if (tagsEqualToMatrix(kRec2020, red_tag, green_tag, blue_tag)) {
-    return UHDR_CG_BT_2100;
+    gamut = UHDR_CG_BT_2100;
   }
 
+  if (aligned_block) ::operator delete[](aligned_block, std::align_val_t(alignment_needs));
   // Didn't find a match to one of the profiles we write; indicate the gamut
   // is unspecified since we don't understand it.
-  return UHDR_CG_UNSPECIFIED;
+  return gamut;
 }
 
 }  // namespace ultrahdr
