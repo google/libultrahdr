@@ -17,10 +17,11 @@
 package com.google.media.codecs.ultrahdr;
 
 /**
- * Ultra HDR common utility class (cannot be instantiated)
+ * Ultra HDR common utility class (cannot be instantiated). These constants MUST be kept in sync
+ * with the constants defined ultrahdr_api.h
  */
 public class UltraHDRCommon {
-    // Fields describing the color format of raw input
+    // Fields describing the color format of raw image
     /**
      * Unspecified color format
      */

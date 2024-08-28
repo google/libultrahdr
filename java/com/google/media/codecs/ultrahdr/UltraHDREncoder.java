@@ -24,7 +24,7 @@ import static com.google.media.codecs.ultrahdr.UltraHDRCommon.UHDR_IMG_FMT_32bpp
 import java.io.IOException;
 
 /**
- * Ultra HDR encoding utility class
+ * Ultra HDR encoding utility class.
  */
 public class UltraHDREncoder implements AutoCloseable {
 
@@ -62,7 +62,7 @@ public class UltraHDREncoder implements AutoCloseable {
      *
      * @throws IOException If the codec cannot be created then exception is thrown
      */
-    UltraHDREncoder() throws IOException {
+    public UltraHDREncoder() throws IOException {
         handle = 0;
         init();
     }
@@ -78,10 +78,10 @@ public class UltraHDREncoder implements AutoCloseable {
     }
 
     /**
-     * Add raw image info to encoder context. This interface is used for adding 32 bits per pixel
-     * packed pixel formats. The function goes through all the arguments and checks for their
-     * sanity. If no anomalies are seen then the image info is added to internal list. Repeated
-     * calls to this function will replace the old entry with the current.
+     * Add raw image info to encoder context. This interface is used for adding 32 bits-per-pixel
+     * packed formats. The function goes through all the arguments and checks for their sanity.
+     * If no anomalies are seen then the image info is added to internal list. Repeated calls to
+     * this function will replace the old entry with the current.
      *
      * @param rgbBuff       rgb buffer handle
      * @param width         image width
@@ -118,10 +118,10 @@ public class UltraHDREncoder implements AutoCloseable {
     }
 
     /**
-     * Add raw image info to encoder context. This interface is used for adding 16 bits per
-     * sample pixel formats. The function goes through all the arguments and checks for their
-     * sanity. If no anomalies are seen then the image info is added to internal list. Repeated
-     * calls to this function will replace the old entry with the current.
+     * Add raw image info to encoder context. This interface is used for adding 16 bits-per-sample
+     * pixel formats. The function goes through all the arguments and checks for their sanity. If
+     * no anomalies are seen then the image info is added to internal list. Repeated calls to
+     * this function will replace the old entry with the current.
      *
      * @param yBuff         luma buffer handle
      * @param uvBuff        Chroma buffer handle
@@ -133,8 +133,7 @@ public class UltraHDREncoder implements AutoCloseable {
      * @param colorTransfer color transfer of input image
      * @param colorRange    color range of input image
      * @param colorFormat   color format of input image
-     * @param intent        {@link UltraHDRCommon#UHDR_HDR_IMG} for hdr intent,
-     *                      {@link UltraHDRCommon#UHDR_SDR_IMG} for sdr intent
+     * @param intent        {@link UltraHDRCommon#UHDR_HDR_IMG} for hdr intent
      * @throws IOException If parameters are not valid or current encoder instance is not valid
      *                     or current encoder instance is not suitable for configuration
      *                     exception is thrown
@@ -160,10 +159,10 @@ public class UltraHDREncoder implements AutoCloseable {
     }
 
     /**
-     * Add raw image info to encoder context. This interface is used for adding 8 bits per sample
-     * planar pixel formats. The function goes through all the arguments and checks for their
-     * sanity. If no anomalies are seen then the image info is added to internal list. Repeated
-     * calls to this function will replace the old entry with the current.
+     * Add raw image info to encoder context. This interface is used for adding 8 bits-per-sample
+     * pixel formats. The function goes through all the arguments and checks for their sanity. If
+     * no anomalies are seen then the image info is added to internal list. Repeated calls to
+     * this function will replace the old entry with the current.
      *
      * @param yBuff         luma buffer handle
      * @param uBuff         Cb buffer handle
@@ -177,8 +176,7 @@ public class UltraHDREncoder implements AutoCloseable {
      * @param colorTransfer color transfer of input image
      * @param colorRange    color range of input image
      * @param colorFormat   color format of input image
-     * @param intent        {@link UltraHDRCommon#UHDR_HDR_IMG} for hdr intent,
-     *                      {@link UltraHDRCommon#UHDR_SDR_IMG} for sdr intent
+     * @param intent        {@link UltraHDRCommon#UHDR_SDR_IMG} for sdr intent
      * @throws IOException If parameters are not valid or current encoder instance is not valid
      *                     or current encoder instance is not suitable for configuration
      *                     exception is thrown
@@ -328,7 +326,7 @@ public class UltraHDREncoder implements AutoCloseable {
     }
 
     /**
-     * Enable/Disable multi-channel gainmap. By default, single channel gainmap is enabled.
+     * Enable/Disable multi-channel gainmap. By default, multi-channel gainmap is enabled.
      *
      * @param enable if true, multi-channel gainmap is enabled, else, single-channel gainmap is
      *               enabled
@@ -345,7 +343,10 @@ public class UltraHDREncoder implements AutoCloseable {
      * image instead of full resolution. This setting controls the factor by which the renditions
      * are downscaled. For instance, gain_map_scale_factor = 2 implies gainmap_image_width =
      * primary_image_width / 2 and gainmap image height = primary_image_height / 2.
-     * Default gain map scaling factor is 4.
+     * Default gain map scaling factor is 1.
+     * <p>
+     * NOTE: This has no effect on base image rendition. Base image is signalled in full resolution
+     * always.
      *
      * @param scaleFactor gain map scale factor. Any integer in range (0, 128]
      * @throws IOException If parameters are not valid or current encoder instance is not valid
@@ -360,7 +361,7 @@ public class UltraHDREncoder implements AutoCloseable {
      * Set encoding gamma of gainmap image. For multi-channel gainmap image, set gamma is used
      * for gamma correction of all planes separately. Default gamma value is 1.0.
      *
-     * @param gamma gamma of gainmap image. Any positive real number greater 0.0
+     * @param gamma gamma of gainmap image. Any positive real number
      * @throws IOException If parameters are not valid or current encoder instance is not valid
      *                     or current encoder instance is not suitable for configuration
      *                     exception is thrown
@@ -387,14 +388,30 @@ public class UltraHDREncoder implements AutoCloseable {
      * Set output image compression format. Selects the compression format for encoding base
      * image and gainmap image. Default configuration is {@link UltraHDREncoder#UHDR_CODEC_JPG}.
      *
-     * @param media_type output image compression format. Supported values are
-     *                   {@link UltraHDREncoder#UHDR_CODEC_JPG}
+     * @param mediaType output image compression format. Supported values are
+     *                  {@link UltraHDREncoder#UHDR_CODEC_JPG}
      * @throws IOException If parameters are not valid or current encoder instance is not valid
      *                     or current encoder instance is not suitable for configuration
      *                     exception is thrown
      */
-    public void setOutputFormat(int media_type) throws IOException {
-        setOutputFormatNative(media_type);
+    public void setOutputFormat(int mediaType) throws IOException {
+        setOutputFormatNative(mediaType);
+    }
+
+    /**
+     * Set min max content boost. This configuration is treated as a recommendation by the
+     * library. It is entirely possible for the library to use a different set of values. Value
+     * MUST be in linear scale.
+     *
+     * @param minContentBoost min content boost. Any positive real number
+     * @param maxContentBoost max content boost. Any positive real numer >= minContentBoost
+     * @throws IOException If parameters are not valid or current encoder instance
+     *                     is not valid or current encoder instance is not suitable
+     *                     for configuration exception is thrown
+     */
+    public void setMinMaxContentBoost(float minContentBoost, float maxContentBoost)
+            throws IOException {
+        setMinMaxContentBoostNative(minContentBoost, maxContentBoost);
     }
 
     /**
@@ -467,7 +484,10 @@ public class UltraHDREncoder implements AutoCloseable {
 
     private native void setEncPresetNative(int preset) throws IOException;
 
-    private native void setOutputFormatNative(int media_type) throws IOException;
+    private native void setOutputFormatNative(int mediaType) throws IOException;
+
+    private native void setMinMaxContentBoostNative(float minContentBoost,
+            float maxContentBoost) throws IOException;
 
     private native void encodeNative() throws IOException;
 
@@ -481,6 +501,6 @@ public class UltraHDREncoder implements AutoCloseable {
     private long handle;
 
     static {
-        System.loadLibrary("ultrahdr");
+        System.loadLibrary("uhdrjni");
     }
 }

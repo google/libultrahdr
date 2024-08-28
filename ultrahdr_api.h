@@ -742,7 +742,7 @@ UHDR_EXTERN void uhdr_reset_decoder(uhdr_codec_private_t* dec);
  * NOTE: It is entirely possible for this API to have no effect on the encode/decode operation
  *
  * \param[in]  codec  codec instance.
- * \param[in]  enable  choice
+ * \param[in]  enable  enable enable/disbale gpu acceleration
  *
  * \return uhdr_error_info_t #UHDR_CODEC_OK if operation succeeds, #UHDR_CODEC_INVALID_PARAM
  * otherwise.

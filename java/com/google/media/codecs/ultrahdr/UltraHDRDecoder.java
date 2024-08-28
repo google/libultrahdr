@@ -16,13 +16,27 @@
 
 package com.google.media.codecs.ultrahdr;
 
+import static com.google.media.codecs.ultrahdr.UltraHDRCommon.UHDR_CG_UNSPECIFIED;
+import static com.google.media.codecs.ultrahdr.UltraHDRCommon.UHDR_CR_UNSPECIFIED;
+import static com.google.media.codecs.ultrahdr.UltraHDRCommon.UHDR_CT_UNSPECIFIED;
+import static com.google.media.codecs.ultrahdr.UltraHDRCommon.UHDR_IMG_FMT_32bppRGBA1010102;
+import static com.google.media.codecs.ultrahdr.UltraHDRCommon.UHDR_IMG_FMT_32bppRGBA8888;
+import static com.google.media.codecs.ultrahdr.UltraHDRCommon.UHDR_IMG_FMT_64bppRGBAHalfFloat;
+import static com.google.media.codecs.ultrahdr.UltraHDRCommon.UHDR_IMG_FMT_8bppYCbCr400;
+import static com.google.media.codecs.ultrahdr.UltraHDRCommon.UHDR_IMG_FMT_UNSPECIFIED;
+
 import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 
 /**
- * Ultra HDR decoding utility class
+ * Ultra HDR decoding utility class.
  */
 public class UltraHDRDecoder implements AutoCloseable {
 
+    /**
+     * GainMap Metadata Descriptor
+     */
     public static class GainMapMetadata {
         public float maxContentBoost;
         public float minContentBoost;
@@ -31,6 +45,16 @@ public class UltraHDRDecoder implements AutoCloseable {
         public float offsetHdr;
         public float hdrCapacityMin;
         public float hdrCapacityMax;
+
+        public GainMapMetadata() {
+            this.maxContentBoost = 1.0f;
+            this.minContentBoost = 1.0f;
+            this.gamma = 1.0f;
+            this.offsetSdr = 0.0f;
+            this.offsetHdr = 0.0f;
+            this.hdrCapacityMin = 1.0f;
+            this.hdrCapacityMax = 1.0f;
+        }
 
         public GainMapMetadata(float maxContentBoost, float minContentBoost, float gamma,
                 float offsetSdr, float offsetHdr, float hdrCapacityMin, float hdrCapacityMax) {
@@ -44,26 +68,68 @@ public class UltraHDRDecoder implements AutoCloseable {
         }
     }
 
-    public static class RawImageDescriptor {
+    /**
+     * Raw Image Descriptor.
+     */
+    public static abstract class RawImage {
+        public byte[] nativeOrderBuffer;
         public int fmt;
         public int cg;
         public int ct;
         public int range;
         public int w;
         public int h;
-        public byte[] data;
         public int stride;
 
-        public RawImageDescriptor(int fmt, int cg, int ct, int range, int w, int h, byte[] data,
+        public RawImage(byte[] nativeOrderBuffer, int fmt, int cg, int ct, int range, int w, int h,
                 int stride) {
+            this.nativeOrderBuffer = nativeOrderBuffer;
             this.fmt = fmt;
             this.cg = cg;
             this.ct = ct;
             this.range = range;
             this.w = w;
             this.h = h;
-            this.data = data;
             this.stride = stride;
+        }
+    }
+
+    /**
+     * To represent packed pixel formats with 4 bytes-per-sample.
+     */
+    public static class RawImage32 extends RawImage {
+        public int[] data;
+
+        public RawImage32(byte[] nativeOrderBuffer, int fmt, int cg, int ct, int range, int w,
+                int h, int[] data, int stride) {
+            super(nativeOrderBuffer, fmt, cg, ct, range, w, h, stride);
+            this.data = data;
+        }
+    }
+
+    /**
+     * To represent packed pixel formats with 8 bits-per-sample.
+     */
+    public static class RawImage8 extends RawImage {
+        public byte[] data;
+
+        public RawImage8(byte[] nativeOrderBuffer, int fmt, int cg, int ct, int range, int w, int h,
+                byte[] data, int stride) {
+            super(nativeOrderBuffer, fmt, cg, ct, range, w, h, stride);
+            this.data = data;
+        }
+    }
+
+    /**
+     * To represent packed pixel formats with 8 bytes-per-sample.
+     */
+    public static class RawImage64 extends RawImage {
+        public long[] data;
+
+        public RawImage64(byte[] nativeOrderBuffer, int fmt, int cg, int ct, int range, int w,
+                int h, long[] data, int stride) {
+            super(nativeOrderBuffer, fmt, cg, ct, range, w, h, stride);
+            this.data = data;
         }
     }
 
@@ -94,7 +160,7 @@ public class UltraHDRDecoder implements AutoCloseable {
      *
      * @throws IOException If the codec cannot be created then exception is thrown
      */
-    UltraHDRDecoder() throws IOException {
+    public UltraHDRDecoder() throws IOException {
         handle = 0;
         init();
         resetState();
@@ -195,6 +261,20 @@ public class UltraHDRDecoder implements AutoCloseable {
     }
 
     /**
+     * Enable/Disable GPU acceleration. If enabled, certain operations (if possible) of uhdr
+     * decode will be offloaded to GPU.
+     * <p>
+     * NOTE: It is entirely possible for this API to have no effect on the decode operation
+     *
+     * @param enable enable/disable gpu acceleration
+     * @throws IOException If current decoder instance is not valid or current decoder instance
+     *                     is not suitable for configuration exception is thrown.
+     */
+    public void enableGpuAcceleration(int enable) throws IOException {
+        enableGpuAccelerationNative(enable);
+    }
+
+    /**
      * This function parses the bitstream that is registered with the decoder context and makes
      * image information available to the client via getter functions. It does not decompress the
      * image. That is done by {@link UltraHDRDecoder#decode()}.
@@ -274,7 +354,7 @@ public class UltraHDRDecoder implements AutoCloseable {
     /**
      * Get gain map metadata
      *
-     * @return gainmap metadata
+     * @return gainmap metadata descriptor
      * @throws IOException If {@link UltraHDRDecoder#probe()} is not yet called or during parsing
      *                     process if any errors are seen exception is thrown
      */
@@ -305,10 +385,31 @@ public class UltraHDRDecoder implements AutoCloseable {
      * @throws IOException If {@link UltraHDRDecoder#decode()} is not called or decoding process
      *                     is not successful, exception is thrown
      */
-    public RawImageDescriptor getDecodedImage() throws IOException {
-        decodedData = getDecodedImageNative();
-        return new RawImageDescriptor(imgFormat, imgGamut, imgTransfer, imgRange, imgWidth,
-                imgHeight, decodedData, imgStride);
+    public RawImage getDecodedImage() throws IOException {
+        if (decodedDataNativeOrder == null) {
+            decodedDataNativeOrder = getDecodedImageNative();
+        }
+        if (imgFormat == UHDR_IMG_FMT_64bppRGBAHalfFloat) {
+            if (decodedDataInt64 == null) {
+                ByteBuffer data = ByteBuffer.wrap(decodedDataNativeOrder);
+                data.order(ByteOrder.nativeOrder());
+                decodedDataInt64 = new long[imgWidth * imgHeight];
+                data.asLongBuffer().get(decodedDataInt64);
+            }
+            return new RawImage64(decodedDataNativeOrder, imgFormat, imgGamut, imgTransfer,
+                    imgRange, imgWidth, imgHeight, decodedDataInt64, imgStride);
+        } else if (imgFormat == UHDR_IMG_FMT_32bppRGBA8888
+                || imgFormat == UHDR_IMG_FMT_32bppRGBA1010102) {
+            if (decodedDataInt32 == null) {
+                ByteBuffer data = ByteBuffer.wrap(decodedDataNativeOrder);
+                data.order(ByteOrder.nativeOrder());
+                decodedDataInt32 = new int[imgWidth * imgHeight];
+                data.asIntBuffer().get(decodedDataInt32);
+            }
+            return new RawImage32(decodedDataNativeOrder, imgFormat, imgGamut, imgTransfer,
+                    imgRange, imgWidth, imgHeight, decodedDataInt32, imgStride);
+        }
+        return null;
     }
 
     /**
@@ -318,11 +419,25 @@ public class UltraHDRDecoder implements AutoCloseable {
      * @throws IOException If {@link UltraHDRDecoder#decode()} is not called or decoding process
      *                     is not successful, exception is thrown
      */
-    public RawImageDescriptor getGainMapImage() throws IOException {
-        decodedGainMapData = getGainMapImageNative();
-        return new RawImageDescriptor(gainmapFormat, UltraHDRCommon.UHDR_CG_UNSPECIFIED,
-                UltraHDRCommon.UHDR_CT_UNSPECIFIED, UltraHDRCommon.UHDR_CR_UNSPECIFIED,
-                gainmapWidth, gainmapHeight, decodedGainMapData, gainmapStride);
+    public RawImage getGainMapImage() throws IOException {
+        if (decodedGainMapDataNativeOrder == null) {
+            decodedGainMapDataNativeOrder = getGainMapImageNative();
+        }
+        if (gainmapFormat == UHDR_IMG_FMT_32bppRGBA8888) {
+            if (decodedGainMapDataInt32 == null) {
+                ByteBuffer data = ByteBuffer.wrap(decodedGainMapDataNativeOrder);
+                data.order(ByteOrder.nativeOrder());
+                decodedGainMapDataInt32 = new int[imgWidth * imgHeight];
+                data.asIntBuffer().get(decodedGainMapDataInt32);
+            }
+            return new RawImage32(decodedGainMapDataNativeOrder, imgFormat, imgGamut, imgTransfer,
+                    imgRange, imgWidth, imgHeight, decodedGainMapDataInt32, imgStride);
+        } else if (imgFormat == UHDR_IMG_FMT_8bppYCbCr400) {
+            return new RawImage8(decodedGainMapDataNativeOrder, gainmapFormat, UHDR_CG_UNSPECIFIED,
+                    UHDR_CT_UNSPECIFIED, UHDR_CR_UNSPECIFIED, gainmapWidth, gainmapHeight,
+                    decodedGainMapDataNativeOrder, gainmapStride);
+        }
+        return null;
     }
 
     /**
@@ -345,20 +460,23 @@ public class UltraHDRDecoder implements AutoCloseable {
         hdrCapacityMin = 1.0f;
         hdrCapacityMax = 1.0f;
 
-        decodedData = null;
+        decodedDataNativeOrder = null;
+        decodedDataInt32 = null;
+        decodedDataInt64 = null;
         imgWidth = -1;
         imgHeight = -1;
         imgStride = 0;
-        imgFormat = UltraHDRCommon.UHDR_IMG_FMT_UNSPECIFIED;
-        imgGamut = UltraHDRCommon.UHDR_CG_UNSPECIFIED;
-        imgTransfer = UltraHDRCommon.UHDR_CG_UNSPECIFIED;
-        imgRange = UltraHDRCommon.UHDR_CG_UNSPECIFIED;
+        imgFormat = UHDR_IMG_FMT_UNSPECIFIED;
+        imgGamut = UHDR_CG_UNSPECIFIED;
+        imgTransfer = UHDR_CG_UNSPECIFIED;
+        imgRange = UHDR_CG_UNSPECIFIED;
 
-        decodedGainMapData = null;
+        decodedGainMapDataNativeOrder = null;
+        decodedGainMapDataInt32 = null;
         gainmapWidth = -1;
         gainmapHeight = -1;
         gainmapStride = 0;
-        gainmapFormat = UltraHDRCommon.UHDR_IMG_FMT_UNSPECIFIED;
+        gainmapFormat = UHDR_IMG_FMT_UNSPECIFIED;
     }
 
     private static native int isUHDRImageNative(byte[] data, int size) throws IOException;
@@ -375,6 +493,8 @@ public class UltraHDRDecoder implements AutoCloseable {
     private native void setColorTransferNative(int ct) throws IOException;
 
     private native void setMaxDisplayBoostNative(float displayBoost) throws IOException;
+
+    private native void enableGpuAccelerationNative(int enable) throws IOException;
 
     private native void probeNative() throws IOException;
 
@@ -419,7 +539,9 @@ public class UltraHDRDecoder implements AutoCloseable {
     /**
      * decoded image fields. Filled by {@link UltraHDRDecoder#getDecodedImageNative()}
      */
-    private byte[] decodedData;
+    private byte[] decodedDataNativeOrder;
+    private int[] decodedDataInt32;
+    private long[] decodedDataInt64;
     private int imgWidth;
     private int imgHeight;
     private int imgStride;
@@ -431,13 +553,14 @@ public class UltraHDRDecoder implements AutoCloseable {
     /**
      * decoded image fields. Filled by {@link UltraHDRDecoder#getGainMapImageNative()}
      */
-    private byte[] decodedGainMapData;
+    private byte[] decodedGainMapDataNativeOrder;
+    private int[] decodedGainMapDataInt32;
     private int gainmapWidth;
     private int gainmapHeight;
     private int gainmapStride;
     private int gainmapFormat;
 
     static {
-        System.loadLibrary("ultrahdr");
+        System.loadLibrary("uhdrjni");
     }
 }

@@ -320,6 +320,18 @@ Java_com_google_media_codecs_ultrahdr_UltraHDREncoder_setOutputFormatNative(JNIE
 }
 
 extern "C" JNIEXPORT void JNICALL
+Java_com_google_media_codecs_ultrahdr_UltraHDREncoder_setMinMaxContentBoostNative(
+    JNIEnv *env, jobject thiz, jfloat min_content_boost, jfloat max_content_boost) {
+  GET_HANDLE()
+  RET_IF_TRUE(handle == 0, "java/io/IOException", "invalid encoder instance")
+  auto status = uhdr_enc_set_min_max_content_boost((uhdr_codec_private_t *)handle,
+                                                   min_content_boost, max_content_boost);
+  RET_IF_TRUE(status.error_code != UHDR_CODEC_OK, "java/io/IOException",
+              status.has_detail ? status.detail
+                                : "uhdr_enc_set_min_max_content_boost() returned with error")
+}
+
+extern "C" JNIEXPORT void JNICALL
 Java_com_google_media_codecs_ultrahdr_UltraHDREncoder_encodeNative(JNIEnv *env, jobject thiz) {
   GET_HANDLE()
   RET_IF_TRUE(handle == 0, "java/io/IOException", "invalid encoder instance")
@@ -445,6 +457,18 @@ Java_com_google_media_codecs_ultrahdr_UltraHDRDecoder_setMaxDisplayBoostNative(
   RET_IF_TRUE(status.error_code != UHDR_CODEC_OK, "java/io/IOException",
               status.has_detail ? status.detail
                                 : "uhdr_dec_set_out_max_display_boost() returned with error")
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_google_media_codecs_ultrahdr_UltraHDRDecoder_enableGpuAccelerationNative(JNIEnv *env,
+                                                                                  jobject thiz,
+                                                                                  jint enable) {
+  GET_HANDLE()
+  RET_IF_TRUE(handle == 0, "java/io/IOException", "invalid decoder instance")
+  uhdr_error_info_t status = uhdr_enable_gpu_acceleration((uhdr_codec_private_t *)handle, enable);
+  RET_IF_TRUE(
+      status.error_code != UHDR_CODEC_OK, "java/io/IOException",
+      status.has_detail ? status.detail : "uhdr_enable_gpu_acceleration() returned with error")
 }
 
 extern "C" JNIEXPORT void JNICALL

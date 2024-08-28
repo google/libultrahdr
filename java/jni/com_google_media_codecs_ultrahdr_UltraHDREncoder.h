@@ -131,6 +131,14 @@ JNIEXPORT void JNICALL Java_com_google_media_codecs_ultrahdr_UltraHDREncoder_set
 
 /*
  * Class:     com_google_media_codecs_ultrahdr_UltraHDREncoder
+ * Method:    setMinMaxContentBoostNative
+ * Signature: (FF)V
+ */
+JNIEXPORT void JNICALL Java_com_google_media_codecs_ultrahdr_UltraHDREncoder_setMinMaxContentBoostNative
+  (JNIEnv *, jobject, jfloat, jfloat);
+
+/*
+ * Class:     com_google_media_codecs_ultrahdr_UltraHDREncoder
  * Method:    encodeNative
  * Signature: ()V
  */
