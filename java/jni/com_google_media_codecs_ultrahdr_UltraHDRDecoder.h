@@ -65,6 +65,14 @@ JNIEXPORT void JNICALL Java_com_google_media_codecs_ultrahdr_UltraHDRDecoder_set
 
 /*
  * Class:     com_google_media_codecs_ultrahdr_UltraHDRDecoder
+ * Method:    enableGpuAccelerationNative
+ * Signature: (I)V
+ */
+JNIEXPORT void JNICALL Java_com_google_media_codecs_ultrahdr_UltraHDRDecoder_enableGpuAccelerationNative
+  (JNIEnv *, jobject, jint);
+
+/*
+ * Class:     com_google_media_codecs_ultrahdr_UltraHDRDecoder
  * Method:    probeNative
  * Signature: ()V
  */
