@@ -161,10 +161,10 @@ typedef enum uhdr_mirror_direction {
 
 /*!\brief Detailed return status */
 typedef struct uhdr_error_info {
-  uhdr_codec_err_t error_code;
-  int has_detail;
-  char detail[256];
-} uhdr_error_info_t; /**< alias for struct uhdr_error_info */
+  uhdr_codec_err_t error_code; /**< error code */
+  int has_detail;              /**< has detailed error logs. 0 - no, else - yes */
+  char detail[256];            /**< error logs */
+} uhdr_error_info_t;           /**< alias for struct uhdr_error_info */
 
 /**\brief Raw Image Descriptor */
 typedef struct uhdr_raw_image {
@@ -338,7 +338,7 @@ UHDR_EXTERN uhdr_error_info_t uhdr_enc_set_quality(uhdr_codec_private_t* enc, in
  * into the bitstream.
  *
  * \param[in]  enc  encoder instance.
- * \param[in]  img  exif data memory block.
+ * \param[in]  exif  exif data memory block.
  *
  * \return uhdr_error_info_t #UHDR_CODEC_OK if operation succeeds,
  *                           #UHDR_CODEC_INVALID_PARAM otherwise.
@@ -349,7 +349,8 @@ UHDR_EXTERN uhdr_error_info_t uhdr_enc_set_exif_data(uhdr_codec_private_t* enc,
 /*!\brief Enable/Disable multi-channel gainmap. By default single-channel gainmap is enabled.
  *
  * \param[in]  enc  encoder instance.
- * \param[in]  use_multi_channel_gainmap. 0 - single-channel gainmap is enabled,
+ * \param[in]  use_multi_channel_gainmap  enable/disable multichannel gain map.
+ *                                        0 - single-channel gainmap is enabled,
  *                                        otherwise - multi-channel gainmap is enabled.
  *
  * \return uhdr_error_info_t #UHDR_CODEC_OK if operation succeeds,
@@ -379,7 +380,7 @@ UHDR_EXTERN uhdr_error_info_t uhdr_enc_set_gainmap_scale_factor(uhdr_codec_priva
  * for gamma correction of all planes separately. Default gamma value is 1.0.
  *
  * \param[in]  enc  encoder instance.
- * \param[in]  gamma  gamma of gainmap image. Any positive real number > 0.0.
+ * \param[in]  gamma  gamma of gainmap image. Any positive real number.
  *
  * \return uhdr_error_info_t #UHDR_CODEC_OK if operation succeeds,
  *                           #UHDR_CODEC_INVALID_PARAM otherwise.
@@ -391,8 +392,8 @@ UHDR_EXTERN uhdr_error_info_t uhdr_enc_set_gainmap_gamma(uhdr_codec_private_t* e
  * in linear scale.
  *
  * \param[in]  enc  encoder instance.
- * \param[in]  min_boost min content boost. Any positive real number > 0.0f
- * \param[in]  max_boost max content boost. Any positive real number >= min_boost
+ * \param[in]  min_boost min content boost. Any positive real number.
+ * \param[in]  max_boost max content boost. Any positive real number >= min_boost.
  *
  * \return uhdr_error_info_t #UHDR_CODEC_OK if operation succeeds,
  *                           #UHDR_CODEC_INVALID_PARAM otherwise.

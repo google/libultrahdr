@@ -1,4 +1,4 @@
-# Background
+## Introduction
 
 libultrahdr is an image compression library that uses gain map technology
 to store and distribute HDR images. Conceptually on the encoding side, the
@@ -10,205 +10,18 @@ gain map image and/or metadata, will display the base image. Readers that
 support the format combine the base image with the gain map and render a
 high dynamic range image on compatible displays.
 
-For additional information about libultrahdr, see android hdr-image-format
+For additional information, see android hdr-image-format
 [guide](https://developer.android.com/guide/topics/media/platform/hdr-image-format).
 
+## Build from source using CMake
 
-## Building libultrahdr
+This software suite has been built and tested on platforms:
+- Android
+- Linux
+- macOS
+- Windows
 
-### Requirements
-
-- [CMake](http://www.cmake.org) v3.13 or later
-- C++ compiler, supporting at least C++17.
-- libultrahdr uses jpeg compression format to store sdr image and gainmap quotient.
-  So, libjpeg or any other jpeg codec that is ABI and API compatible with libjpeg.
-
-The library offers a way to skip installing libjpeg by passing `UHDR_BUILD_DEPS=1`
-at the time of configure. That is, `cmake -DUHDR_BUILD_DEPS=1` will clone jpeg codec
-from [link](https://github.com/libjpeg-turbo/libjpeg-turbo.git) and include it in
-the build process. This is however not recommended.
-
-If jpeg is included in the build process then,
-- C compiler
-- For building x86/x86_64 SIMD optimizations, [NASM](http://www.nasm.us) or
- [Yasm](http://yasm.tortall.net).
-  * If using NASM, 2.13 or later is required.
-  * If using Yasm, 1.2.0 or later is required.
-
-### Build Procedure (same build and host system)
-
-To build libultrahdr, examples, unit tests:
-
-### Un*x (including Linux, Mac)
-
-    mkdir build_directory
-    cd build_directory
-    cmake -G "Unix Makefiles" -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DUHDR_BUILD_TESTS=1 ../
-    make
-    ctest
-    make install
-
-This will generate the following files under `build_directory`:
-
-**libuhdr.so or libuhdr.dylib**<br> ultrahdr shared library
-
-**libuhdr.pc**<br> ultrahdr pkg-config file
-
-**ultrahdr_app**<br> Statically linked sample application demonstrating ultrahdr API usage
-
-**ultrahdr_unit_test**<br> Unit tests
-
-`make install` will install libuhdr.so, ultrahdr_api.h, libuhdr.pc for system-wide usage and
-`make uninstall` will remove the same.
-
-### MinGW
-
-NOTE: This assumes that you are building on a Windows machine using the MSYS
-environment.
-
-    mkdir build_directory
-    cd build_directory
-    cmake -G "MSYS Makefiles" -DUHDR_BUILD_TESTS=1 ../
-    cmake --build ./
-    ctest
-
-    mkdir build_directory
-    cd build_directory
-    cmake -G "MinGW Makefiles" -DUHDR_BUILD_TESTS=1 ../
-    cmake --build ./
-    ctest
-
-This will generate the following files under `build_directory`:
-
-**libuhdr.dll**<br> ultrahdr shared library
-
-**ultrahdr_app.exe**<br> Sample application demonstrating ultrahdr API
-
-**ultrahdr_unit_test.exe**<br> Unit tests
-
-### Visual C++ (IDE)
-
-    mkdir build_directory
-    cd build_directory
-    cmake -G "Visual Studio 16 2019" -DUHDR_BUILD_DEPS=1 -DUHDR_BUILD_TESTS=1 ../
-    cmake --build ./ --config=Release
-    ctest -C Release
-
-This will generate the following files under `build_directory/Release`:
-
-**ultrahdr_app.exe**<br> Sample application demonstrating ultrahdr API
-
-**ultrahdr_unit_test.exe**<br> Unit tests
-
-### Visual C++ (Command line)
-
-    mkdir build_directory
-    cd build_directory
-    cmake -G "NMake Makefiles" -DUHDR_BUILD_DEPS=1 -DUHDR_BUILD_TESTS=1 ../
-    cmake --build ./
-    ctest
-
-This will generate the following files under `build_directory`:
-
-**ultrahdr_app.exe**<br> Sample application demonstrating ultrahdr API
-
-**ultrahdr_unit_test.exe**<br> Unit tests
-
-
-NOTE: To not build unit tests, skip passing `-DUHDR_BUILD_TESTS=1`
-
-### Cross Compilation
-
-To build libultrahdr, examples:
-
-### Armv7 (32-bit) Linux
-NOTE: This assumes that you are building on a machine that has toolchain for 32-bit
- Armv7 GNU/Linux systems.
-
-    mkdir build_directory
-    cd build_directory
-    cmake -DCMAKE_TOOLCHAIN_FILE=../cmake/toolchains/arm-linux-gnueabihf.cmake -DUHDR_BUILD_DEPS=1 ../
-    make
-
-### Armv8 (64-bit) Linux
-NOTE: This assumes that you are building on a machine that has toolchain for 64-bit
- Armv8 GNU/Linux systems.
-
-    mkdir build_directory
-    cd build_directory
-    cmake -DCMAKE_TOOLCHAIN_FILE=../cmake/toolchains/arm-linux-gnueabihf.cmake -DUHDR_BUILD_DEPS=1 ../
-    make
-
-### Android
-NOTE: This assumes that you are building on a machine that has
- [Android NDK](https://developer.android.com/ndk/downloads).
-
-#### Armv7 (32-bit)
-
-    mkdir build_directory
-    cd build_directory
-    cmake -G Ninja \
-        -DCMAKE_TOOLCHAIN_FILE=../cmake/toolchains/android.cmake\
-        -DUHDR_ANDROID_NDK_PATH=/opt/android-ndk-r26d/\
-        -DUHDR_BUILD_DEPS=1\
-        -DANDROID_ABI=armeabi-v7a\
-        -DANDROID_PLATFORM=android-23 ../
-    make
-
-#### Armv8 (64-bit)
-
-    mkdir build_directory
-    cd build_directory
-    cmake -G Ninja \
-        -DCMAKE_TOOLCHAIN_FILE=../cmake/toolchains/android.cmake\
-        -DUHDR_ANDROID_NDK_PATH=/opt/android-ndk-r26d/\
-        -DUHDR_BUILD_DEPS=1\
-        -DANDROID_ABI=arm64-v8a\
-        -DANDROID_PLATFORM=android-23 ../
-    make
-
-#### x86 (32-bit)
-
-    mkdir build_directory
-    cd build_directory
-    cmake -G Ninja \
-        -DCMAKE_TOOLCHAIN_FILE=../cmake/toolchains/android.cmake\
-        -DUHDR_ANDROID_NDK_PATH=/opt/android-ndk-r26d/\
-        -DUHDR_BUILD_DEPS=1\
-        -DANDROID_ABI=x86\
-        -DANDROID_PLATFORM=android-23 ../
-    make
-
-#### x86_64 (64-bit)
-
-    mkdir build_directory
-    cd build_directory
-    cmake -G Ninja \
-        -DCMAKE_TOOLCHAIN_FILE=../cmake/toolchains/android.cmake\
-        -DUHDR_ANDROID_NDK_PATH=/opt/android-ndk-r26d/\
-        -DUHDR_BUILD_DEPS=1\
-        -DANDROID_ABI=x86_64\
-        -DANDROID_PLATFORM=android-23 ../
-    make
-
-This will generate the following files under `build_directory`:
-
-**libuhdr.so**<br> ultrahdr shared library
-
-**ultrahdr_app**<br> Statically linked sample application demonstrating ultrahdr API usage
-
-### Building Benchmark
-
-To build benchmarks, pass `-DUHDR_BUILD_BENCHMARK=1` to cmake configure command and build.
-
-This will additionally generate,
-
-**ultrahdr_bm**<br> Benchmark tests
-
-
-### Building Fuzzers
-
-Refer to [README.md](fuzzer/README.md) for complete instructions.
+Refer to [building.md](docs/building.md) for complete instructions.
 
 ## Using libultrahdr
 
