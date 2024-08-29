@@ -1,0 +1,41 @@
+name: Build CI - Android
+# Build CI for Android
+
+on: [ push, pull_request ]
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: true
+      matrix:
+        os: [ubuntu-latest]
+        abi: [armeabi-v7a, arm64-v8a, x86, x86_64]
+
+    steps:
+    - name: Checkout the repository
+      uses: actions/checkout@v3
+
+    - name: Download and Setup the Android NDK
+      uses: nttld/setup-ndk@v1
+      id: setup-ndk
+      with:
+        # r25c is the same as 25.2.9519653.
+        ndk-version: r25c
+        add-to-path: false
+
+    - name: Setup ninja
+      uses: seanmiddleditch/gha-setup-ninja@master
+
+    - name: Setup cmake
+      uses: jwlawson/actions-setup-cmake@v2
+
+    - name: Configure CMake
+      shell: bash
+      run: |
+        mkdir build
+        cmake -G Ninja -B build -DCMAKE_TOOLCHAIN_FILE=./cmake/toolchains/android.cmake -DUHDR_ANDROID_NDK_PATH=${{ steps.setup-ndk.outputs.ndk-path }} -DUHDR_BUILD_TESTS=1 -DUHDR_ENABLE_LOGS=1 -DUHDR_BUILD_DEPS=1 -DANDROID_ABI=${{ matrix.abi }} -DANDROID_PLATFORM=android-23
+
+    - name: Build
+      run: cmake --build build
