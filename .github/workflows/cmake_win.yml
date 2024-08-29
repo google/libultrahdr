@@ -1,0 +1,42 @@
+name: Build and Test CI - Windows
+# Build and Test CI for windows-latest
+
+on: [ push, pull_request ]
+
+jobs:
+  build:
+    name: ${{ matrix.config.name }}
+    runs-on: ${{ matrix.config.os }}
+    strategy:
+      fail-fast: true
+      matrix:
+        config:
+          # <Windows-latest, Release Build, Cl compiler toolchain, Visual Studio 17 2022 generator>
+          - name: "windows latest cl rel visual studio 17 2022 with deps"
+            os: windows-latest
+            build_type: Release
+            cc: cl
+            cxx: cl
+            cmake-opts: '-DUHDR_BUILD_TESTS=1 -DUHDR_ENABLE_LOGS=1 -DUHDR_BUILD_DEPS=1'
+
+    steps:
+    - name: Checkout the repository
+      uses: actions/checkout@v4
+
+    - name: Setup cmake
+      uses: jwlawson/actions-setup-cmake@v2
+
+    - name: Configure CMake
+      shell: bash
+      run: |
+        export CC=${{ matrix.config.cc }}
+        export CXX=${{ matrix.config.cxx }}
+        mkdir build
+        cmake -G "Visual Studio 17 2022" -B build -DCMAKE_BUILD_TYPE=${{ matrix.config.build_type }} ${{ matrix.config.cmake-opts }}
+
+    - name: Build
+      run: cmake --build build --config ${{ matrix.config.build_type }}
+
+    - name: Test
+      working-directory: build
+      run: ctest --build-config ${{ matrix.config.build_type }}

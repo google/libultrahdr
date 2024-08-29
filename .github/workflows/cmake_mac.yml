@@ -1,0 +1,80 @@
+name: Build and Test CI - macOS
+# Build and Test CI for macOS-latest
+
+on: [ push, pull_request ]
+
+jobs:
+  build:
+    name: ${{ matrix.config.name }}
+    runs-on: ${{ matrix.config.os }}
+    strategy:
+      fail-fast: true
+      matrix:
+        config:
+          # <macOS-latest ARM64 Platform, Release Build, Clang toolchain, Ninja generator>
+          - name: "macOS latest ARM64 clang rel ninja"
+            os: macos-latest
+            build_type: Release
+            cc: clang
+            cxx: clang++
+            cmake-opts: '-DUHDR_BUILD_TESTS=1 -DUHDR_ENABLE_LOGS=1 -DUHDR_ENABLE_INSTALL=1'
+
+          # <macOS-13 Platform, Release Build, Clang toolchain, Ninja generator>
+          - name: "macOS-13 clang rel ninja"
+            os: macos-13
+            build_type: Release
+            cc: clang
+            cxx: clang++
+            cmake-opts: '-DUHDR_BUILD_TESTS=1 -DUHDR_ENABLE_LOGS=1 -DUHDR_ENABLE_INSTALL=1'
+
+          # <macOS-latest ARM64 Platform, Release Build, Clang toolchain, Ninja generator, Build Deps>
+          - name: "macOS latest ARM64 clang rel ninja with deps"
+            os: macos-latest
+            build_type: Release
+            cc: clang
+            cxx: clang++
+            cmake-opts: '-DUHDR_BUILD_TESTS=1 -DUHDR_ENABLE_LOGS=1 -DUHDR_BUILD_DEPS=1'
+
+          # <macOS-latest ARM64 Platform, Release Build, Clang toolchain, Ninja generator, Static linking>
+          - name: "macOS latest ARM64 clang rel ninja static"
+            os: macos-latest
+            build_type: Release
+            cc: clang
+            cxx: clang++
+            cmake-opts: '-DUHDR_BUILD_TESTS=1 -DUHDR_ENABLE_LOGS=1 -DUHDR_ENABLE_INSTALL=1 -DBUILD_SHARED_LIBS=0'
+
+          # <macOS-13 Platform, Release Build, Clang toolchain, Ninja generator, Static linking>
+          - name: "macOS-13 clang rel ninja static"
+            os: macos-13
+            build_type: Release
+            cc: clang
+            cxx: clang++
+            cmake-opts: '-DUHDR_BUILD_TESTS=1 -DUHDR_ENABLE_LOGS=1 -DUHDR_ENABLE_INSTALL=1 -DBUILD_SHARED_LIBS=0'
+
+    steps:
+    - name: Checkout the repository
+      uses: actions/checkout@v4
+
+    - name: Setup ninja
+      uses: seanmiddleditch/gha-setup-ninja@master
+
+    - name: Setup cmake
+      uses: jwlawson/actions-setup-cmake@v2
+
+    - name: Install dependencies on macOS
+      run: brew install pkg-config jpeg-turbo
+
+    - name: Configure CMake
+      shell: bash
+      run: |
+        export CC=${{ matrix.config.cc }}
+        export CXX=${{ matrix.config.cxx }}
+        mkdir build
+        cmake -G Ninja -B build -DCMAKE_BUILD_TYPE=${{ matrix.config.build_type }} ${{ matrix.config.cmake-opts }}
+
+    - name: Build
+      run: cmake --build build --config ${{ matrix.config.build_type }}
+
+    - name: Test
+      working-directory: build
+      run: ctest --build-config ${{ matrix.config.build_type }}
