@@ -103,7 +103,7 @@ option_if_not_defined(UHDR_BUILD_DEPS "Build deps and not use pre-installed pack
 option_if_not_defined(UHDR_ENABLE_LOGS "Build with verbose logging " FALSE)
 option_if_not_defined(UHDR_ENABLE_INSTALL "Enable install and uninstall targets for libuhdr package " TRUE)
 option_if_not_defined(UHDR_ENABLE_INTRINSICS "Build with SIMD acceleration " TRUE)
-option_if_not_defined(UHDR_ENABLE_GLES "Build with GPU acceleration " TRUE)
+option_if_not_defined(UHDR_ENABLE_GLES "Build with GPU acceleration " FALSE)
 option_if_not_defined(UHDR_BUILD_JAVA "Build JNI wrapper and Java front-end classes " FALSE)
 
 # pre-requisites

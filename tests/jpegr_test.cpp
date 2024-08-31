@@ -1474,6 +1474,14 @@ TEST_P(JpegRAPIEncodeAndDecodeTest, EncodeAPI0AndDecodeTest) {
   ASSERT_EQ(UHDR_CODEC_OK, status.error_code) << status.detail;
   status = uhdr_enc_set_quality(obj, kQuality, UHDR_BASE_IMG);
   ASSERT_EQ(UHDR_CODEC_OK, status.error_code) << status.detail;
+  status = uhdr_enc_set_using_multi_channel_gainmap(obj, false);
+  ASSERT_EQ(UHDR_CODEC_OK, status.error_code) << status.detail;
+  status = uhdr_enc_set_gainmap_scale_factor(obj, 4);
+  ASSERT_EQ(UHDR_CODEC_OK, status.error_code) << status.detail;
+  status = uhdr_enc_set_quality(obj, 85, UHDR_GAIN_MAP_IMG);
+  ASSERT_EQ(UHDR_CODEC_OK, status.error_code) << status.detail;
+  status = uhdr_enc_set_preset(obj, UHDR_USAGE_REALTIME);
+  ASSERT_EQ(UHDR_CODEC_OK, status.error_code) << status.detail;
   status = uhdr_encode(obj);
   ASSERT_EQ(UHDR_CODEC_OK, status.error_code) << status.detail;
   uhdr_compressed_image_t* compressedImage = uhdr_get_encoded_stream(obj);
@@ -1535,6 +1543,14 @@ TEST_P(JpegRAPIEncodeAndDecodeTest, EncodeAPI0AndDecodeTest) {
     uhdr_error_info_t status = uhdr_enc_set_raw_image(obj, &uhdrRawImg, UHDR_HDR_IMG);
     ASSERT_EQ(UHDR_CODEC_OK, status.error_code) << status.detail;
     status = uhdr_enc_set_quality(obj, kQuality, UHDR_BASE_IMG);
+    ASSERT_EQ(UHDR_CODEC_OK, status.error_code) << status.detail;
+    status = uhdr_enc_set_using_multi_channel_gainmap(obj, false);
+    ASSERT_EQ(UHDR_CODEC_OK, status.error_code) << status.detail;
+    status = uhdr_enc_set_gainmap_scale_factor(obj, 4);
+    ASSERT_EQ(UHDR_CODEC_OK, status.error_code) << status.detail;
+    status = uhdr_enc_set_quality(obj, 85, UHDR_GAIN_MAP_IMG);
+    ASSERT_EQ(UHDR_CODEC_OK, status.error_code) << status.detail;
+    status = uhdr_enc_set_preset(obj, UHDR_USAGE_REALTIME);
     ASSERT_EQ(UHDR_CODEC_OK, status.error_code) << status.detail;
     status = uhdr_encode(obj);
     ASSERT_EQ(UHDR_CODEC_OK, status.error_code) << status.detail;
@@ -1754,6 +1770,14 @@ TEST_P(JpegRAPIEncodeAndDecodeTest, EncodeAPI1AndDecodeTest) {
 
     status = uhdr_enc_set_quality(obj, kQuality, UHDR_BASE_IMG);
     ASSERT_EQ(UHDR_CODEC_OK, status.error_code) << status.detail;
+    status = uhdr_enc_set_using_multi_channel_gainmap(obj, false);
+    ASSERT_EQ(UHDR_CODEC_OK, status.error_code) << status.detail;
+    status = uhdr_enc_set_gainmap_scale_factor(obj, 4);
+    ASSERT_EQ(UHDR_CODEC_OK, status.error_code) << status.detail;
+    status = uhdr_enc_set_quality(obj, 85, UHDR_GAIN_MAP_IMG);
+    ASSERT_EQ(UHDR_CODEC_OK, status.error_code) << status.detail;
+    status = uhdr_enc_set_preset(obj, UHDR_USAGE_REALTIME);
+    ASSERT_EQ(UHDR_CODEC_OK, status.error_code) << status.detail;
     status = uhdr_encode(obj);
     ASSERT_EQ(UHDR_CODEC_OK, status.error_code) << status.detail;
     uhdr_compressed_image_t* compressedImage = uhdr_get_encoded_stream(obj);
@@ -1970,6 +1994,14 @@ TEST_P(JpegRAPIEncodeAndDecodeTest, EncodeAPI2AndDecodeTest) {
 
     status = uhdr_enc_set_quality(obj, kQuality, UHDR_BASE_IMG);
     ASSERT_EQ(UHDR_CODEC_OK, status.error_code) << status.detail;
+    status = uhdr_enc_set_using_multi_channel_gainmap(obj, false);
+    ASSERT_EQ(UHDR_CODEC_OK, status.error_code) << status.detail;
+    status = uhdr_enc_set_gainmap_scale_factor(obj, 4);
+    ASSERT_EQ(UHDR_CODEC_OK, status.error_code) << status.detail;
+    status = uhdr_enc_set_quality(obj, 85, UHDR_GAIN_MAP_IMG);
+    ASSERT_EQ(UHDR_CODEC_OK, status.error_code) << status.detail;
+    status = uhdr_enc_set_preset(obj, UHDR_USAGE_REALTIME);
+    ASSERT_EQ(UHDR_CODEC_OK, status.error_code) << status.detail;
     status = uhdr_encode(obj);
     ASSERT_EQ(UHDR_CODEC_OK, status.error_code) << status.detail;
     uhdr_compressed_image_t* compressedImage = uhdr_get_encoded_stream(obj);
@@ -2130,6 +2162,14 @@ TEST_P(JpegRAPIEncodeAndDecodeTest, EncodeAPI3AndDecodeTest) {
     ASSERT_EQ(UHDR_CODEC_OK, status.error_code) << status.detail;
 
     status = uhdr_enc_set_quality(obj, kQuality, UHDR_BASE_IMG);
+    ASSERT_EQ(UHDR_CODEC_OK, status.error_code) << status.detail;
+    status = uhdr_enc_set_using_multi_channel_gainmap(obj, false);
+    ASSERT_EQ(UHDR_CODEC_OK, status.error_code) << status.detail;
+    status = uhdr_enc_set_gainmap_scale_factor(obj, 4);
+    ASSERT_EQ(UHDR_CODEC_OK, status.error_code) << status.detail;
+    status = uhdr_enc_set_quality(obj, 85, UHDR_GAIN_MAP_IMG);
+    ASSERT_EQ(UHDR_CODEC_OK, status.error_code) << status.detail;
+    status = uhdr_enc_set_preset(obj, UHDR_USAGE_REALTIME);
     ASSERT_EQ(UHDR_CODEC_OK, status.error_code) << status.detail;
     status = uhdr_encode(obj);
     ASSERT_EQ(UHDR_CODEC_OK, status.error_code) << status.detail;

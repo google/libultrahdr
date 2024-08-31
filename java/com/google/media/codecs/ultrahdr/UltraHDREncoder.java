@@ -312,7 +312,7 @@ public class UltraHDREncoder implements AutoCloseable {
 
     /**
      * Set quality factor for compressing base image and/or gainmap image. Default configured
-     * quality factor of base image and gainmap image are 95 and 85 respectively.
+     * quality factor of base image and gainmap image are 95 and 95 respectively.
      *
      * @param qualityFactor Any integer in range [0 - 100]
      * @param intent        {@link UltraHDRCommon#UHDR_BASE_IMG} or
@@ -372,7 +372,7 @@ public class UltraHDREncoder implements AutoCloseable {
 
     /**
      * Set encoding preset. Tunes the encoder configurations for performance or quality. Default
-     * configuration is {@link UltraHDREncoder#UHDR_USAGE_REALTIME}.
+     * configuration is {@link UltraHDREncoder#UHDR_USAGE_BEST_QUALITY}.
      *
      * @param preset encoding preset. {@link UltraHDREncoder#UHDR_USAGE_REALTIME} for best
      *               performance {@link UltraHDREncoder#UHDR_USAGE_BEST_QUALITY} for best quality

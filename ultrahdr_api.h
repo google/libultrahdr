@@ -321,7 +321,7 @@ UHDR_EXTERN uhdr_error_info_t uhdr_enc_set_gainmap_image(uhdr_codec_private_t* e
                                                          uhdr_gainmap_metadata_t* metadata);
 
 /*!\brief Set quality factor for compressing base image and/or gainmap image. Default configured
- * quality factor of base image and gainmap image are 95 and 85 respectively.
+ * quality factor of base image and gainmap image are 95 and 95 respectively.
  *
  * \param[in]  enc  encoder instance.
  * \param[in]  quality  quality factor. Any integer in range [0 - 100].
@@ -346,7 +346,7 @@ UHDR_EXTERN uhdr_error_info_t uhdr_enc_set_quality(uhdr_codec_private_t* enc, in
 UHDR_EXTERN uhdr_error_info_t uhdr_enc_set_exif_data(uhdr_codec_private_t* enc,
                                                      uhdr_mem_block_t* exif);
 
-/*!\brief Enable/Disable multi-channel gainmap. By default single-channel gainmap is enabled.
+/*!\brief Enable/Disable multi-channel gainmap. By default multi-channel gainmap is enabled.
  *
  * \param[in]  enc  encoder instance.
  * \param[in]  use_multi_channel_gainmap  enable/disable multichannel gain map.
@@ -363,7 +363,7 @@ uhdr_enc_set_using_multi_channel_gainmap(uhdr_codec_private_t* enc, int use_mult
  * image instead of full resolution. This setting controls the factor by which the renditions are
  * downscaled. For instance, gain_map_scale_factor = 2 implies gainmap_image_width =
  * primary_image_width / 2 and gainmap image height = primary_image_height / 2.
- * Default gain map scaling factor is 4.
+ * Default gain map scaling factor is 1.
  * NOTE: This has no effect on base image rendition. Base image is signalled in full resolution
  * always.
  *
@@ -402,7 +402,7 @@ UHDR_EXTERN uhdr_error_info_t uhdr_enc_set_min_max_content_boost(uhdr_codec_priv
                                                                  float min_boost, float max_boost);
 
 /*!\brief Set encoding preset. Tunes the encoder configurations for performance or quality. Default
- * configuration is #UHDR_USAGE_REALTIME.
+ * configuration is #UHDR_USAGE_BEST_QUALITY.
  *
  * \param[in]  enc  encoder instance.
  * \param[in]  preset  encoding preset. #UHDR_USAGE_REALTIME - Tune settings for best performance
