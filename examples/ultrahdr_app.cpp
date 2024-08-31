@@ -256,9 +256,9 @@ class UltraHdrAppInput {
                    uhdr_color_transfer_t hdrTf = UHDR_CT_HLG, int quality = 95,
                    uhdr_color_transfer_t oTf = UHDR_CT_HLG,
                    uhdr_img_fmt_t oFmt = UHDR_IMG_FMT_32bppRGBA1010102, bool isHdrCrFull = false,
-                   int gainmapScaleFactor = 4, int gainmapQuality = 85,
-                   bool enableMultiChannelGainMap = false, float gamma = 1.0f,
-                   bool enableGLES = false, uhdr_enc_preset_t encPreset = UHDR_USAGE_REALTIME,
+                   int gainmapScaleFactor = 1, int gainmapQuality = 95,
+                   bool enableMultiChannelGainMap = true, float gamma = 1.0f,
+                   bool enableGLES = false, uhdr_enc_preset_t encPreset = UHDR_USAGE_BEST_QUALITY,
                    float minContentBoost = FLT_MIN, float maxContentBoost = FLT_MAX)
       : mHdrIntentRawFile(hdrIntentRawFile),
         mSdrIntentRawFile(sdrIntentRawFile),
@@ -311,12 +311,12 @@ class UltraHdrAppInput {
         mOTf(oTf),
         mOfmt(oFmt),
         mFullRange(UHDR_CR_UNSPECIFIED),
-        mMapDimensionScaleFactor(4),
-        mMapCompressQuality(85),
-        mUseMultiChannelGainMap(false),
+        mMapDimensionScaleFactor(1),
+        mMapCompressQuality(95),
+        mUseMultiChannelGainMap(true),
         mGamma(1.0f),
         mEnableGLES(enableGLES),
-        mEncPreset(UHDR_USAGE_REALTIME),
+        mEncPreset(UHDR_USAGE_BEST_QUALITY),
         mMinContentBoost(FLT_MIN),
         mMaxContentBoost(FLT_MAX),
         mMode(1){};
@@ -1357,18 +1357,18 @@ static void usage(const char* name) {
           "1:full-range]. \n");
   fprintf(stderr,
           "    -s    gainmap image downsample factor, optional. [integer values in range [1 - 128] "
-          "(4 : default)]. \n");
+          "(1 : default)]. \n");
   fprintf(stderr,
           "    -Q    quality factor to be used while encoding gain map image, optional. [0-100], "
-          "85 : default. \n");
+          "95 : default. \n");
   fprintf(stderr,
           "    -G    gamma correction to be applied on the gainmap image, optional. [any positive "
           "real number (1.0 : default)].\n");
   fprintf(stderr,
-          "    -M    select multi channel gain map, optional. [0:disable (default), 1:enable]. \n");
+          "    -M    select multi channel gain map, optional. [0:disable, 1:enable (default)]. \n");
   fprintf(
       stderr,
-      "    -D    select encoding preset, optional. [0:real time (default), 1:best quality]. \n");
+      "    -D    select encoding preset, optional. [0:real time, 1:best quality (default)]. \n");
   fprintf(stderr,
           "    -k    min content boost recommendation, must be in linear scale, optional \n");
   fprintf(stderr,
@@ -1474,14 +1474,14 @@ int main(int argc, char* argv[]) {
   uhdr_color_transfer_t out_tf = UHDR_CT_HLG;
   uhdr_img_fmt_t out_cf = UHDR_IMG_FMT_32bppRGBA1010102;
   int mode = -1;
-  int gainmap_scale_factor = 4;
-  bool use_multi_channel_gainmap = false;
+  int gainmap_scale_factor = 1;
+  bool use_multi_channel_gainmap = true;
   bool use_full_range_color_hdr = false;
-  int gainmap_compression_quality = 85;
+  int gainmap_compression_quality = 95;
   int compute_psnr = 0;
   float gamma = 1.0f;
   bool enable_gles = false;
-  uhdr_enc_preset_t enc_preset = UHDR_USAGE_REALTIME;
+  uhdr_enc_preset_t enc_preset = UHDR_USAGE_BEST_QUALITY;
   float min_content_boost = FLT_MIN;
   float max_content_boost = FLT_MAX;
   int ch;

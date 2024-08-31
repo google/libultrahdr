@@ -1248,16 +1248,16 @@ void uhdr_reset_encoder(uhdr_codec_private_t* enc) {
     handle->m_raw_images.clear();
     handle->m_compressed_images.clear();
     handle->m_quality.clear();
-    handle->m_quality.emplace(UHDR_HDR_IMG, 95);
-    handle->m_quality.emplace(UHDR_SDR_IMG, 95);
-    handle->m_quality.emplace(UHDR_BASE_IMG, 95);
+    handle->m_quality.emplace(UHDR_HDR_IMG, ultrahdr::kBaseCompressQualityDefault);
+    handle->m_quality.emplace(UHDR_SDR_IMG, ultrahdr::kBaseCompressQualityDefault);
+    handle->m_quality.emplace(UHDR_BASE_IMG, ultrahdr::kBaseCompressQualityDefault);
     handle->m_quality.emplace(UHDR_GAIN_MAP_IMG, ultrahdr::kMapCompressQualityDefault);
     handle->m_exif.clear();
     handle->m_output_format = UHDR_CODEC_JPG;
     handle->m_gainmap_scale_factor = ultrahdr::kMapDimensionScaleFactorDefault;
     handle->m_use_multi_channel_gainmap = ultrahdr::kUseMultiChannelGainMapDefault;
     handle->m_gamma = ultrahdr::kGainMapGammaDefault;
-    handle->m_enc_preset = UHDR_USAGE_REALTIME;
+    handle->m_enc_preset = ultrahdr::kEncSpeedPresetDefault;
     handle->m_min_content_boost = FLT_MIN;
     handle->m_max_content_boost = FLT_MAX;
 
