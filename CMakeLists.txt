@@ -14,7 +14,13 @@
 # the License.
 #
 
-cmake_minimum_required(VERSION 3.13)
+cmake_minimum_required(VERSION 3.15)
+
+# CMP0091: MSVC runtime library flags are selected by an abstraction.
+# New in CMake 3.15. https://cmake.org/cmake/help/latest/policy/CMP0091.html
+if(POLICY CMP0091)
+  cmake_policy(SET CMP0091 OLD)
+endif()
 
 project(libuhdr VERSION 1.1.1 LANGUAGES C CXX
         DESCRIPTION "Library for encoding and decoding ultrahdr images")
