@@ -132,6 +132,9 @@
     }                                         \
   }
 
+// This needs to be kept in sync with version in CMakeLists.txt
+#define UHDR_LIB_VERSION "v1.1.1"
+
 #if defined(_MSC_VER)
 #define FORCE_INLINE __forceinline
 #define INLINE __inline
