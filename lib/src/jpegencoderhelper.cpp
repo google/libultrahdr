@@ -168,6 +168,7 @@ uhdr_error_info_t JpegEncoderHelper::encode(const uint8_t* planes[3], const size
     // initialize configuration parameters
     cinfo.image_width = width;
     cinfo.image_height = height;
+    bool isGainMapImg = true;
     if (format == UHDR_IMG_FMT_24bppRGB888) {
       cinfo.input_components = 3;
       cinfo.in_color_space = JCS_RGB;
@@ -178,6 +179,7 @@ uhdr_error_info_t JpegEncoderHelper::encode(const uint8_t* planes[3], const size
       } else {
         cinfo.input_components = 3;
         cinfo.in_color_space = JCS_YCbCr;
+        isGainMapImg = false;
       }
     }
     jpeg_set_defaults(&cinfo);
@@ -197,6 +199,13 @@ uhdr_error_info_t JpegEncoderHelper::encode(const uint8_t* planes[3], const size
     jpeg_start_compress(&cinfo, TRUE);
     if (iccBuffer != nullptr && iccSize > 0) {
       jpeg_write_marker(&cinfo, JPEG_APP0 + 2, static_cast<const JOCTET*>(iccBuffer), iccSize);
+    }
+    if (isGainMapImg) {
+      char comment[255];
+      snprintf(comment, sizeof comment,
+               "Source: google libuhdr %s, Coder: libjpeg v%d, Attrib: GainMap Image",
+               UHDR_LIB_VERSION, JPEG_LIB_VERSION);
+      jpeg_write_marker(&cinfo, JPEG_COM, reinterpret_cast<JOCTET*>(comment), strlen(comment));
     }
     if (format == UHDR_IMG_FMT_24bppRGB888) {
       while (cinfo.next_scanline < cinfo.image_height) {
