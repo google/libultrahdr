@@ -24,6 +24,7 @@ string JpegXmpInfo::GetIdentifier(Type jpeg_xmp_info_type) {
     case kGImageInfoType:
       return kXmpGImageV1Id;
   }
+  return "";
 }
 
 string JpegXmpInfo::GetDataPropertyName(Type jpeg_xmp_info_type) {
@@ -33,6 +34,7 @@ string JpegXmpInfo::GetDataPropertyName(Type jpeg_xmp_info_type) {
     case kGImageInfoType:
       return kGImageDataPropertyName;
   }
+  return "";
 }
 
 string JpegXmpInfo::GetMimePropertyName(Type jpeg_xmp_info_type) {
@@ -42,6 +44,7 @@ string JpegXmpInfo::GetMimePropertyName(Type jpeg_xmp_info_type) {
     case kGImageInfoType:
       return kGImageMimePropertyName;
   }
+  return "";
 }
 
 }  // namespace image_io
