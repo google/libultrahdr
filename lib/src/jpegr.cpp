@@ -291,6 +291,22 @@ uhdr_error_info_t JpegR::encodeJPEGR(uhdr_raw_image_t* hdr_intent, uhdr_raw_imag
 uhdr_error_info_t JpegR::encodeJPEGR(uhdr_raw_image_t* hdr_intent, uhdr_raw_image_t* sdr_intent,
                                      uhdr_compressed_image_t* sdr_intent_compressed,
                                      uhdr_compressed_image_t* dest) {
+  JpegDecoderHelper jpeg_dec_obj_sdr;
+  UHDR_ERR_CHECK(jpeg_dec_obj_sdr.decompressImage(sdr_intent_compressed->data,
+                                                  sdr_intent_compressed->data_sz, PARSE_STREAM));
+  if (hdr_intent->w != jpeg_dec_obj_sdr.getDecompressedImageWidth() ||
+      hdr_intent->h != jpeg_dec_obj_sdr.getDecompressedImageHeight()) {
+    uhdr_error_info_t status;
+    status.error_code = UHDR_CODEC_INVALID_PARAM;
+    status.has_detail = 1;
+    snprintf(
+        status.detail, sizeof status.detail,
+        "sdr intent resolution %dx%d and compressed image sdr intent resolution %dx%d do not match",
+        sdr_intent->w, sdr_intent->h, (int)jpeg_dec_obj_sdr.getDecompressedImageWidth(),
+        (int)jpeg_dec_obj_sdr.getDecompressedImageHeight());
+    return status;
+  }
+
   // generate gain map
   uhdr_gainmap_metadata_ext_t metadata(kJpegrVersion);
   std::unique_ptr<uhdr_raw_image_ext_t> gainmap;
