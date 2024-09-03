@@ -689,7 +689,7 @@ uint8_t affineMapGain(float gainlog2, float mingainlog2, float maxgainlog2, floa
 }
 
 Color applyGain(Color e, float gain, uhdr_gainmap_metadata_ext_t* metadata) {
-  gain = pow(gain, 1.0f / metadata->gamma);
+  if (metadata->gamma != 1.0f) gain = pow(gain, 1.0f / metadata->gamma);
   float logBoost =
       log2(metadata->min_content_boost) * (1.0f - gain) + log2(metadata->max_content_boost) * gain;
   float gainFactor = exp2(logBoost);
@@ -697,7 +697,7 @@ Color applyGain(Color e, float gain, uhdr_gainmap_metadata_ext_t* metadata) {
 }
 
 Color applyGain(Color e, float gain, uhdr_gainmap_metadata_ext_t* metadata, float displayBoost) {
-  gain = pow(gain, 1.0f / metadata->gamma);
+  if (metadata->gamma != 1.0f) gain = pow(gain, 1.0f / metadata->gamma);
   float logBoost =
       log2(metadata->min_content_boost) * (1.0f - gain) + log2(metadata->max_content_boost) * gain;
   float gainFactor = exp2(logBoost * displayBoost / metadata->hdr_capacity_max);
@@ -710,9 +710,11 @@ Color applyGainLUT(Color e, float gain, GainLUT& gainLUT) {
 }
 
 Color applyGain(Color e, Color gain, uhdr_gainmap_metadata_ext_t* metadata) {
-  gain.r = pow(gain.r, 1.0f / metadata->gamma);
-  gain.g = pow(gain.g, 1.0f / metadata->gamma);
-  gain.b = pow(gain.b, 1.0f / metadata->gamma);
+  if (metadata->gamma != 1.0f) {
+    gain.r = pow(gain.r, 1.0f / metadata->gamma);
+    gain.g = pow(gain.g, 1.0f / metadata->gamma);
+    gain.b = pow(gain.b, 1.0f / metadata->gamma);
+  }
   float logBoostR = log2(metadata->min_content_boost) * (1.0f - gain.r) +
                     log2(metadata->max_content_boost) * gain.r;
   float logBoostG = log2(metadata->min_content_boost) * (1.0f - gain.g) +
@@ -726,9 +728,11 @@ Color applyGain(Color e, Color gain, uhdr_gainmap_metadata_ext_t* metadata) {
 }
 
 Color applyGain(Color e, Color gain, uhdr_gainmap_metadata_ext_t* metadata, float displayBoost) {
-  gain.r = pow(gain.r, 1.0f / metadata->gamma);
-  gain.g = pow(gain.g, 1.0f / metadata->gamma);
-  gain.b = pow(gain.b, 1.0f / metadata->gamma);
+  if (metadata->gamma != 1.0f) {
+    gain.r = pow(gain.r, 1.0f / metadata->gamma);
+    gain.g = pow(gain.g, 1.0f / metadata->gamma);
+    gain.b = pow(gain.b, 1.0f / metadata->gamma);
+  }
   float logBoostR = log2(metadata->min_content_boost) * (1.0f - gain.r) +
                     log2(metadata->max_content_boost) * gain.r;
   float logBoostG = log2(metadata->min_content_boost) * (1.0f - gain.g) +
