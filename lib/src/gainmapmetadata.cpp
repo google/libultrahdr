@@ -198,7 +198,7 @@ uhdr_error_info_t uhdr_gainmap_metadata_frac::decodeGainmapMetadata(
   const bool useCommonDenominator = (flags & 8) != 0;
 
   if (useCommonDenominator) {
-    uint32_t commonDenominator;
+    uint32_t commonDenominator = 1u;
     UHDR_ERR_CHECK(streamReadU32(in_data, commonDenominator, pos))
 
     UHDR_ERR_CHECK(streamReadU32(in_data, out_metadata->baseHdrHeadroomN, pos))
