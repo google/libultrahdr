@@ -207,7 +207,7 @@ struct GainLUT {
   ~GainLUT() {}
 
   float getGainFactor(float gain) {
-    gain = pow(gain, mGammaInv);
+    if (mGammaInv != 1.0f) gain = pow(gain, mGammaInv);
     int32_t idx = static_cast<int32_t>(gain * (kGainFactorNumEntries - 1) + 0.5);
     // TODO() : Remove once conversion modules have appropriate clamping in place
     idx = CLIP3(idx, 0, kGainFactorNumEntries - 1);
