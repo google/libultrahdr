@@ -114,17 +114,6 @@ if(UHDR_BUILD_BENCHMARK AND EMSCRIPTEN)
 endif()
 
 # side effects
-if(NOT BUILD_SHARED_LIBS AND UHDR_ENABLE_INSTALL)
-  set(UHDR_ENABLE_INSTALL FALSE) # libjpeg dependency is correctly mentioned as Requires.private in libuhdr.pc
-                                 # `pkg-config --libs libuhdr` returns -L/usr/local/lib -luhdr
-                                 # `pkg-config --libs --static libuhdr` returns -L/usr/local/lib -luhdr -ljpeg
-                                 # Not many build systems pass `--static` argument to pkg-config
-                                 # So if pc file to work universally for static and shared libs its best to
-                                 # elevate libjpeg dependency from Requires.private to Requires.
-                                 # But, for now, disable install and uninstall targets if target type is static.
-  message(STATUS "Install and uninstall targets - Disabled")
-endif()
-
 if(CMAKE_CROSSCOMPILING AND UHDR_ENABLE_INSTALL)
   set(UHDR_ENABLE_INSTALL FALSE) # disable install and uninstall targets during cross compilation.
   message(STATUS "Install and uninstall targets - Disabled")
@@ -641,10 +630,31 @@ if(${CMAKE_SYSTEM_NAME} MATCHES "Android")
 endif()
 target_link_libraries(${UHDR_TARGET_NAME} PRIVATE ${JPEG_LIBRARIES})
 set_target_properties(${UHDR_TARGET_NAME}
-                      PROPERTIES VERSION ${PROJECT_VERSION}
-                      SOVERSION ${PROJECT_VERSION_MAJOR}
-                      PUBLIC_HEADER ultrahdr_api.h)
+                      PROPERTIES PUBLIC_HEADER ultrahdr_api.h)
+if(BUILD_SHARED_LIBS)
+  # If target is STATIC no need to set VERSION and SOVERSION
+  set_target_properties(${UHDR_TARGET_NAME}
+                        PROPERTIES VERSION ${PROJECT_VERSION}
+                        SOVERSION ${PROJECT_VERSION_MAJOR})
+endif()
 combine_static_libs(${UHDR_CORE_LIB_NAME} ${UHDR_TARGET_NAME})
+
+# Build static library as well
+if(BUILD_SHARED_LIBS)
+  set(UHDR_TARGET_NAME_STATIC uhdr-static)
+  add_library(${UHDR_TARGET_NAME_STATIC} STATIC)
+  add_dependencies(${UHDR_TARGET_NAME_STATIC} ${UHDR_CORE_LIB_NAME})
+  if(UHDR_ENABLE_GLES)
+    target_link_libraries(${UHDR_TARGET_NAME_STATIC} PRIVATE ${EGL_LIBRARIES} ${OPENGLES3_LIBRARIES})
+  endif()
+  if(${CMAKE_SYSTEM_NAME} MATCHES "Android")
+    target_link_libraries(${UHDR_TARGET_NAME_STATIC} PRIVATE ${log-lib})
+  endif()
+  target_link_libraries(${UHDR_TARGET_NAME_STATIC} PRIVATE ${JPEG_LIBRARIES})
+  combine_static_libs(${UHDR_CORE_LIB_NAME} ${UHDR_TARGET_NAME_STATIC})
+  set_target_properties(${UHDR_TARGET_NAME_STATIC}
+                        PROPERTIES OUTPUT_NAME ${UHDR_TARGET_NAME})
+endif()
 
 if(UHDR_BUILD_JAVA)
   include(UseJava)
@@ -667,7 +677,7 @@ if(UHDR_ENABLE_INSTALL)
                    "${CMAKE_CURRENT_BINARY_DIR}/libuhdr.pc" @ONLY NEWLINE_STYLE UNIX)
     install(FILES "${CMAKE_CURRENT_BINARY_DIR}/libuhdr.pc"
             DESTINATION "${CMAKE_INSTALL_LIBDIR}/pkgconfig")
-    install(TARGETS ${UHDR_TARGET_NAME}
+    install(TARGETS ${UHDR_TARGET_NAME} ${UHDR_TARGET_NAME_STATIC}
             RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}"
             LIBRARY DESTINATION "${CMAKE_INSTALL_LIBDIR}"
             ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}"
