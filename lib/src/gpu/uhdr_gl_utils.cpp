@@ -27,6 +27,8 @@ uhdr_opengl_ctxt::uhdr_opengl_ctxt() {
   mQuadVBO = 0;
   mQuadEBO = 0;
   mErrorStatus = g_no_error;
+  mDecodedImgTexture = 0;
+  mGainmapImgTexture = 0;
   for (int i = 0; i < UHDR_RESIZE + 1; i++) {
     mShaderProgram[i] = 0;
   }
@@ -385,6 +387,14 @@ void uhdr_opengl_ctxt::delete_opengl_ctxt() {
   if (mEGLDisplay != EGL_NO_DISPLAY) {
     eglTerminate(mEGLDisplay);
     mEGLDisplay = EGL_NO_DISPLAY;
+  }
+  if (mDecodedImgTexture) {
+    glDeleteTextures(1, &mDecodedImgTexture);
+    mDecodedImgTexture = 0;
+  }
+  if (mGainmapImgTexture) {
+    glDeleteTextures(1, &mGainmapImgTexture);
+    mGainmapImgTexture = 0;
   }
   for (int i = 0; i < UHDR_RESIZE + 1; i++) {
     if (mShaderProgram[i]) {
