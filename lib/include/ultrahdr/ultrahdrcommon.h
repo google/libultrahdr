@@ -227,9 +227,10 @@ typedef struct uhdr_opengl_ctxt {
   EGLConfig mEGLConfig;   /**< EGL frame buffer configuration */
 
   // GLES Context
-  GLuint mQuadVAO, mQuadVBO, mQuadEBO;    /**< GL objects */
-  GLuint mShaderProgram[UHDR_RESIZE + 1]; /**< Shader programs */
-  uhdr_error_info_t mErrorStatus;         /**< Context status */
+  GLuint mQuadVAO, mQuadVBO, mQuadEBO;           /**< GL objects */
+  GLuint mShaderProgram[UHDR_RESIZE + 1];        /**< Shader programs */
+  GLuint mDecodedImgTexture, mGainmapImgTexture; /**< GL Textures */
+  uhdr_error_info_t mErrorStatus;                /**< Context status */
 
   uhdr_opengl_ctxt();
   ~uhdr_opengl_ctxt();

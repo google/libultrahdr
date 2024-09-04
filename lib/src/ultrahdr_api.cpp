@@ -216,20 +216,31 @@ uhdr_error_info_t apply_effects(uhdr_encoder_private* enc) {
   return g_no_error;
 }
 
+bool is_resize_effect(const ultrahdr::uhdr_effect_desc_t* effect) {
+  return dynamic_cast<const ultrahdr::uhdr_resize_effect_t*>(effect) != nullptr;
+}
+
 uhdr_error_info_t apply_effects(uhdr_decoder_private* dec) {
   void *gl_ctxt = nullptr, *disp_texture_ptr = nullptr, *gm_texture_ptr = nullptr;
 #ifdef UHDR_ENABLE_GLES
-  GLuint pm_texture = 0, gm_texture = 0;
   if (dec->m_enable_gles) {
     gl_ctxt = &dec->m_uhdr_gl_ctxt;
-    auto decoded_img = dec->m_decoded_img_buffer.get();
-    auto gainmap_img = dec->m_gainmap_img_buffer.get();
-    pm_texture = dec->m_uhdr_gl_ctxt.create_texture(decoded_img->fmt, decoded_img->w,
-                                                    decoded_img->h, decoded_img->planes[0]);
-    disp_texture_ptr = static_cast<void*>(&pm_texture);
-    gm_texture = dec->m_uhdr_gl_ctxt.create_texture(gainmap_img->fmt, gainmap_img->w,
-                                                    gainmap_img->h, gainmap_img->planes[0]);
-    gm_texture_ptr = static_cast<void*>(&gm_texture);
+    bool texture_created =
+        dec->m_uhdr_gl_ctxt.mDecodedImgTexture != 0 && dec->m_uhdr_gl_ctxt.mGainmapImgTexture != 0;
+    bool resize_effect_present = std::find_if(dec->m_effects.begin(), dec->m_effects.end(),
+                                              is_resize_effect) != dec->m_effects.end();
+    if (!texture_created && resize_effect_present &&
+        isBufferDataContiguous(dec->m_decoded_img_buffer.get()) &&
+        isBufferDataContiguous(dec->m_gainmap_img_buffer.get())) {
+      dec->m_uhdr_gl_ctxt.mDecodedImgTexture = dec->m_uhdr_gl_ctxt.create_texture(
+          dec->m_decoded_img_buffer->fmt, dec->m_decoded_img_buffer->w,
+          dec->m_decoded_img_buffer->h, dec->m_decoded_img_buffer->planes[0]);
+      dec->m_uhdr_gl_ctxt.mGainmapImgTexture = dec->m_uhdr_gl_ctxt.create_texture(
+          dec->m_gainmap_img_buffer->fmt, dec->m_gainmap_img_buffer->w,
+          dec->m_gainmap_img_buffer->h, dec->m_gainmap_img_buffer->planes[0]);
+    }
+    disp_texture_ptr = &dec->m_uhdr_gl_ctxt.mDecodedImgTexture;
+    gm_texture_ptr = &dec->m_uhdr_gl_ctxt.mGainmapImgTexture;
   }
 #endif
   for (auto& it : dec->m_effects) {
@@ -346,18 +357,6 @@ uhdr_error_info_t apply_effects(uhdr_decoder_private* dec) {
     dec->m_decoded_img_buffer = std::move(disp_img);
     dec->m_gainmap_img_buffer = std::move(gm_img);
   }
-#ifdef UHDR_ENABLE_GLES
-  if (dec->m_enable_gles) {
-    auto decoded_img = dec->m_decoded_img_buffer.get();
-    auto gainmap_img = dec->m_gainmap_img_buffer.get();
-    dec->m_uhdr_gl_ctxt.read_texture(static_cast<GLuint*>(disp_texture_ptr), decoded_img->fmt,
-                                     decoded_img->w, decoded_img->h, decoded_img->planes[0]);
-    dec->m_uhdr_gl_ctxt.read_texture(static_cast<GLuint*>(gm_texture_ptr), gainmap_img->fmt,
-                                     gainmap_img->w, gainmap_img->h, gainmap_img->planes[0]);
-    if (pm_texture) glDeleteTextures(1, &pm_texture);
-    if (gm_texture) glDeleteTextures(1, &gm_texture);
-  }
-#endif
   return g_no_error;
 }
 
@@ -1606,6 +1605,22 @@ uhdr_error_info_t uhdr_decode(uhdr_codec_private_t* dec) {
     status = ultrahdr::apply_effects(handle);
   }
 
+#ifdef UHDR_ENABLE_GLES
+  if (handle->m_enable_gles) {
+    if (handle->m_uhdr_gl_ctxt.mDecodedImgTexture != 0) {
+      handle->m_uhdr_gl_ctxt.read_texture(
+          &handle->m_uhdr_gl_ctxt.mDecodedImgTexture, handle->m_decoded_img_buffer->fmt,
+          handle->m_decoded_img_buffer->w, handle->m_decoded_img_buffer->h,
+          handle->m_decoded_img_buffer->planes[0]);
+    }
+    if (handle->m_uhdr_gl_ctxt.mGainmapImgTexture != 0 && dec->m_effects.size() != 0) {
+      handle->m_uhdr_gl_ctxt.read_texture(
+          &handle->m_uhdr_gl_ctxt.mGainmapImgTexture, handle->m_gainmap_img_buffer->fmt,
+          handle->m_gainmap_img_buffer->w, handle->m_gainmap_img_buffer->h,
+          handle->m_gainmap_img_buffer->planes[0]);
+    }
+  }
+#endif
   return status;
 }
 
