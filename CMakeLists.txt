@@ -262,7 +262,14 @@ endfunction()
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
 if(${CMAKE_SYSTEM_NAME} MATCHES "Android")
-  find_library(log-lib log)
+  if (UHDR_ENABLE_LOGS)
+    find_library(log-lib log QUIET)
+    message("here is what i found ${log-lib}")
+    if(NOT log-lib)
+      message(FATAL_ERROR "Could NOT find log library, retry after installing \
+                           log library at sysroot or try 'cmake -DUHDR_ENABLE_LOGS=0'")
+    endif()
+  endif()
 endif()
 
 # Threads
