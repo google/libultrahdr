@@ -100,6 +100,7 @@ This will generate the following files under `build_directory`:
 
 **libuhdr.so.{version}** - Shared library for the libuhdr API <br>
 **libuhdr.so** - Symlink to shared library <br>
+**libuhdr.a** - Static link library for the libuhdr API <br>
 **libuhdr.pc** - libuhdr pkg-config file <br>
 **ultrahdr_app** - sample application <br>
 **ultrahdr_unit_test** - unit tests <br>
@@ -138,6 +139,7 @@ This will generate the following files under `build_directory`:
 
 **libuhdr.{version}.dylib** - Shared library for the libuhdr API <br>
 **libuhdr.dylib** - Symlink to shared library <br>
+**libuhdr.a** - Static link library for the libuhdr API <br>
 **libuhdr.pc** - libuhdr pkg-config file <br>
 **ultrahdr_app** - sample application <br>
 **ultrahdr_unit_test** - unit tests <br>
@@ -176,6 +178,7 @@ This will generate the following files under `build_directory`:
 
 **libuhdr.dll** - Shared library for the libuhdr API <br>
 **libuhdr.dll.a** - Import library for the libuhdr API <br>
+**libuhdr.a** - Static link library for the libuhdr API <br>
 **libuhdr.pc** - libuhdr pkg-config file <br>
 **ultrahdr_app** - sample application <br>
 **ultrahdr_unit_test** - unit tests <br>
@@ -206,6 +209,7 @@ This will generate the following files under `build_directory`:
 
 **uhdr.dll** - Shared library for the libuhdr API <br>
 **uhdr.lib** - Import library for the libuhdr API <br>
+**uhdr-static.lib** - Static link library for the libuhdr API <br>
 **ultrahdr_app** - sample application <br>
 **ultrahdr_unit_test** - unit tests <br>
 
@@ -244,6 +248,7 @@ This will generate the following files under `build_directory`:
 
 **libuhdr.so.{version}** - Shared library for the libuhdr API <br>
 **libuhdr.so** - Symlink to shared library <br>
+**libuhdr.a** - Static link library for the libuhdr API <br>
 **ultrahdr_app** - sample application <br>
 **ultrahdr_unit_test** - unit tests <br>
 
@@ -267,6 +272,7 @@ ninja
 This will generate the following files under `build_directory`:
 
 **libuhdr.so** - Shared library for the libuhdr API <br>
+**libuhdr.a** - Static link library for the libuhdr API <br>
 **ultrahdr_app** - sample application <br>
 **ultrahdr_unit_test** - unit tests <br>
 
