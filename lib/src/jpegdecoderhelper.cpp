@@ -148,20 +148,26 @@ static uhdr_img_fmt_t getOutputSamplingFormat(const j_decompress_ptr cinfo) {
   if (cinfo->num_components == 1)
     return UHDR_IMG_FMT_8bppYCbCr400;
   else {
-    int a = cinfo->max_h_samp_factor / cinfo->comp_info[1].h_samp_factor;
-    int b = cinfo->max_v_samp_factor / cinfo->comp_info[1].v_samp_factor;
-    if (a == 1 && b == 1)
-      return UHDR_IMG_FMT_24bppYCbCr444;
-    else if (a == 1 && b == 2)
-      return UHDR_IMG_FMT_16bppYCbCr440;
-    else if (a == 2 && b == 1)
-      return UHDR_IMG_FMT_16bppYCbCr422;
-    else if (a == 2 && b == 2)
-      return UHDR_IMG_FMT_12bppYCbCr420;
-    else if (a == 4 && b == 1)
-      return UHDR_IMG_FMT_12bppYCbCr411;
-    else if (a == 4 && b == 2)
-      return UHDR_IMG_FMT_10bppYCbCr410;
+    float ratios[6];
+    for (int i = 0; i < 3; i++) {
+      ratios[i * 2] = ((float)cinfo->comp_info[i].h_samp_factor) / cinfo->max_h_samp_factor;
+      ratios[i * 2 + 1] = ((float)cinfo->comp_info[i].v_samp_factor) / cinfo->max_v_samp_factor;
+    }
+    if (ratios[0] == 1 && ratios[1] == 1 && ratios[2] == ratios[4] && ratios[3] == ratios[5]) {
+      if (ratios[2] == 1 && ratios[3] == 1) {
+        return UHDR_IMG_FMT_24bppYCbCr444;
+      } else if (ratios[2] == 1 && ratios[3] == 0.5) {
+        return UHDR_IMG_FMT_16bppYCbCr440;
+      } else if (ratios[2] == 0.5 && ratios[3] == 1) {
+        return UHDR_IMG_FMT_16bppYCbCr422;
+      } else if (ratios[2] == 0.5 && ratios[3] == 0.5) {
+        return UHDR_IMG_FMT_12bppYCbCr420;
+      } else if (ratios[2] == 0.25 && ratios[3] == 1) {
+        return UHDR_IMG_FMT_12bppYCbCr411;
+      } else if (ratios[2] == 0.25 && ratios[3] == 0.5) {
+        return UHDR_IMG_FMT_10bppYCbCr410;
+      }
+    }
   }
   return UHDR_IMG_FMT_UNSPECIFIED;
 }
@@ -419,6 +425,12 @@ uhdr_error_info_t JpegDecoderHelper::decode(jpeg_decompress_struct* cinfo, uint8
       [[fallthrough]];
     case JCS_YCbCr:
       mOutFormat = getOutputSamplingFormat(cinfo);
+      if (mOutFormat == UHDR_IMG_FMT_UNSPECIFIED) {
+        status.error_code = UHDR_CODEC_ERROR;
+        status.has_detail = 1;
+        snprintf(status.detail, sizeof status.detail,
+                 "unrecognized subsampling format for output color space JCS_YCbCr");
+      }
       return decodeToCSYCbCr(cinfo, dest);
 #ifdef JCS_ALPHA_EXTENSIONS
     case JCS_EXT_RGBA:
