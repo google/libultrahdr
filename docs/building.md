@@ -244,6 +244,22 @@ Compile:
 cmake -G Ninja -DCMAKE_TOOLCHAIN_FILE=../cmake/toolchains/aarch64-linux-gnu.cmake -DUHDR_BUILD_DEPS=1 ../
 ninja
 ```
+
+#### Target - Linux Platform - RISC-V Arch (64 bit)
+
+Install the prerequisite packages before building:
+
+```sh
+sudo apt install gcc-riscv64-linux-gnu g++-riscv64-linux-gnu
+```
+
+Compile:
+
+```sh
+cmake -G Ninja -DCMAKE_TOOLCHAIN_FILE=../cmake/toolchains/riscv64-linux-gnu.cmake -DUHDR_BUILD_DEPS=1 ../
+ninja
+```
+
 This will generate the following files under `build_directory`:
 
 **libuhdr.so.{version}** - Shared library for the libuhdr API <br>
