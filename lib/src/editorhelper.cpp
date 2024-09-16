@@ -192,7 +192,7 @@ std::unique_ptr<uhdr_raw_image_ext_t> apply_rotate(ultrahdr::uhdr_rotate_effect_
 #ifdef UHDR_ENABLE_GLES
   if ((src->fmt == UHDR_IMG_FMT_32bppRGBA1010102 || src->fmt == UHDR_IMG_FMT_32bppRGBA8888 ||
        src->fmt == UHDR_IMG_FMT_64bppRGBAHalfFloat || src->fmt == UHDR_IMG_FMT_8bppYCbCr400) &&
-      gl_ctxt != nullptr && *static_cast<GLuint*>(texture) != 0) {
+      isBufferDataContiguous(src) && gl_ctxt != nullptr) {
     return apply_rotate_gles(desc, src, static_cast<ultrahdr::uhdr_opengl_ctxt*>(gl_ctxt),
                              static_cast<GLuint*>(texture));
   }
@@ -267,7 +267,7 @@ std::unique_ptr<uhdr_raw_image_ext_t> apply_mirror(ultrahdr::uhdr_mirror_effect_
 #ifdef UHDR_ENABLE_GLES
   if ((src->fmt == UHDR_IMG_FMT_32bppRGBA1010102 || src->fmt == UHDR_IMG_FMT_32bppRGBA8888 ||
        src->fmt == UHDR_IMG_FMT_64bppRGBAHalfFloat || src->fmt == UHDR_IMG_FMT_8bppYCbCr400) &&
-      gl_ctxt != nullptr && *static_cast<GLuint*>(texture) != 0) {
+      isBufferDataContiguous(src) && gl_ctxt != nullptr) {
     return apply_mirror_gles(desc, src, static_cast<ultrahdr::uhdr_opengl_ctxt*>(gl_ctxt),
                              static_cast<GLuint*>(texture));
   }
@@ -331,7 +331,7 @@ void apply_crop(uhdr_raw_image_t* src, int left, int top, int wd, int ht,
 #ifdef UHDR_ENABLE_GLES
   if ((src->fmt == UHDR_IMG_FMT_32bppRGBA1010102 || src->fmt == UHDR_IMG_FMT_32bppRGBA8888 ||
        src->fmt == UHDR_IMG_FMT_64bppRGBAHalfFloat || src->fmt == UHDR_IMG_FMT_8bppYCbCr400) &&
-      gl_ctxt != nullptr && *static_cast<GLuint*>(texture) != 0) {
+      isBufferDataContiguous(src) && gl_ctxt != nullptr) {
     return apply_crop_gles(src, left, top, wd, ht,
                            static_cast<ultrahdr::uhdr_opengl_ctxt*>(gl_ctxt),
                            static_cast<GLuint*>(texture));
@@ -380,7 +380,7 @@ std::unique_ptr<uhdr_raw_image_ext_t> apply_resize(ultrahdr::uhdr_resize_effect_
 #ifdef UHDR_ENABLE_GLES
   if ((src->fmt == UHDR_IMG_FMT_32bppRGBA1010102 || src->fmt == UHDR_IMG_FMT_32bppRGBA8888 ||
        src->fmt == UHDR_IMG_FMT_64bppRGBAHalfFloat || src->fmt == UHDR_IMG_FMT_8bppYCbCr400) &&
-      gl_ctxt != nullptr && *static_cast<GLuint*>(texture) != 0) {
+      isBufferDataContiguous(src) && gl_ctxt != nullptr) {
     return apply_resize_gles(src, dst_w, dst_h, static_cast<ultrahdr::uhdr_opengl_ctxt*>(gl_ctxt),
                              static_cast<GLuint*>(texture));
   }
