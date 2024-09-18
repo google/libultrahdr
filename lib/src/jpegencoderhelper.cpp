@@ -203,7 +203,7 @@ uhdr_error_info_t JpegEncoderHelper::encode(const uint8_t* planes[3], const size
     if (isGainMapImg) {
       char comment[255];
       snprintf(comment, sizeof comment,
-               "Source: google libuhdr %s, Coder: libjpeg v%d, Attrib: GainMap Image",
+               "Source: google libuhdr v%s, Coder: libjpeg v%d, Attrib: GainMap Image",
                UHDR_LIB_VERSION, JPEG_LIB_VERSION);
       jpeg_write_marker(&cinfo, JPEG_COM, reinterpret_cast<JOCTET*>(comment), strlen(comment));
     }

@@ -132,9 +132,6 @@
     }                                         \
   }
 
-// This needs to be kept in sync with version in CMakeLists.txt
-#define UHDR_LIB_VERSION "v1.1.1"
-
 #if defined(_MSC_VER)
 #define FORCE_INLINE __forceinline
 #define INLINE __inline
@@ -381,6 +378,10 @@ struct uhdr_decoder_private : uhdr_codec_private {
   uhdr_mem_block_t m_exif_block;
   std::vector<uint8_t> m_icc;
   uhdr_mem_block_t m_icc_block;
+  std::vector<uint8_t> m_base_img;
+  uhdr_mem_block_t m_base_img_block;
+  std::vector<uint8_t> m_gainmap_img;
+  uhdr_mem_block_t m_gainmap_img_block;
   uhdr_gainmap_metadata_t m_metadata;
   uhdr_error_info_t m_probe_call_status;
   uhdr_error_info_t m_decode_call_status;

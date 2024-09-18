@@ -758,7 +758,7 @@ bool UltraHdrAppInput::decode() {
   }
   RET_IF_ERR(uhdr_dec_probe(handle))
   if (mGainMapMetadataCfgFile != nullptr) {
-    uhdr_gainmap_metadata_t* metadata = uhdr_dec_get_gain_map_metadata(handle);
+    uhdr_gainmap_metadata_t* metadata = uhdr_dec_get_gainmap_metadata(handle);
     if (!writeGainMapMetadataToFile(metadata)) {
       std::cerr << "failed to write gainmap metadata to file: " << mGainMapMetadataCfgFile
                 << std::endl;

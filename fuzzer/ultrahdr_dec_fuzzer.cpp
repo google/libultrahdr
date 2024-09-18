@@ -69,10 +69,12 @@ void UltraHdrDecFuzzer::process() {
     uhdr_dec_get_gainmap_height(dec_handle);
     uhdr_dec_get_exif(dec_handle);
     uhdr_dec_get_icc(dec_handle);
-    uhdr_dec_get_gain_map_metadata(dec_handle);
+    uhdr_dec_get_base_image(dec_handle);
+    uhdr_dec_get_gainmap_image(dec_handle);
+    uhdr_dec_get_gainmap_metadata(dec_handle);
     uhdr_decode(dec_handle);
     uhdr_get_decoded_image(dec_handle);
-    uhdr_get_gain_map_image(dec_handle);
+    uhdr_get_decoded_gainmap_image(dec_handle);
     uhdr_release_decoder(dec_handle);
   }
 }
