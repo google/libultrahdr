@@ -105,10 +105,14 @@ void UltraHdrEncFuzzer::process() {
     auto multi_channel_gainmap = mFdp.ConsumeBool();
 
     int width = mFdp.ConsumeIntegralInRange<int>(kMinWidth, kMaxWidth);
-    width = (width >> 1) << 1;
+    if (hdr_img_fmt == UHDR_IMG_FMT_24bppYCbCrP010 || sdr_img_fmt == UHDR_IMG_FMT_12bppYCbCr420) {
+      width = (width >> 1) << 1;
+    }
 
     int height = mFdp.ConsumeIntegralInRange<int>(kMinHeight, kMaxHeight);
-    height = (height >> 1) << 1;
+    if (hdr_img_fmt == UHDR_IMG_FMT_24bppYCbCrP010 || sdr_img_fmt == UHDR_IMG_FMT_12bppYCbCr420) {
+      height = (height >> 1) << 1;
+    }
 
     // gainmap scale factor
     auto gm_scale_factor = mFdp.ConsumeIntegralInRange<int>(1, 128);
