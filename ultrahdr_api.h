@@ -44,6 +44,32 @@
 #define UHDR_EXTERN extern UHDR_API
 #endif
 
+/*
+ * A Note on version numbering:
+ * Over the course of development multiple changes were made to the interface that are not entirely
+ * backward compatible. Some APIs were renamed for consistency and better readability. New APIs were
+ * introduced to allow configuration of encoding/decoding parameters. As per convention, breaking
+ * backward compatibility MUST be indicated with a major version update, introducing new APIs /
+ * features MUST be indicated with a minor version update and bug fixes MUST be indicated with a
+ * patch version update. This convention however, is not followed. Below table summarizes these
+ * details:
+ *
+ * source version    ultrahdr_api.h                 Details
+ *                   version string
+ * --------------    --------------              -------------
+ *   1.0.0           Not available               This version did not have a public API. Apps,
+ *                                               directly included the project header files.
+ *   1.1.0           Not available               ultrahdr_api.h is introduced in this release. The
+ *                                               API header file did not advertise any version
+ *                                               string.
+ *   1.1.1           Not available               The API header file did not advertise any version
+ *                                               string. Some bug fixes and introduced one new API
+ *                                               which warrants a minor version update. But
+ *                                               indicated as a patch update.
+ */
+// This needs to be kept in sync with version in CMakeLists.txt
+#define UHDR_LIB_VERSION "1.1.1"
+
 // ===============================================================================================
 // Enum Definitions
 // ===============================================================================================
@@ -361,20 +387,20 @@ uhdr_enc_set_using_multi_channel_gainmap(uhdr_codec_private_t* enc, int use_mult
 
 /*!\brief Set gain map scaling factor. The encoding process allows signalling a downscaled gainmap
  * image instead of full resolution. This setting controls the factor by which the renditions are
- * downscaled. For instance, gain_map_scale_factor = 2 implies gainmap_image_width =
+ * downscaled. For instance, gainmap_scale_factor = 2 implies gainmap_image_width =
  * primary_image_width / 2 and gainmap image height = primary_image_height / 2.
  * Default gain map scaling factor is 4.
  * NOTE: This has no effect on base image rendition. Base image is signalled in full resolution
  * always.
  *
  * \param[in]  enc  encoder instance.
- * \param[in]  gain_map_scale_factor  gain map scale factor. Any integer in range (0, 128]
+ * \param[in]  gainmap_scale_factor  gain map scale factor. Any integer in range (0, 128]
  *
  * \return uhdr_error_info_t #UHDR_CODEC_OK if operation succeeds,
  *                           #UHDR_CODEC_INVALID_PARAM otherwise.
  */
 UHDR_EXTERN uhdr_error_info_t uhdr_enc_set_gainmap_scale_factor(uhdr_codec_private_t* enc,
-                                                                int gain_map_scale_factor);
+                                                                int gainmap_scale_factor);
 
 /*!\brief Set encoding gamma of gainmap image. For multi-channel gainmap image, set gamma is used
  * for gamma correction of all planes separately. Default gamma value is 1.0.
@@ -669,13 +695,31 @@ UHDR_EXTERN uhdr_mem_block_t* uhdr_dec_get_exif(uhdr_codec_private_t* dec);
  */
 UHDR_EXTERN uhdr_mem_block_t* uhdr_dec_get_icc(uhdr_codec_private_t* dec);
 
+/*!\brief Get base image (compressed)
+ *
+ * \param[in]  dec  decoder instance.
+ *
+ * \return nullptr if probe process call is unsuccessful, memory block with base image data
+ * otherwise
+ */
+UHDR_EXTERN uhdr_mem_block_t* uhdr_dec_get_base_image(uhdr_codec_private_t* dec);
+
+/*!\brief Get gain map image (compressed)
+ *
+ * \param[in]  dec  decoder instance.
+ *
+ * \return nullptr if probe process call is unsuccessful, memory block with gainmap image data
+ * otherwise
+ */
+UHDR_EXTERN uhdr_mem_block_t* uhdr_dec_get_gainmap_image(uhdr_codec_private_t* dec);
+
 /*!\brief Get gain map metadata
  *
  * \param[in]  dec  decoder instance.
  *
  * \return nullptr if probe process call is unsuccessful, gainmap metadata descriptor otherwise
  */
-UHDR_EXTERN uhdr_gainmap_metadata_t* uhdr_dec_get_gain_map_metadata(uhdr_codec_private_t* dec);
+UHDR_EXTERN uhdr_gainmap_metadata_t* uhdr_dec_get_gainmap_metadata(uhdr_codec_private_t* dec);
 
 /*!\brief Decode process call
  * After initializing the decoder context, call to this function will submit data for decoding. If
@@ -722,7 +766,7 @@ UHDR_EXTERN uhdr_raw_image_t* uhdr_get_decoded_image(uhdr_codec_private_t* dec);
  *
  * \return nullptr if decoded process call is unsuccessful, raw image descriptor otherwise
  */
-UHDR_EXTERN uhdr_raw_image_t* uhdr_get_gain_map_image(uhdr_codec_private_t* dec);
+UHDR_EXTERN uhdr_raw_image_t* uhdr_get_decoded_gainmap_image(uhdr_codec_private_t* dec);
 
 /*!\brief Reset decoder instance.
  * Clears all previous settings and resets to default state and ready for re-initialization and

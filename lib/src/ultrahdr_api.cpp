@@ -1445,6 +1445,14 @@ uhdr_error_info_t uhdr_dec_probe(uhdr_codec_private_t* dec) {
     handle->m_icc = std::move(primary_image.iccData);
     handle->m_icc_block.data = handle->m_icc.data();
     handle->m_icc_block.data_sz = handle->m_icc_block.capacity = handle->m_icc.size();
+    handle->m_base_img = std::move(primary_image.imgData);
+    handle->m_base_img_block.data = handle->m_base_img.data();
+    handle->m_base_img_block.data_sz = handle->m_base_img_block.capacity =
+        handle->m_base_img.size();
+    handle->m_gainmap_img = std::move(gainmap_image.imgData);
+    handle->m_gainmap_img_block.data = handle->m_gainmap_img.data();
+    handle->m_gainmap_img_block.data_sz = handle->m_gainmap_img_block.capacity =
+        handle->m_gainmap_img.size();
   }
 
   return status;
@@ -1528,7 +1536,33 @@ uhdr_mem_block_t* uhdr_dec_get_icc(uhdr_codec_private_t* dec) {
   return &handle->m_icc_block;
 }
 
-uhdr_gainmap_metadata_t* uhdr_dec_get_gain_map_metadata(uhdr_codec_private_t* dec) {
+uhdr_mem_block_t* uhdr_dec_get_base_image(uhdr_codec_private_t* dec) {
+  if (dynamic_cast<uhdr_decoder_private*>(dec) == nullptr) {
+    return nullptr;
+  }
+
+  uhdr_decoder_private* handle = dynamic_cast<uhdr_decoder_private*>(dec);
+  if (!handle->m_probed || handle->m_probe_call_status.error_code != UHDR_CODEC_OK) {
+    return nullptr;
+  }
+
+  return &handle->m_base_img_block;
+}
+
+uhdr_mem_block_t* uhdr_dec_get_gainmap_image(uhdr_codec_private_t* dec) {
+  if (dynamic_cast<uhdr_decoder_private*>(dec) == nullptr) {
+    return nullptr;
+  }
+
+  uhdr_decoder_private* handle = dynamic_cast<uhdr_decoder_private*>(dec);
+  if (!handle->m_probed || handle->m_probe_call_status.error_code != UHDR_CODEC_OK) {
+    return nullptr;
+  }
+
+  return &handle->m_gainmap_img_block;
+}
+
+uhdr_gainmap_metadata_t* uhdr_dec_get_gainmap_metadata(uhdr_codec_private_t* dec) {
   if (dynamic_cast<uhdr_decoder_private*>(dec) == nullptr) {
     return nullptr;
   }
@@ -1622,7 +1656,7 @@ uhdr_raw_image_t* uhdr_get_decoded_image(uhdr_codec_private_t* dec) {
   return handle->m_decoded_img_buffer.get();
 }
 
-uhdr_raw_image_t* uhdr_get_gain_map_image(uhdr_codec_private_t* dec) {
+uhdr_raw_image_t* uhdr_get_decoded_gainmap_image(uhdr_codec_private_t* dec) {
   if (dynamic_cast<uhdr_decoder_private*>(dec) == nullptr) {
     return nullptr;
   }
@@ -1665,6 +1699,10 @@ void uhdr_reset_decoder(uhdr_codec_private_t* dec) {
     memset(&handle->m_exif_block, 0, sizeof handle->m_exif_block);
     handle->m_icc.clear();
     memset(&handle->m_icc_block, 0, sizeof handle->m_icc_block);
+    handle->m_base_img.clear();
+    memset(&handle->m_base_img_block, 0, sizeof handle->m_base_img_block);
+    handle->m_gainmap_img.clear();
+    memset(&handle->m_gainmap_img_block, 0, sizeof handle->m_gainmap_img_block);
     memset(&handle->m_metadata, 0, sizeof handle->m_metadata);
     handle->m_probe_call_status = g_no_error;
     handle->m_decode_call_status = g_no_error;
