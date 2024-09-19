@@ -352,6 +352,28 @@ public class UltraHDRDecoder implements AutoCloseable {
     }
 
     /**
+     * Get base image (compressed)
+     *
+     * @return A byte array containing the base image data
+     * @throws IOException If {@link UltraHDRDecoder#probe()} is not yet called or during parsing
+     *                     process if any errors are seen exception is thrown
+     */
+    public byte[] getBaseImage() throws IOException {
+        return getBaseImageNative();
+    }
+
+    /**
+     * Get gain map image (compressed)
+     *
+     * @return A byte array containing the gain map image data
+     * @throws IOException If {@link UltraHDRDecoder#probe()} is not yet called or during parsing
+     *                     process if any errors are seen exception is thrown
+     */
+    public byte[] getGainMapImage() throws IOException {
+        return getGainMapImageNative();
+    }
+
+    /**
      * Get gain map metadata
      *
      * @return gainmap metadata descriptor
@@ -419,9 +441,9 @@ public class UltraHDRDecoder implements AutoCloseable {
      * @throws IOException If {@link UltraHDRDecoder#decode()} is not called or decoding process
      *                     is not successful, exception is thrown
      */
-    public RawImage getGainMapImage() throws IOException {
+    public RawImage getDecodedGainMapImage() throws IOException {
         if (decodedGainMapDataNativeOrder == null) {
-            decodedGainMapDataNativeOrder = getGainMapImageNative();
+            decodedGainMapDataNativeOrder = getDecodedGainMapImageNative();
         }
         if (gainmapFormat == UHDR_IMG_FMT_32bppRGBA8888) {
             if (decodedGainMapDataInt32 == null) {
@@ -510,13 +532,17 @@ public class UltraHDRDecoder implements AutoCloseable {
 
     private native byte[] getIccNative() throws IOException;
 
+    private native byte[] getBaseImageNative() throws IOException;
+
+    private native byte[] getGainMapImageNative() throws IOException;
+
     private native void getGainmapMetadataNative() throws IOException;
 
     private native void decodeNative() throws IOException;
 
     private native byte[] getDecodedImageNative() throws IOException;
 
-    private native byte[] getGainMapImageNative() throws IOException;
+    private native byte[] getDecodedGainMapImageNative() throws IOException;
 
     private native void resetNative() throws IOException;
 
@@ -551,7 +577,7 @@ public class UltraHDRDecoder implements AutoCloseable {
     private int imgRange;
 
     /**
-     * decoded image fields. Filled by {@link UltraHDRDecoder#getGainMapImageNative()}
+     * decoded image fields. Filled by {@link UltraHDRDecoder#getDecodedGainMapImageNative()}
      */
     private byte[] decodedGainMapDataNativeOrder;
     private int[] decodedGainMapDataInt32;

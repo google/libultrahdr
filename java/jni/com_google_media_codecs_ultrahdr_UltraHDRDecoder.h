@@ -129,6 +129,22 @@ JNIEXPORT jbyteArray JNICALL Java_com_google_media_codecs_ultrahdr_UltraHDRDecod
 
 /*
  * Class:     com_google_media_codecs_ultrahdr_UltraHDRDecoder
+ * Method:    getBaseImageNative
+ * Signature: ()[B
+ */
+JNIEXPORT jbyteArray JNICALL Java_com_google_media_codecs_ultrahdr_UltraHDRDecoder_getBaseImageNative
+  (JNIEnv *, jobject);
+
+/*
+ * Class:     com_google_media_codecs_ultrahdr_UltraHDRDecoder
+ * Method:    getGainMapImageNative
+ * Signature: ()[B
+ */
+JNIEXPORT jbyteArray JNICALL Java_com_google_media_codecs_ultrahdr_UltraHDRDecoder_getGainMapImageNative
+  (JNIEnv *, jobject);
+
+/*
+ * Class:     com_google_media_codecs_ultrahdr_UltraHDRDecoder
  * Method:    getGainmapMetadataNative
  * Signature: ()V
  */
@@ -153,10 +169,10 @@ JNIEXPORT jbyteArray JNICALL Java_com_google_media_codecs_ultrahdr_UltraHDRDecod
 
 /*
  * Class:     com_google_media_codecs_ultrahdr_UltraHDRDecoder
- * Method:    getGainMapImageNative
+ * Method:    getDecodedGainMapImageNative
  * Signature: ()[B
  */
-JNIEXPORT jbyteArray JNICALL Java_com_google_media_codecs_ultrahdr_UltraHDRDecoder_getGainMapImageNative
+JNIEXPORT jbyteArray JNICALL Java_com_google_media_codecs_ultrahdr_UltraHDRDecoder_getDecodedGainMapImageNative
   (JNIEnv *, jobject);
 
 /*
