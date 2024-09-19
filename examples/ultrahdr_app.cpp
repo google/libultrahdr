@@ -1321,7 +1321,8 @@ void UltraHdrAppInput::computeYUVSdrPSNR() {
 }
 
 static void usage(const char* name) {
-  fprintf(stderr, "\n## ultra hdr demo application.\nUsage : %s \n", name);
+  fprintf(stderr, "\n## ultra hdr demo application. lib version: v%s \nUsage : %s \n",
+          UHDR_LIB_VERSION_STR, name);
   fprintf(stderr, "    -m    mode of operation. [0:encode, 1:decode] \n");
   fprintf(stderr, "\n## encoder options : \n");
   fprintf(stderr,
@@ -1370,9 +1371,11 @@ static void usage(const char* name) {
       stderr,
       "    -D    select encoding preset, optional. [0:real time, 1:best quality (default)]. \n");
   fprintf(stderr,
-          "    -k    min content boost recommendation, must be in linear scale, optional \n");
+          "    -k    min content boost recommendation, must be in linear scale, optional. [any "
+          "positive real number] \n");
   fprintf(stderr,
-          "    -K    max content boost recommendation, must be in linear scale, optional \n");
+          "    -K    max content boost recommendation, must be in linear scale, optional.[any "
+          "positive real number] \n");
   fprintf(stderr, "    -x    binary input resource containing exif data to insert, optional. \n");
   fprintf(stderr, "\n## decoder options : \n");
   fprintf(stderr, "    -j    ultra hdr compressed input resource, required. \n");

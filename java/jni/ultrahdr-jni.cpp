@@ -15,9 +15,11 @@
  */
 
 #include <cstring>
+#include <string>
 
-#include "com_google_media_codecs_ultrahdr_UltraHDREncoder.h"
+#include "com_google_media_codecs_ultrahdr_UltraHDRCommon.h"
 #include "com_google_media_codecs_ultrahdr_UltraHDRDecoder.h"
+#include "com_google_media_codecs_ultrahdr_UltraHDREncoder.h"
 #include "ultrahdr_api.h"
 
 static_assert(sizeof(void *) <= sizeof(jlong),
@@ -663,4 +665,16 @@ Java_com_google_media_codecs_ultrahdr_UltraHDRDecoder_resetNative(JNIEnv *env, j
   GET_HANDLE()
   RET_IF_TRUE(handle == 0, "java/io/IOException", "invalid decoder instance")
   uhdr_reset_decoder((uhdr_codec_private_t *)handle);
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_google_media_codecs_ultrahdr_UltraHDRCommon_getVersionStringNative(JNIEnv *env,
+                                                                            jclass clazz) {
+  std::string version{"v" UHDR_LIB_VERSION_STR};
+  return env->NewStringUTF(version.c_str());
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_com_google_media_codecs_ultrahdr_UltraHDRCommon_getVersionNative(JNIEnv *env, jclass clazz) {
+  return UHDR_LIB_VERSION;
 }

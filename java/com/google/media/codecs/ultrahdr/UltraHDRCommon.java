@@ -199,4 +199,28 @@ public class UltraHDRCommon {
 
     private UltraHDRCommon() {
     }
+
+    /**
+     * Get library version in string format
+     * @return version string
+     */
+    public static String getVersionString() {
+        return getVersionStringNative();
+    }
+
+    /**
+     * Get library version
+     * @return version
+     */
+    public static int getVersion() {
+        return getVersionNative();
+    }
+
+    private static native String getVersionStringNative();
+
+    private static native int getVersionNative();
+
+    static {
+        System.loadLibrary("uhdrjni");
+    }
 }

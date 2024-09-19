@@ -22,7 +22,7 @@ if(POLICY CMP0091)
   cmake_policy(SET CMP0091 OLD)
 endif()
 
-project(libuhdr VERSION 1.1.1 LANGUAGES C CXX
+project(libuhdr VERSION 1.2.0 LANGUAGES C CXX
         DESCRIPTION "Library for encoding and decoding ultrahdr images")
 
 ###########################################################

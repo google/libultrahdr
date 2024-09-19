@@ -66,9 +66,23 @@
  *                                               string. Some bug fixes and introduced one new API
  *                                               which warrants a minor version update. But
  *                                               indicated as a patch update.
+ *   1.2.0           1.2.0                       Some bug fixes, introduced new API and renamed
+ *                                               existing API which warrants a major version update.
+ *                                               But indicated as a minor update.
  */
+
 // This needs to be kept in sync with version in CMakeLists.txt
-#define UHDR_LIB_VERSION "1.1.1"
+#define UHDR_LIB_VER_MAJOR 1
+#define UHDR_LIB_VER_MINOR 2
+#define UHDR_LIB_VER_PATCH 0
+
+#define UHDR_LIB_VERSION \
+  ((UHDR_LIB_VER_MAJOR * 10000) + (UHDR_LIB_VER_MINOR * 100) + UHDR_LIB_VER_PATCH)
+
+#define XSTR(s) STR(s)
+#define STR(s) #s
+#define UHDR_LIB_VERSION_STR \
+  XSTR(UHDR_LIB_VER_MAJOR) "." XSTR(UHDR_LIB_VER_MINOR) "." XSTR(UHDR_LIB_VER_PATCH)
 
 // ===============================================================================================
 // Enum Definitions
