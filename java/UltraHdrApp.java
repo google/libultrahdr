@@ -15,7 +15,7 @@
  */
 
 import static com.google.media.codecs.ultrahdr.UltraHDRCommon.*;
-import static com.google.media.codecs.ultrahdr.UltraHDREncoder.UHDR_USAGE_REALTIME;
+import static com.google.media.codecs.ultrahdr.UltraHDREncoder.UHDR_USAGE_BEST_QUALITY;
 
 import java.io.File;
 import java.io.FileInputStream;
@@ -133,11 +133,11 @@ public class UltraHdrApp {
         mOfmt = oFmt;
         mFullRange = false;
         mMapDimensionScaleFactor = 1;
-        mMapCompressQuality = 85;
+        mMapCompressQuality = 95;
         mUseMultiChannelGainMap = true;
         mGamma = 1.0f;
         mEnableGLES = enableGLES;
-        mEncPreset = UHDR_USAGE_REALTIME;
+        mEncPreset = UHDR_USAGE_BEST_QUALITY;
         mMinContentBoost = Float.MIN_VALUE;
         mMaxContentBoost = Float.MAX_VALUE;
     }
@@ -446,15 +446,19 @@ public class UltraHdrApp {
         System.out.println("    -R    color range of hdr intent, optional. [0:narrow-range "
                 + "(default), 1:full-range].");
         System.out.println("    -s    gainmap image downsample factor, optional. [integer values"
-                + " in range [1 - 128] (4 : default)].");
+                + " in range [1 - 128] (1 : default)].");
         System.out.println("    -Q    quality factor to be used while encoding gain map image,"
-                + " optional. [0-100], 85 : default.");
+                + " optional. [0-100], 95 : default.");
         System.out.println("    -G    gamma correction to be applied on the gainmap image, "
                 + "optional. [any positive real number (1.0 : default)].");
-        System.out.println("    -M    select multi channel gain map, optional. [0:disable "
-                + "(default), 1:enable].");
-        System.out.println("    -D    select encoding preset, optional. [0:real time (default),"
-                + " 1:best quality].");
+        System.out.println("    -M    select multi channel gain map, optional. [0:disable, "
+                + " 1:enable (default)].");
+        System.out.println("    -D    select encoding preset, optional. [0:real time,"
+                + " 1:best quality (default)].");
+        System.out.println(
+                "    -k    min content boost recommendation, must be in linear scale, optional.");
+        System.out.println(
+                "    -K    max content boost recommendation, must be in linear scale, optional.");
         System.out.println("    -x    binary input resource containing exif data to insert, "
                 + "optional.");
         System.out.println("\n## decoder options :");
@@ -470,6 +474,8 @@ public class UltraHdrApp {
                 "          srgb output color transfer shall be paired with rgba8888 only.");
         System.out.println("          hlg, pq shall be paired with rgba1010102.");
         System.out.println("          linear shall be paired with rgbahalffloat.");
+        System.out.println(
+                "    -u    enable gles acceleration, optional. [0:disable (default), 1:enable].");
         System.out.println("\n## common options :");
         System.out.println("    -z    output filename, optional.");
         System.out.println("          in encoding mode, default output filename 'out.jpeg'.");
@@ -556,14 +562,14 @@ public class UltraHdrApp {
         int out_cf = UHDR_IMG_FMT_32bppRGBA1010102;
         int mode = -1;
         int gain_map_scale_factor = 1;
-        int gainmap_compression_quality = 85;
-        int enc_preset = UHDR_USAGE_REALTIME;
+        int gainmap_compression_quality = 95;
+        int enc_preset = UHDR_USAGE_BEST_QUALITY;
         float gamma = 1.0f;
         boolean enable_gles = false;
         float min_content_boost = Float.MIN_VALUE;
         float max_content_boost = Float.MAX_VALUE;
         boolean use_full_range_color_hdr = false;
-        boolean use_multi_channel_gainmap = false;
+        boolean use_multi_channel_gainmap = true;
 
         for (int i = 0; i < args.length; i++) {
             if (args[i].length() == 2 && args[i].charAt(0) == '-') {
