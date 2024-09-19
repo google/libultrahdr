@@ -415,7 +415,7 @@ public class UltraHdrApp {
     }
 
     public static void usage() {
-        System.out.println("\n## uhdr demo application.");
+        System.out.println("\n## uhdr demo application. lib version: " + getVersionString());
         System.out.println("Usage : java -Djava.library.path=<path> -jar uhdr-java.jar");
         System.out.println("    -m    mode of operation. [0:encode, 1:decode]");
         System.out.println("\n## encoder options :");
@@ -455,10 +455,10 @@ public class UltraHdrApp {
                 + " 1:enable (default)].");
         System.out.println("    -D    select encoding preset, optional. [0:real time,"
                 + " 1:best quality (default)].");
-        System.out.println(
-                "    -k    min content boost recommendation, must be in linear scale, optional.");
-        System.out.println(
-                "    -K    max content boost recommendation, must be in linear scale, optional.");
+        System.out.println("    -k    min content boost recommendation, must be in linear scale,"
+                + " optional. any positive real number");
+        System.out.println("    -K    max content boost recommendation, must be in linear scale,"
+                + " optional. any positive real number");
         System.out.println("    -x    binary input resource containing exif data to insert, "
                 + "optional.");
         System.out.println("\n## decoder options :");
