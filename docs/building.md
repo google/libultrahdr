@@ -158,12 +158,12 @@ Uninstallation:
 sudo ninja uninstall
 ```
 
-### Windows Platform - MSYS Env
+### Windows Platform - MSYS2 Env
 
 Install the prerequisite packages before building:
 
 ```sh
-pacman -S mingw-w64-x86_64-libjpeg-turbo mingw-w64-x86_64-ninja
+pacman -S mingw-w64-ucrt-x86_64-libjpeg-turbo mingw-w64-ucrt-x86_64-ninja
 ```
 
 Compile and Test:
