@@ -22,7 +22,12 @@ if(POLICY CMP0091)
   cmake_policy(SET CMP0091 OLD)
 endif()
 
-project(libuhdr VERSION 1.2.0 LANGUAGES C CXX
+set(UHDR_MAJOR_VERSION 1)
+set(UHDR_MINOR_VERSION 2)
+set(UHDR_PATCH_VERSION 0)
+project(libuhdr
+        VERSION ${UHDR_MAJOR_VERSION}.${UHDR_MINOR_VERSION}.${UHDR_PATCH_VERSION}
+        LANGUAGES C CXX
         DESCRIPTION "Library for encoding and decoding ultrahdr images")
 
 ###########################################################
@@ -39,12 +44,12 @@ endif()
 
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "amd64.*|x86_64.*|AMD64.*")
   if(CMAKE_SIZEOF_VOID_P EQUAL 8)
-    set(ARCH "x86_64")
+    set(ARCH "amd64")
   else()
-    set(ARCH "x86")
+    set(ARCH "i386")
   endif()
 elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "i686.*|i386.*|x86.*")
-  set(ARCH "x86")
+  set(ARCH "i386")
 elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64.*|AARCH64.*|arm64.*|ARM64.*)")
   if(CMAKE_SIZEOF_VOID_P EQUAL 8)
     set(ARCH "aarch64")
@@ -107,6 +112,7 @@ option_if_not_defined(UHDR_ENABLE_INSTALL "Enable install and uninstall targets 
 option_if_not_defined(UHDR_ENABLE_INTRINSICS "Build with SIMD acceleration " TRUE)
 option_if_not_defined(UHDR_ENABLE_GLES "Build with GPU acceleration " FALSE)
 option_if_not_defined(UHDR_BUILD_JAVA "Build JNI wrapper and Java front-end classes " FALSE)
+option_if_not_defined(UHDR_BUILD_PACKAGING "Build distribution packages using CPack " FALSE)
 
 # pre-requisites
 if(UHDR_BUILD_TESTS AND EMSCRIPTEN)
@@ -208,11 +214,11 @@ else()
   add_compile_options(-fdata-sections)
   add_compile_options(-fomit-frame-pointer)
   add_compile_options(-ffp-contract=fast)
-  if(ARCH STREQUAL "x86")
+  if(ARCH STREQUAL "i386")
     add_compile_options(-m32)
     add_compile_options(-march=i386)
     add_compile_options(-mtune=generic)
-  elseif(ARCH STREQUAL "x86_64")
+  elseif(ARCH STREQUAL "amd64")
     add_compile_options(-m64)
     add_compile_options(-march=x86-64)
     add_compile_options(-mtune=generic)
@@ -734,5 +740,12 @@ if(UHDR_ENABLE_INSTALL)
                    "${CMAKE_CURRENT_BINARY_DIR}/cmake_uninstall.cmake" IMMEDIATE @ONLY)
     add_custom_target(uninstall
       COMMAND ${CMAKE_COMMAND} -P ${CMAKE_CURRENT_BINARY_DIR}/cmake_uninstall.cmake)
+
+    # packaging
+    if(UHDR_BUILD_PACKAGING)
+      include(cmake/package.cmake)
+      include(CPack)
+    endif()
+
   endif()
 endif()
