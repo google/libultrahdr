@@ -16,9 +16,8 @@
 
 #include <fuzzer/FuzzedDataProvider.h>
 #include <algorithm>
-#include <iostream>
-#include <memory>
 #include <random>
+#include <type_traits>
 
 #include "ultrahdr_api.h"
 #include "ultrahdr/ultrahdrcommon.h"
@@ -27,20 +26,24 @@
 using namespace ultrahdr;
 
 // Color gamuts for image data, sync with ultrahdr_api.h
-constexpr int kCgMin = UHDR_CG_UNSPECIFIED + 1;
+constexpr int kCgMin = UHDR_CG_UNSPECIFIED;
 constexpr int kCgMax = UHDR_CG_BT_2100;
 
+// Color ranges for image data, sync with ultrahdr_api.h
+constexpr int kCrMin = UHDR_CR_UNSPECIFIED;
+constexpr int kCrMax = UHDR_CR_FULL_RANGE;
+
 // Transfer functions for image data, sync with ultrahdr_api.h
-constexpr int kTfMin = UHDR_CT_UNSPECIFIED + 1;
-constexpr int kTfMax = UHDR_CT_PQ;
+constexpr int kTfMin = UHDR_CT_UNSPECIFIED;
+constexpr int kTfMax = UHDR_CT_SRGB;
 
 // quality factor
-constexpr int kQfMin = 0;
-constexpr int kQfMax = 100;
+constexpr int kQfMin = -10;
+constexpr int kQfMax = 110;
 
 class UltraHdrEncFuzzer {
  public:
-  UltraHdrEncFuzzer(const uint8_t* data, size_t size) : mFdp(data, size){};
+  UltraHdrEncFuzzer(const uint8_t* data, size_t size) : mFdp(data, size) {};
   void process();
   template <typename T>
   void fillBuffer(T* data, int width, int height, int stride);
@@ -54,7 +57,10 @@ void UltraHdrEncFuzzer::fillBuffer(T* data, int width, int height, int stride) {
   T* tmp = data;
   std::vector<T> buffer(16);
   for (int i = 0; i < buffer.size(); i++) {
-    buffer[i] = (mFdp.ConsumeIntegralInRange<int>(0, (1 << 10) - 1)) << 6;
+    if (!mFdp.remaining_bytes()) return;
+    buffer[i] = static_cast<T>(std::is_same<T, uint16_t>::value
+                                   ? (mFdp.ConsumeIntegralInRange<T>(0, (1 << 10) - 1)) << 6
+                                   : mFdp.ConsumeIntegral<T>());
   }
   for (int j = 0; j < height; j++) {
     for (int i = 0; i < width; i += buffer.size()) {
@@ -68,57 +74,91 @@ void UltraHdrEncFuzzer::fillBuffer(T* data, int width, int height, int stride) {
 
 void UltraHdrEncFuzzer::process() {
   while (mFdp.remaining_bytes()) {
-    struct uhdr_raw_image hdrImg {};
-    struct uhdr_raw_image sdrImg {};
-    struct uhdr_raw_image gainmapImg {};
+    struct uhdr_raw_image hdrImg{};
+    struct uhdr_raw_image sdrImg{};
+    struct uhdr_raw_image gainmapImg{};
 
     // which encode api to select
-    int muxSwitch = mFdp.ConsumeIntegralInRange<int>(0, 4);
-
-    // base quality factor
-    int base_quality = mFdp.ConsumeIntegralInRange<int>(kQfMin, kQfMax);
-
-    // gain_map quality factor
-    int gainmap_quality = mFdp.ConsumeIntegralInRange<int>(kQfMin, kQfMax);
-
-    // hdr_tf
-    auto tf = static_cast<uhdr_color_transfer>(mFdp.ConsumeIntegralInRange<int>(kTfMin, kTfMax));
-
-    // hdr Cg
-    auto hdr_cg = static_cast<uhdr_color_gamut>(mFdp.ConsumeIntegralInRange<int>(kCgMin, kCgMax));
-
-    // sdr Cg
-    auto sdr_cg = static_cast<uhdr_color_gamut>(mFdp.ConsumeIntegralInRange<int>(kCgMin, kCgMax));
-
-    // color range
-    auto color_range = mFdp.ConsumeBool() ? UHDR_CR_LIMITED_RANGE : UHDR_CR_FULL_RANGE;
+    int muxSwitch = mFdp.ConsumeIntegralInRange<int8_t>(0, 4);
 
     // hdr_img_fmt
     auto hdr_img_fmt =
         mFdp.ConsumeBool() ? UHDR_IMG_FMT_24bppYCbCrP010 : UHDR_IMG_FMT_32bppRGBA1010102;
 
     // sdr_img_fmt
-    auto sdr_img_fmt = mFdp.ConsumeBool() ? UHDR_IMG_FMT_12bppYCbCr420 : UHDR_IMG_FMT_32bppRGBA8888;
-    if (muxSwitch > 1) sdr_img_fmt = UHDR_IMG_FMT_12bppYCbCr420;
+    uhdr_img_fmt_t sdr_img_fmt;
+    if (muxSwitch > 1)
+      sdr_img_fmt = UHDR_IMG_FMT_12bppYCbCr420;
+    else
+      sdr_img_fmt = mFdp.ConsumeBool() ? UHDR_IMG_FMT_12bppYCbCr420 : UHDR_IMG_FMT_32bppRGBA8888;
 
-    // multi channel gainmap
-    auto multi_channel_gainmap = mFdp.ConsumeBool();
-
-    int width = mFdp.ConsumeIntegralInRange<int>(kMinWidth, kMaxWidth);
+    // width
+    int width = mFdp.ConsumeIntegralInRange<uint16_t>(kMinWidth, kMaxWidth);
     if (hdr_img_fmt == UHDR_IMG_FMT_24bppYCbCrP010 || sdr_img_fmt == UHDR_IMG_FMT_12bppYCbCr420) {
       width = (width >> 1) << 1;
     }
 
-    int height = mFdp.ConsumeIntegralInRange<int>(kMinHeight, kMaxHeight);
+    // height
+    int height = mFdp.ConsumeIntegralInRange<uint16_t>(kMinHeight, kMaxHeight);
     if (hdr_img_fmt == UHDR_IMG_FMT_24bppYCbCrP010 || sdr_img_fmt == UHDR_IMG_FMT_12bppYCbCr420) {
       height = (height >> 1) << 1;
     }
 
+    // hdr_tf
+    auto tf =
+        static_cast<uhdr_color_transfer_t>(mFdp.ConsumeIntegralInRange<int8_t>(kTfMin, kTfMax));
+
+    // hdr Cg
+    auto hdr_cg =
+        static_cast<uhdr_color_gamut_t>(mFdp.ConsumeIntegralInRange<int8_t>(kCgMin, kCgMax));
+
+    // sdr Cg
+    auto sdr_cg =
+        static_cast<uhdr_color_gamut_t>(mFdp.ConsumeIntegralInRange<int8_t>(kCgMin, kCgMax));
+
+    // color range
+    auto hdr_cr =
+        static_cast<uhdr_color_range_t>(mFdp.ConsumeIntegralInRange<int8_t>(kCrMin, kCrMax));
+
+    // base quality factor
+    int base_quality = mFdp.ConsumeIntegralInRange<int8_t>(kQfMin, kQfMax);
+
+    // gain_map quality factor
+    int gainmap_quality = mFdp.ConsumeIntegralInRange<int8_t>(kQfMin, kQfMax);
+
+    // multi channel gainmap
+    auto multi_channel_gainmap = mFdp.ConsumeBool();
+
     // gainmap scale factor
-    auto gm_scale_factor = mFdp.ConsumeIntegralInRange<int>(1, 128);
+    auto gm_scale_factor = mFdp.ConsumeIntegralInRange<uint8_t>(0, 150);
 
     // encoding speed preset
-    auto enc_preset = static_cast<uhdr_enc_preset_t>(mFdp.ConsumeIntegralInRange<int>(0, 1));
+    auto enc_preset = mFdp.ConsumeBool() ? UHDR_USAGE_REALTIME : UHDR_USAGE_BEST_QUALITY;
+
+    // gainmap gamma
+    auto gamma = mFdp.ConsumeFloatingPointInRange<float>(-1.0f, 5);
+
+    // content boost
+    auto minBoost = mFdp.ConsumeFloatingPointInRange<float>(-1.0f, 100);
+    auto maxBoost = mFdp.ConsumeFloatingPointInRange<float>(minBoost - 1.0f, 100);
+
+    // ALOGV("encoding configuration options : ");
+    // ALOGV("encoding api %d ", (int)muxSwitch);
+    // ALOGV("image width %d ", (int)width);
+    // ALOGV("image height %d ", (int)height);
+    // ALOGV("hdr intent color gamut %d ", (int)hdr_cg);
+    // ALOGV("sdr intent color gamut %d ", (int)sdr_cg);
+    // ALOGV("hdr intent color transfer %d ", (int)tf);
+    // ALOGV("hdr intent color range %d ", (int)hdr_cr);
+    // ALOGV("hdr intent image format %d ", (int)hdr_img_fmt);
+    // ALOGV("sdr intent color format %d ", (int)sdr_img_fmt);
+    // ALOGV("gainmap scale factor %d ", (int)gm_scale_factor);
+    // ALOGV("enable multichannel gainmap %d ", (int)multi_channel_gainmap);
+    // ALOGV("base image quality factor %d ", (int)base_quality);
+    // ALOGV("gainmap image quality factor %d ", (int)gainmap_quality);
+    // ALOGV("encoding preset %d ", (int)enc_preset);
+    // ALOGV("gainmap gamma %f ", (float)gamma);
+    // ALOGV("min max content boost %f %f ", (float)minBoost, (float)maxBoost);
 
     std::unique_ptr<uint32_t[]> bufferHdr = nullptr;
     std::unique_ptr<uint16_t[]> bufferYHdr = nullptr;
@@ -144,13 +184,13 @@ void UltraHdrEncFuzzer::process() {
     if (muxSwitch != 4) {
       // init p010/rgba1010102 image
       bool hasStride = mFdp.ConsumeBool();
-      int yStride = hasStride ? mFdp.ConsumeIntegralInRange<int>(width, width + 128) : width;
+      int yStride = hasStride ? mFdp.ConsumeIntegralInRange<uint16_t>(width, width + 128) : width;
       hdrImg.w = width;
       hdrImg.h = height;
       hdrImg.cg = hdr_cg;
       hdrImg.fmt = hdr_img_fmt;
       hdrImg.ct = tf;
-      hdrImg.range = color_range;
+      hdrImg.range = hdr_cr;
       hdrImg.stride[UHDR_PLANE_Y] = yStride;
       if (hdr_img_fmt == UHDR_IMG_FMT_24bppYCbCrP010) {
         bool isUVContiguous = mFdp.ConsumeBool();
@@ -163,7 +203,7 @@ void UltraHdrEncFuzzer::process() {
           hdrImg.planes[UHDR_PLANE_UV] = bufferYHdr.get() + yStride * height;
           hdrImg.stride[UHDR_PLANE_UV] = yStride;
         } else {
-          int uvStride = mFdp.ConsumeIntegralInRange<int>(width, width + 128);
+          int uvStride = mFdp.ConsumeIntegralInRange<uint16_t>(width, width + 128);
           size_t p010Size = yStride * height;
           bufferYHdr = std::make_unique<uint16_t[]>(p010Size);
           hdrImg.planes[UHDR_PLANE_Y] = bufferYHdr.get();
@@ -186,8 +226,8 @@ void UltraHdrEncFuzzer::process() {
       hdrImg.stride[UHDR_PLANE_V] = 0;
       ON_ERR(uhdr_enc_set_raw_image(enc_handle, &hdrImg, UHDR_HDR_IMG))
     } else {
-      size_t map_width = width / gm_scale_factor;
-      size_t map_height = height / gm_scale_factor;
+      size_t map_width = width / ((gm_scale_factor <= 0) ? 1 : gm_scale_factor);
+      size_t map_height = height / ((gm_scale_factor <= 0) ? 1 : gm_scale_factor);
       gainmapImg.fmt = UHDR_IMG_FMT_8bppYCbCr400;
       gainmapImg.w = map_width;
       gainmapImg.h = map_height;
@@ -207,7 +247,7 @@ void UltraHdrEncFuzzer::process() {
 
     if (muxSwitch > 0) {
       bool hasStride = mFdp.ConsumeBool();
-      int yStride = hasStride ? mFdp.ConsumeIntegralInRange<int>(width, width + 128) : width;
+      int yStride = hasStride ? mFdp.ConsumeIntegralInRange<uint16_t>(width, width + 128) : width;
       // init yuv420 Image
       if (sdr_img_fmt == UHDR_IMG_FMT_12bppYCbCr420) {
         bool isUVContiguous = mFdp.ConsumeBool();
@@ -232,7 +272,7 @@ void UltraHdrEncFuzzer::process() {
           fillBuffer<uint8_t>(bufferYSdr.get() + yStride * height * 5 / 4, width / 2, height / 2,
                               yStride / 2);
         } else {
-          int uvStride = mFdp.ConsumeIntegralInRange<int>(width / 2, width / 2 + 128);
+          int uvStride = mFdp.ConsumeIntegralInRange<uint16_t>(width / 2, width / 2 + 128);
           size_t yuv420YSize = yStride * height;
           bufferYSdr = std::make_unique<uint8_t[]>(yuv420YSize);
           sdrImg.planes[UHDR_PLANE_Y] = bufferYSdr.get();
@@ -270,9 +310,15 @@ void UltraHdrEncFuzzer::process() {
     }
     ON_ERR(uhdr_enc_set_quality(enc_handle, base_quality, UHDR_BASE_IMG))
     ON_ERR(uhdr_enc_set_quality(enc_handle, gainmap_quality, UHDR_GAIN_MAP_IMG))
-    ON_ERR(uhdr_enc_set_gainmap_scale_factor(enc_handle, gm_scale_factor))
+    char greeting[] = "Exif says hello world";
+    uhdr_mem_block_t exif{greeting, sizeof greeting, sizeof greeting};
+    ON_ERR(uhdr_enc_set_exif_data(enc_handle, &exif))
     ON_ERR(uhdr_enc_set_using_multi_channel_gainmap(enc_handle, multi_channel_gainmap))
+    ON_ERR(uhdr_enc_set_gainmap_scale_factor(enc_handle, gm_scale_factor))
+    ON_ERR(uhdr_enc_set_gainmap_gamma(enc_handle, gamma))
+    ON_ERR(uhdr_enc_set_min_max_content_boost(enc_handle, minBoost, maxBoost))
     ON_ERR(uhdr_enc_set_preset(enc_handle, enc_preset))
+    ON_ERR(uhdr_enable_gpu_acceleration(enc_handle, 1))
 
     uhdr_error_info_t status = {UHDR_CODEC_OK, 0, ""};
     if (muxSwitch == 0 || muxSwitch == 1) {  // api 0 or api 1
@@ -295,9 +341,9 @@ void UltraHdrEncFuzzer::process() {
               UHDR_CODEC_OK) {
             struct uhdr_compressed_image jpegGainMap = gainMapEncoder.getCompressedImage();
             uhdr_gainmap_metadata metadata;
-            metadata.max_content_boost = 17.0f;
-            metadata.min_content_boost = 1.0f;
-            metadata.gamma = 1.0f;
+            metadata.max_content_boost = maxBoost;
+            metadata.min_content_boost = minBoost;
+            metadata.gamma = gamma;
             metadata.offset_sdr = 0.0f;
             metadata.offset_hdr = 0.0f;
             metadata.hdr_capacity_min = 1.0f;
@@ -326,6 +372,7 @@ void UltraHdrEncFuzzer::process() {
           uhdr_release_decoder(dec_handle);
         }
       }
+      uhdr_reset_encoder(enc_handle);
       uhdr_release_encoder(enc_handle);
     } else {
       uhdr_release_encoder(enc_handle);

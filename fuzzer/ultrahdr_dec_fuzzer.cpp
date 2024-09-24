@@ -15,8 +15,6 @@
  */
 
 #include <fuzzer/FuzzedDataProvider.h>
-#include <iostream>
-#include <memory>
 
 #include "ultrahdr_api.h"
 #include "ultrahdr/ultrahdrcommon.h"
@@ -24,12 +22,12 @@
 using namespace ultrahdr;
 
 // Transfer functions for image data, sync with ultrahdr.h
-constexpr int kTfMin = UHDR_CT_UNSPECIFIED + 1;
-constexpr int kTfMax = UHDR_CT_PQ;
+constexpr int kTfMin = UHDR_CT_UNSPECIFIED;
+constexpr int kTfMax = UHDR_CT_SRGB;
 
 class UltraHdrDecFuzzer {
  public:
-  UltraHdrDecFuzzer(const uint8_t* data, size_t size) : mFdp(data, size){};
+  UltraHdrDecFuzzer(const uint8_t* data, size_t size) : mFdp(data, size) {};
   void process();
 
  private:
@@ -38,8 +36,10 @@ class UltraHdrDecFuzzer {
 
 void UltraHdrDecFuzzer::process() {
   // hdr_of
-  auto tf = static_cast<uhdr_color_transfer>(mFdp.ConsumeIntegralInRange<int>(kTfMin, kTfMax));
+  auto tf = static_cast<uhdr_color_transfer>(mFdp.ConsumeIntegralInRange<int8_t>(kTfMin, kTfMax));
+  auto boost = mFdp.ConsumeFloatingPointInRange<float>(0.0f, 100.0f);
   auto buffer = mFdp.ConsumeRemainingBytes<uint8_t>();
+  auto enableGpu = mFdp.ConsumeBool();
   uhdr_compressed_image_t jpegImgR{
       buffer.data(),       (unsigned int)buffer.size(), (unsigned int)buffer.size(),
       UHDR_CG_UNSPECIFIED, UHDR_CT_UNSPECIFIED,         UHDR_CR_UNSPECIFIED};
@@ -62,11 +62,22 @@ void UltraHdrDecFuzzer::process() {
       ON_ERR(uhdr_dec_set_out_img_format(dec_handle, UHDR_IMG_FMT_32bppRGBA8888))
     else
       ON_ERR(uhdr_dec_set_out_img_format(dec_handle, UHDR_IMG_FMT_32bppRGBA1010102))
+    ON_ERR(uhdr_dec_set_out_max_display_boost(dec_handle, boost))
+    ON_ERR(uhdr_enable_gpu_acceleration(dec_handle, enableGpu))
     uhdr_dec_probe(dec_handle);
-    uhdr_dec_get_image_width(dec_handle);
-    uhdr_dec_get_image_height(dec_handle);
-    uhdr_dec_get_gainmap_width(dec_handle);
-    uhdr_dec_get_gainmap_height(dec_handle);
+    auto width = uhdr_dec_get_image_width(dec_handle);
+    auto height = uhdr_dec_get_image_height(dec_handle);
+    auto gainmap_width = uhdr_dec_get_gainmap_width(dec_handle);
+    auto gainmap_height = uhdr_dec_get_gainmap_height(dec_handle);
+
+    // ALOGV("image width %d ", (int)width);
+    // ALOGV("image height %d ", (int)height);
+    // ALOGV("gainmap width %d ", (int)gainmap_width);
+    // ALOGV("gainmap height %d ", (int)gainmap_height);
+    // ALOGV("output color transfer %d ", (int)tf);
+    // ALOGV("max display boost %f ", (float)boost);
+    // ALOGV("enable gpu %d ", (int)enableGpu);
+
     uhdr_dec_get_exif(dec_handle);
     uhdr_dec_get_icc(dec_handle);
     uhdr_dec_get_base_image(dec_handle);
@@ -75,6 +86,7 @@ void UltraHdrDecFuzzer::process() {
     uhdr_decode(dec_handle);
     uhdr_get_decoded_image(dec_handle);
     uhdr_get_decoded_gainmap_image(dec_handle);
+    uhdr_reset_decoder(dec_handle);
     uhdr_release_decoder(dec_handle);
   }
 }
