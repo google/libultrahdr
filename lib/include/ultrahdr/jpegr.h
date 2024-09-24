@@ -418,7 +418,16 @@ class JpegR {
   uhdr_error_info_t parseGainMapMetadata(uint8_t* iso_data, int iso_size, uint8_t* xmp_data,
                                          int xmp_size, uhdr_gainmap_metadata_ext_t* uhdr_metadata);
 
- protected:
+
+  /*!\brief This method is used to tone map a hdr image
+   *
+   * \param[in]            hdr_intent      hdr image descriptor
+   * \param[in, out]       sdr_intent      sdr image descriptor
+   *
+   * \return uhdr_error_info_t #UHDR_CODEC_OK if operation succeeds, uhdr_codec_err_t otherwise.
+   */
+  uhdr_error_info_t toneMap(uhdr_raw_image_t* hdr_intent, uhdr_raw_image_t* sdr_intent);
+
   /*!\brief This method takes hdr intent and sdr intent and computes gainmap coefficient.
    *
    * This method is called in the encoding pipeline. It takes uncompressed 8-bit and 10-bit yuv
@@ -448,6 +457,7 @@ class JpegR {
                                     std::unique_ptr<uhdr_raw_image_ext_t>& gainmap_img,
                                     bool sdr_is_601 = false, bool use_luminance = true);
 
+ protected:
   /*!\brief This method takes sdr intent, gainmap image and gainmap metadata and computes hdr
    * intent. This method is called in the decoding pipeline. The output hdr intent image will have
    * same color gamut as sdr intent.
@@ -536,15 +546,6 @@ class JpegR {
                                   uhdr_mem_block_t* pExif, void* pIcc, size_t icc_size,
                                   uhdr_gainmap_metadata_ext_t* metadata,
                                   uhdr_compressed_image_t* dest);
-
-  /*!\brief This method is used to tone map a hdr image
-   *
-   * \param[in]            hdr_intent      hdr image descriptor
-   * \param[in, out]       sdr_intent      sdr image descriptor
-   *
-   * \return uhdr_error_info_t #UHDR_CODEC_OK if operation succeeds, uhdr_codec_err_t otherwise.
-   */
-  uhdr_error_info_t toneMap(uhdr_raw_image_t* hdr_intent, uhdr_raw_image_t* sdr_intent);
 
   /*!\brief This method is used to convert a raw image from one gamut space to another gamut space
    * in-place.
