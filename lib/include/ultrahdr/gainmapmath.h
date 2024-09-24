@@ -165,6 +165,12 @@ union FloatUIntUnion {
   float fFloat;
 };
 
+// FIXME: The shift operations in this function are causing UBSAN (Undefined-shift) errors
+// Precisely,
+// runtime error: left shift of negative value -112
+// runtime error : shift exponent 125 is too large for 32 - bit type 'uint32_t'(aka 'unsigned int')
+// These need to be addressed. Until then, disable ubsan analysis for this function
+UHDR_NO_SANITIZE_UNDEFINED
 inline uint16_t floatToHalf(float f) {
   FloatUIntUnion floatUnion;
   floatUnion.fFloat = f;

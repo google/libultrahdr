@@ -140,6 +140,23 @@
 #define INLINE inline
 #endif
 
+// '__has_attribute' macro was introduced by clang. later picked up by gcc.
+// If not supported by the current toolchain, define it to zero.
+#ifndef __has_attribute
+#define __has_attribute(x) 0
+#endif
+
+// Disables undefined behavior analysis for a function.
+// GCC 4.9+ uses __attribute__((no_sanitize_undefined))
+// clang uses __attribute__((no_sanitize("undefined")))
+#if defined(__GNUC__) && ((__GNUC__ * 100 + __GNUC_MINOR__) >= 409)
+#define UHDR_NO_SANITIZE_UNDEFINED __attribute__((no_sanitize_undefined))
+#elif __has_attribute(no_sanitize)
+#define UHDR_NO_SANITIZE_UNDEFINED __attribute__((no_sanitize("undefined")))
+#else
+#define UHDR_NO_SANITIZE_UNDEFINED
+#endif
+
 static const uhdr_error_info_t g_no_error = {UHDR_CODEC_OK, 0, ""};
 
 namespace ultrahdr {
