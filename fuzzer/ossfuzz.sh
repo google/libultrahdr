@@ -29,7 +29,7 @@ rm -rf ${build_dir}
 mkdir -p ${build_dir}
 pushd ${build_dir}
 
-cmake $SRC/libultrahdr -DUHDR_BUILD_FUZZERS=1
+cmake $SRC/libultrahdr -DUHDR_BUILD_FUZZERS=1 -DUHDR_MAX_DIMENSION=1280
 make -j$(nproc) ultrahdr_dec_fuzzer ultrahdr_enc_fuzzer
 cp ${build_dir}/ultrahdr_dec_fuzzer $OUT/
 cp ${build_dir}/ultrahdr_enc_fuzzer $OUT/
