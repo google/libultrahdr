@@ -137,6 +137,33 @@ class Profiler {
 };
 #endif
 
+// reads RGBA 16+16+16 bits which can be written by imagemagick and converts to internal RGBA 10+10+10+2 bits
+#define READ_BYTES_RGBA10(DESC, ADDR, WIDTH, HEIGHT) \
+  char linebuffer[WIDTH*6]; \
+  for(int l=0; l<HEIGHT; l++) { \
+    DESC.read(linebuffer, WIDTH*6); \
+    if (DESC.gcount() != WIDTH*6) { \
+      std::cerr << "failed to read : " << (WIDTH*6) << " bytes, read : " << DESC.gcount() << " bytes" << std::endl; \
+      return false; \
+    } \
+    for(int x=0; x<WIDTH; x++) { \
+      unsigned int r = linebuffer[6*x] << 8 | linebuffer[6*x+1]; \
+      unsigned int g = linebuffer[6*x+2] << 8 | linebuffer[6*x+3]; \
+      unsigned int b = linebuffer[6*x+4] << 8 | linebuffer[6*x+5]; \
+      (static_cast<char*>(ADDR))[4*WIDTH*l + 4*x] =     ((r & 0b0000111111) << 2); \
+      (static_cast<char*>(ADDR))[4*WIDTH*l + 4*x + 1] = ((g & 0b0000001111) << 4) | ((r & 0b1111000000) >> 6); \
+      (static_cast<char*>(ADDR))[4*WIDTH*l + 4*x + 2] = ((b & 0b0000000011) << 6) | ((g & 0b1111110000) >> 4); \
+      (static_cast<char*>(ADDR))[4*WIDTH*l + 4*x + 3] =                             ((b & 0b1111111100) >> 2); \
+    } \
+  }
+/* RGBA 10+10+10+2 format in memory:
+0: R5 ... R0 A1 A0
+1: G3...G0 R9...R6
+2: B1 B0 G9 ... G4
+3: B9    ...    B2
+*/
+
+// reads RGBA 10+10+10+2 bits, can't be written by imagemagick
 #define READ_BYTES(DESC, ADDR, LEN)                                                             \
   DESC.read(static_cast<char*>(ADDR), (LEN));                                                   \
   if (DESC.gcount() != (LEN)) {                                                                 \
@@ -176,8 +203,11 @@ static bool loadFile(const char* filename, uhdr_raw_image_t* handle) {
       READ_BYTES(ifd, handle->planes[UHDR_PLANE_Y], handle->w * handle->h * bpp)
       READ_BYTES(ifd, handle->planes[UHDR_PLANE_UV], (handle->w / 2) * (handle->h / 2) * bpp * 2)
       return true;
-    } else if (handle->fmt == UHDR_IMG_FMT_32bppRGBA1010102 ||
-               handle->fmt == UHDR_IMG_FMT_32bppRGBA8888) {
+    } else if (handle->fmt == UHDR_IMG_FMT_32bppRGBA1010102) {
+      const int bpp = 4;
+      READ_BYTES_RGBA10(ifd, handle->planes[UHDR_PLANE_PACKED], handle->w, handle->h)
+      return true;
+    } else if (handle->fmt == UHDR_IMG_FMT_32bppRGBA8888) {
       const int bpp = 4;
       READ_BYTES(ifd, handle->planes[UHDR_PLANE_PACKED], handle->w * handle->h * bpp)
       return true;
