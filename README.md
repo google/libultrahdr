@@ -1,3 +1,13 @@
+## This is an experimental fork ##
+Most likely you are looking for the original: https://github.com/google/libultrahdr
+
+This replaces HDR raw reading of format RGBA 10+10+10+2 by format RGB 16+16+16 which can be written by most other tools.
+
+The upper 6 bits of each 16 bit channel are ignored in this version.
+
+Example:
+```magick imgfile.tif -depth 16 RGB:imgfile.raw```
+
 ## Introduction
 
 libultrahdr is an image compression library that uses gain map technology
