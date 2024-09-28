@@ -1,12 +1,17 @@
 ## This is an experimental fork ##
 Most likely you are looking for the original: https://github.com/google/libultrahdr
 
-This replaces HDR raw reading of format RGBA 10+10+10+2 by format RGB 16+16+16 which can be written by most other tools.
+This adds raw input image reading of format RGB 16+16+16 which can be written by most other tools.
 
-The upper 6 bits of each 16 bit channel are ignored in this version.
+The lower 6 bits of each 16 bit channel are ignored as internally it converts to 10+10+10+2 RGBA before HDR-JPEG conversion.
+
+RGB16+16+16 format is indicated by new command line parameter -a 13.
 
 Example:
-```magick imgfile.tif -depth 16 RGB:imgfile.raw```
+```
+magick imgfile.tif -depth 16 RGB:imgfile.raw
+ultrahdr_app -m 0 -p imgfile.raw -w RAWWIDTH -h RAWHEIGHT -a 13 -z outfile.jpg
+```
 
 ## Introduction
 
