@@ -13,7 +13,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  *
- * modified version supporting reading of raw RGB 16+16+16 with option -a 13, internally converted to 10+10+10+2
  */
 
 #ifdef _WIN32
@@ -141,7 +140,6 @@ class Profiler {
 
 /* reads RGB 16+16+16 bits which can be written by most tools
  * and converts to internal RGBA 10+10+10+2 bits by ignoring the lower 6 bits of each channel
- * example to create input raw file: magick imgin.tif -depth 16 RGB:imgout.raw
  * RGBA 10+10+10+2 format in memory: 32-bit little-endian: Red 9:0, Green 19:10, Blue 29:20, Alpha 31:30
  * 0: R7    ...    R0
  * 1: G5 ... G0 R9 R8
@@ -1398,7 +1396,7 @@ static void usage(const char* name) {
       stderr,
       "    -y    raw sdr intent input resource (8-bit), required for encoding scenarios 1, 2. \n");
   fprintf(stderr,
-          "    -a    raw hdr intent color format, optional. [0:p010, 5:rgba1010102 (default)] \n");
+          "    -a    raw hdr intent color format, optional. [0:p010, 5:rgba1010102 (default), 13:rgb161616 (ignoring lower 6 bits)] \n");
   fprintf(stderr,
           "    -b    raw sdr intent color format, optional. [1:yuv420, 3:rgba8888 (default)] \n");
   fprintf(stderr,
