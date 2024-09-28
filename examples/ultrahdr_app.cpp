@@ -12,6 +12,8 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
+ *
+ * modified version supporting reading of raw RGB 16+16+16 with option -a 13, internally converted to 10+10+10+2
  */
 
 #ifdef _WIN32
@@ -137,8 +139,16 @@ class Profiler {
 };
 #endif
 
-// reads RGBA 16+16+16 bits which can be written by imagemagick and converts to internal RGBA 10+10+10+2 bits
-#define READ_BYTES_RGBA10(DESC, ADDR, WIDTH, HEIGHT) \
+/* reads RGB 16+16+16 bits which can be written by most tools
+ * and converts to internal RGBA 10+10+10+2 bits by ignoring the lower 6 bits of each channel
+ * example to create input raw file: magick imgin.tif -depth 16 RGB:imgout.raw
+ * RGBA 10+10+10+2 format in memory: 32-bit little-endian: Red 9:0, Green 19:10, Blue 29:20, Alpha 31:30
+ * 0: R7    ...    R0
+ * 1: G5 ... G0 R9 R8
+ * 2: B3...B0 G9...G6
+ * 3: A1 A0 B9 ... B4
+ */
+#define READ_BYTES_RGB16(DESC, ADDR, WIDTH, HEIGHT) \
   char linebuffer[WIDTH*6]; \
   for(int l=0; l<HEIGHT; l++) { \
     DESC.read(linebuffer, WIDTH*6); \
@@ -147,23 +157,17 @@ class Profiler {
       return false; \
     } \
     for(int x=0; x<WIDTH; x++) { \
-      unsigned int r = linebuffer[6*x] << 8 | linebuffer[6*x+1]; \
-      unsigned int g = linebuffer[6*x+2] << 8 | linebuffer[6*x+3]; \
-      unsigned int b = linebuffer[6*x+4] << 8 | linebuffer[6*x+5]; \
-      (static_cast<char*>(ADDR))[4*WIDTH*l + 4*x] =     ((r & 0b0000111111) << 2); \
-      (static_cast<char*>(ADDR))[4*WIDTH*l + 4*x + 1] = ((g & 0b0000001111) << 4) | ((r & 0b1111000000) >> 6); \
-      (static_cast<char*>(ADDR))[4*WIDTH*l + 4*x + 2] = ((b & 0b0000000011) << 6) | ((g & 0b1111110000) >> 4); \
-      (static_cast<char*>(ADDR))[4*WIDTH*l + 4*x + 3] =                             ((b & 0b1111111100) >> 2); \
+      int r = ( (uint8_t)linebuffer[6*x]   + (((uint8_t)linebuffer[6*x+1])<<8) ) >> 6; \
+      int g = ( (uint8_t)linebuffer[6*x+2] + (((uint8_t)linebuffer[6*x+3])<<8) ) >> 6; \
+      int b = ( (uint8_t)linebuffer[6*x+4] + (((uint8_t)linebuffer[6*x+5])<<8) ) >> 6; \
+      (static_cast<char*>(ADDR))[4*WIDTH*l + 4*x]     = ((r & 0b0011111111)); \
+      (static_cast<char*>(ADDR))[4*WIDTH*l + 4*x + 1] = ((g & 0b0000111111) << 2) | ((r & 0b1100000000) >> 8); \
+      (static_cast<char*>(ADDR))[4*WIDTH*l + 4*x + 2] = ((b & 0b0000001111) << 4) | ((g & 0b1111000000) >> 6); \
+      (static_cast<char*>(ADDR))[4*WIDTH*l + 4*x + 3] =                             ((b & 0b1111110000) >> 4); \
     } \
   }
-/* RGBA 10+10+10+2 format in memory:
-0: R5 ... R0 A1 A0
-1: G3...G0 R9...R6
-2: B1 B0 G9 ... G4
-3: B9    ...    B2
-*/
 
-// reads RGBA 10+10+10+2 bits, can't be written by imagemagick
+// reads RGBA 10+10+10+2 bits
 #define READ_BYTES(DESC, ADDR, LEN)                                                             \
   DESC.read(static_cast<char*>(ADDR), (LEN));                                                   \
   if (DESC.gcount() != (LEN)) {                                                                 \
@@ -203,9 +207,15 @@ static bool loadFile(const char* filename, uhdr_raw_image_t* handle) {
       READ_BYTES(ifd, handle->planes[UHDR_PLANE_Y], handle->w * handle->h * bpp)
       READ_BYTES(ifd, handle->planes[UHDR_PLANE_UV], (handle->w / 2) * (handle->h / 2) * bpp * 2)
       return true;
-    } else if (handle->fmt == UHDR_IMG_FMT_32bppRGBA1010102) {
+    } else if (handle->fmt == UHDR_IMG_FMT_32bppRGBA1010102 ||
+               handle->fmt == UHDR_IMG_FMT_32bppRGBA8888) {
       const int bpp = 4;
-      READ_BYTES_RGBA10(ifd, handle->planes[UHDR_PLANE_PACKED], handle->w, handle->h)
+      READ_BYTES(ifd, handle->planes[UHDR_PLANE_PACKED], handle->w * handle->h * bpp)
+      return true;
+    } else if (handle->fmt == UHDR_IMG_FMT_48bppRGB161616) {
+      READ_BYTES_RGB16(ifd, handle->planes[UHDR_PLANE_PACKED], handle->w, handle->h)
+      // was converted by READ_BYTES_RGB16 to 10+10+10+2
+      handle->fmt = UHDR_IMG_FMT_32bppRGBA1010102;
       return true;
     } else if (handle->fmt == UHDR_IMG_FMT_32bppRGBA8888) {
       const int bpp = 4;
@@ -386,6 +396,7 @@ class UltraHdrAppInput {
   bool fillUhdrImageHandle();
   bool fillP010ImageHandle();
   bool fillRGBA1010102ImageHandle();
+  bool fillRGB161616ImageHandle();
   bool convertP010ToRGBImage();
   bool fillYuv420ImageHandle();
   bool fillRGBA8888ImageHandle();
@@ -414,7 +425,7 @@ class UltraHdrAppInput {
   const char* mOutputFile;
   const int mWidth;
   const int mHeight;
-  const uhdr_img_fmt_t mHdrCf;
+  uhdr_img_fmt_t mHdrCf;
   const uhdr_img_fmt_t mSdrCf;
   const uhdr_color_gamut_t mHdrCg;
   const uhdr_color_gamut_t mSdrCg;
@@ -486,6 +497,24 @@ bool UltraHdrAppInput::fillYuv420ImageHandle() {
 bool UltraHdrAppInput::fillRGBA1010102ImageHandle() {
   const int bpp = 4;
   mRawRgba1010102Image.fmt = UHDR_IMG_FMT_32bppRGBA1010102;
+  mRawRgba1010102Image.cg = mHdrCg;
+  mRawRgba1010102Image.ct = mHdrTf;
+  mRawRgba1010102Image.range = UHDR_CR_FULL_RANGE;
+  mRawRgba1010102Image.w = mWidth;
+  mRawRgba1010102Image.h = mHeight;
+  mRawRgba1010102Image.planes[UHDR_PLANE_PACKED] = malloc(mWidth * mHeight * bpp);
+  mRawRgba1010102Image.planes[UHDR_PLANE_UV] = nullptr;
+  mRawRgba1010102Image.planes[UHDR_PLANE_V] = nullptr;
+  mRawRgba1010102Image.stride[UHDR_PLANE_PACKED] = mWidth;
+  mRawRgba1010102Image.stride[UHDR_PLANE_UV] = 0;
+  mRawRgba1010102Image.stride[UHDR_PLANE_V] = 0;
+  return loadFile(mHdrIntentRawFile, &mRawRgba1010102Image);
+}
+
+bool UltraHdrAppInput::fillRGB161616ImageHandle() {
+  // will be converted in loadFile() to 10+10+10+2 format
+  const int bpp = 4;
+  mRawRgba1010102Image.fmt = UHDR_IMG_FMT_48bppRGB161616;
   mRawRgba1010102Image.cg = mHdrCg;
   mRawRgba1010102Image.ct = mHdrTf;
   mRawRgba1010102Image.range = UHDR_CR_FULL_RANGE;
@@ -639,6 +668,13 @@ bool UltraHdrAppInput::encode() {
         std::cerr << " failed to load file " << mHdrIntentRawFile << std::endl;
         return false;
       }
+    } else if (mHdrCf == UHDR_IMG_FMT_48bppRGB161616) {
+      if (!fillRGB161616ImageHandle()) {
+        std::cerr << " failed to load file " << mHdrIntentRawFile << std::endl;
+        return false;
+      }
+      // was converted by loadFile into 10+10+10+2
+      mHdrCf = UHDR_IMG_FMT_32bppRGBA1010102;
     } else {
       std::cerr << " invalid hdr intent color format " << mHdrCf << std::endl;
       return false;
