@@ -590,7 +590,7 @@ UHDR_EXTERN uhdr_error_info_t uhdr_enc_set_gainmap_gamma(uhdr_codec_private_t* e
     return status;
   }
 
-  if (gamma <= 0.0f) {
+  if (!std::isfinite(gamma) || gamma <= 0.0f) {
     status.error_code = UHDR_CODEC_INVALID_PARAM;
     status.has_detail = 1;
     snprintf(status.detail, sizeof status.detail, "unsupported gainmap gamma %f, expects to be > 0",
@@ -660,6 +660,16 @@ uhdr_error_info_t uhdr_enc_set_min_max_content_boost(uhdr_codec_private_t* enc, 
     return status;
   }
 
+  if (!std::isfinite(min_boost) || !std::isfinite(max_boost)) {
+    status.error_code = UHDR_CODEC_INVALID_PARAM;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "received an argument with value either NaN or infinite. Configured min boost %f, "
+             "max boost %f",
+             max_boost, min_boost);
+    return status;
+  }
+
   if (max_boost < min_boost) {
     status.error_code = UHDR_CODEC_INVALID_PARAM;
     status.has_detail = 1;
@@ -670,11 +680,11 @@ uhdr_error_info_t uhdr_enc_set_min_max_content_boost(uhdr_codec_private_t* enc, 
     return status;
   }
 
-  if (min_boost < 0) {
+  if (min_boost <= 0.0f) {
     status.error_code = UHDR_CODEC_INVALID_PARAM;
     status.has_detail = 1;
     snprintf(status.detail, sizeof status.detail,
-             "Invalid min boost configuration. configured min boost %f is less than 0", min_boost);
+             "Invalid min boost configuration %f, expects > 0.0f", min_boost);
     return status;
   }
 
@@ -928,12 +938,31 @@ uhdr_error_info_t uhdr_enc_set_gainmap_image(uhdr_codec_private_t* enc,
     status.has_detail = 1;
     snprintf(status.detail, sizeof status.detail,
              "received nullptr for gainmap metadata descriptor");
+  } else if (!std::isfinite(metadata->min_content_boost) ||
+             !std::isfinite(metadata->max_content_boost) || !std::isfinite(metadata->offset_sdr) ||
+             !std::isfinite(metadata->offset_hdr) || !std::isfinite(metadata->hdr_capacity_min) ||
+             !std::isfinite(metadata->hdr_capacity_max) || !std::isfinite(metadata->gamma)) {
+    status.error_code = UHDR_CODEC_INVALID_PARAM;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "received an argument with value either NaN or infinite. min content boost %f, max "
+             "content boost %f, offset sdr %f, offset hdr %f, hdr capacity min %f, hdr capacity "
+             "max %f, gamma %f",
+             metadata->min_content_boost, metadata->max_content_boost, metadata->offset_sdr,
+             metadata->offset_hdr, metadata->hdr_capacity_min, metadata->hdr_capacity_max,
+             metadata->gamma);
   } else if (metadata->max_content_boost < metadata->min_content_boost) {
     status.error_code = UHDR_CODEC_INVALID_PARAM;
     status.has_detail = 1;
     snprintf(status.detail, sizeof status.detail,
              "received bad value for content boost min %f > max %f", metadata->min_content_boost,
              metadata->max_content_boost);
+  } else if (metadata->min_content_boost <= 0.0f) {
+    status.error_code = UHDR_CODEC_INVALID_PARAM;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "received bad value for min boost %f, expects > 0.0f", metadata->min_content_boost);
+    return status;
   } else if (metadata->gamma <= 0.0f) {
     status.error_code = UHDR_CODEC_INVALID_PARAM;
     status.has_detail = 1;
@@ -1425,7 +1454,7 @@ uhdr_error_info_t uhdr_dec_set_out_max_display_boost(uhdr_codec_private_t* dec,
     status.error_code = UHDR_CODEC_INVALID_PARAM;
     status.has_detail = 1;
     snprintf(status.detail, sizeof status.detail, "received nullptr for uhdr codec instance");
-  } else if (display_boost < 1.0f) {
+  } else if (!std::isfinite(display_boost) || display_boost < 1.0f) {
     status.error_code = UHDR_CODEC_INVALID_PARAM;
     status.has_detail = 1;
     snprintf(status.detail, sizeof status.detail,
