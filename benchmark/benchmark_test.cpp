@@ -16,133 +16,147 @@
 
 #include <fstream>
 #include <iostream>
+#include <cstring>
 
 #include <benchmark/benchmark.h>
 
-#include "ultrahdr/jpegrutils.h"
-
-using namespace ultrahdr;
+#include "ultrahdr_api.h"
 
 #ifdef __ANDROID__
-std::string kTestImagesPath = "/sdcard/test/UltrahdrBenchmarkTestRes-1.0/";
-#else
-std::string kTestImagesPath = "./data/UltrahdrBenchmarkTestRes-1.0/";
+std::string kTestImagesPath = "/sdcard/test/UltrahdrBenchmarkTestRes-1.1/";
+
+#ifdef LOG_NDEBUG
+#include "android/log.h"
+
+#ifndef LOG_TAG
+#define LOG_TAG "UHDR_BENCHMARK"
 #endif
 
-std::vector<std::string> kDecodeAPITestImages{
-    // 12mp test vectors
-    "mountains.jpg",
-    "mountain_lake.jpg",
-    "desert_wanda.jpg",
-    // 3mp test vectors
-    "mountains_3mp.jpg",
-    "mountain_lake_3mp.jpg",
-    "desert_wanda_3mp.jpg",
+#ifndef ALOGE
+#define ALOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
+#endif
+
+#else
+#define ALOGE(...) ((void)0)
+#endif
+
+#else
+std::string kTestImagesPath = "./data/UltrahdrBenchmarkTestRes-1.1/";
+
+#ifdef LOG_NDEBUG
+#include <cstdio>
+
+#define ALOGE(...)                \
+  do {                            \
+    fprintf(stderr, __VA_ARGS__); \
+    fprintf(stderr, "\n");        \
+  } while (0)
+
+#else
+#define ALOGE(...) ((void)0)
+#endif
+
+#endif
+
+std::vector<std::string> kDecodeAPITestImages = {
+    "mountains_singlechannelgainmap.jpg",
+    "mountains_multichannelgainmap.jpg",
+    "mountains_singlechannelgamma.jpg",
+    "mountains_multichannelgamma.jpg",
 };
 
-std::vector<std::string> kEncodeApi0TestImages12MpName{
-    // 12mp test vectors
-    "mountains.p010",
-    "mountain_lake.p010",
+std::vector<std::string> kEncodeApi0TestImages12MpName = {
+    "mountains_rgba1010102.raw",
+    "mountains_p010.p010",
 };
 
-std::vector<std::string> kEncodeApi0TestImages3MpName{
-    // 3mp test vectors
-    "mountains_3mp.p010",
-    "mountain_lake_3mp.p010",
+std::vector<std::pair<std::string, std::string>> kEncodeApi1TestImages12MpName = {
+    {"mountains_rgba1010102.raw", "mountains_rgba8888.raw"},
+    {"mountains_p010.p010", "mountains_yuv420.yuv"},
 };
 
-std::vector<std::pair<std::string, std::string>> kEncodeApi1TestImages12MpName{
-    // 12mp test vectors
-    {"mountains.p010", "mountains.yuv"},
-    {"mountain_lake.p010", "mountain_lake.yuv"},
-};
+using TestParamsDecodeAPI = std::tuple<std::string, uhdr_color_transfer_t, uhdr_img_fmt_t, bool>;
+using TestParamsEncoderAPI0 =
+    std::tuple<std::string, int, int, uhdr_color_gamut_t, uhdr_color_transfer_t, int, float>;
+using TestParamsEncoderAPI1 =
+    std::tuple<std::string, std::string, int, int, uhdr_color_gamut_t, uhdr_color_transfer_t,
+               uhdr_color_gamut_t, int, float, uhdr_enc_preset_t>;
 
-std::vector<std::pair<std::string, std::string>> kEncodeApi1TestImages3MpName{
-    // 3mp test vectors
-    {"mountains_3mp.p010", "mountains_3mp.yuv"},
-    {"mountain_lake_3mp.p010", "mountain_lake_3mp.yuv"},
-};
+std::vector<TestParamsDecodeAPI> testParamsDecodeAPI;
+std::vector<TestParamsEncoderAPI0> testParamsAPI0;
+std::vector<TestParamsEncoderAPI1> testParamsAPI1;
 
-std::vector<std::tuple<std::string, std::string, std::string>> kEncodeApi2TestImages12MpName{
-    // 12mp test vectors
-    {"mountains.p010", "mountains.yuv", "mountains.jpg"},
-    {"mountain_lake.p010", "mountain_lake.yuv", "mountain_lake.jpg"},
-};
-
-std::vector<std::tuple<std::string, std::string, std::string>> kEncodeApi2TestImages3MpName{
-    // 3mp test vectors
-    {"mountains_3mp.p010", "mountains_3mp.yuv", "mountains_3mp.jpg"},
-    {"mountain_lake_3mp.p010", "mountain_lake_3mp.yuv", "mountain_lake_3mp.jpg"},
-};
-
-std::vector<std::pair<std::string, std::string>> kEncodeApi3TestImages12MpName{
-    // 12mp test vectors
-    {"mountains.p010", "mountains.jpg"},
-    {"mountain_lake.p010", "mountain_lake.jpg"},
-};
-
-std::vector<std::pair<std::string, std::string>> kEncodeApi3TestImages3MpName{
-    // 3mp test vectors
-    {"mountains_3mp.p010", "mountains_3mp.jpg"},
-    {"mountain_lake_3mp.p010", "mountain_lake_3mp.jpg"},
-};
-
-std::vector<std::string> kEncodeApi4TestImages12MpName{
-    // 12mp test vectors
-    "mountains.jpg",
-    "mountain_lake.jpg",
-    "desert_wanda.jpg",
-};
-
-std::vector<std::string> kEncodeApi4TestImages3MpName{
-    // 3mp test vectors
-    "mountains_3mp.jpg",
-    "mountain_lake_3mp.jpg",
-    "desert_wanda_3mp.jpg",
-};
-
-std::string ofToString(const ultrahdr_output_format of) {
+std::string imgFmtToString(const uhdr_img_fmt of) {
   switch (of) {
-    case ULTRAHDR_OUTPUT_SDR:
-      return "sdr";
-    case ULTRAHDR_OUTPUT_HDR_LINEAR:
-      return "hdr linear";
-    case ULTRAHDR_OUTPUT_HDR_PQ:
-      return "hdr pq";
-    case ULTRAHDR_OUTPUT_HDR_HLG:
-      return "hdr hlg";
+    case UHDR_IMG_FMT_32bppRGBA8888:
+      return "rgba8888";
+    case UHDR_IMG_FMT_64bppRGBAHalfFloat:
+      return "64rgbaHalftoFloat";
+    case UHDR_IMG_FMT_32bppRGBA1010102:
+      return "rgba1010102";
     default:
       return "Unknown";
   }
 }
 
-std::string colorGamutToString(const ultrahdr_color_gamut cg) {
+std::string colorGamutToString(const uhdr_color_gamut_t cg) {
   switch (cg) {
-    case ULTRAHDR_COLORGAMUT_BT709:
+    case UHDR_CG_BT_709:
       return "bt709";
-    case ULTRAHDR_COLORGAMUT_P3:
+    case UHDR_CG_DISPLAY_P3:
       return "p3";
-    case ULTRAHDR_COLORGAMUT_BT2100:
+    case UHDR_CG_BT_2100:
       return "bt2100";
     default:
       return "Unknown";
   }
 }
 
-std::string tfToString(const ultrahdr_transfer_function of) {
+std::string tfToString(const uhdr_color_transfer_t of) {
   switch (of) {
-    case ULTRAHDR_TF_LINEAR:
+    case UHDR_CT_LINEAR:
       return "linear";
-    case ULTRAHDR_TF_HLG:
+    case UHDR_CT_HLG:
       return "hlg";
-    case ULTRAHDR_TF_PQ:
+    case UHDR_CT_PQ:
       return "pq";
-    case ULTRAHDR_TF_SRGB:
+    case UHDR_CT_SRGB:
       return "srgb";
     default:
       return "Unknown";
   }
+}
+
+#define READ_BYTES(DESC, ADDR, LEN)                                         \
+  DESC.read(static_cast<char*>(ADDR), (LEN));                               \
+  if (DESC.gcount() != (LEN)) {                                             \
+    ALOGE("Failed to read: %u bytes, read: %zu bytes", LEN, DESC.gcount()); \
+    return false;                                                           \
+  }
+
+static bool loadFile(const char* filename, uhdr_raw_image_t* handle) {
+  std::ifstream ifd(filename, std::ios::binary);
+  if (ifd.good()) {
+    if (handle->fmt == UHDR_IMG_FMT_24bppYCbCrP010) {
+      const int bpp = 2;
+      READ_BYTES(ifd, handle->planes[UHDR_PLANE_Y], handle->w * handle->h * bpp)
+      READ_BYTES(ifd, handle->planes[UHDR_PLANE_UV], (handle->w / 2) * (handle->h / 2) * bpp * 2)
+      return true;
+    } else if (handle->fmt == UHDR_IMG_FMT_32bppRGBA1010102 ||
+               handle->fmt == UHDR_IMG_FMT_32bppRGBA8888) {
+      const int bpp = 4;
+      READ_BYTES(ifd, handle->planes[UHDR_PLANE_PACKED], handle->w * handle->h * bpp)
+      return true;
+    } else if (handle->fmt == UHDR_IMG_FMT_12bppYCbCr420) {
+      READ_BYTES(ifd, handle->planes[UHDR_PLANE_Y], handle->w * handle->h)
+      READ_BYTES(ifd, handle->planes[UHDR_PLANE_U], (handle->w / 2) * (handle->h / 2))
+      READ_BYTES(ifd, handle->planes[UHDR_PLANE_V], (handle->w / 2) * (handle->h / 2))
+      return true;
+    }
+    return false;
+  }
+  ALOGE("Unable to open file: %s", filename);
+  return false;
 }
 
 static bool loadFile(const char* filename, void*& result, int length) {
@@ -150,499 +164,366 @@ static bool loadFile(const char* filename, void*& result, int length) {
   if (ifd.good()) {
     int size = ifd.tellg();
     if (size < length) {
-      std::cerr << "requested to read " << length << " bytes from file : " << filename
-                << ", file contains only " << size << " bytes" << std::endl;
+      ALOGE("Requested to read %d bytes from file: %s, file contains only %d bytes", length,
+            filename, size);
       return false;
     }
     ifd.seekg(0, std::ios::beg);
-    result = new uint8_t[length];
+    result = malloc(length);
     if (result == nullptr) {
-      std::cerr << "failed to allocate memory to store contents of file : " << filename
-                << std::endl;
+      ALOGE("Failed to allocate memory to store contents of file: %s", filename);
       return false;
     }
-    ifd.read(static_cast<char*>(result), length);
+    READ_BYTES(ifd, result, length)
     return true;
   }
-  std::cerr << "unable to open file : " << filename << std::endl;
+  ALOGE("Unable to open file: %s", filename);
   return false;
 }
 
-bool fillRawImageHandle(jpegr_uncompressed_struct* rawImage, int width, int height,
-                        std::string file, ultrahdr_color_gamut cg, bool isP010) {
-  const int bpp = isP010 ? 2 : 1;
-  int imgSize = width * height * bpp * 1.5;
-  rawImage->width = width;
-  rawImage->height = height;
-  rawImage->colorGamut = cg;
-  return loadFile(file.c_str(), rawImage->data, imgSize);
-}
+class DecBenchmark {
+ public:
+  std::string mUhdrFile;
+  uhdr_color_transfer_t mTf;
+  uhdr_img_fmt_t mOfmt;
+  bool mEnableGLES;
 
-bool fillJpgImageHandle(jpegr_compressed_struct* jpgImg, std::string file,
-                        ultrahdr_color_gamut colorGamut) {
-  std::ifstream ifd(file.c_str(), std::ios::binary | std::ios::ate);
-  if (!ifd.good()) {
-    return false;
+  uhdr_compressed_image_t mUhdrImg{};
+
+  DecBenchmark(TestParamsDecodeAPI testParams) {
+    mUhdrFile = std::get<0>(testParams);
+    mTf = std::get<1>(testParams);
+    mOfmt = std::get<2>(testParams);
+    mEnableGLES = std::get<3>(testParams);
   }
-  int size = ifd.tellg();
-  jpgImg->length = size;
-  jpgImg->maxLength = size;
-  jpgImg->data = nullptr;
-  jpgImg->colorGamut = colorGamut;
-  ifd.close();
-  return loadFile(file.c_str(), jpgImg->data, size);
-}
-
-static void BM_Decode(benchmark::State& s) {
-  std::string srcFileName = kTestImagesPath + "jpegr/" + kDecodeAPITestImages[s.range(0)];
-  ultrahdr_output_format of = static_cast<ultrahdr_output_format>(s.range(1));
-
-  std::ifstream ifd(srcFileName.c_str(), std::ios::binary | std::ios::ate);
-  if (!ifd.good()) {
-    s.SkipWithError("unable to open file " + srcFileName);
-    return;
-  }
-  int size = ifd.tellg();
-
-  jpegr_compressed_struct jpegImgR{};
-  jpegImgR.length = size;
-  jpegImgR.maxLength = size;
-  jpegImgR.data = nullptr;
-  jpegImgR.colorGamut = ULTRAHDR_COLORGAMUT_UNSPECIFIED;
-  ifd.close();
-  if (!loadFile(srcFileName.c_str(), jpegImgR.data, size)) {
-    s.SkipWithError("unable to load file " + srcFileName);
-    return;
-  }
-
-  std::unique_ptr<uint8_t[]> compData;
-  compData.reset(reinterpret_cast<uint8_t*>(jpegImgR.data));
-
-  JpegR jpegHdr;
-  jpegr_info_struct info{};
-  status_t status = jpegHdr.getJPEGRInfo(&jpegImgR, &info);
-  if (JPEGR_NO_ERROR != status) {
-    s.SkipWithError("getJPEGRInfo returned with error " + std::to_string(status));
-    return;
-  }
-
-  size_t outSize = info.width * info.height * ((of == ULTRAHDR_OUTPUT_HDR_LINEAR) ? 8 : 4);
-  std::unique_ptr<uint8_t[]> data = std::make_unique<uint8_t[]>(outSize);
-  jpegr_uncompressed_struct destImage{};
-  destImage.data = data.get();
-  for (auto _ : s) {
-    status = jpegHdr.decodeJPEGR(&jpegImgR, &destImage, FLT_MAX, nullptr, of);
-    if (JPEGR_NO_ERROR != status) {
-      s.SkipWithError("decodeJPEGR returned with error " + std::to_string(status));
-      return;
-    }
-  }
-  if (info.width != destImage.width || info.height != destImage.height) {
-    s.SkipWithError("received unexpected width/height");
-    return;
-  }
-
-  s.SetLabel(srcFileName + ", OutputFormat: " + ofToString(of) + ", " + std::to_string(info.width) +
-             "x" + std::to_string(info.height));
-}
-
-static void BM_Encode_Api0(benchmark::State& s, std::vector<std::string> testVectors) {
-  int width = s.range(1);
-  int height = s.range(2);
-  ultrahdr_color_gamut p010Cg = static_cast<ultrahdr_color_gamut>(s.range(3));
-  ultrahdr_transfer_function tf = static_cast<ultrahdr_transfer_function>(s.range(4));
-
-  s.SetLabel(testVectors[s.range(0)] + ", " + colorGamutToString(p010Cg) + ", " + tfToString(tf) +
-             ", " + std::to_string(width) + "x" + std::to_string(height));
-
-  std::string p010File{kTestImagesPath + "p010/" + testVectors[s.range(0)]};
-
-  jpegr_uncompressed_struct rawP010Image{};
-  if (!fillRawImageHandle(&rawP010Image, width, height, p010File, p010Cg, true)) {
-    s.SkipWithError("unable to load file : " + p010File);
-    return;
-  }
-  std::unique_ptr<uint8_t[]> rawP010ImgData;
-  rawP010ImgData.reset(reinterpret_cast<uint8_t*>(rawP010Image.data));
-
-  jpegr_compressed_struct jpegImgR{};
-  jpegImgR.maxLength = (std::max)(static_cast<size_t>(8 * 1024) /* min size 8kb */,
-                                  rawP010Image.width * rawP010Image.height * 3 * 2);
-  jpegImgR.data = new uint8_t[jpegImgR.maxLength];
-  if (jpegImgR.data == nullptr) {
-    s.SkipWithError("unable to allocate memory to store compressed image");
-    return;
-  }
-  std::unique_ptr<uint8_t[]> jpegImgRData;
-  jpegImgRData.reset(reinterpret_cast<uint8_t*>(jpegImgR.data));
-
-  JpegR jpegHdr;
-  for (auto _ : s) {
-    status_t status = jpegHdr.encodeJPEGR(&rawP010Image, tf, &jpegImgR, 95, nullptr);
-    if (JPEGR_NO_ERROR != status) {
-      s.SkipWithError("encodeJPEGR returned with error : " + std::to_string(status));
-      return;
-    }
-  }
-}
-
-static void BM_Encode_Api1(benchmark::State& s,
-                           std::vector<std::pair<std::string, std::string>> testVectors) {
-  int width = s.range(1);
-  int height = s.range(2);
-  ultrahdr_color_gamut p010Cg = static_cast<ultrahdr_color_gamut>(s.range(3));
-  ultrahdr_color_gamut yuv420Cg = static_cast<ultrahdr_color_gamut>(s.range(4));
-  ultrahdr_transfer_function tf = static_cast<ultrahdr_transfer_function>(s.range(5));
-
-  s.SetLabel(testVectors[s.range(0)].first + ", " + testVectors[s.range(0)].second + ", " +
-             "p010_" + colorGamutToString(p010Cg) + ", " + "yuv420_" +
-             colorGamutToString(yuv420Cg) + ", " + tfToString(tf) + ", " + std::to_string(width) +
-             "x" + std::to_string(height));
-
-  std::string p010File{kTestImagesPath + "p010/" + testVectors[s.range(0)].first};
-
-  jpegr_uncompressed_struct rawP010Image{};
-  if (!fillRawImageHandle(&rawP010Image, width, height, p010File, p010Cg, true)) {
-    s.SkipWithError("unable to load file : " + p010File);
-    return;
-  }
-  std::unique_ptr<uint8_t[]> rawP010ImgData;
-  rawP010ImgData.reset(reinterpret_cast<uint8_t*>(rawP010Image.data));
-
-  std::string yuv420File{kTestImagesPath + "yuv420/" + testVectors[s.range(0)].second};
-
-  jpegr_uncompressed_struct rawYuv420Image{};
-  if (!fillRawImageHandle(&rawYuv420Image, width, height, yuv420File, yuv420Cg, false)) {
-    s.SkipWithError("unable to load file : " + yuv420File);
-    return;
-  }
-  std::unique_ptr<uint8_t[]> rawYuv420ImgData;
-  rawYuv420ImgData.reset(reinterpret_cast<uint8_t*>(rawYuv420Image.data));
-
-  jpegr_compressed_struct jpegImgR{};
-  jpegImgR.maxLength = (std::max)(static_cast<size_t>(8 * 1024) /* min size 8kb */,
-                                  rawP010Image.width * rawP010Image.height * 3 * 2);
-  jpegImgR.data = new uint8_t[jpegImgR.maxLength];
-
-  std::unique_ptr<uint8_t[]> jpegImgRData;
-  jpegImgRData.reset(reinterpret_cast<uint8_t*>(jpegImgR.data));
-
-  JpegR jpegHdr;
-  for (auto _ : s) {
-    status_t status =
-        jpegHdr.encodeJPEGR(&rawP010Image, &rawYuv420Image, tf, &jpegImgR, 95, nullptr);
-    if (JPEGR_NO_ERROR != status) {
-      s.SkipWithError("encodeJPEGR returned with error : " + std::to_string(status));
-      return;
-    }
-  }
-}
-
-static void BM_Encode_Api2(
-    benchmark::State& s,
-    std::vector<std::tuple<std::string, std::string, std::string>> testVectors) {
-  int width = s.range(1);
-  int height = s.range(2);
-  ultrahdr_color_gamut p010Cg = static_cast<ultrahdr_color_gamut>(s.range(3));
-  ultrahdr_transfer_function tf = static_cast<ultrahdr_transfer_function>(s.range(4));
-
-  s.SetLabel(std::get<0>(testVectors[s.range(0)]) + ", " + std::get<1>(testVectors[s.range(0)]) +
-             ", " + std::get<2>(testVectors[s.range(0)]) + ", " + colorGamutToString(p010Cg) +
-             ", " + tfToString(tf) + ", " + std::to_string(width) + "x" + std::to_string(height));
-
-  std::string p010File{kTestImagesPath + "p010/" + std::get<0>(testVectors[s.range(0)])};
-
-  jpegr_uncompressed_struct rawP010Image{};
-  if (!fillRawImageHandle(&rawP010Image, width, height, p010File, p010Cg, true)) {
-    s.SkipWithError("unable to load file : " + p010File);
-    return;
-  }
-  std::unique_ptr<uint8_t[]> rawP010ImgData;
-  rawP010ImgData.reset(reinterpret_cast<uint8_t*>(rawP010Image.data));
-
-  std::string yuv420File{kTestImagesPath + "yuv420/" + std::get<1>(testVectors[s.range(0)])};
-
-  jpegr_uncompressed_struct rawYuv420Image{};
-  if (!fillRawImageHandle(&rawYuv420Image, width, height, yuv420File, ULTRAHDR_COLORGAMUT_P3,
-                          false)) {
-    s.SkipWithError("unable to load file : " + yuv420File);
-    return;
-  }
-  std::unique_ptr<uint8_t[]> rawYuv420ImgData;
-  rawYuv420ImgData.reset(reinterpret_cast<uint8_t*>(rawYuv420Image.data));
-
-  std::string yuv420JpegFile{
-      (kTestImagesPath + "yuv420jpeg/" + std::get<2>(testVectors[s.range(0)]))};
-
-  jpegr_compressed_struct yuv420JpegImage{};
-  if (!fillJpgImageHandle(&yuv420JpegImage, yuv420JpegFile, ULTRAHDR_COLORGAMUT_P3)) {
-    s.SkipWithError("unable to load file : " + yuv420JpegFile);
-    return;
-  }
-  std::unique_ptr<uint8_t[]> yuv420jpegImgData;
-  yuv420jpegImgData.reset(reinterpret_cast<uint8_t*>(yuv420JpegImage.data));
-
-  jpegr_compressed_struct jpegImgR{};
-  jpegImgR.maxLength = (std::max)(static_cast<size_t>(8 * 1024) /* min size 8kb */,
-                                  rawP010Image.width * rawP010Image.height * 3 * 2);
-  jpegImgR.data = new uint8_t[jpegImgR.maxLength];
-  if (jpegImgR.data == nullptr) {
-    s.SkipWithError("unable to allocate memory to store compressed image");
-    return;
-  }
-  std::unique_ptr<uint8_t[]> jpegImgRData;
-  jpegImgRData.reset(reinterpret_cast<uint8_t*>(jpegImgR.data));
-
-  JpegR jpegHdr;
-  for (auto _ : s) {
-    status_t status =
-        jpegHdr.encodeJPEGR(&rawP010Image, &rawYuv420Image, &yuv420JpegImage, tf, &jpegImgR);
-    if (JPEGR_NO_ERROR != status) {
-      s.SkipWithError("encodeJPEGR returned with error : " + std::to_string(status));
-      return;
-    }
-  }
-}
-
-static void BM_Encode_Api3(benchmark::State& s,
-                           std::vector<std::pair<std::string, std::string>> testVectors) {
-  int width = s.range(1);
-  int height = s.range(2);
-  ultrahdr_color_gamut p010Cg = static_cast<ultrahdr_color_gamut>(s.range(3));
-  ultrahdr_transfer_function tf = static_cast<ultrahdr_transfer_function>(s.range(4));
-
-  s.SetLabel(testVectors[s.range(0)].first + ", " + testVectors[s.range(0)].second + ", " +
-             colorGamutToString(p010Cg) + ", " + tfToString(tf) + ", " + std::to_string(width) +
-             "x" + std::to_string(height));
-
-  std::string p010File{kTestImagesPath + "p010/" + testVectors[s.range(0)].first};
-
-  jpegr_uncompressed_struct rawP010Image{};
-  if (!fillRawImageHandle(&rawP010Image, width, height, p010File, p010Cg, true)) {
-    s.SkipWithError("unable to load file : " + p010File);
-    return;
-  }
-  std::unique_ptr<uint8_t[]> rawP010ImgData;
-  rawP010ImgData.reset(reinterpret_cast<uint8_t*>(rawP010Image.data));
-
-  std::string yuv420JpegFile{(kTestImagesPath + "yuv420jpeg/" + testVectors[s.range(0)].second)};
-
-  jpegr_compressed_struct yuv420JpegImage{};
-  if (!fillJpgImageHandle(&yuv420JpegImage, yuv420JpegFile, ULTRAHDR_COLORGAMUT_P3)) {
-    s.SkipWithError("unable to load file : " + yuv420JpegFile);
-    return;
-  }
-  std::unique_ptr<uint8_t[]> yuv420jpegImgData;
-  yuv420jpegImgData.reset(reinterpret_cast<uint8_t*>(yuv420JpegImage.data));
-
-  jpegr_compressed_struct jpegImgR{};
-  jpegImgR.maxLength = (std::max)(static_cast<size_t>(8 * 1024) /* min size 8kb */,
-                                  rawP010Image.width * rawP010Image.height * 3 * 2);
-  jpegImgR.data = new uint8_t[jpegImgR.maxLength];
-  if (jpegImgR.data == nullptr) {
-    s.SkipWithError("unable to allocate memory to store compressed image");
-    return;
-  }
-  std::unique_ptr<uint8_t[]> jpegImgRData;
-  jpegImgRData.reset(reinterpret_cast<uint8_t*>(jpegImgR.data));
-
-  JpegR jpegHdr;
-  for (auto _ : s) {
-    status_t status = jpegHdr.encodeJPEGR(&rawP010Image, &yuv420JpegImage, tf, &jpegImgR);
-    if (JPEGR_NO_ERROR != status) {
-      s.SkipWithError("encodeJPEGR returned with error : " + std::to_string(status));
-      return;
-    }
-  }
-}
-
-static void BM_Encode_Api4(benchmark::State& s) {
-  std::string srcFileName = kTestImagesPath + "jpegr/" + kDecodeAPITestImages[s.range(0)];
-
-  std::ifstream ifd(srcFileName.c_str(), std::ios::binary | std::ios::ate);
-  if (!ifd.good()) {
-    s.SkipWithError("unable to open file " + srcFileName);
-    return;
-  }
-  int size = ifd.tellg();
-
-  jpegr_compressed_struct inpJpegImgR{};
-  inpJpegImgR.length = size;
-  inpJpegImgR.maxLength = size;
-  inpJpegImgR.data = nullptr;
-  inpJpegImgR.colorGamut = ULTRAHDR_COLORGAMUT_UNSPECIFIED;
-  ifd.close();
-  if (!loadFile(srcFileName.c_str(), inpJpegImgR.data, size)) {
-    s.SkipWithError("unable to load file " + srcFileName);
-    return;
-  }
-  std::unique_ptr<uint8_t[]> inpJpegImgRData;
-  inpJpegImgRData.reset(reinterpret_cast<uint8_t*>(inpJpegImgR.data));
-
-  JpegR jpegHdr;
-  jpeg_info_struct primaryImgInfo;
-  jpeg_info_struct gainmapImgInfo;
-  jpegr_info_struct info{};
-  info.primaryImgInfo = &primaryImgInfo;
-  info.gainmapImgInfo = &gainmapImgInfo;
-  status_t status = jpegHdr.getJPEGRInfo(&inpJpegImgR, &info);
-  if (JPEGR_NO_ERROR != status) {
-    s.SkipWithError("getJPEGRInfo returned with error " + std::to_string(status));
-    return;
-  }
-
-  jpegr_compressed_struct jpegImgR{};
-  jpegImgR.maxLength = (std::max)(static_cast<size_t>(8 * 1024) /* min size 8kb */,
-                                  info.width * info.height * 3 * 2);
-  jpegImgR.data = new uint8_t[jpegImgR.maxLength];
-  if (jpegImgR.data == nullptr) {
-    s.SkipWithError("unable to allocate memory to store compressed image");
-    return;
-  }
-  std::unique_ptr<uint8_t[]> jpegImgRData;
-  jpegImgRData.reset(reinterpret_cast<uint8_t*>(jpegImgR.data));
-
-  jpegr_compressed_struct primaryImg;
-  primaryImg.data = primaryImgInfo.imgData.data();
-  primaryImg.maxLength = primaryImg.length = primaryImgInfo.imgData.size();
-  primaryImg.colorGamut = static_cast<ultrahdr_color_gamut>(s.range(1));
-  jpegr_compressed_struct gainmapImg;
-  gainmapImg.data = gainmapImgInfo.imgData.data();
-  gainmapImg.maxLength = gainmapImg.length = gainmapImgInfo.imgData.size();
-  gainmapImg.colorGamut = ULTRAHDR_COLORGAMUT_UNSPECIFIED;
-  uhdr_gainmap_metadata_ext_t meta;
-  if (getMetadataFromXMP(gainmapImgInfo.xmpData.data(), gainmapImgInfo.xmpData.size(), &meta)
-          .error_code != UHDR_CODEC_OK) {
-    s.SkipWithError("getMetadataFromXMP returned with error");
-    return;
-  }
-  ultrahdr_metadata_struct uhdr_metadata;
-  uhdr_metadata.version = meta.version;
-  uhdr_metadata.hdrCapacityMax = meta.hdr_capacity_max;
-  uhdr_metadata.hdrCapacityMin = meta.hdr_capacity_min;
-  uhdr_metadata.gamma = meta.gamma;
-  uhdr_metadata.offsetSdr = meta.offset_sdr;
-  uhdr_metadata.offsetHdr = meta.offset_hdr;
-  uhdr_metadata.maxContentBoost = meta.max_content_boost;
-  uhdr_metadata.minContentBoost = meta.min_content_boost;
-  for (auto _ : s) {
-    status = jpegHdr.encodeJPEGR(&primaryImg, &gainmapImg, &uhdr_metadata, &jpegImgR);
-    if (JPEGR_NO_ERROR != status) {
-      s.SkipWithError("encodeJPEGR returned with error " + std::to_string(status));
-      return;
+  ~DecBenchmark() {
+    if (mUhdrImg.data) {
+      free(mUhdrImg.data);
+      mUhdrImg.data = nullptr;
     }
   }
 
-  s.SetLabel(srcFileName + ", " + std::to_string(info.width) + "x" + std::to_string(info.height));
+  bool fillJpegImageHandle(uhdr_compressed_image_t* uhdrImg, std::string mUhdrFile);
+};
+
+bool DecBenchmark::fillJpegImageHandle(uhdr_compressed_image_t* uhdrImg, std::string filename) {
+  std::ifstream ifd(filename, std::ios::binary | std::ios::ate);
+  if (ifd.good()) {
+    int size = ifd.tellg();
+    uhdrImg->capacity = size;
+    uhdrImg->data_sz = size;
+    uhdrImg->data = nullptr;
+    uhdrImg->cg = UHDR_CG_UNSPECIFIED;
+    uhdrImg->ct = UHDR_CT_UNSPECIFIED;
+    uhdrImg->range = UHDR_CR_UNSPECIFIED;
+    ifd.close();
+    return loadFile(filename.c_str(), uhdrImg->data, size);
+  }
+  return false;
 }
 
-BENCHMARK(BM_Decode)
-    ->ArgsProduct({{benchmark::CreateDenseRange(0, kDecodeAPITestImages.size() - 1, 1)},
-                   {ULTRAHDR_OUTPUT_HDR_HLG, ULTRAHDR_OUTPUT_HDR_PQ, ULTRAHDR_OUTPUT_SDR}})
-    ->Unit(benchmark::kMillisecond);
+class EncBenchmark {
+ public:
+  std::string mHdrFile, mSdrFile;
+  uhdr_color_gamut_t mHdrCg, mSdrCg;
+  uhdr_img_fmt_t mHdrCf, mSdrCf;
+  int mWidth, mHeight;
+  uhdr_color_transfer_t mHdrCt, mSdrCt = UHDR_CT_SRGB;
+  int mUseMultiChannelGainMap;
+  int mMapDimensionScaleFactor = 1;
+  float mGamma;
+  uhdr_enc_preset_t mEncPreset;
 
-BENCHMARK_CAPTURE(BM_Encode_Api0, TestVectorName, kEncodeApi0TestImages12MpName)
-    ->ArgsProduct({{benchmark::CreateDenseRange(0, kEncodeApi0TestImages12MpName.size() - 1, 1)},
-                   {4080},
-                   {3072},
-                   {ULTRAHDR_COLORGAMUT_BT709, ULTRAHDR_COLORGAMUT_P3, ULTRAHDR_COLORGAMUT_BT2100},
-                   {
-                       ULTRAHDR_TF_HLG,
-                       ULTRAHDR_TF_PQ,
-                   }})
-    ->Unit(benchmark::kMillisecond);
+  uhdr_raw_image_t mHdrImg{}, mSdrImg{};
 
-BENCHMARK_CAPTURE(BM_Encode_Api0, TestVectorName, kEncodeApi0TestImages3MpName)
-    ->ArgsProduct({{benchmark::CreateDenseRange(0, kEncodeApi0TestImages3MpName.size() - 1, 1)},
-                   {2048},
-                   {1536},
-                   {ULTRAHDR_COLORGAMUT_BT709, ULTRAHDR_COLORGAMUT_P3, ULTRAHDR_COLORGAMUT_BT2100},
-                   {
-                       ULTRAHDR_TF_HLG,
-                       ULTRAHDR_TF_PQ,
-                   }})
-    ->Unit(benchmark::kMillisecond);
+  EncBenchmark(TestParamsEncoderAPI0 testParams) {
+    mHdrFile = std::get<0>(testParams);
+    mWidth = std::get<1>(testParams);
+    mHeight = std::get<2>(testParams);
+    mHdrCg = std::get<3>(testParams);
+    mHdrCt = std::get<4>(testParams);
+    mUseMultiChannelGainMap = std::get<5>(testParams);
+    mGamma = std::get<6>(testParams);
+  };
 
-BENCHMARK_CAPTURE(BM_Encode_Api1, TestVectorName, kEncodeApi1TestImages12MpName)
-    ->ArgsProduct({{benchmark::CreateDenseRange(0, kEncodeApi1TestImages12MpName.size() - 1, 1)},
-                   {4080},
-                   {3072},
-                   {ULTRAHDR_COLORGAMUT_BT709, ULTRAHDR_COLORGAMUT_P3, ULTRAHDR_COLORGAMUT_BT2100},
-                   {ULTRAHDR_COLORGAMUT_BT709, ULTRAHDR_COLORGAMUT_P3, ULTRAHDR_COLORGAMUT_BT2100},
-                   {
-                       ULTRAHDR_TF_HLG,
-                       ULTRAHDR_TF_PQ,
-                   }})
-    ->Unit(benchmark::kMillisecond);
+  EncBenchmark(TestParamsEncoderAPI1 testParams) {
+    mHdrFile = std::get<0>(testParams);
+    mSdrFile = std::get<1>(testParams);
+    mWidth = std::get<2>(testParams);
+    mHeight = std::get<3>(testParams);
+    mHdrCg = std::get<4>(testParams);
+    mHdrCt = std::get<5>(testParams);
+    mSdrCg = std::get<6>(testParams);
+    mUseMultiChannelGainMap = std::get<7>(testParams);
+    mGamma = std::get<8>(testParams);
+    mEncPreset = std::get<9>(testParams);
+  }
 
-BENCHMARK_CAPTURE(BM_Encode_Api1, TestVectorName, kEncodeApi1TestImages3MpName)
-    ->ArgsProduct({{benchmark::CreateDenseRange(0, kEncodeApi1TestImages3MpName.size() - 1, 1)},
-                   {2048},
-                   {1536},
-                   {ULTRAHDR_COLORGAMUT_BT709, ULTRAHDR_COLORGAMUT_P3, ULTRAHDR_COLORGAMUT_BT2100},
-                   {ULTRAHDR_COLORGAMUT_BT709, ULTRAHDR_COLORGAMUT_P3, ULTRAHDR_COLORGAMUT_BT2100},
-                   {
-                       ULTRAHDR_TF_HLG,
-                       ULTRAHDR_TF_PQ,
-                   }})
-    ->Unit(benchmark::kMillisecond);
+  ~EncBenchmark() {
+    int count = sizeof mHdrImg.planes / sizeof mHdrImg.planes[0];
+    for (int i = 0; i < count; i++) {
+      if (mHdrImg.planes[i]) {
+        free(mHdrImg.planes[i]);
+        mHdrImg.planes[i] = nullptr;
+      }
+      if (mSdrImg.planes[i]) {
+        free(mSdrImg.planes[i]);
+        mSdrImg.planes[i] = nullptr;
+      }
+    }
+  }
 
-BENCHMARK_CAPTURE(BM_Encode_Api2, TestVectorName, kEncodeApi2TestImages12MpName)
-    ->ArgsProduct({{benchmark::CreateDenseRange(0, kEncodeApi2TestImages12MpName.size() - 1, 1)},
-                   {4080},
-                   {3072},
-                   {ULTRAHDR_COLORGAMUT_BT709, ULTRAHDR_COLORGAMUT_P3, ULTRAHDR_COLORGAMUT_BT2100},
-                   {
-                       ULTRAHDR_TF_HLG,
-                       ULTRAHDR_TF_PQ,
-                   }})
-    ->Unit(benchmark::kMillisecond);
+  bool fillRawImageHandle(uhdr_raw_image_t* rawImg, int width, int height, std::string file,
+                          uhdr_img_fmt_t cf, uhdr_color_gamut_t cg, uhdr_color_transfer_t ct);
+};
 
-BENCHMARK_CAPTURE(BM_Encode_Api2, TestVectorName, kEncodeApi2TestImages3MpName)
-    ->ArgsProduct({{benchmark::CreateDenseRange(0, kEncodeApi2TestImages3MpName.size() - 1, 1)},
-                   {2048},
-                   {1536},
-                   {ULTRAHDR_COLORGAMUT_BT709, ULTRAHDR_COLORGAMUT_P3, ULTRAHDR_COLORGAMUT_BT2100},
-                   {
-                       ULTRAHDR_TF_HLG,
-                       ULTRAHDR_TF_PQ,
-                   }})
-    ->Unit(benchmark::kMillisecond);
+bool EncBenchmark::fillRawImageHandle(uhdr_raw_image_t* rawImg, int width, int height,
+                                      std::string file, uhdr_img_fmt_t cf, uhdr_color_gamut_t cg,
+                                      uhdr_color_transfer_t ct) {
+  rawImg->fmt = cf;
+  rawImg->cg = cg;
+  rawImg->ct = ct;
+  rawImg->w = width;
+  rawImg->h = height;
+  if (cf == UHDR_IMG_FMT_24bppYCbCrP010) {
+    const int bpp = 2;
+    rawImg->range = std::rand() % 2 ? UHDR_CR_FULL_RANGE : UHDR_CR_LIMITED_RANGE;
+    rawImg->planes[UHDR_PLANE_Y] = malloc(width * height * bpp);
+    rawImg->planes[UHDR_PLANE_UV] = malloc((width / 2) * (height / 2) * bpp * 2);
+    rawImg->planes[UHDR_PLANE_V] = nullptr;
+    rawImg->stride[UHDR_PLANE_Y] = width;
+    rawImg->stride[UHDR_PLANE_UV] = width;
+    rawImg->stride[UHDR_PLANE_V] = 0;
+    return loadFile(file.c_str(), rawImg);
+  } else if (cf == UHDR_IMG_FMT_32bppRGBA1010102 || cf == UHDR_IMG_FMT_32bppRGBA8888) {
+    const int bpp = 4;
+    rawImg->range = UHDR_CR_FULL_RANGE;
+    rawImg->planes[UHDR_PLANE_PACKED] = malloc(width * height * bpp);
+    rawImg->planes[UHDR_PLANE_UV] = nullptr;
+    rawImg->planes[UHDR_PLANE_V] = nullptr;
+    rawImg->stride[UHDR_PLANE_PACKED] = width;
+    rawImg->stride[UHDR_PLANE_UV] = 0;
+    rawImg->stride[UHDR_PLANE_V] = 0;
+    return loadFile(file.c_str(), rawImg);
+  } else if (cf == UHDR_IMG_FMT_12bppYCbCr420) {
+    rawImg->range = UHDR_CR_FULL_RANGE;
+    rawImg->planes[UHDR_PLANE_Y] = malloc(width * height);
+    rawImg->planes[UHDR_PLANE_U] = malloc((width / 2) * (height / 2));
+    rawImg->planes[UHDR_PLANE_V] = malloc((width / 2) * (height / 2));
+    rawImg->stride[UHDR_PLANE_Y] = width;
+    rawImg->stride[UHDR_PLANE_U] = width / 2;
+    rawImg->stride[UHDR_PLANE_V] = width / 2;
+    return loadFile(file.c_str(), rawImg);
+  }
+  return false;
+}
 
-BENCHMARK_CAPTURE(BM_Encode_Api3, TestVectorName, kEncodeApi3TestImages12MpName)
-    ->ArgsProduct({{benchmark::CreateDenseRange(0, kEncodeApi3TestImages12MpName.size() - 1, 1)},
-                   {4080},
-                   {3072},
-                   {ULTRAHDR_COLORGAMUT_BT709, ULTRAHDR_COLORGAMUT_P3, ULTRAHDR_COLORGAMUT_BT2100},
-                   {
-                       ULTRAHDR_TF_HLG,
-                       ULTRAHDR_TF_PQ,
-                   }})
-    ->Unit(benchmark::kMillisecond);
+static void BM_UHDRDecode(benchmark::State& s, TestParamsDecodeAPI testVectors) {
+  DecBenchmark benchmark(testVectors);
 
-BENCHMARK_CAPTURE(BM_Encode_Api3, TestVectorName, kEncodeApi3TestImages3MpName)
-    ->ArgsProduct({{benchmark::CreateDenseRange(0, kEncodeApi3TestImages3MpName.size() - 1, 1)},
-                   {2048},
-                   {1536},
-                   {ULTRAHDR_COLORGAMUT_BT709, ULTRAHDR_COLORGAMUT_P3, ULTRAHDR_COLORGAMUT_BT2100},
-                   {
-                       ULTRAHDR_TF_HLG,
-                       ULTRAHDR_TF_PQ,
-                   }})
-    ->Unit(benchmark::kMillisecond);
+  s.SetLabel(benchmark.mUhdrFile + ", OutputFormat: " + imgFmtToString(benchmark.mOfmt) +
+             ", ColorTransfer: " + tfToString(benchmark.mTf) +
+             ", enableGLES: " + (benchmark.mEnableGLES ? "true" : "false"));
 
-BENCHMARK(BM_Encode_Api4)
-    ->ArgsProduct({
-        {benchmark::CreateDenseRange(0, kEncodeApi4TestImages12MpName.size() - 1, 1)},
-        {ULTRAHDR_COLORGAMUT_BT709, ULTRAHDR_COLORGAMUT_P3, ULTRAHDR_COLORGAMUT_BT2100},
-    })
-    ->Unit(benchmark::kMillisecond);
+  benchmark.mUhdrFile = kTestImagesPath + "jpegr/" + benchmark.mUhdrFile;
 
-BENCHMARK(BM_Encode_Api4)
-    ->ArgsProduct({
-        {benchmark::CreateDenseRange(0, kEncodeApi4TestImages3MpName.size() - 1, 1)},
-        {ULTRAHDR_COLORGAMUT_BT709, ULTRAHDR_COLORGAMUT_P3, ULTRAHDR_COLORGAMUT_BT2100},
-    })
-    ->Unit(benchmark::kMillisecond);
+  if (!benchmark.fillJpegImageHandle(&benchmark.mUhdrImg, benchmark.mUhdrFile)) {
+    s.SkipWithError("unable to load file : " + benchmark.mUhdrFile);
+  }
 
-BENCHMARK_MAIN();
+#define RET_IF_ERR(x)                                                       \
+  {                                                                         \
+    uhdr_error_info_t status = (x);                                         \
+    if (status.error_code != UHDR_CODEC_OK) {                               \
+      uhdr_release_decoder(decHandle);                                      \
+      s.SkipWithError(status.has_detail ? status.detail : "Unknown error"); \
+    }                                                                       \
+  }
+
+  uhdr_codec_private_t* decHandle = uhdr_create_decoder();
+  for (auto _ : s) {
+    RET_IF_ERR(uhdr_dec_set_image(decHandle, &benchmark.mUhdrImg))
+    RET_IF_ERR(uhdr_dec_set_out_color_transfer(decHandle, benchmark.mTf))
+    RET_IF_ERR(uhdr_dec_set_out_img_format(decHandle, benchmark.mOfmt))
+    RET_IF_ERR(uhdr_enable_gpu_acceleration(decHandle, benchmark.mEnableGLES))
+    RET_IF_ERR(uhdr_decode(decHandle))
+    uhdr_reset_decoder(decHandle);
+  }
+  uhdr_release_decoder(decHandle);
+#undef RET_IF_ERR
+}
+
+#define RET_IF_ERR(x)                                                       \
+  {                                                                         \
+    uhdr_error_info_t status = (x);                                         \
+    if (status.error_code != UHDR_CODEC_OK) {                               \
+      uhdr_release_encoder(encHandle);                                      \
+      s.SkipWithError(status.has_detail ? status.detail : "Unknown error"); \
+    }                                                                       \
+  }
+
+static void BM_UHDREncode_Api0(benchmark::State& s, TestParamsEncoderAPI0 testVectors) {
+  EncBenchmark benchmark(testVectors);
+
+  s.SetLabel(
+      benchmark.mHdrFile + ", " + std::to_string(benchmark.mWidth) + "x" +
+      std::to_string(benchmark.mHeight) + ", " + colorGamutToString(benchmark.mHdrCg) + ", " +
+      tfToString(benchmark.mHdrCt) + ", " +
+      (benchmark.mUseMultiChannelGainMap == 0 ? "singlechannelgainmap" : "multichannelgainmap") +
+      ", gamma: " + std::to_string(benchmark.mGamma));
+
+  if (benchmark.mHdrFile.find("p010") != std::string::npos) {
+    benchmark.mHdrFile = kTestImagesPath + "p010/" + benchmark.mHdrFile;
+    benchmark.mHdrCf = UHDR_IMG_FMT_24bppYCbCrP010;
+  } else if (benchmark.mHdrFile.find("rgba1010102") != std::string::npos) {
+    benchmark.mHdrFile = kTestImagesPath + "rgba1010102/" + benchmark.mHdrFile;
+    benchmark.mHdrCf = UHDR_IMG_FMT_32bppRGBA1010102;
+  } else {
+    s.SkipWithError("Invalid file format : " + benchmark.mHdrFile);
+  }
+
+  if (!benchmark.fillRawImageHandle(&benchmark.mHdrImg, benchmark.mWidth, benchmark.mHeight,
+                                    benchmark.mHdrFile, benchmark.mHdrCf, benchmark.mHdrCg,
+                                    benchmark.mHdrCt)) {
+    s.SkipWithError("unable to load file : " + benchmark.mHdrFile);
+  }
+
+  uhdr_codec_private_t* encHandle = uhdr_create_encoder();
+  for (auto _ : s) {
+    RET_IF_ERR(uhdr_enc_set_raw_image(encHandle, &benchmark.mHdrImg, UHDR_HDR_IMG))
+    RET_IF_ERR(
+        uhdr_enc_set_using_multi_channel_gainmap(encHandle, benchmark.mUseMultiChannelGainMap))
+    RET_IF_ERR(uhdr_enc_set_gainmap_scale_factor(encHandle, benchmark.mMapDimensionScaleFactor))
+    RET_IF_ERR(uhdr_enc_set_gainmap_gamma(encHandle, benchmark.mGamma))
+    RET_IF_ERR(uhdr_encode(encHandle))
+    uhdr_reset_encoder(encHandle);
+  }
+  uhdr_release_encoder(encHandle);
+}
+
+static void BM_UHDREncode_Api1(benchmark::State& s, TestParamsEncoderAPI1 testVectors) {
+  EncBenchmark benchmark(testVectors);
+
+  s.SetLabel(
+      benchmark.mHdrFile + ", " + benchmark.mSdrFile + ", " + std::to_string(benchmark.mWidth) +
+      "x" + std::to_string(benchmark.mHeight) + ", hdrCg: " + colorGamutToString(benchmark.mHdrCg) +
+      ", hdrCt: " + tfToString(benchmark.mHdrCt) +
+      ", sdrCg: " + colorGamutToString(benchmark.mSdrCg) + ", " +
+      (benchmark.mUseMultiChannelGainMap == 0 ? "singlechannelgainmap" : "multichannelgainmap") +
+      ", gamma: " + std::to_string(benchmark.mGamma) + ", " +
+      (benchmark.mEncPreset == UHDR_USAGE_BEST_QUALITY ? "best_quality" : "realtime"));
+
+  if (benchmark.mHdrFile.find("p010") != std::string::npos) {
+    benchmark.mHdrFile = kTestImagesPath + "p010/" + benchmark.mHdrFile;
+    benchmark.mHdrCf = UHDR_IMG_FMT_24bppYCbCrP010;
+  } else if (benchmark.mHdrFile.find("rgba1010102") != std::string::npos) {
+    benchmark.mHdrFile = kTestImagesPath + "rgba1010102/" + benchmark.mHdrFile;
+    benchmark.mHdrCf = UHDR_IMG_FMT_32bppRGBA1010102;
+  } else {
+    s.SkipWithError("Invalid hdr file format : " + benchmark.mHdrFile);
+  }
+
+  if (benchmark.mSdrFile.find("yuv420") != std::string::npos) {
+    benchmark.mSdrFile = kTestImagesPath + "yuv420/" + benchmark.mSdrFile;
+    benchmark.mSdrCf = UHDR_IMG_FMT_12bppYCbCr420;
+  } else if (benchmark.mSdrFile.find("rgba8888") != std::string::npos) {
+    benchmark.mSdrFile = kTestImagesPath + "rgba8888/" + benchmark.mSdrFile;
+    benchmark.mSdrCf = UHDR_IMG_FMT_32bppRGBA8888;
+  } else {
+    s.SkipWithError("Invalid sdr file format : " + benchmark.mSdrFile);
+  }
+
+  if (!benchmark.fillRawImageHandle(&benchmark.mHdrImg, benchmark.mWidth, benchmark.mHeight,
+                                    benchmark.mHdrFile, benchmark.mHdrCf, benchmark.mHdrCg,
+                                    benchmark.mHdrCt)) {
+    s.SkipWithError("unable to load file : " + benchmark.mHdrFile);
+  }
+  if (!benchmark.fillRawImageHandle(&benchmark.mSdrImg, benchmark.mWidth, benchmark.mHeight,
+                                    benchmark.mSdrFile, benchmark.mSdrCf, benchmark.mSdrCg,
+                                    benchmark.mSdrCt)) {
+    s.SkipWithError("unable to load sdr file : " + benchmark.mSdrFile);
+  }
+
+  uhdr_codec_private_t* encHandle = uhdr_create_encoder();
+  for (auto _ : s) {
+    RET_IF_ERR(uhdr_enc_set_raw_image(encHandle, &benchmark.mHdrImg, UHDR_HDR_IMG))
+    RET_IF_ERR(uhdr_enc_set_raw_image(encHandle, &benchmark.mSdrImg, UHDR_SDR_IMG))
+    RET_IF_ERR(
+        uhdr_enc_set_using_multi_channel_gainmap(encHandle, benchmark.mUseMultiChannelGainMap))
+    RET_IF_ERR(uhdr_enc_set_gainmap_scale_factor(encHandle, benchmark.mMapDimensionScaleFactor))
+    RET_IF_ERR(uhdr_enc_set_gainmap_gamma(encHandle, benchmark.mGamma))
+    RET_IF_ERR(uhdr_enc_set_preset(encHandle, benchmark.mEncPreset))
+    RET_IF_ERR(uhdr_encode(encHandle))
+    uhdr_reset_encoder(encHandle);
+  }
+  uhdr_release_encoder(encHandle);
+}
+
+void addTestVectors() {
+  for (const auto& uhdrFile : kDecodeAPITestImages) {
+    /* Decode API - uhdrFile, colorTransfer, imgFormat, enableGLES */
+    testParamsDecodeAPI.push_back({uhdrFile, UHDR_CT_HLG, UHDR_IMG_FMT_32bppRGBA1010102, false});
+    testParamsDecodeAPI.push_back({uhdrFile, UHDR_CT_PQ, UHDR_IMG_FMT_32bppRGBA1010102, false});
+    testParamsDecodeAPI.push_back(
+        {uhdrFile, UHDR_CT_LINEAR, UHDR_IMG_FMT_64bppRGBAHalfFloat, false});
+    testParamsDecodeAPI.push_back({uhdrFile, UHDR_CT_HLG, UHDR_IMG_FMT_32bppRGBA1010102, true});
+    testParamsDecodeAPI.push_back({uhdrFile, UHDR_CT_PQ, UHDR_IMG_FMT_32bppRGBA1010102, true});
+    testParamsDecodeAPI.push_back(
+        {uhdrFile, UHDR_CT_LINEAR, UHDR_IMG_FMT_64bppRGBAHalfFloat, true});
+    testParamsDecodeAPI.push_back({uhdrFile, UHDR_CT_SRGB, UHDR_IMG_FMT_32bppRGBA8888, false});
+  }
+
+  for (const auto& hdrFile : kEncodeApi0TestImages12MpName) {
+    /* Encode API 0 - hdrFile, width, height, hdrColorGamut, hdrColorTransfer,
+       useMultiChannelGainmap, gamma */
+    testParamsAPI0.push_back({hdrFile, 4080, 3072, UHDR_CG_BT_2100, UHDR_CT_PQ, 0, 1.0f});
+    testParamsAPI0.push_back({hdrFile, 4080, 3072, UHDR_CG_BT_2100, UHDR_CT_PQ, 1, 1.0f});
+    testParamsAPI0.push_back({hdrFile, 4080, 3072, UHDR_CG_BT_2100, UHDR_CT_PQ, 0, 1.571f});
+    testParamsAPI0.push_back({hdrFile, 4080, 3072, UHDR_CG_BT_2100, UHDR_CT_PQ, 1, 1.616f});
+  }
+
+  for (const auto& inputFiles : kEncodeApi1TestImages12MpName) {
+    /* Encode API 1 - hdrFile, sdrFile, width, height, hdrColorGamut, hdrColorTransfer,
+       sdrColorGamut, useMultiChannelGainmap, gamma, encPreset */
+    testParamsAPI1.push_back({inputFiles.first, inputFiles.second, 4080, 3072, UHDR_CG_BT_2100,
+                              UHDR_CT_PQ, UHDR_CG_BT_709, 0, 1.0f, UHDR_USAGE_REALTIME});
+    testParamsAPI1.push_back({inputFiles.first, inputFiles.second, 4080, 3072, UHDR_CG_BT_2100,
+                              UHDR_CT_PQ, UHDR_CG_BT_709, 1, 1.0f, UHDR_USAGE_REALTIME});
+    testParamsAPI1.push_back({inputFiles.first, inputFiles.second, 4080, 3072, UHDR_CG_BT_2100,
+                              UHDR_CT_PQ, UHDR_CG_BT_709, 0, 1.571f, UHDR_USAGE_REALTIME});
+    testParamsAPI1.push_back({inputFiles.first, inputFiles.second, 4080, 3072, UHDR_CG_BT_2100,
+                              UHDR_CT_PQ, UHDR_CG_BT_709, 0, 1.0f, UHDR_USAGE_BEST_QUALITY});
+    testParamsAPI1.push_back({inputFiles.first, inputFiles.second, 4080, 3072, UHDR_CG_BT_2100,
+                              UHDR_CT_PQ, UHDR_CG_BT_709, 1, 1.571f, UHDR_USAGE_REALTIME});
+    testParamsAPI1.push_back({inputFiles.first, inputFiles.second, 4080, 3072, UHDR_CG_BT_2100,
+                              UHDR_CT_PQ, UHDR_CG_BT_709, 1, 1.0f, UHDR_USAGE_BEST_QUALITY});
+    testParamsAPI1.push_back({inputFiles.first, inputFiles.second, 4080, 3072, UHDR_CG_BT_2100,
+                              UHDR_CT_PQ, UHDR_CG_BT_709, 0, 1.571f, UHDR_USAGE_BEST_QUALITY});
+    testParamsAPI1.push_back({inputFiles.first, inputFiles.second, 4080, 3072, UHDR_CG_BT_2100,
+                              UHDR_CT_PQ, UHDR_CG_BT_709, 1, 1.571f, UHDR_USAGE_BEST_QUALITY});
+  }
+}
+
+void registerBenchmarks() {
+  for (auto& param : testParamsDecodeAPI) {
+    benchmark::RegisterBenchmark("BM_UHDRDecode", BM_UHDRDecode, param)
+        ->Unit(benchmark::kMillisecond);
+  }
+  for (auto& param : testParamsAPI0) {
+    benchmark::RegisterBenchmark("BM_UHDREncode_Api0", BM_UHDREncode_Api0, param)
+        ->Unit(benchmark::kMillisecond);
+  }
+  for (auto& param : testParamsAPI1) {
+    benchmark::RegisterBenchmark("BM_UHDREncode_Api1", BM_UHDREncode_Api1, param)
+        ->Unit(benchmark::kMillisecond);
+  }
+}
+
+int main(int argc, char** argv) {
+  addTestVectors();
+  registerBenchmarks();
+  benchmark::Initialize(&argc, argv);
+  benchmark::RunSpecifiedBenchmarks(nullptr, nullptr);
+  benchmark::Shutdown();
+  return 0;
+}
