@@ -1406,10 +1406,11 @@ uhdr_error_info_t JpegR::applyGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_ima
   }
 
   float map_scale_factor = (float)sdr_intent->w / gainmap_img->w;
+  int map_scale_factor_rnd = std::roundf(map_scale_factor);
 
   dest->cg = sdr_intent->cg;
   // Table will only be used when map scale factor is integer.
-  ShepardsIDW idwTable(static_cast<int>(map_scale_factor));
+  ShepardsIDW idwTable(map_scale_factor_rnd);
   float display_boost = (std::min)(max_display_boost, gainmap_metadata->hdr_capacity_max);
   GainLUT gainLUT(gainmap_metadata, display_boost);
 
@@ -1525,7 +1526,7 @@ uhdr_error_info_t JpegR::applyGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_ima
   for (int th = 0; th < threads - 1; th++) {
     workers.push_back(std::thread(applyRecMap));
   }
-  const int rowStep = threads == 1 ? sdr_intent->h : map_scale_factor;
+  const int rowStep = threads == 1 ? sdr_intent->h : map_scale_factor_rnd;
   for (size_t rowStart = 0; rowStart < sdr_intent->h;) {
     int rowEnd = (std::min)(rowStart + rowStep, (size_t)sdr_intent->h);
     jobQueue.enqueueJob(rowStart, rowEnd);
