@@ -72,7 +72,7 @@ static boolean emptyOutputBuffer(j_compress_ptr cinfo) {
   buffer.resize(oldsize + dest->kBlockSize);
   dest->next_output_byte = &buffer[oldsize];
   dest->free_in_buffer = dest->kBlockSize;
-  return true;
+  return TRUE;
 }
 
 /*!\brief  called by jpeg_finish_compress() to flush out all the remaining encoded data. client
