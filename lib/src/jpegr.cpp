@@ -1406,7 +1406,7 @@ uhdr_error_info_t JpegR::applyGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_ima
   }
 
   float map_scale_factor = (float)sdr_intent->w / gainmap_img->w;
-  int map_scale_factor_rnd = std::roundf(map_scale_factor);
+  int map_scale_factor_rnd = (std::max)(1, (int)std::roundf(map_scale_factor));
 
   dest->cg = sdr_intent->cg;
   // Table will only be used when map scale factor is integer.
