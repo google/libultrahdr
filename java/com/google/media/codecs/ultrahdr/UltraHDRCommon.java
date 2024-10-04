@@ -125,7 +125,7 @@ public class UltraHDRCommon {
     /**
      * Display P3 color chromaticity coordinates with KR = 0.22897, KB = 0.07929
      */
-    public static final int UHDR_CG_DISPlAY_P3 = 1;
+    public static final int UHDR_CG_DISPLAY_P3 = 1;
 
     /**
      * BT.2020 color chromaticity coordinates with KR = 0.2627, KB = 0.0593
