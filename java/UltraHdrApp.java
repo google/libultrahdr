@@ -552,7 +552,7 @@ public class UltraHdrApp {
         String output_file = null;
         String exif_file = null;
         int width = 0, height = 0;
-        int hdr_cg = UHDR_CG_DISPlAY_P3;
+        int hdr_cg = UHDR_CG_DISPLAY_P3;
         int sdr_cg = UHDR_CG_BT709;
         int hdr_cf = UHDR_IMG_FMT_32bppRGBA1010102;
         int sdr_cf = UHDR_IMG_FMT_32bppRGBA8888;
