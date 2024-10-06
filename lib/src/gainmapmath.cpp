@@ -512,23 +512,6 @@ bool isPixelFormatRgb(uhdr_img_fmt_t format) {
          format == UHDR_IMG_FMT_32bppRGBA1010102;
 }
 
-float getMaxDisplayMasteringLuminance(uhdr_color_transfer_t transfer) {
-  switch (transfer) {
-    case UHDR_CT_LINEAR:
-      // TODO: configure MDML correctly for linear tf
-      return kHlgMaxNits;
-    case UHDR_CT_HLG:
-      return kHlgMaxNits;
-    case UHDR_CT_PQ:
-      return kPqMaxNits;
-    case UHDR_CT_SRGB:
-      return kSdrWhiteNits;
-    case UHDR_CT_UNSPECIFIED:
-      return -1.0f;
-  }
-  return -1.0f;
-}
-
 // All of these conversions are derived from the respective input YUV->RGB conversion followed by
 // the RGB->YUV for the receiving encoding. They are consistent with the RGB<->YUV functions in
 // gainmapmath.cpp, given that we use BT.709 encoding for sRGB and BT.601 encoding for Display-P3,
