@@ -386,6 +386,24 @@ UHDR_EXTERN uhdr_error_info_t uhdr_enc_set_quality(uhdr_codec_private_t* enc, in
 UHDR_EXTERN uhdr_error_info_t uhdr_enc_set_exif_data(uhdr_codec_private_t* enc,
                                                      uhdr_mem_block_t* exif);
 
+/*!\brief Set peak brightness of the reference display used during content mastering. For
+ * #UHDR_CT_HLG, #UHDR_CT_LINEAR inputs, this corresponds to the brightness level of the maximum
+ * code value 1.0.
+ *
+ * For #UHDR_CT_HLG, default mastering display peak luminance is 1000 nits. For #UHDR_CT_LINEAR
+ * content, there is no default value, needs to be configured, otherwise, error is thrown during
+ * encoding. For #UHDR_CT_PQ content, default mastering display peak luminance is 10000 nits.
+ *
+ * \param[in]  enc  encoder instance.
+ * \param[in]  nits  mastering display peak brightness in nits. Any positive real number in range
+ *                   [203, 10000].
+ *
+ * \return uhdr_error_info_t #UHDR_CODEC_OK if operation succeeds,
+ *                           #UHDR_CODEC_INVALID_PARAM otherwise.
+ */
+UHDR_EXTERN uhdr_error_info_t
+uhdr_enc_set_mastering_display_peak_brightness(uhdr_codec_private_t* enc, float nits);
+
 /*!\brief Enable/Disable multi-channel gainmap. By default multi-channel gainmap is enabled.
  *
  * \param[in]  enc  encoder instance.
@@ -441,6 +459,20 @@ UHDR_EXTERN uhdr_error_info_t uhdr_enc_set_gainmap_gamma(uhdr_codec_private_t* e
 UHDR_EXTERN uhdr_error_info_t uhdr_enc_set_min_max_content_boost(uhdr_codec_private_t* enc,
                                                                  float min_boost, float max_boost);
 
+/*!\brief Set target display peak brightness in nits. This value determines the weight by which
+ * the gain map coefficients are scaled during decode. If this is not configured, then mastering
+ * display peak brightness setting is used.
+ *
+ * \param[in]  enc  encoder instance.
+ * \param[in]  nits  target display peak brightness in nits. Any positive real number in range
+ *                   [203, 10000].
+ *
+ * \return uhdr_error_info_t #UHDR_CODEC_OK if operation succeeds,
+ *                           #UHDR_CODEC_INVALID_PARAM otherwise.
+ */
+UHDR_EXTERN uhdr_error_info_t uhdr_enc_set_target_display_peak_brightness(uhdr_codec_private_t* enc,
+                                                                          float nits);
+
 /*!\brief Set encoding preset. Tunes the encoder configurations for performance or quality. Default
  * configuration is #UHDR_USAGE_BEST_QUALITY.
  *
@@ -482,12 +514,18 @@ UHDR_EXTERN uhdr_error_info_t uhdr_enc_set_output_format(uhdr_codec_private_t* e
  *   - uhdr_enc_set_quality()
  * - If the application wants to insert exif data
  *   - uhdr_enc_set_exif_data()
+ * - If the application wants to set reference display peak brightness
+ *   - uhdr_enc_set_mastering_display_peak_brightness()
  * - If the application wants to set gainmap scale factor
  *   - uhdr_enc_set_gainmap_scale_factor()
  * - If the application wants to enable multi channel gain map
  *   - uhdr_enc_set_using_multi_channel_gainmap()
  * - If the application wants to set gainmap image gamma
  *   - uhdr_enc_set_gainmap_gamma()
+ * - If the application wants to recommend min max content boost
+ *   - uhdr_enc_set_min_max_content_boost()
+ * - If the application wants to set target display peak brightness
+ *   - uhdr_enc_set_target_display_peak_brightness()
  * - If the application wants to set encoding preset
  *   - uhdr_enc_set_preset()
  * - If the application wants to control target compression format
@@ -529,9 +567,12 @@ UHDR_EXTERN uhdr_error_info_t uhdr_enc_set_output_format(uhdr_codec_private_t* e
  * - uhdr_enc_set_quality() // optional
  * - uhdr_enc_set_exif_data() // optional
  * - uhdr_enc_set_output_format() // optional
+ * - uhdr_enc_set_mastering_display_peak_brightness() // optional
  * - uhdr_enc_set_gainmap_scale_factor() // optional
  * - uhdr_enc_set_using_multi_channel_gainmap() // optional
  * - uhdr_enc_set_gainmap_gamma() // optional
+ * - uhdr_enc_set_min_max_content_boost() // optional
+ * - uhdr_enc_set_target_display_peak_brightness() // optional
  * - uhdr_encode()
  * - uhdr_get_encoded_stream()
  * - uhdr_release_encoder()
