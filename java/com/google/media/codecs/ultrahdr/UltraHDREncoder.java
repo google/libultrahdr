@@ -415,6 +415,42 @@ public class UltraHDREncoder implements AutoCloseable {
     }
 
     /**
+     * Set peak brightness of the reference display used during content mastering. For
+     * {@link UltraHDRCommon#UHDR_CT_HLG}, {@link UltraHDRCommon#UHDR_CT_LINEAR} inputs, this
+     * corresponds to the brightness level of the maximum code value 1.0.
+     * <p>
+     * For {@link UltraHDRCommon#UHDR_CT_HLG}, default mastering display peak luminance is 1000
+     * nits. For {@link UltraHDRCommon#UHDR_CT_LINEAR} content, there is no default value, needs
+     * to be configured, otherwise, error is thrown during encoding. For
+     * {@link UltraHDRCommon#UHDR_CT_PQ} content, default mastering display peak luminance is
+     * 10000 nits.
+     *
+     * @param nits mastering display peak brightness in nits. Any positive real number in range
+     *             [203, 10000].
+     * @throws IOException If parameters are not valid or current encoder instance
+     *                     is not valid or current encoder instance is not suitable
+     *                     for configuration exception is thrown
+     */
+    public void setMasteringDisplayPeakBrightness(float nits) throws IOException {
+        setMasteringDisplayPeakBrightnessNative(nits);
+    }
+
+    /**
+     * Set target display peak brightness in nits. This value determines the weight by which the
+     * gain map coefficients are scaled during decode. If this is not configured, then mastering
+     * display peak brightness setting is used.
+     *
+     * @param nits target display peak brightness in nits. Any positive real number in range
+     *             [203, 10000]
+     * @throws IOException If parameters are not valid or current encoder instance
+     *                     is not valid or current encoder instance is not suitable
+     *                     for configuration exception is thrown
+     */
+    public void setTargetDisplayPeakBrightness(float nits) throws IOException {
+        setTargetDisplayPeakBrightnessNative(nits);
+    }
+
+    /**
      * Encode process call.
      * <p>
      * After initializing the encoder context, call to this function will submit data for
@@ -488,6 +524,10 @@ public class UltraHDREncoder implements AutoCloseable {
 
     private native void setMinMaxContentBoostNative(float minContentBoost,
             float maxContentBoost) throws IOException;
+
+    private native void setMasteringDisplayPeakBrightnessNative(float nits) throws IOException;
+
+    private native void setTargetDisplayPeakBrightnessNative(float nits) throws IOException;
 
     private native void encodeNative() throws IOException;
 
