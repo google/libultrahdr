@@ -1413,7 +1413,18 @@ uhdr_error_info_t JpegR::applyGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_ima
   // Table will only be used when map scale factor is integer.
   ShepardsIDW idwTable(map_scale_factor_rnd);
   float display_boost = (std::min)(max_display_boost, gainmap_metadata->hdr_capacity_max);
-  GainLUT gainLUT(gainmap_metadata, display_boost);
+
+  float gainmap_weight;
+  if (display_boost != gainmap_metadata->hdr_capacity_max) {
+    gainmap_weight =
+        (log2(display_boost) - log2(gainmap_metadata->hdr_capacity_min)) /
+        (log2(gainmap_metadata->hdr_capacity_max) - log2(gainmap_metadata->hdr_capacity_min));
+    // avoid extrapolating the gain map to fill the displayable range
+    gainmap_weight = CLIP3(0.0f, gainmap_weight, 1.0f);
+  } else {
+    gainmap_weight = 1.0f;
+  }
+  GainLUT gainLUT(gainmap_metadata, gainmap_weight);
 
   GetPixelFn get_pixel_fn = getPixelFn(sdr_intent->fmt);
   if (get_pixel_fn == nullptr) {
@@ -1429,7 +1440,7 @@ uhdr_error_info_t JpegR::applyGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_ima
   std::function<void()> applyRecMap = [sdr_intent, gainmap_img, dest, &jobQueue, &idwTable,
                                        output_ct, &gainLUT, display_boost,
 #if !USE_APPLY_GAIN_LUT
-                                       gainmap_metadata,
+                                       gainmap_metadata, gainmap_weight,
 #endif
                                        map_scale_factor, get_pixel_fn]() -> void {
     size_t width = sdr_intent->w;
@@ -1460,7 +1471,7 @@ uhdr_error_info_t JpegR::applyGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_ima
 #if USE_APPLY_GAIN_LUT
             rgb_hdr = applyGainLUT(rgb_sdr, gain, gainLUT);
 #else
-            rgb_hdr = applyGain(rgb_sdr, gain, gainmap_metadata, display_boost);
+            rgb_hdr = applyGain(rgb_sdr, gain, gainmap_metadata, gainmap_weight);
 #endif
           } else {
             Color gain;
@@ -1476,7 +1487,7 @@ uhdr_error_info_t JpegR::applyGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_ima
 #if USE_APPLY_GAIN_LUT
             rgb_hdr = applyGainLUT(rgb_sdr, gain, gainLUT);
 #else
-            rgb_hdr = applyGain(rgb_sdr, gain, gainmap_metadata, display_boost);
+            rgb_hdr = applyGain(rgb_sdr, gain, gainmap_metadata, gainmap_weight);
 #endif
           }
 
