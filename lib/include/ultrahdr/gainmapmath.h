@@ -199,14 +199,13 @@ struct GainLUT {
     }
   }
 
-  GainLUT(uhdr_gainmap_metadata_ext_t* metadata, float displayBoost) {
+  GainLUT(uhdr_gainmap_metadata_ext_t* metadata, float gainmapWeight) {
     this->mGammaInv = 1.0f / metadata->gamma;
-    float boostFactor = displayBoost > 0 ? displayBoost / metadata->hdr_capacity_max : 1.0f;
     for (int32_t idx = 0; idx < kGainFactorNumEntries; idx++) {
       float value = static_cast<float>(idx) / static_cast<float>(kGainFactorNumEntries - 1);
       float logBoost = log2(metadata->min_content_boost) * (1.0f - value) +
                        log2(metadata->max_content_boost) * value;
-      mGainTable[idx] = exp2(logBoost * boostFactor);
+      mGainTable[idx] = exp2(logBoost * gainmapWeight);
     }
   }
 
@@ -565,7 +564,7 @@ uint8_t affineMapGain(float gainlog2, float mingainlog2, float maxgainlog2, floa
  * value, with the given hdr ratio, to the given sdr input in the range [0, 1].
  */
 Color applyGain(Color e, float gain, uhdr_gainmap_metadata_ext_t* metadata);
-Color applyGain(Color e, float gain, uhdr_gainmap_metadata_ext_t* metadata, float displayBoost);
+Color applyGain(Color e, float gain, uhdr_gainmap_metadata_ext_t* metadata, float gainmapWeight);
 Color applyGainLUT(Color e, float gain, GainLUT& gainLUT);
 
 /*
@@ -573,7 +572,7 @@ Color applyGainLUT(Color e, float gain, GainLUT& gainLUT);
  * in the range [0, 1].
  */
 Color applyGain(Color e, Color gain, uhdr_gainmap_metadata_ext_t* metadata);
-Color applyGain(Color e, Color gain, uhdr_gainmap_metadata_ext_t* metadata, float displayBoost);
+Color applyGain(Color e, Color gain, uhdr_gainmap_metadata_ext_t* metadata, float gainmapWeight);
 Color applyGainLUT(Color e, Color gain, GainLUT& gainLUT);
 
 /*
