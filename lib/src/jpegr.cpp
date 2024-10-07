@@ -1323,13 +1323,14 @@ uhdr_error_info_t JpegR::applyGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_ima
              gainmap_metadata->version.c_str());
     return status;
   }
+  UHDR_ERR_CHECK(uhdr_validate_gainmap_metadata_descriptor(gainmap_metadata));
   if (gainmap_metadata->offset_sdr != 0.0f) {
     uhdr_error_info_t status;
     status.error_code = UHDR_CODEC_UNSUPPORTED_FEATURE;
     status.has_detail = 1;
     snprintf(status.detail, sizeof status.detail,
-             "Unsupported gainmap metadata, offset_sdr. Expected %f, Got %f", 0.0f,
-             gainmap_metadata->offset_sdr);
+             "Current implementation does not handle non zero offset_sdr. Expected %f, Got %f",
+             0.0f, gainmap_metadata->offset_sdr);
     return status;
   }
   if (gainmap_metadata->offset_hdr != 0.0f) {
@@ -1337,8 +1338,8 @@ uhdr_error_info_t JpegR::applyGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_ima
     status.error_code = UHDR_CODEC_UNSUPPORTED_FEATURE;
     status.has_detail = 1;
     snprintf(status.detail, sizeof status.detail,
-             "Unsupported gainmap metadata, offset_hdr. Expected %f, Got %f", 0.0f,
-             gainmap_metadata->offset_hdr);
+             "Current implementation does not handle non zero offset_hdr. Expected %f, Got %f",
+             0.0f, gainmap_metadata->offset_hdr);
     return status;
   }
   if (sdr_intent->fmt != UHDR_IMG_FMT_24bppYCbCr444 &&

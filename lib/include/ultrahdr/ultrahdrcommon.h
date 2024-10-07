@@ -341,6 +341,8 @@ bool isBufferDataContiguous(uhdr_raw_image_t* img);
 
 #endif
 
+uhdr_error_info_t uhdr_validate_gainmap_metadata_descriptor(uhdr_gainmap_metadata_t* metadata);
+
 }  // namespace ultrahdr
 
 // ===============================================================================================
