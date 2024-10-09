@@ -696,11 +696,11 @@ Color applyGain(Color e, float gain, uhdr_gainmap_metadata_ext_t* metadata) {
   return e * gainFactor;
 }
 
-Color applyGain(Color e, float gain, uhdr_gainmap_metadata_ext_t* metadata, float displayBoost) {
+Color applyGain(Color e, float gain, uhdr_gainmap_metadata_ext_t* metadata, float gainmapWeight) {
   if (metadata->gamma != 1.0f) gain = pow(gain, 1.0f / metadata->gamma);
   float logBoost =
       log2(metadata->min_content_boost) * (1.0f - gain) + log2(metadata->max_content_boost) * gain;
-  float gainFactor = exp2(logBoost * displayBoost / metadata->hdr_capacity_max);
+  float gainFactor = exp2(logBoost * gainmapWeight);
   return e * gainFactor;
 }
 
@@ -727,7 +727,7 @@ Color applyGain(Color e, Color gain, uhdr_gainmap_metadata_ext_t* metadata) {
   return {{{e.r * gainFactorR, e.g * gainFactorG, e.b * gainFactorB}}};
 }
 
-Color applyGain(Color e, Color gain, uhdr_gainmap_metadata_ext_t* metadata, float displayBoost) {
+Color applyGain(Color e, Color gain, uhdr_gainmap_metadata_ext_t* metadata, float gainmapWeight) {
   if (metadata->gamma != 1.0f) {
     gain.r = pow(gain.r, 1.0f / metadata->gamma);
     gain.g = pow(gain.g, 1.0f / metadata->gamma);
@@ -739,9 +739,9 @@ Color applyGain(Color e, Color gain, uhdr_gainmap_metadata_ext_t* metadata, floa
                     log2(metadata->max_content_boost) * gain.g;
   float logBoostB = log2(metadata->min_content_boost) * (1.0f - gain.b) +
                     log2(metadata->max_content_boost) * gain.b;
-  float gainFactorR = exp2(logBoostR * displayBoost / metadata->hdr_capacity_max);
-  float gainFactorG = exp2(logBoostG * displayBoost / metadata->hdr_capacity_max);
-  float gainFactorB = exp2(logBoostB * displayBoost / metadata->hdr_capacity_max);
+  float gainFactorR = exp2(logBoostR * gainmapWeight);
+  float gainFactorG = exp2(logBoostG * gainmapWeight);
+  float gainFactorB = exp2(logBoostB * gainmapWeight);
   return {{{e.r * gainFactorR, e.g * gainFactorG, e.b * gainFactorB}}};
 }
 

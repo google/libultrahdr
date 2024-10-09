@@ -305,7 +305,17 @@ uhdr_error_info_t applyGainMapGLES(uhdr_raw_image_t* sdr_intent, uhdr_raw_image_
   glUniform1f(gammaLocation, gainmap_metadata->gamma);
   glUniform1f(logMinBoostLocation, log2(gainmap_metadata->min_content_boost));
   glUniform1f(logMaxBoostLocation, log2(gainmap_metadata->max_content_boost));
-  glUniform1f(weightLocation, display_boost / gainmap_metadata->hdr_capacity_max);
+  float gainmap_weight;
+  if (display_boost != gainmap_metadata->hdr_capacity_max) {
+    gainmap_weight =
+        (log2(display_boost) - log2(gainmap_metadata->hdr_capacity_min)) /
+        (log2(gainmap_metadata->hdr_capacity_max) - log2(gainmap_metadata->hdr_capacity_min));
+    // avoid extrapolating the gain map to fill the displayable range
+    gainmap_weight = CLIP3(0.0f, gainmap_weight, 1.0f);
+  } else {
+    gainmap_weight = 1.0f;
+  }
+  glUniform1f(weightLocation, gainmap_weight);
   glUniform1f(displayBoostLocation, display_boost);
 
   glActiveTexture(GL_TEXTURE0);
