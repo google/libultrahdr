@@ -506,7 +506,8 @@ uhdr_error_info_t JpegR::compressGainMap(uhdr_raw_image_t* gainmap_img,
 uhdr_error_info_t JpegR::generateGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_image_t* hdr_intent,
                                          uhdr_gainmap_metadata_ext_t* gainmap_metadata,
                                          std::unique_ptr<uhdr_raw_image_ext_t>& gainmap_img,
-                                         bool sdr_is_601, bool use_luminance) {
+                                         bool sdr_is_601, bool use_luminance,
+                                         bool use_multi_plane) {
   uhdr_error_info_t status = g_no_error;
 
   if (sdr_intent->fmt != UHDR_IMG_FMT_24bppYCbCr444 &&
@@ -644,7 +645,8 @@ uhdr_error_info_t JpegR::generateGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_
   }
 
   gainmap_img = std::make_unique<uhdr_raw_image_ext_t>(
-      mUseMultiChannelGainMap ? UHDR_IMG_FMT_24bppRGB888 : UHDR_IMG_FMT_8bppYCbCr400,
+      mUseMultiChannelGainMap ? UHDR_IMG_FMT_24bppRGB888 : (use_multi_plane) ?
+      UHDR_IMG_FMT_12bppYCbCr420 : UHDR_IMG_FMT_8bppYCbCr400,
       UHDR_CG_UNSPECIFIED, UHDR_CT_UNSPECIFIED, UHDR_CR_UNSPECIFIED, map_width, map_height, 64);
   uhdr_raw_image_ext_t* dest = gainmap_img.get();
 
