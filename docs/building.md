@@ -270,6 +270,21 @@ This will generate the following files under `build_directory`:
 **ultrahdr_app** - sample application <br>
 **ultrahdr_unit_test** - unit tests <br>
 
+#### Target - Linux Platform - LOONG Arch (64 bit)
+
+Install the prerequisite packages before building:
+
+```sh
+sudo apt install gcc-loongarch64-linux-gnu g++-loongarch64-linux-gnu
+```
+
+Compile:
+
+```sh
+cmake -G Ninja -DCMAKE_TOOLCHAIN_FILE=../cmake/toolchains/loong64-linux-gnu.cmake -DUHDR_BUILD_DEPS=1 ../
+ninja
+```
+
 #### Target - Android Platform
 
 Install the prerequisite packages before building:
