@@ -54,10 +54,8 @@ void UltraHdrEncFuzzer::fillBuffer(T* data, int width, int height, int stride) {
 
   T* tmp = data;
   std::vector<T> buffer(width);
-  for (int i = 0; i < buffer.size() && mFdp.remaining_bytes(); i++) {
-    buffer[i] = static_cast<T>(std::is_same<T, uint16_t>::value
-                                   ? (mFdp.ConsumeIntegralInRange<T>(0, (1 << 10) - 1)) << 6
-                                   : mFdp.ConsumeIntegral<T>());
+  for (int i = 0; i < buffer.size(); i++) {
+    buffer[i] = mFdp.ConsumeIntegral<T>();
   }
   for (int j = 0; j < height; j++) {
     for (int i = 0; i < width; i += buffer.size()) {
@@ -70,7 +68,7 @@ void UltraHdrEncFuzzer::fillBuffer(T* data, int width, int height, int stride) {
 }
 
 void UltraHdrEncFuzzer::process() {
-  while (mFdp.remaining_bytes()) {
+  if (mFdp.remaining_bytes()) {
     struct uhdr_raw_image hdrImg{};
     struct uhdr_raw_image sdrImg{};
     struct uhdr_raw_image gainmapImg{};
@@ -138,6 +136,9 @@ void UltraHdrEncFuzzer::process() {
     auto offsetHdr = mFdp.ConsumeFloatingPointInRange<float>(-1.0f, 1.0f);
     auto minCapacity = mFdp.ConsumeFloatingPointInRange<float>(-4.0f, 48.0f);
     auto maxCapacity = mFdp.ConsumeFloatingPointInRange<float>(-4.0f, 48.0f);
+
+    // target display peak brightness
+    auto targetDispPeakBrightness = mFdp.ConsumeFloatingPointInRange<float>(100.0f, 10500.0f);
 
     // raw buffer config
     bool hasHdrStride = mFdp.ConsumeBool();
@@ -214,7 +215,7 @@ void UltraHdrEncFuzzer::process() {
     uhdr_codec_private_t* enc_handle = uhdr_create_encoder();
     if (!enc_handle) {
       ALOGE("Failed to create encoder");
-      continue;
+      return;
     }
 
 #define ON_ERR(x)                              \
@@ -353,6 +354,7 @@ void UltraHdrEncFuzzer::process() {
     ON_ERR(uhdr_enc_set_gainmap_scale_factor(enc_handle, gm_scale_factor))
     ON_ERR(uhdr_enc_set_gainmap_gamma(enc_handle, gamma))
     ON_ERR(uhdr_enc_set_min_max_content_boost(enc_handle, minBoost, maxBoost))
+    ON_ERR(uhdr_enc_set_target_display_peak_brightness(enc_handle, targetDispPeakBrightness))
     ON_ERR(uhdr_enc_set_preset(enc_handle, enc_preset))
     ON_ERR(uhdr_enable_gpu_acceleration(enc_handle, 1))
     if (applyMirror) ON_ERR(uhdr_add_effect_mirror(enc_handle, direction))
