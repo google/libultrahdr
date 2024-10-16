@@ -291,8 +291,7 @@ class LookUpTable {
 // except for those concerning transfer functions.
 
 /*
- * Calculate the luminance of a linear RGB sRGB pixel, according to
- * IEC 61966-2-1/Amd 1:2003.
+ * Calculate the luminance of a linear RGB sRGB pixel
  *
  * [0.0, 1.0] range in and out.
  */
@@ -313,7 +312,7 @@ Color srgbRgbToYuv(Color e_gamma);
 Color srgbYuvToRgb(Color e_gamma);
 
 /*
- * Convert from srgb to linear, according to IEC 61966-2-1/Amd 1:2003.
+ * Convert from srgb to linear.
  *
  * [0.0, 1.0] range in and out.
  */
@@ -323,7 +322,7 @@ float srgbInvOetfLUT(float e_gamma);
 Color srgbInvOetfLUT(Color e_gamma);
 
 /*
- * Convert from linear to srgb, according to IEC 61966-2-1/Amd 1:2003.
+ * Convert from linear to srgb.
  *
  * [0.0, 1.0] range in and out.
  */
@@ -337,7 +336,7 @@ constexpr int32_t kSrgbInvOETFNumEntries = 1 << kSrgbInvOETFPrecision;
 // Display-P3 transformations
 
 /*
- * Calculated the luminance of a linear RGB P3 pixel, according to SMPTE EG 432-1.
+ * Calculated the luminance of a linear RGB P3 pixel.
  *
  * [0.0, 1.0] range in and out.
  */
