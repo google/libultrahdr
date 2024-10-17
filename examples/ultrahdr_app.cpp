@@ -245,20 +245,21 @@ static bool writeFile(const char* filename, uhdr_raw_image_t* img) {
 
 class UltraHdrAppInput {
  public:
-  UltraHdrAppInput(
-      const char* hdrIntentRawFile, const char* sdrIntentRawFile,
-      const char* sdrIntentCompressedFile, const char* gainmapCompressedFile,
-      const char* gainmapMetadataCfgFile, const char* exifFile, const char* outputFile,
-      size_t width, size_t height, uhdr_img_fmt_t hdrCf = UHDR_IMG_FMT_32bppRGBA1010102,
-      uhdr_img_fmt_t sdrCf = UHDR_IMG_FMT_32bppRGBA8888,
-      uhdr_color_gamut_t hdrCg = UHDR_CG_DISPLAY_P3, uhdr_color_gamut_t sdrCg = UHDR_CG_BT_709,
-      uhdr_color_transfer_t hdrTf = UHDR_CT_HLG, int quality = 95,
-      uhdr_color_transfer_t oTf = UHDR_CT_HLG, uhdr_img_fmt_t oFmt = UHDR_IMG_FMT_32bppRGBA1010102,
-      bool isHdrCrFull = false, int gainmapScaleFactor = 1, int gainmapQuality = 95,
-      bool enableMultiChannelGainMap = true, float gamma = 1.0f, bool enableGLES = false,
-      uhdr_enc_preset_t encPreset = UHDR_USAGE_BEST_QUALITY, float minContentBoost = FLT_MIN,
-      float maxContentBoost = FLT_MAX, float masteringDispPeakBrightness = -1.0f,
-      float targetDispPeakBrightness = -1.0f)
+  UltraHdrAppInput(const char* hdrIntentRawFile, const char* sdrIntentRawFile,
+                   const char* sdrIntentCompressedFile, const char* gainmapCompressedFile,
+                   const char* gainmapMetadataCfgFile, const char* exifFile, const char* outputFile,
+                   size_t width, size_t height,
+                   uhdr_img_fmt_t hdrCf = UHDR_IMG_FMT_32bppRGBA1010102,
+                   uhdr_img_fmt_t sdrCf = UHDR_IMG_FMT_32bppRGBA8888,
+                   uhdr_color_gamut_t hdrCg = UHDR_CG_DISPLAY_P3,
+                   uhdr_color_gamut_t sdrCg = UHDR_CG_BT_709,
+                   uhdr_color_transfer_t hdrTf = UHDR_CT_HLG, int quality = 95,
+                   uhdr_color_transfer_t oTf = UHDR_CT_HLG,
+                   uhdr_img_fmt_t oFmt = UHDR_IMG_FMT_32bppRGBA1010102, bool isHdrCrFull = false,
+                   int gainmapScaleFactor = 1, int gainmapQuality = 95,
+                   bool enableMultiChannelGainMap = true, float gamma = 1.0f,
+                   bool enableGLES = false, uhdr_enc_preset_t encPreset = UHDR_USAGE_BEST_QUALITY,
+                   float minContentBoost = FLT_MIN, float maxContentBoost = FLT_MAX)
       : mHdrIntentRawFile(hdrIntentRawFile),
         mSdrIntentRawFile(sdrIntentRawFile),
         mSdrIntentCompressedFile(sdrIntentCompressedFile),
@@ -286,8 +287,6 @@ class UltraHdrAppInput {
         mEncPreset(encPreset),
         mMinContentBoost(minContentBoost),
         mMaxContentBoost(maxContentBoost),
-        mMasteringDispPeakBrightness(masteringDispPeakBrightness),
-        mTargetDispPeakBrightness(targetDispPeakBrightness),
         mMode(0){};
 
   UltraHdrAppInput(const char* gainmapMetadataCfgFile, const char* uhdrFile, const char* outputFile,
@@ -320,8 +319,6 @@ class UltraHdrAppInput {
         mEncPreset(UHDR_USAGE_BEST_QUALITY),
         mMinContentBoost(FLT_MIN),
         mMaxContentBoost(FLT_MAX),
-        mMasteringDispPeakBrightness(-1.0f),
-        mTargetDispPeakBrightness(-1.0f),
         mMode(1){};
 
   ~UltraHdrAppInput() {
@@ -404,8 +401,6 @@ class UltraHdrAppInput {
   const uhdr_enc_preset_t mEncPreset;
   const float mMinContentBoost;
   const float mMaxContentBoost;
-  const float mMasteringDispPeakBrightness;
-  const float mTargetDispPeakBrightness;
   const int mMode;
 
   uhdr_raw_image_t mRawP010Image{};
@@ -705,12 +700,6 @@ bool UltraHdrAppInput::encode() {
   RET_IF_ERR(uhdr_enc_set_preset(handle, mEncPreset))
   if (mMinContentBoost != FLT_MIN || mMaxContentBoost != FLT_MAX) {
     RET_IF_ERR(uhdr_enc_set_min_max_content_boost(handle, mMinContentBoost, mMaxContentBoost))
-  }
-  if (mMasteringDispPeakBrightness != -1.0f) {
-    RET_IF_ERR(uhdr_enc_set_mastering_display_peak_brightness(handle, mMasteringDispPeakBrightness))
-  }
-  if (mTargetDispPeakBrightness != -1.0f) {
-    RET_IF_ERR(uhdr_enc_set_target_display_peak_brightness(handle, mTargetDispPeakBrightness))
   }
   if (mEnableGLES) {
     RET_IF_ERR(uhdr_enable_gpu_acceleration(handle, mEnableGLES))
@@ -1387,17 +1376,6 @@ static void usage(const char* name) {
   fprintf(stderr,
           "    -K    max content boost recommendation, must be in linear scale, optional.[any "
           "positive real number] \n");
-  fprintf(stderr,
-          "    -N    set mastering display peak brightness in nits. \n"
-          "          required, if the input color transfer is linear. \n"
-          "          optional, if the input color transfer is HLG or PQ. \n"
-          "          For HLG content, this defaults to 1000 nits. \n"
-          "          For PQ content, this defaults to 10000 nits. \n"
-          "          any real number in range [203, 10000]. \n");
-  fprintf(stderr,
-          "    -L    set target display peak brightness in nits. \n"
-          "          optional, defaults to mastering display peak brightness setting. \n"
-          "          any real number in range [203, 10000]. \n");
   fprintf(stderr, "    -x    binary input resource containing exif data to insert, optional. \n");
   fprintf(stderr, "\n## decoder options : \n");
   fprintf(stderr, "    -j    ultra hdr compressed input resource, required. \n");
@@ -1485,7 +1463,7 @@ static void usage(const char* name) {
 }
 
 int main(int argc, char* argv[]) {
-  char opt_string[] = "p:y:i:g:f:w:h:C:c:t:q:o:O:m:j:e:a:b:z:R:s:M:Q:G:x:u:D:k:K:N:L:";
+  char opt_string[] = "p:y:i:g:f:w:h:C:c:t:q:o:O:m:j:e:a:b:z:R:s:M:Q:G:x:u:D:k:K:";
   char *hdr_intent_raw_file = nullptr, *sdr_intent_raw_file = nullptr, *uhdr_file = nullptr,
        *sdr_intent_compressed_file = nullptr, *gainmap_compressed_file = nullptr,
        *gainmap_metadata_cfg_file = nullptr, *output_file = nullptr, *exif_file = nullptr;
@@ -1509,8 +1487,6 @@ int main(int argc, char* argv[]) {
   uhdr_enc_preset_t enc_preset = UHDR_USAGE_BEST_QUALITY;
   float min_content_boost = FLT_MIN;
   float max_content_boost = FLT_MAX;
-  float mastering_disp_peak_brightness = -1.0f;
-  float target_disp_peak_brightness = -1.0f;
   int ch;
   while ((ch = getopt_s(argc, argv, opt_string)) != -1) {
     switch (ch) {
@@ -1605,12 +1581,6 @@ int main(int argc, char* argv[]) {
       case 'K':
         max_content_boost = atof(optarg_s);
         break;
-      case 'N':
-        mastering_disp_peak_brightness = atof(optarg_s);
-        break;
-      case 'L':
-        target_disp_peak_brightness = atof(optarg_s);
-        break;
       default:
         usage(argv[0]);
         return -1;
@@ -1639,8 +1609,7 @@ int main(int argc, char* argv[]) {
                               hdr_cg, sdr_cg, hdr_tf, quality, out_tf, out_cf,
                               use_full_range_color_hdr, gainmap_scale_factor,
                               gainmap_compression_quality, use_multi_channel_gainmap, gamma,
-                              enable_gles, enc_preset, min_content_boost, max_content_boost,
-                              mastering_disp_peak_brightness, target_disp_peak_brightness);
+                              enable_gles, enc_preset, min_content_boost, max_content_boost);
     if (!appInput.encode()) return -1;
     if (compute_psnr == 1) {
       if (!appInput.decode()) return -1;

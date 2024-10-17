@@ -139,22 +139,6 @@ JNIEXPORT void JNICALL Java_com_google_media_codecs_ultrahdr_UltraHDREncoder_set
 
 /*
  * Class:     com_google_media_codecs_ultrahdr_UltraHDREncoder
- * Method:    setMasteringDisplayPeakBrightnessNative
- * Signature: (F)V
- */
-JNIEXPORT void JNICALL Java_com_google_media_codecs_ultrahdr_UltraHDREncoder_setMasteringDisplayPeakBrightnessNative
-  (JNIEnv *, jobject, jfloat);
-
-/*
- * Class:     com_google_media_codecs_ultrahdr_UltraHDREncoder
- * Method:    setTargetDisplayPeakBrightnessNative
- * Signature: (F)V
- */
-JNIEXPORT void JNICALL Java_com_google_media_codecs_ultrahdr_UltraHDREncoder_setTargetDisplayPeakBrightnessNative
-  (JNIEnv *, jobject, jfloat);
-
-/*
- * Class:     com_google_media_codecs_ultrahdr_UltraHDREncoder
  * Method:    encodeNative
  * Signature: ()V
  */

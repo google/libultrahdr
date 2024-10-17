@@ -64,8 +64,6 @@ public class UltraHdrApp {
     private final int mEncPreset;
     private final float mMinContentBoost;
     private final float mMaxContentBoost;
-    private final float mMasteringDispPeakBrightness;
-    private final float mTargetDispPeakBrightness;
 
     byte[] mYuv420YData, mYuv420CbData, mYuv420CrData;
     short[] mP010YData, mP010CbCrData;
@@ -83,8 +81,7 @@ public class UltraHdrApp {
             int height, int hdrCf, int sdrCf, int hdrCg, int sdrCg, int hdrTf, int quality, int oTf,
             int oFmt, boolean isHdrCrFull, int gainmapScaleFactor, int gainmapQuality,
             boolean enableMultiChannelGainMap, float gamma, int encPreset, float minContentBoost,
-            float maxContentBoost, float masteringDispPeakBrightness,
-            float targetDispPeakBrightness) {
+            float maxContentBoost) {
         mHdrIntentRawFile = hdrIntentRawFile;
         mSdrIntentRawFile = sdrIntentRawFile;
         mSdrIntentCompressedFile = sdrIntentCompressedFile;
@@ -112,8 +109,6 @@ public class UltraHdrApp {
         mEncPreset = encPreset;
         mMinContentBoost = minContentBoost;
         mMaxContentBoost = maxContentBoost;
-        mMasteringDispPeakBrightness = masteringDispPeakBrightness;
-        mTargetDispPeakBrightness = targetDispPeakBrightness;
     }
 
     public UltraHdrApp(String gainmapMetadataCfgFile, String uhdrFile, String outputFile, int oTF,
@@ -145,8 +140,6 @@ public class UltraHdrApp {
         mEncPreset = UHDR_USAGE_BEST_QUALITY;
         mMinContentBoost = Float.MIN_VALUE;
         mMaxContentBoost = Float.MAX_VALUE;
-        mMasteringDispPeakBrightness = -1.0f;
-        mTargetDispPeakBrightness = -1.0f;
     }
 
     public byte[] readFile(String filename) throws IOException {
@@ -394,12 +387,6 @@ public class UltraHdrApp {
             if (mMinContentBoost != Float.MIN_VALUE || mMaxContentBoost != Float.MAX_VALUE) {
                 handle.setMinMaxContentBoost(mMinContentBoost, mMaxContentBoost);
             }
-            if (mMasteringDispPeakBrightness != -1.0f) {
-                handle.setMasteringDisplayPeakBrightness(mMasteringDispPeakBrightness);
-            }
-            if (mTargetDispPeakBrightness != -1.0f) {
-                handle.setTargetDisplayPeakBrightness(mTargetDispPeakBrightness);
-            }
             handle.encode();
             mUhdrImagedata = handle.getOutput();
             writeFile(mOutputFile, mUhdrImagedata);
@@ -472,16 +459,6 @@ public class UltraHdrApp {
                 + " optional. any positive real number");
         System.out.println("    -K    max content boost recommendation, must be in linear scale,"
                 + " optional. any positive real number");
-        System.out.println("    -N    set mastering display peak brightness in nits.");
-        System.out.println("          required if the input color transfer is linear.");
-        System.out.println("          optional if the input color transfer is HLG or PQ.");
-        System.out.println("          For HLG content, this defaults to 1000 nits.");
-        System.out.println("          For PQ content, this defaults to 10000 nits.");
-        System.out.println("          any real number in range [203, 10000].");
-        System.out.println("    -L    set target display peak brightness in nits.");
-        System.out.println(
-                "          optional, defaults to mastering display peak brightness setting.");
-        System.out.println("          any real number in range [203, 10000].");
         System.out.println("    -x    binary input resource containing exif data to insert, "
                 + "optional.");
         System.out.println("\n## decoder options :");
@@ -591,8 +568,6 @@ public class UltraHdrApp {
         boolean enable_gles = false;
         float min_content_boost = Float.MIN_VALUE;
         float max_content_boost = Float.MAX_VALUE;
-        float mastering_disp_max_brightness = -1.0f;
-        float target_disp_max_brightness = -1.0f;
         boolean use_full_range_color_hdr = false;
         boolean use_multi_channel_gainmap = true;
 
@@ -683,12 +658,6 @@ public class UltraHdrApp {
                     case 'K':
                         max_content_boost = Float.parseFloat(args[++i]);
                         break;
-                    case 'N':
-                        mastering_disp_max_brightness = Float.parseFloat(args[++i]);
-                        break;
-                    case 'L':
-                        target_disp_max_brightness = Float.parseFloat(args[++i]);
-                        break;
                     default:
                         System.err.println("Unrecognized option, arg: " + args[i]);
                         usage();
@@ -722,7 +691,7 @@ public class UltraHdrApp {
                     hdr_cf, sdr_cf, hdr_cg, sdr_cg, hdr_tf, quality, out_tf, out_cf,
                     use_full_range_color_hdr, gain_map_scale_factor, gainmap_compression_quality,
                     use_multi_channel_gainmap, gamma, enc_preset, min_content_boost,
-                    max_content_boost, mastering_disp_max_brightness, target_disp_max_brightness);
+                    max_content_boost);
             appInput.encode();
         } else if (mode == 1) {
             if (uhdr_file == null) {

@@ -496,6 +496,11 @@ PutPixelFn putPixelFn(uhdr_img_fmt_t format);
 bool isPixelFormatRgb(uhdr_img_fmt_t format);
 
 /*
+ * Get max display mastering luminance in nits
+ */
+float getMaxDisplayMasteringLuminance(uhdr_color_transfer_t transfer);
+
+/*
  * Convert between YUV encodings, according to ITU-R BT.709-6, ITU-R BT.601-7, and ITU-R BT.2100-2.
  *
  * Bt.709 and Bt.2100 have well-defined YUV encodings; Display-P3's is less well defined, but is

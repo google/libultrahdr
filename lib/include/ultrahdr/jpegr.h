@@ -89,8 +89,7 @@ class JpegR {
         bool useMultiChannelGainMap = kUseMultiChannelGainMapAndroidDefault,
         float gamma = kGainMapGammaDefault,
         uhdr_enc_preset_t preset = kEncSpeedPresetAndroidDefault, float minContentBoost = FLT_MIN,
-        float maxContentBoost = FLT_MAX, float masteringDispPeakBrightness = -1.0f,
-        float targetDispPeakBrightness = -1.0f);
+        float maxContentBoost = FLT_MAX);
 
   /*!\brief Encode API-0.
    *
@@ -560,22 +559,6 @@ class JpegR {
   uhdr_error_info_t convertYuv(uhdr_raw_image_t* image, uhdr_color_gamut_t src_encoding,
                                uhdr_color_gamut_t dst_encoding);
 
-  /*!\brief Get mastering display peak brightness in nits
-   *
-   * \param[in]  transfer       intent's color transfer characteristics
-   *
-   * \return max display brightness in nits
-   */
-  float getMasteringDisplayMaxLuminance(uhdr_color_transfer_t transfer);
-
-  /*!\brief Get brightness corresponding to maximum code value
-   *
-   * \param[in]  transfer       intent's color transfer characteristics
-   *
-   * \return brightness corresponding to 1.0
-   */
-  float getLuminanceForMaxCodeValue(uhdr_color_transfer_t transfer);
-
   /*
    * This method will check the validity of the input arguments.
    *
@@ -614,16 +597,14 @@ class JpegR {
                                   int quality);
 
   // Configurations
-  void* mUhdrGLESCtxt;                 // opengl es context
-  size_t mMapDimensionScaleFactor;     // gain map scale factor
-  int mMapCompressQuality;             // gain map quality factor
-  bool mUseMultiChannelGainMap;        // enable multichannel gain map
-  float mGamma;                        // gain map gamma parameter
-  uhdr_enc_preset_t mEncPreset;        // encoding speed preset
-  float mMinContentBoost;              // min content boost recommendation
-  float mMaxContentBoost;              // max content boost recommendation
-  float mMasteringDispPeakBrightness;  // mastering display max luminance in nits
-  float mTargetDispPeakBrightness;     // target display max luminance in nits
+  void* mUhdrGLESCtxt;              // opengl es context
+  size_t mMapDimensionScaleFactor;  // gain map scale factor
+  int mMapCompressQuality;          // gain map quality factor
+  bool mUseMultiChannelGainMap;     // enable multichannel gain map
+  float mGamma;                     // gain map gamma parameter
+  uhdr_enc_preset_t mEncPreset;     // encoding speed preset
+  float mMinContentBoost;           // min content boost recommendation
+  float mMaxContentBoost;           // max content boost recommendation
 };
 
 struct GlobalTonemapOutputs {

@@ -770,78 +770,6 @@ uhdr_error_info_t uhdr_enc_set_min_max_content_boost(uhdr_codec_private_t* enc, 
   return status;
 }
 
-uhdr_error_info_t uhdr_enc_set_mastering_display_peak_brightness(uhdr_codec_private_t* enc,
-                                                                 float nits) {
-  uhdr_error_info_t status = g_no_error;
-
-  if (dynamic_cast<uhdr_encoder_private*>(enc) == nullptr) {
-    status.error_code = UHDR_CODEC_INVALID_PARAM;
-    status.has_detail = 1;
-    snprintf(status.detail, sizeof status.detail, "received nullptr for uhdr codec instance");
-    return status;
-  }
-
-  if (!std::isfinite(nits) || nits < ultrahdr::kSdrWhiteNits || nits > ultrahdr::kPqMaxNits) {
-    status.error_code = UHDR_CODEC_INVALID_PARAM;
-    status.has_detail = 1;
-    snprintf(status.detail, sizeof status.detail,
-             "unexpected mastering display peak brightness nits %f, expects to be with in range "
-             "[%f, %f]",
-             nits, ultrahdr::kSdrWhiteNits, ultrahdr::kPqMaxNits);
-  }
-
-  uhdr_encoder_private* handle = dynamic_cast<uhdr_encoder_private*>(enc);
-
-  if (handle->m_sailed) {
-    status.error_code = UHDR_CODEC_INVALID_OPERATION;
-    status.has_detail = 1;
-    snprintf(status.detail, sizeof status.detail,
-             "An earlier call to uhdr_encode() has switched the context from configurable state to "
-             "end state. The context is no longer configurable. To reuse, call reset()");
-    return status;
-  }
-
-  handle->m_mastering_disp_max_brightness = nits;
-
-  return status;
-}
-
-uhdr_error_info_t uhdr_enc_set_target_display_peak_brightness(uhdr_codec_private_t* enc,
-                                                              float nits) {
-  uhdr_error_info_t status = g_no_error;
-
-  if (dynamic_cast<uhdr_encoder_private*>(enc) == nullptr) {
-    status.error_code = UHDR_CODEC_INVALID_PARAM;
-    status.has_detail = 1;
-    snprintf(status.detail, sizeof status.detail, "received nullptr for uhdr codec instance");
-    return status;
-  }
-
-  if (!std::isfinite(nits) || nits < ultrahdr::kSdrWhiteNits || nits > ultrahdr::kPqMaxNits) {
-    status.error_code = UHDR_CODEC_INVALID_PARAM;
-    status.has_detail = 1;
-    snprintf(
-        status.detail, sizeof status.detail,
-        "unexpected target display peak brightness nits %f, expects to be with in range [%f, %f]",
-        nits, ultrahdr::kSdrWhiteNits, ultrahdr::kPqMaxNits);
-  }
-
-  uhdr_encoder_private* handle = dynamic_cast<uhdr_encoder_private*>(enc);
-
-  if (handle->m_sailed) {
-    status.error_code = UHDR_CODEC_INVALID_OPERATION;
-    status.has_detail = 1;
-    snprintf(status.detail, sizeof status.detail,
-             "An earlier call to uhdr_encode() has switched the context from configurable state to "
-             "end state. The context is no longer configurable. To reuse, call reset()");
-    return status;
-  }
-
-  handle->m_target_disp_max_brightness = nits;
-
-  return status;
-}
-
 uhdr_error_info_t uhdr_enc_set_raw_image(uhdr_codec_private_t* enc, uhdr_raw_image_t* img,
                                          uhdr_img_label_t intent) {
   uhdr_error_info_t status = g_no_error;
@@ -1263,8 +1191,7 @@ uhdr_error_info_t uhdr_encode(uhdr_codec_private_t* enc) {
     ultrahdr::JpegR jpegr(
         nullptr, handle->m_gainmap_scale_factor, handle->m_quality.find(UHDR_GAIN_MAP_IMG)->second,
         handle->m_use_multi_channel_gainmap, handle->m_gamma, handle->m_enc_preset,
-        handle->m_min_content_boost, handle->m_max_content_boost,
-        handle->m_mastering_disp_max_brightness, handle->m_target_disp_max_brightness);
+        handle->m_min_content_boost, handle->m_max_content_boost);
     if (handle->m_compressed_images.find(UHDR_BASE_IMG) != handle->m_compressed_images.end() &&
         handle->m_compressed_images.find(UHDR_GAIN_MAP_IMG) != handle->m_compressed_images.end()) {
       auto& base_entry = handle->m_compressed_images.find(UHDR_BASE_IMG)->second;
@@ -1367,8 +1294,6 @@ void uhdr_reset_encoder(uhdr_codec_private_t* enc) {
     handle->m_enc_preset = ultrahdr::kEncSpeedPresetDefault;
     handle->m_min_content_boost = FLT_MIN;
     handle->m_max_content_boost = FLT_MAX;
-    handle->m_mastering_disp_max_brightness = -1.0f;
-    handle->m_target_disp_max_brightness = -1.0f;
 
     handle->m_compressed_output_buffer.reset();
     handle->m_encode_call_status = g_no_error;
