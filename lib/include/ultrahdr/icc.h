@@ -49,6 +49,22 @@ typedef struct Matrix3x3 {
   float vals[3][3];
 } Matrix3x3;
 
+// A transfer function mapping encoded values to linear values,
+// represented by this 7-parameter piecewise function:
+//
+//   linear = sign(encoded) *  (c*|encoded| + f)       , 0 <= |encoded| < d
+//          = sign(encoded) * ((a*|encoded| + b)^g + e), d <= |encoded|
+//
+// (A simple gamma transfer function sets g to gamma and a to 1.)
+typedef struct TransferFunction {
+  float g, a, b, c, d, e, f;
+} TransferFunction;
+
+static constexpr TransferFunction kSRGB_TransFun = {
+    2.4f, (float)(1 / 1.055), (float)(0.055 / 1.055), (float)(1 / 12.92), 0.04045f, 0.0f, 0.0f};
+
+static constexpr TransferFunction kLinear_TransFun = {1.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
+
 // The D50 illuminant.
 constexpr float kD50_x = 0.9642f;
 constexpr float kD50_y = 1.0000f;
