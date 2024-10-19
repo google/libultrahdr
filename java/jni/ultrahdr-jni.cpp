@@ -334,19 +334,6 @@ Java_com_google_media_codecs_ultrahdr_UltraHDREncoder_setMinMaxContentBoostNativ
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_com_google_media_codecs_ultrahdr_UltraHDREncoder_setMasteringDisplayPeakBrightnessNative(
-    JNIEnv *env, jobject thiz, jfloat nits) {
-  GET_HANDLE()
-  RET_IF_TRUE(handle == 0, "java/io/IOException", "invalid encoder instance")
-  auto status =
-      uhdr_enc_set_mastering_display_peak_brightness((uhdr_codec_private_t *)handle, nits);
-  RET_IF_TRUE(status.error_code != UHDR_CODEC_OK, "java/io/IOException",
-              status.has_detail
-                  ? status.detail
-                  : "uhdr_enc_set_mastering_display_peak_brightness() returned with error")
-}
-
-extern "C" JNIEXPORT void JNICALL
 Java_com_google_media_codecs_ultrahdr_UltraHDREncoder_setTargetDisplayPeakBrightnessNative(
     JNIEnv *env, jobject thiz, jfloat nits) {
   GET_HANDLE()

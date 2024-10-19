@@ -375,7 +375,6 @@ struct uhdr_encoder_private : uhdr_codec_private {
   uhdr_enc_preset_t m_enc_preset;
   float m_min_content_boost;
   float m_max_content_boost;
-  float m_mastering_disp_max_brightness;
   float m_target_disp_max_brightness;
 
   // internal data
