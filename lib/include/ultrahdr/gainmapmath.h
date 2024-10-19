@@ -53,6 +53,8 @@ static const float kHlgMaxNits = 1000.0f;
 // pq peak white. 58% of pq peak white maps to reference diffuse white
 static const float kPqMaxNits = 10000.0f;
 
+float getReferenceDisplayPeakLuminanceInNits(uhdr_color_transfer_t transfer);
+
 // Image pixel descriptor
 struct Color {
   union {

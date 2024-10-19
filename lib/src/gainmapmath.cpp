@@ -21,6 +21,25 @@
 namespace ultrahdr {
 
 ////////////////////////////////////////////////////////////////////////////////
+// Framework
+
+float getReferenceDisplayPeakLuminanceInNits(uhdr_color_transfer_t transfer) {
+  switch (transfer) {
+    case UHDR_CT_LINEAR:
+      return kPqMaxNits;
+    case UHDR_CT_HLG:
+      return kHlgMaxNits;
+    case UHDR_CT_PQ:
+      return kPqMaxNits;
+    case UHDR_CT_SRGB:
+      return kSdrWhiteNits;
+    case UHDR_CT_UNSPECIFIED:
+      return -1.0f;
+  }
+  return -1.0f;
+}
+
+////////////////////////////////////////////////////////////////////////////////
 // Use Shepard's method for inverse distance weighting.
 
 float ShepardsIDW::euclideanDistance(float x1, float x2, float y1, float y2) {

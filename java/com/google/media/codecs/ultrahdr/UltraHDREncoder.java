@@ -415,30 +415,13 @@ public class UltraHDREncoder implements AutoCloseable {
     }
 
     /**
-     * Set peak brightness of the reference display used during content mastering. For
-     * {@link UltraHDRCommon#UHDR_CT_HLG}, {@link UltraHDRCommon#UHDR_CT_LINEAR} inputs, this
-     * corresponds to the brightness level of the maximum code value 1.0.
-     * <p>
-     * For {@link UltraHDRCommon#UHDR_CT_HLG}, default mastering display peak luminance is 1000
-     * nits. For {@link UltraHDRCommon#UHDR_CT_LINEAR} content, there is no default value, needs
-     * to be configured, otherwise, error is thrown during encoding. For
-     * {@link UltraHDRCommon#UHDR_CT_PQ} content, default mastering display peak luminance is
-     * 10000 nits.
-     *
-     * @param nits mastering display peak brightness in nits. Any positive real number in range
-     *             [203, 10000].
-     * @throws IOException If parameters are not valid or current encoder instance
-     *                     is not valid or current encoder instance is not suitable
-     *                     for configuration exception is thrown
-     */
-    public void setMasteringDisplayPeakBrightness(float nits) throws IOException {
-        setMasteringDisplayPeakBrightnessNative(nits);
-    }
-
-    /**
-     * Set target display peak brightness in nits. This value determines the weight by which the
-     * gain map coefficients are scaled during decode. If this is not configured, then mastering
-     * display peak brightness setting is used.
+     * Set target display peak brightness in nits. This is used for configuring
+     * {@link UltraHDRDecoder.GainMapMetadata#hdrCapacityMax}. This value determines the weight
+     * by which the gain map coefficients are scaled during decode. If this is not configured,
+     * then default peak luminance of HDR intent's color transfer under test is used. For
+     * {@link UltraHDRCommon#UHDR_CT_HLG} input, this corresponds to 1000 nits and for
+     * {@link UltraHDRCommon#UHDR_CT_LINEAR} and {@link UltraHDRCommon#UHDR_CT_PQ} inputs, this
+     * corresponds to 10000 nits.
      *
      * @param nits target display peak brightness in nits. Any positive real number in range
      *             [203, 10000]
@@ -524,8 +507,6 @@ public class UltraHDREncoder implements AutoCloseable {
 
     private native void setMinMaxContentBoostNative(float minContentBoost,
             float maxContentBoost) throws IOException;
-
-    private native void setMasteringDisplayPeakBrightnessNative(float nits) throws IOException;
 
     private native void setTargetDisplayPeakBrightnessNative(float nits) throws IOException;
 
