@@ -627,7 +627,7 @@ uhdr_error_info_t JpegR::generateGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_
     return status;
   }
 
-  ColorCalculationFn luminanceFn = getLuminanceFn(sdr_intent->cg);
+  LuminanceFn luminanceFn = getLuminanceFn(sdr_intent->cg);
   if (luminanceFn == nullptr) {
     status.error_code = UHDR_CODEC_UNSUPPORTED_FEATURE;
     status.has_detail = 1;
@@ -1809,7 +1809,7 @@ uhdr_error_info_t JpegR::toneMap(uhdr_raw_image_t* hdr_intent, uhdr_raw_image_t*
     return status;
   }
 
-  ColorCalculationFn hdrLuminanceFn = getLuminanceFn(hdr_intent->cg);
+  LuminanceFn hdrLuminanceFn = getLuminanceFn(hdr_intent->cg);
   if (hdrLuminanceFn == nullptr) {
     uhdr_error_info_t status;
     status.error_code = UHDR_CODEC_UNSUPPORTED_FEATURE;

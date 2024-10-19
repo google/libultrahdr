@@ -124,14 +124,14 @@ class GainMapMathTest : public testing::Test {
   Pixel Bt2100YuvGreenPixel() { return {173, -92, -117}; }
   Pixel Bt2100YuvBluePixel() { return {15, 128, -10}; }
 
-  float SrgbYuvToLuminance(Color yuv_gamma, ColorCalculationFn luminanceFn) {
+  float SrgbYuvToLuminance(Color yuv_gamma, LuminanceFn luminanceFn) {
     Color rgb_gamma = srgbYuvToRgb(yuv_gamma);
     Color rgb = srgbInvOetf(rgb_gamma);
     float luminance_scaled = luminanceFn(rgb);
     return luminance_scaled * kSdrWhiteNits;
   }
 
-  float P3YuvToLuminance(Color yuv_gamma, ColorCalculationFn luminanceFn) {
+  float P3YuvToLuminance(Color yuv_gamma, LuminanceFn luminanceFn) {
     Color rgb_gamma = p3YuvToRgb(yuv_gamma);
     Color rgb = srgbInvOetf(rgb_gamma);
     float luminance_scaled = luminanceFn(rgb);
@@ -139,7 +139,7 @@ class GainMapMathTest : public testing::Test {
   }
 
   float Bt2100YuvToLuminance(Color yuv_gamma, ColorTransformFn hdrInvOetf,
-                             ColorTransformFn gamutConversionFn, ColorCalculationFn luminanceFn,
+                             ColorTransformFn gamutConversionFn, LuminanceFn luminanceFn,
                              float scale_factor) {
     Color rgb_gamma = bt2100YuvToRgb(yuv_gamma);
     Color rgb = hdrInvOetf(rgb_gamma);
