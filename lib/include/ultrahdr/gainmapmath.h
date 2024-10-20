@@ -73,6 +73,7 @@ struct Color {
 
 typedef Color (*ColorTransformFn)(Color);
 typedef float (*LuminanceFn)(Color);
+typedef Color (*SceneToDisplayLuminanceFn)(Color, LuminanceFn);
 typedef Color (*GetPixelFn)(uhdr_raw_image_t*, size_t, size_t);
 typedef Color (*SamplePixelFn)(uhdr_raw_image_t*, size_t, size_t, size_t);
 typedef void (*PutPixelFn)(uhdr_raw_image_t*, size_t, size_t, Color&);
@@ -275,6 +276,10 @@ Color hlgInvOetfLUT(Color e_gamma);
 constexpr int32_t kHlgInvOETFPrecision = 12;
 constexpr int32_t kHlgInvOETFNumEntries = 1 << kHlgInvOETFPrecision;
 
+// hlg ootf (normalized)
+Color hlgOotf(Color e, LuminanceFn luminance);
+inline Color identityOotf(Color e, [[maybe_unused]] LuminanceFn) { return e; }
+
 // pq oetf
 float pqOetf(float e);
 Color pqOetf(Color e);
@@ -469,6 +474,7 @@ ColorTransformFn getGamutConversionFn(uhdr_color_gamut_t dst_gamut, uhdr_color_g
 ColorTransformFn getYuvToRgbFn(uhdr_color_gamut_t gamut);
 LuminanceFn getLuminanceFn(uhdr_color_gamut_t gamut);
 ColorTransformFn getInverseOetfFn(uhdr_color_transfer_t transfer);
+SceneToDisplayLuminanceFn getOotfFn(uhdr_color_transfer_t transfer);
 GetPixelFn getPixelFn(uhdr_img_fmt_t format);
 SamplePixelFn getSamplePixelFn(uhdr_img_fmt_t format);
 PutPixelFn putPixelFn(uhdr_img_fmt_t format);
