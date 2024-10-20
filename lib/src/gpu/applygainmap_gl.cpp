@@ -182,6 +182,21 @@ static const std::string pqOETFShader = R"__SHADER__(
   }
 )__SHADER__";
 
+static const std::string hlgInverseOOTFShader = R"__SHADER__(
+  float InverseOOTF(const float linear) {
+    const float kOotfGamma = 1.2f;
+    return pow(linear, 1.0f / kOotfGamma);
+  }
+
+  vec3 InverseOOTF(const vec3 linear) {
+    return vec3(InverseOOTF(linear.r), InverseOOTF(linear.g), InverseOOTF(linear.b));
+  }
+)__SHADER__";
+
+static const std::string IdentityInverseOOTFShader = R"__SHADER__(
+  vec3 InverseOOTF(const vec3 linear) { return linear; }
+)__SHADER__";
+
 std::string getApplyGainMapFragmentShader(uhdr_img_fmt sdr_fmt, uhdr_img_fmt gm_fmt,
                                           uhdr_color_transfer output_ct) {
   std::string shader_code = R"__SHADER__(#version 300 es
@@ -205,10 +220,13 @@ std::string getApplyGainMapFragmentShader(uhdr_img_fmt sdr_fmt, uhdr_img_fmt gm_
                                                          : getGainMapSampleMultiChannel);
   shader_code.append(applyGainMapShader);
   if (output_ct == UHDR_CT_LINEAR) {
+    shader_code.append(IdentityInverseOOTFShader);
     shader_code.append(linearOETFShader);
   } else if (output_ct == UHDR_CT_HLG) {
+    shader_code.append(hlgInverseOOTFShader);
     shader_code.append(hlgOETFShader);
   } else if (output_ct == UHDR_CT_PQ) {
+    shader_code.append(IdentityInverseOOTFShader);
     shader_code.append(pqOETFShader);
   }
 
@@ -219,6 +237,7 @@ std::string getApplyGainMapFragmentShader(uhdr_img_fmt sdr_fmt, uhdr_img_fmt gm_
       vec3 rgb_sdr = sRGBEOTF(rgb_gamma_sdr);
       vec3 gain = sampleMap(gainMapTexture);
       vec3 rgb_hdr = applyGain(rgb_sdr, gain);
+      rgb_hdr = InverseOOTF(rgb_hdr);
       vec3 rgb_gamma_hdr = OETF(rgb_hdr);
       FragColor = vec4(rgb_gamma_hdr, 1.0);
     }
