@@ -556,6 +556,26 @@ uhdr_error_info_t JpegR::generateGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_
     return status;
   }
 
+  LuminanceFn hdrLuminanceFn = getLuminanceFn(hdr_intent->cg);
+  if (hdrLuminanceFn == nullptr) {
+    status.error_code = UHDR_CODEC_UNSUPPORTED_FEATURE;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "No implementation available for calculating luminance for color gamut %d",
+             hdr_intent->cg);
+    return status;
+  }
+
+  SceneToDisplayLuminanceFn hdrOotfFn = getOotfFn(hdr_intent->ct);
+  if (hdrOotfFn == nullptr) {
+    status.error_code = UHDR_CODEC_UNSUPPORTED_FEATURE;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "No implementation available for calculating Ootf for color transfer %d",
+             hdr_intent->ct);
+    return status;
+  }
+
   float hdr_white_nits = getReferenceDisplayPeakLuminanceInNits(hdr_intent->ct);
   if (hdr_white_nits == -1.0f) {
     status.error_code = UHDR_CODEC_UNSUPPORTED_FEATURE;
@@ -651,9 +671,9 @@ uhdr_error_info_t JpegR::generateGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_
   uhdr_raw_image_ext_t* dest = gainmap_img.get();
 
   auto generateGainMapOnePass = [this, sdr_intent, hdr_intent, gainmap_metadata, dest, map_height,
-                                 hdrInvOetf, hdrGamutConversionFn, luminanceFn, sdrYuvToRgbFn,
-                                 hdrYuvToRgbFn, sdr_sample_pixel_fn, hdr_sample_pixel_fn,
-                                 hdr_white_nits, use_luminance]() -> void {
+                                 hdrInvOetf, hdrLuminanceFn, hdrOotfFn, hdrGamutConversionFn,
+                                 luminanceFn, sdrYuvToRgbFn, hdrYuvToRgbFn, sdr_sample_pixel_fn,
+                                 hdr_sample_pixel_fn, hdr_white_nits, use_luminance]() -> void {
     gainmap_metadata->max_content_boost = hdr_white_nits / kSdrWhiteNits;
     gainmap_metadata->min_content_boost = 1.0f;
     gainmap_metadata->gamma = mGamma;
@@ -674,9 +694,10 @@ uhdr_error_info_t JpegR::generateGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_
     size_t rowStep = threads == 1 ? map_height : jobSizeInRows;
     JobQueue jobQueue;
     std::function<void()> generateMap =
-        [this, sdr_intent, hdr_intent, gainmap_metadata, dest, hdrInvOetf, hdrGamutConversionFn,
-         luminanceFn, sdrYuvToRgbFn, hdrYuvToRgbFn, sdr_sample_pixel_fn, hdr_sample_pixel_fn,
-         hdr_white_nits, log2MinBoost, log2MaxBoost, use_luminance, &jobQueue]() -> void {
+        [this, sdr_intent, hdr_intent, gainmap_metadata, dest, hdrInvOetf, hdrLuminanceFn,
+         hdrOotfFn, hdrGamutConversionFn, luminanceFn, sdrYuvToRgbFn, hdrYuvToRgbFn,
+         sdr_sample_pixel_fn, hdr_sample_pixel_fn, hdr_white_nits, log2MinBoost, log2MaxBoost,
+         use_luminance, &jobQueue]() -> void {
       size_t rowStart, rowEnd;
       const bool isHdrIntentRgb = isPixelFormatRgb(hdr_intent->fmt);
       const bool isSdrIntentRgb = isPixelFormatRgb(sdr_intent->fmt);
@@ -708,6 +729,7 @@ uhdr_error_info_t JpegR::generateGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_
               hdr_rgb_gamma = hdrYuvToRgbFn(hdr_yuv_gamma);
             }
             Color hdr_rgb = hdrInvOetf(hdr_rgb_gamma);
+            hdr_rgb = hdrOotfFn(hdr_rgb, hdrLuminanceFn);
             hdr_rgb = hdrGamutConversionFn(hdr_rgb);
 
             if (mUseMultiChannelGainMap) {
@@ -760,10 +782,10 @@ uhdr_error_info_t JpegR::generateGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_
     std::for_each(workers.begin(), workers.end(), [](std::thread& t) { t.join(); });
   };
 
-  auto generateGainMapTwoPass = [this, sdr_intent, hdr_intent, gainmap_metadata, dest, map_width,
-                                 map_height, hdrInvOetf, hdrGamutConversionFn, luminanceFn,
-                                 sdrYuvToRgbFn, hdrYuvToRgbFn, sdr_sample_pixel_fn,
-                                 hdr_sample_pixel_fn, hdr_white_nits, use_luminance]() -> void {
+  auto generateGainMapTwoPass =
+      [this, sdr_intent, hdr_intent, gainmap_metadata, dest, map_width, map_height, hdrInvOetf,
+       hdrLuminanceFn, hdrOotfFn, hdrGamutConversionFn, luminanceFn, sdrYuvToRgbFn, hdrYuvToRgbFn,
+       sdr_sample_pixel_fn, hdr_sample_pixel_fn, hdr_white_nits, use_luminance]() -> void {
     uhdr_memory_block_t gainmap_mem(map_width * map_height * sizeof(float) *
                                     (mUseMultiChannelGainMap ? 3 : 1));
     float* gainmap_data = reinterpret_cast<float*>(gainmap_mem.m_buffer.get());
@@ -776,10 +798,10 @@ uhdr_error_info_t JpegR::generateGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_
     size_t rowStep = threads == 1 ? map_height : jobSizeInRows;
     JobQueue jobQueue;
     std::function<void()> generateMap =
-        [this, sdr_intent, hdr_intent, gainmap_data, map_width, hdrInvOetf, hdrGamutConversionFn,
-         luminanceFn, sdrYuvToRgbFn, hdrYuvToRgbFn, sdr_sample_pixel_fn, hdr_sample_pixel_fn,
-         hdr_white_nits, use_luminance, &gainmap_min, &gainmap_max, &gainmap_minmax,
-         &jobQueue]() -> void {
+        [this, sdr_intent, hdr_intent, gainmap_data, map_width, hdrInvOetf, hdrLuminanceFn,
+         hdrOotfFn, hdrGamutConversionFn, luminanceFn, sdrYuvToRgbFn, hdrYuvToRgbFn,
+         sdr_sample_pixel_fn, hdr_sample_pixel_fn, hdr_white_nits, use_luminance, &gainmap_min,
+         &gainmap_max, &gainmap_minmax, &jobQueue]() -> void {
       size_t rowStart, rowEnd;
       const bool isHdrIntentRgb = isPixelFormatRgb(hdr_intent->fmt);
       const bool isSdrIntentRgb = isPixelFormatRgb(sdr_intent->fmt);
@@ -814,6 +836,7 @@ uhdr_error_info_t JpegR::generateGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_
               hdr_rgb_gamma = hdrYuvToRgbFn(hdr_yuv_gamma);
             }
             Color hdr_rgb = hdrInvOetf(hdr_rgb_gamma);
+            hdr_rgb = hdrOotfFn(hdr_rgb, hdrLuminanceFn);
             hdr_rgb = hdrGamutConversionFn(hdr_rgb);
 
             if (mUseMultiChannelGainMap) {
@@ -1516,6 +1539,7 @@ uhdr_error_info_t JpegR::applyGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_ima
 #else
               ColorTransformFn hdrOetf = hlgOetf;
 #endif
+              rgb_hdr = hlgInverseOotfApprox(rgb_hdr);
               Color rgb_gamma_hdr = hdrOetf(rgb_hdr);
               uint32_t rgba_1010102 = colorToRgba1010102(rgb_gamma_hdr);
               reinterpret_cast<uint32_t*>(dest->planes[UHDR_PLANE_PACKED])[pixel_idx] =

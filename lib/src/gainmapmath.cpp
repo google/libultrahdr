@@ -294,6 +294,20 @@ Color hlgOotf(Color e, LuminanceFn luminance) {
   return e * std::pow(y, kOotfGamma - 1.0f);
 }
 
+Color hlgOotfApprox(Color e, [[maybe_unused]] LuminanceFn luminance) {
+  return {{{std::pow(e.r, kOotfGamma), std::pow(e.g, kOotfGamma), std::pow(e.b, kOotfGamma)}}};
+}
+
+Color hlgInverseOotf(Color e, LuminanceFn luminance) {
+  float y = luminance(e);
+  return e * std::pow(y, (1.0f / kOotfGamma) - 1.0f);
+}
+
+Color hlgInverseOotfApprox(Color e) {
+  return {{{std::pow(e.r, 1.0f / kOotfGamma), std::pow(e.g, 1.0f / kOotfGamma),
+            std::pow(e.b, 1.0f / kOotfGamma)}}};
+}
+
 // See ITU-R BT.2100-2, Table 4, Reference PQ OETF.
 static const float kPqM1 = 2610.0f / 16384.0f, kPqM2 = 2523.0f / 4096.0f * 128.0f;
 static const float kPqC1 = 3424.0f / 4096.0f, kPqC2 = 2413.0f / 4096.0f * 32.0f,
@@ -1122,7 +1136,7 @@ SceneToDisplayLuminanceFn getOotfFn(uhdr_color_transfer_t transfer) {
     case UHDR_CT_LINEAR:
       return identityOotf;
     case UHDR_CT_HLG:
-      return hlgOotf;
+      return hlgOotfApprox;
     case UHDR_CT_PQ:
       return identityOotf;
     case UHDR_CT_SRGB:

@@ -278,7 +278,12 @@ constexpr int32_t kHlgInvOETFNumEntries = 1 << kHlgInvOETFPrecision;
 
 // hlg ootf (normalized)
 Color hlgOotf(Color e, LuminanceFn luminance);
+Color hlgOotfApprox(Color e, [[maybe_unused]] LuminanceFn luminance);
 inline Color identityOotf(Color e, [[maybe_unused]] LuminanceFn) { return e; }
+
+// hlg inverse ootf (normalized)
+Color hlgInverseOotf(Color e, LuminanceFn luminance);
+Color hlgInverseOotfApprox(Color e);
 
 // pq oetf
 float pqOetf(float e);
