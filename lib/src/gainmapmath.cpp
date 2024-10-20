@@ -286,6 +286,14 @@ Color hlgInvOetfLUT(Color e_gamma) {
   return {{{hlgInvOetfLUT(e_gamma.r), hlgInvOetfLUT(e_gamma.g), hlgInvOetfLUT(e_gamma.b)}}};
 }
 
+// 1.2f + 0.42 * log(kHlgMaxNits / 1000)
+static const float kOotfGamma = 1.2f;
+
+Color hlgOotf(Color e, LuminanceFn luminance) {
+  float y = luminance(e);
+  return e * std::pow(y, kOotfGamma - 1.0f);
+}
+
 // See ITU-R BT.2100-2, Table 4, Reference PQ OETF.
 static const float kPqM1 = 2610.0f / 16384.0f, kPqM2 = 2523.0f / 4096.0f * 128.0f;
 static const float kPqC1 = 3424.0f / 4096.0f, kPqC2 = 2413.0f / 4096.0f * 32.0f,
@@ -1103,6 +1111,22 @@ ColorTransformFn getInverseOetfFn(uhdr_color_transfer_t transfer) {
 #else
       return srgbInvOetf;
 #endif
+    case UHDR_CT_UNSPECIFIED:
+      return nullptr;
+  }
+  return nullptr;
+}
+
+SceneToDisplayLuminanceFn getOotfFn(uhdr_color_transfer_t transfer) {
+  switch (transfer) {
+    case UHDR_CT_LINEAR:
+      return identityOotf;
+    case UHDR_CT_HLG:
+      return hlgOotf;
+    case UHDR_CT_PQ:
+      return identityOotf;
+    case UHDR_CT_SRGB:
+      return identityOotf;
     case UHDR_CT_UNSPECIFIED:
       return nullptr;
   }

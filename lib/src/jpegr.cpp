@@ -1678,16 +1678,12 @@ static float ReinhardMap(float y_hdr, float headroom) {
   return out * y_hdr;
 }
 
-GlobalTonemapOutputs globalTonemap(const std::array<float, 3>& rgb_in, float headroom, float y_in) {
-  constexpr float kOotfGamma = 1.2f;
-
-  // Apply OOTF and Scale to Headroom to get HDR values that are referenced to
-  // SDR white. The range [0.0, 1.0] is linearly stretched to [0.0, headroom]
-  // after the OOTF.
-  const float y_ootf_div_y_in = std::pow(y_in, kOotfGamma - 1.0f);
+GlobalTonemapOutputs globalTonemap(const std::array<float, 3>& rgb_in, float headroom) {
+  // Scale to Headroom to get HDR values that are referenced to SDR white. The range [0.0, 1.0] is
+  // linearly stretched to [0.0, headroom].
   std::array<float, 3> rgb_hdr;
   std::transform(rgb_in.begin(), rgb_in.end(), rgb_hdr.begin(),
-                 [&](float x) { return x * headroom * y_ootf_div_y_in; });
+                 [&](float x) { return x * headroom; });
 
   // Apply a tone mapping to compress the range [0, headroom] to [0, 1] by
   // keeping the shadows the same and crushing the highlights.
@@ -1788,6 +1784,17 @@ uhdr_error_info_t JpegR::toneMap(uhdr_raw_image_t* hdr_intent, uhdr_raw_image_t*
     return status;
   }
 
+  SceneToDisplayLuminanceFn hdrOotfFn = getOotfFn(hdr_intent->ct);
+  if (hdrOotfFn == nullptr) {
+    uhdr_error_info_t status;
+    status.error_code = UHDR_CODEC_UNSUPPORTED_FEATURE;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "No implementation available for calculating Ootf for color transfer %d",
+             hdr_intent->ct);
+    return status;
+  }
+
   ColorTransformFn hdrInvOetf = getInverseOetfFn(hdr_intent->ct);
   if (hdrInvOetf == nullptr) {
     uhdr_error_info_t status;
@@ -1848,7 +1855,7 @@ uhdr_error_info_t JpegR::toneMap(uhdr_raw_image_t* hdr_intent, uhdr_raw_image_t*
   std::function<void()> toneMapInternal;
 
   toneMapInternal = [hdr_intent, sdr_intent, hdrInvOetf, hdrGamutConversionFn, hdrYuvToRgbFn,
-                     hdr_white_nits, get_pixel_fn, put_pixel_fn, hdrLuminanceFn,
+                     hdr_white_nits, get_pixel_fn, put_pixel_fn, hdrLuminanceFn, hdrOotfFn,
                      &jobQueue]() -> void {
     size_t rowStart, rowEnd;
     const int hfactor = hdr_intent->fmt == UHDR_IMG_FMT_24bppYCbCrP010 ? 2 : 1;
@@ -1880,10 +1887,10 @@ uhdr_error_info_t JpegR::toneMap(uhdr_raw_image_t* hdr_intent, uhdr_raw_image_t*
                 hdr_rgb_gamma = hdrYuvToRgbFn(hdr_yuv_gamma);
               }
               Color hdr_rgb = hdrInvOetf(hdr_rgb_gamma);
+              hdr_rgb = hdrOotfFn(hdr_rgb, hdrLuminanceFn);
 
               GlobalTonemapOutputs tonemap_outputs =
-                  globalTonemap({hdr_rgb.r, hdr_rgb.g, hdr_rgb.b}, hdr_white_nits / kSdrWhiteNits,
-                                hdrLuminanceFn({{{hdr_rgb.r, hdr_rgb.g, hdr_rgb.b}}}));
+                  globalTonemap({hdr_rgb.r, hdr_rgb.g, hdr_rgb.b}, hdr_white_nits / kSdrWhiteNits);
               Color sdr_rgb_linear_bt2100 = {
                   {{tonemap_outputs.rgb_out[0], tonemap_outputs.rgb_out[1],
                     tonemap_outputs.rgb_out[2]}}};
