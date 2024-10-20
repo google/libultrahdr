@@ -153,8 +153,8 @@ inline Color operator/(const Color& lhs, const float rhs) {
 ////////////////////////////////////////////////////////////////////////////////
 // Float to Half and Half to Float conversions
 union FloatUIntUnion {
-  uint32_t fUInt;
-  float fFloat;
+  uint32_t mUInt;
+  float mFloat;
 };
 
 // FIXME: The shift operations in this function are causing UBSAN (Undefined-shift) errors
@@ -165,9 +165,9 @@ union FloatUIntUnion {
 UHDR_NO_SANITIZE_UNDEFINED
 inline uint16_t floatToHalf(float f) {
   FloatUIntUnion floatUnion;
-  floatUnion.fFloat = f;
+  floatUnion.mFloat = f;
   // round-to-nearest-even: add last bit after truncated mantissa
-  const uint32_t b = floatUnion.fUInt + 0x00001000;
+  const uint32_t b = floatUnion.mUInt + 0x00001000;
 
   const int32_t e = (b & 0x7F800000) >> 23;  // exponent
   const uint32_t m = b & 0x007FFFFF;         // mantissa
@@ -177,6 +177,50 @@ inline uint16_t floatToHalf(float f) {
          ((e < 113) & (e > 101)) * ((((0x007FF000 + m) >> (125 - e)) + 1) >> 1) |
          (e > 143) * 0x7FFF;
 }
+
+// Taken from frameworks/base/libs/hwui/jni/android_graphics_ColorSpace.cpp
+
+#if defined(__ANDROID__)  // __fp16 is not defined on non-Android builds
+inline float halfToFloat(uint16_t bits) {
+  __fp16 h;
+  memcpy(&h, &bits, 2);
+  return (float)h;
+}
+#else
+// This is Skia's implementation of SkHalfToFloat, which is
+// based on Fabien Giesen's half_to_float_fast2()
+// see https://fgiesen.wordpress.com/2012/03/28/half-to-float-done-quic/
+inline uint16_t halfMantissa(uint16_t h) { return h & 0x03ff; }
+
+inline uint16_t halfExponent(uint16_t h) { return (h >> 10) & 0x001f; }
+
+inline uint16_t halfSign(uint16_t h) { return h >> 15; }
+
+inline float halfToFloat(uint16_t bits) {
+  static const FloatUIntUnion magic = {126 << 23};
+  FloatUIntUnion o;
+
+  if (halfExponent(bits) == 0) {
+    // Zero / Denormal
+    o.mUInt = magic.mUInt + halfMantissa(bits);
+    o.mFloat -= magic.mFloat;
+  } else {
+    // Set mantissa
+    o.mUInt = halfMantissa(bits) << 13;
+    // Set exponent
+    if (halfExponent(bits) == 0x1f) {
+      // Inf/NaN
+      o.mUInt |= (255 << 23);
+    } else {
+      o.mUInt |= ((127 - 15 + halfExponent(bits)) << 23);
+    }
+  }
+
+  // Set sign
+  o.mUInt |= (halfSign(bits) << 31);
+  return o.mFloat;
+}
+#endif  // defined(__ANDROID__)
 
 ////////////////////////////////////////////////////////////////////////////////
 // Use Shepard's method for inverse distance weighting. For more information:
@@ -329,6 +373,7 @@ Color getP010Pixel(uhdr_raw_image_t* image, size_t x, size_t y);
 Color getYuv444Pixel10bit(uhdr_raw_image_t* image, size_t x, size_t y);
 Color getRgba8888Pixel(uhdr_raw_image_t* image, size_t x, size_t y);
 Color getRgba1010102Pixel(uhdr_raw_image_t* image, size_t x, size_t y);
+Color getRgbaF16Pixel(uhdr_raw_image_t* image, size_t x, size_t y);
 
 // Sample the image at the provided location, with a weighting based on nearby pixels and the map
 // scale factor.
@@ -339,6 +384,7 @@ Color sampleP010(uhdr_raw_image_t* map, size_t map_scale_factor, size_t x, size_
 Color sampleYuv44410bit(uhdr_raw_image_t* image, size_t map_scale_factor, size_t x, size_t y);
 Color sampleRgba8888(uhdr_raw_image_t* image, size_t map_scale_factor, size_t x, size_t y);
 Color sampleRgba1010102(uhdr_raw_image_t* image, size_t map_scale_factor, size_t x, size_t y);
+Color sampleRgbaF16(uhdr_raw_image_t* image, size_t map_scale_factor, size_t x, size_t y);
 
 // Put pixel in the image at the provided location.
 void putRgba8888Pixel(uhdr_raw_image_t* image, size_t x, size_t y, Color& pixel);
@@ -496,6 +542,24 @@ static inline float clampPixelFloat(float value) {
 
 static inline Color clampPixelFloat(Color e) {
   return {{{clampPixelFloat(e.r), clampPixelFloat(e.g), clampPixelFloat(e.b)}}};
+}
+
+// maximum limit of pixel value for linear hdr intent raw resource
+static const float kMaxPixelFloatHdrLinear = 10000.0f / 203.0f;
+
+static inline float clampPixelFloatLinear(float value) {
+  return CLIP3(value, 0.0f, kMaxPixelFloatHdrLinear);
+}
+
+static inline Color clampPixelFloatLinear(Color e) {
+  return {{{clampPixelFloatLinear(e.r), clampPixelFloatLinear(e.g), clampPixelFloatLinear(e.b)}}};
+}
+
+static inline Color sanitizePixel(Color e) {
+  float r = std::isfinite(e.r) ? clampPixelFloatLinear(e.r) : 0.0f;
+  float g = std::isfinite(e.g) ? clampPixelFloatLinear(e.g) : 0.0f;
+  float b = std::isfinite(e.b) ? clampPixelFloatLinear(e.b) : 0.0f;
+  return {{{r, g, b}}};
 }
 
 bool isPixelFormatRgb(uhdr_img_fmt_t format);

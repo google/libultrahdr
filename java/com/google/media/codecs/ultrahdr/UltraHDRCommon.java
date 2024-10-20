@@ -79,8 +79,9 @@ public class UltraHDRCommon {
     public static final int UHDR_IMG_FMT_32bppRGBA8888 = 3;
 
     /**
-     * 64 bits per pixel RGBA color format, with 16-bit signed
-     * floating point red, green, blue, and alpha components.
+     * 64 bits per pixel, 16 bits per channel, half-precision floating point RGBA color format.
+     * In a pixel even though each channel has storage space of 16 bits, the nominal range is
+     * expected to be [0.0..(10000/203)]
      * <p>
      *
      * <pre>

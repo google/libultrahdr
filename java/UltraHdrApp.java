@@ -69,6 +69,7 @@ public class UltraHdrApp {
     byte[] mYuv420YData, mYuv420CbData, mYuv420CrData;
     short[] mP010YData, mP010CbCrData;
     int[] mRgba1010102Data, mRgba8888Data;
+    long[] mRgbaF16Data;
     byte[] mCompressedImageData;
     byte[] mGainMapCompressedImageData;
     byte[] mExifData;
@@ -195,6 +196,22 @@ public class UltraHdrApp {
         byteBuffer.order(ByteOrder.nativeOrder());
         mRgba1010102Data = new int[mHeight * mWidth];
         byteBuffer.asIntBuffer().get(mRgba1010102Data);
+    }
+
+    public void fillRGBAF16ImageHandle() throws IOException {
+        final int bpp = 8;
+        final int rgbSampleCount = mHeight * mWidth;
+        final int expectedSize = rgbSampleCount * bpp;
+        byte[] data = readFile(mHdrIntentRawFile);
+        if (data.length < expectedSize) {
+            throw new RuntimeException("For the configured width, height, RGBA1010102 Image File is"
+                    + " expected to contain " + expectedSize + " bytes, but the file has "
+                    + data.length + " bytes");
+        }
+        ByteBuffer byteBuffer = ByteBuffer.wrap(data);
+        byteBuffer.order(ByteOrder.nativeOrder());
+        mRgbaF16Data = new long[mHeight * mWidth];
+        byteBuffer.asLongBuffer().get(mRgbaF16Data);
     }
 
     public void fillRGBA8888Handle() throws IOException {
@@ -344,6 +361,10 @@ public class UltraHdrApp {
                     fillRGBA1010102ImageHandle();
                     handle.setRawImage(mRgba1010102Data, mWidth, mHeight, mWidth, mHdrCg, mHdrTf,
                             UHDR_CR_FULL_RANGE, mHdrCf, UHDR_HDR_IMG);
+                } else if (mHdrCf == UHDR_IMG_FMT_64bppRGBAHalfFloat) {
+                    fillRGBAF16ImageHandle();
+                    handle.setRawImage(mRgbaF16Data, mWidth, mHeight, mWidth, mHdrCg, mHdrTf,
+                            UHDR_CR_FULL_RANGE, mHdrCf, UHDR_HDR_IMG);
                 } else {
                     throw new IllegalArgumentException("invalid hdr intent color format " + mHdrCf);
                 }
@@ -429,8 +450,8 @@ public class UltraHdrApp {
                 + " scenarios 0, 1, 2, 3.");
         System.out.println("    -y    raw sdr intent input resource (8-bit), required for encoding"
                 + " scenarios 1, 2.");
-        System.out.println("    -a    raw hdr intent color format, optional. [0:p010, 5:rgba1010102"
-                + " (default)]");
+        System.out.println("    -a    raw hdr intent color format, optional. [0:p010, "
+                + "4: rgbahalffloat, 5:rgba1010102 (default)]");
         System.out.println("    -b    raw sdr intent color format, optional. [1:yuv420, 3:rgba8888"
                 + " (default)]");
         System.out.println("    -i    compressed sdr intent input resource (jpeg), required for "
@@ -447,6 +468,13 @@ public class UltraHdrApp {
                 "    -c    sdr intent color gamut, optional. [0:bt709 (default), 1:p3, 2:bt2100]");
         System.out.println(
                 "    -t    hdr intent color transfer, optional. [0:linear, 1:hlg (default), 2:pq]");
+        System.out.println(
+                "          It should be noted that not all combinations of input color format and"
+                        + " input color transfer are supported.");
+        System.out.println(
+                "          srgb color transfer shall be paired with rgba8888 or yuv420 only.");
+        System.out.println("          hlg, pq shall be paired with rgba1010102 or p010.");
+        System.out.println("          linear shall be paired with rgbahalffloat.");
         System.out.println("    -q    quality factor to be used while encoding sdr intent, "
                 + "optional. [0-100], 95 : default.");
         System.out.println("    -R    color range of hdr intent, optional. [0:narrow-range "

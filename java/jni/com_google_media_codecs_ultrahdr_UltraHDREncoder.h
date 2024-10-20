@@ -44,6 +44,14 @@ JNIEXPORT void JNICALL Java_com_google_media_codecs_ultrahdr_UltraHDREncoder_set
 /*
  * Class:     com_google_media_codecs_ultrahdr_UltraHDREncoder
  * Method:    setRawImageNative
+ * Signature: ([JIIIIIIII)V
+ */
+JNIEXPORT void JNICALL Java_com_google_media_codecs_ultrahdr_UltraHDREncoder_setRawImageNative___3JIIIIIIII
+  (JNIEnv *, jobject, jlongArray, jint, jint, jint, jint, jint, jint, jint, jint);
+
+/*
+ * Class:     com_google_media_codecs_ultrahdr_UltraHDREncoder
+ * Method:    setRawImageNative
  * Signature: ([S[SIIIIIIIII)V
  */
 JNIEXPORT void JNICALL Java_com_google_media_codecs_ultrahdr_UltraHDREncoder_setRawImageNative___3S_3SIIIIIIIII

@@ -463,6 +463,17 @@ Color getRgba1010102Pixel(uhdr_raw_image_t* image, size_t x, size_t y) {
   return pixel / 1023.0f;
 }
 
+Color getRgbaF16Pixel(uhdr_raw_image_t* image, size_t x, size_t y) {
+  uint64_t* rgbData = static_cast<uint64_t*>(image->planes[UHDR_PLANE_PACKED]);
+  unsigned int srcStride = image->stride[UHDR_PLANE_PACKED];
+
+  Color pixel;
+  pixel.r = halfToFloat(rgbData[x + y * srcStride] & 0xffff);
+  pixel.g = halfToFloat((rgbData[x + y * srcStride] >> 16) & 0xffff);
+  pixel.b = halfToFloat((rgbData[x + y * srcStride] >> 32) & 0xffff);
+  return sanitizePixel(pixel);
+}
+
 static Color samplePixels(uhdr_raw_image_t* image, size_t map_scale_factor, size_t x, size_t y,
                           GetPixelFn get_pixel_fn) {
   Color e = {{{0.0f, 0.0f, 0.0f}}};
@@ -501,6 +512,10 @@ Color sampleRgba8888(uhdr_raw_image_t* image, size_t map_scale_factor, size_t x,
 
 Color sampleRgba1010102(uhdr_raw_image_t* image, size_t map_scale_factor, size_t x, size_t y) {
   return samplePixels(image, map_scale_factor, x, y, getRgba1010102Pixel);
+}
+
+Color sampleRgbaF16(uhdr_raw_image_t* image, size_t map_scale_factor, size_t x, size_t y) {
+  return samplePixels(image, map_scale_factor, x, y, getRgbaF16Pixel);
 }
 
 void putRgba8888Pixel(uhdr_raw_image_t* image, size_t x, size_t y, Color& pixel) {
@@ -1163,6 +1178,8 @@ GetPixelFn getPixelFn(uhdr_img_fmt_t format) {
       return getRgba8888Pixel;
     case UHDR_IMG_FMT_32bppRGBA1010102:
       return getRgba1010102Pixel;
+    case UHDR_IMG_FMT_64bppRGBAHalfFloat:
+      return getRgbaF16Pixel;
     default:
       return nullptr;
   }
@@ -1197,6 +1214,8 @@ SamplePixelFn getSamplePixelFn(uhdr_img_fmt_t format) {
       return sampleRgba8888;
     case UHDR_IMG_FMT_32bppRGBA1010102:
       return sampleRgba1010102;
+    case UHDR_IMG_FMT_64bppRGBAHalfFloat:
+      return sampleRgbaF16;
     default:
       return nullptr;
   }
