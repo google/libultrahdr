@@ -826,12 +826,14 @@ uhdr_error_info_t uhdr_enc_set_raw_image(uhdr_codec_private_t* enc, uhdr_raw_ima
     snprintf(status.detail, sizeof status.detail,
              "invalid intent %d, expects one of {UHDR_HDR_IMG, UHDR_SDR_IMG}", intent);
   } else if (intent == UHDR_HDR_IMG && (img->fmt != UHDR_IMG_FMT_24bppYCbCrP010 &&
-                                        img->fmt != UHDR_IMG_FMT_32bppRGBA1010102)) {
+                                        img->fmt != UHDR_IMG_FMT_32bppRGBA1010102 &&
+                                        img->fmt != UHDR_IMG_FMT_64bppRGBAHalfFloat)) {
     status.error_code = UHDR_CODEC_INVALID_PARAM;
     status.has_detail = 1;
     snprintf(status.detail, sizeof status.detail,
              "unsupported input pixel format for hdr intent %d, expects one of "
-             "{UHDR_IMG_FMT_24bppYCbCrP010, UHDR_IMG_FMT_32bppRGBA1010102}",
+             "{UHDR_IMG_FMT_24bppYCbCrP010, UHDR_IMG_FMT_32bppRGBA1010102, "
+             "UHDR_IMG_FMT_64bppRGBAHalfFloat}",
              img->fmt);
   } else if (intent == UHDR_SDR_IMG &&
              (img->fmt != UHDR_IMG_FMT_12bppYCbCr420 && img->fmt != UHDR_IMG_FMT_32bppRGBA8888)) {
@@ -854,14 +856,22 @@ uhdr_error_info_t uhdr_enc_set_raw_image(uhdr_codec_private_t* enc, uhdr_raw_ima
     status.has_detail = 1;
     snprintf(status.detail, sizeof status.detail,
              "invalid input color transfer for sdr intent image %d, expects UHDR_CT_SRGB", img->ct);
-  } else if (intent == UHDR_HDR_IMG &&
-             (img->ct != UHDR_CT_HLG && img->ct != UHDR_CT_LINEAR && img->ct != UHDR_CT_PQ)) {
+  } else if (intent == UHDR_HDR_IMG && img->fmt == UHDR_IMG_FMT_64bppRGBAHalfFloat &&
+             img->ct != UHDR_CT_LINEAR) {
     status.error_code = UHDR_CODEC_INVALID_PARAM;
     status.has_detail = 1;
     snprintf(status.detail, sizeof status.detail,
-             "invalid input color transfer for hdr intent image %d, expects one of {UHDR_CT_HLG, "
-             "UHDR_CT_LINEAR, UHDR_CT_PQ}",
+             "invalid input color transfer for hdr intent image %d with format "
+             "UHDR_IMG_FMT_64bppRGBAHalfFloat, expects one of {UHDR_CT_LINEAR}",
              img->ct);
+  } else if (intent == UHDR_HDR_IMG && img->fmt != UHDR_IMG_FMT_64bppRGBAHalfFloat &&
+             (img->ct != UHDR_CT_HLG && img->ct != UHDR_CT_PQ)) {
+    status.error_code = UHDR_CODEC_INVALID_PARAM;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "invalid input color transfer for hdr intent image %d with format %d, expects one of "
+             "{UHDR_CT_HLG, UHDR_CT_PQ}",
+             img->fmt, img->ct);
   } else if ((img->w % 2 != 0 || img->h % 2 != 0) &&
              (img->fmt == UHDR_IMG_FMT_12bppYCbCr420 || img->fmt == UHDR_IMG_FMT_24bppYCbCrP010)) {
     status.error_code = UHDR_CODEC_INVALID_PARAM;
@@ -945,7 +955,8 @@ uhdr_error_info_t uhdr_enc_set_raw_image(uhdr_codec_private_t* enc, uhdr_raw_ima
       snprintf(status.detail, sizeof status.detail,
                "invalid range, expects one of {UHDR_CR_FULL_RANGE}");
     }
-  } else if (img->fmt == UHDR_IMG_FMT_32bppRGBA1010102 || img->fmt == UHDR_IMG_FMT_32bppRGBA8888) {
+  } else if (img->fmt == UHDR_IMG_FMT_32bppRGBA1010102 || img->fmt == UHDR_IMG_FMT_32bppRGBA8888 ||
+             img->fmt == UHDR_IMG_FMT_64bppRGBAHalfFloat) {
     if (img->planes[UHDR_PLANE_PACKED] == nullptr) {
       status.error_code = UHDR_CODEC_INVALID_PARAM;
       status.has_detail = 1;

@@ -98,7 +98,7 @@ Java_com_google_media_codecs_ultrahdr_UltraHDREncoder_setRawImageNative___3IIIII
   RET_IF_TRUE(handle == 0, "java/io/IOException", "invalid encoder instance")
   jsize length = env->GetArrayLength(rgb_buff);
   RET_IF_TRUE(length < height * rgb_stride, "java/io/IOException",
-              "compressed image luma byteArray size is less than required size")
+              "raw image rgba byteArray size is less than required size")
   jint *rgbBody = env->GetIntArrayElements(rgb_buff, nullptr);
   uhdr_raw_image_t img{(uhdr_img_fmt_t)color_format,
                        (uhdr_color_gamut_t)color_gamut,
@@ -116,6 +116,31 @@ Java_com_google_media_codecs_ultrahdr_UltraHDREncoder_setRawImageNative___3IIIII
 }
 
 extern "C" JNIEXPORT void JNICALL
+Java_com_google_media_codecs_ultrahdr_UltraHDREncoder_setRawImageNative___3JIIIIIIII(
+    JNIEnv *env, jobject thiz, jlongArray rgb_buff, jint width, jint height, jint rgb_stride,
+    jint color_gamut, jint color_transfer, jint color_range, jint color_format, jint intent) {
+  GET_HANDLE()
+  RET_IF_TRUE(handle == 0, "java/io/IOException", "invalid encoder instance")
+  jsize length = env->GetArrayLength(rgb_buff);
+  RET_IF_TRUE(length < height * rgb_stride, "java/io/IOException",
+              "raw image rgba byteArray size is less than required size")
+  jlong *rgbBody = env->GetLongArrayElements(rgb_buff, nullptr);
+  uhdr_raw_image_t img{(uhdr_img_fmt_t)color_format,
+                       (uhdr_color_gamut_t)color_gamut,
+                       (uhdr_color_transfer_t)color_transfer,
+                       (uhdr_color_range_t)color_range,
+                       (unsigned int)width,
+                       (unsigned int)height,
+                       {rgbBody, nullptr, nullptr},
+                       {(unsigned int)rgb_stride, 0u, 0u}};
+  auto status =
+      uhdr_enc_set_raw_image((uhdr_codec_private_t *)handle, &img, (uhdr_img_label_t)intent);
+  env->ReleaseLongArrayElements(rgb_buff, rgbBody, 0);
+  RET_IF_TRUE(status.error_code != UHDR_CODEC_OK, "java/io/IOException",
+              status.has_detail ? status.detail : "uhdr_enc_set_raw_image() returned with error")
+}
+
+extern "C" JNIEXPORT void JNICALL
 Java_com_google_media_codecs_ultrahdr_UltraHDREncoder_setRawImageNative___3S_3SIIIIIIIII(
     JNIEnv *env, jobject thiz, jshortArray y_buff, jshortArray uv_buff, jint width, jint height,
     jint y_stride, jint uv_stride, jint color_gamut, jint color_transfer, jint color_range,
@@ -124,10 +149,10 @@ Java_com_google_media_codecs_ultrahdr_UltraHDREncoder_setRawImageNative___3S_3SI
   RET_IF_TRUE(handle == 0, "java/io/IOException", "invalid encoder instance")
   jsize length = env->GetArrayLength(y_buff);
   RET_IF_TRUE(length < height * y_stride, "java/io/IOException",
-              "compressed image luma byteArray size is less than required size")
+              "raw image luma byteArray size is less than required size")
   length = env->GetArrayLength(uv_buff);
   RET_IF_TRUE(length < height * uv_stride / 2, "java/io/IOException",
-              "compressed image cb byteArray size is less than required size")
+              "raw image chroma byteArray size is less than required size")
   jshort *lumaBody = env->GetShortArrayElements(y_buff, nullptr);
   jshort *chromaBody = env->GetShortArrayElements(uv_buff, nullptr);
   uhdr_raw_image_t img{(uhdr_img_fmt_t)color_format,
@@ -155,13 +180,13 @@ Java_com_google_media_codecs_ultrahdr_UltraHDREncoder_setRawImageNative___3B_3B_
   RET_IF_TRUE(handle == 0, "java/io/IOException", "invalid encoder instance")
   jsize length = env->GetArrayLength(y_buff);
   RET_IF_TRUE(length < height * y_stride, "java/io/IOException",
-              "compressed image luma byteArray size is less than required size")
+              "raw image luma byteArray size is less than required size")
   length = env->GetArrayLength(u_buff);
   RET_IF_TRUE(length < height * u_stride / 4, "java/io/IOException",
-              "compressed image cb byteArray size is less than required size")
+              "raw image cb byteArray size is less than required size")
   length = env->GetArrayLength(v_buff);
   RET_IF_TRUE(length < height * v_stride / 4, "java/io/IOException",
-              "compressed image cb byteArray size is less than required size")
+              "raw image cb byteArray size is less than required size")
   jbyte *lumaBody = env->GetByteArrayElements(y_buff, nullptr);
   jbyte *cbBody = env->GetByteArrayElements(u_buff, nullptr);
   jbyte *crBody = env->GetByteArrayElements(v_buff, nullptr);

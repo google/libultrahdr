@@ -181,6 +181,10 @@ static bool loadFile(const char* filename, uhdr_raw_image_t* handle) {
       const int bpp = 4;
       READ_BYTES(ifd, handle->planes[UHDR_PLANE_PACKED], handle->w * handle->h * bpp)
       return true;
+    } else if (handle->fmt == UHDR_IMG_FMT_64bppRGBAHalfFloat) {
+      const int bpp = 8;
+      READ_BYTES(ifd, handle->planes[UHDR_PLANE_PACKED], handle->w * handle->h * bpp)
+      return true;
     } else if (handle->fmt == UHDR_IMG_FMT_12bppYCbCr420) {
       READ_BYTES(ifd, handle->planes[UHDR_PLANE_Y], handle->w * handle->h)
       READ_BYTES(ifd, handle->planes[UHDR_PLANE_U], (handle->w / 2) * (handle->h / 2))
@@ -332,6 +336,10 @@ class UltraHdrAppInput {
         free(mRawRgba1010102Image.planes[i]);
         mRawRgba1010102Image.planes[i] = nullptr;
       }
+      if (mRawRgbaF16Image.planes[i]) {
+        free(mRawRgbaF16Image.planes[i]);
+        mRawRgbaF16Image.planes[i] = nullptr;
+      }
       if (mRawYuv420Image.planes[i]) {
         free(mRawYuv420Image.planes[i]);
         mRawYuv420Image.planes[i] = nullptr;
@@ -356,6 +364,7 @@ class UltraHdrAppInput {
   bool fillUhdrImageHandle();
   bool fillP010ImageHandle();
   bool fillRGBA1010102ImageHandle();
+  bool fillRGBAF16ImageHandle();
   bool convertP010ToRGBImage();
   bool fillYuv420ImageHandle();
   bool fillRGBA8888ImageHandle();
@@ -406,6 +415,7 @@ class UltraHdrAppInput {
 
   uhdr_raw_image_t mRawP010Image{};
   uhdr_raw_image_t mRawRgba1010102Image{};
+  uhdr_raw_image_t mRawRgbaF16Image{};
   uhdr_raw_image_t mRawYuv420Image{};
   uhdr_raw_image_t mRawRgba8888Image{};
   uhdr_compressed_image_t mSdrIntentCompressedImage{};
@@ -469,6 +479,23 @@ bool UltraHdrAppInput::fillRGBA1010102ImageHandle() {
   mRawRgba1010102Image.stride[UHDR_PLANE_UV] = 0;
   mRawRgba1010102Image.stride[UHDR_PLANE_V] = 0;
   return loadFile(mHdrIntentRawFile, &mRawRgba1010102Image);
+}
+
+bool UltraHdrAppInput::fillRGBAF16ImageHandle() {
+  const int bpp = 8;
+  mRawRgbaF16Image.fmt = UHDR_IMG_FMT_64bppRGBAHalfFloat;
+  mRawRgbaF16Image.cg = mHdrCg;
+  mRawRgbaF16Image.ct = mHdrTf;
+  mRawRgbaF16Image.range = UHDR_CR_FULL_RANGE;
+  mRawRgbaF16Image.w = mWidth;
+  mRawRgbaF16Image.h = mHeight;
+  mRawRgbaF16Image.planes[UHDR_PLANE_PACKED] = malloc(mWidth * mHeight * bpp);
+  mRawRgbaF16Image.planes[UHDR_PLANE_UV] = nullptr;
+  mRawRgbaF16Image.planes[UHDR_PLANE_V] = nullptr;
+  mRawRgbaF16Image.stride[UHDR_PLANE_PACKED] = mWidth;
+  mRawRgbaF16Image.stride[UHDR_PLANE_UV] = 0;
+  mRawRgbaF16Image.stride[UHDR_PLANE_V] = 0;
+  return loadFile(mHdrIntentRawFile, &mRawRgbaF16Image);
 }
 
 bool UltraHdrAppInput::fillRGBA8888ImageHandle() {
@@ -610,6 +637,11 @@ bool UltraHdrAppInput::encode() {
         std::cerr << " failed to load file " << mHdrIntentRawFile << std::endl;
         return false;
       }
+    } else if (mHdrCf == UHDR_IMG_FMT_64bppRGBAHalfFloat) {
+      if (!fillRGBAF16ImageHandle()) {
+        std::cerr << " failed to load file " << mHdrIntentRawFile << std::endl;
+        return false;
+      }
     } else {
       std::cerr << " invalid hdr intent color format " << mHdrCf << std::endl;
       return false;
@@ -671,6 +703,8 @@ bool UltraHdrAppInput::encode() {
       RET_IF_ERR(uhdr_enc_set_raw_image(handle, &mRawP010Image, UHDR_HDR_IMG))
     } else if (mHdrCf == UHDR_IMG_FMT_32bppRGBA1010102) {
       RET_IF_ERR(uhdr_enc_set_raw_image(handle, &mRawRgba1010102Image, UHDR_HDR_IMG))
+    } else if (mHdrCf == UHDR_IMG_FMT_64bppRGBAHalfFloat) {
+      RET_IF_ERR(uhdr_enc_set_raw_image(handle, &mRawRgbaF16Image, UHDR_HDR_IMG))
     }
   }
   if (mSdrIntentRawFile != nullptr) {
@@ -1336,7 +1370,8 @@ static void usage(const char* name) {
       stderr,
       "    -y    raw sdr intent input resource (8-bit), required for encoding scenarios 1, 2. \n");
   fprintf(stderr,
-          "    -a    raw hdr intent color format, optional. [0:p010, 5:rgba1010102 (default)] \n");
+          "    -a    raw hdr intent color format, optional. [0:p010, 4: rgbahalffloat, "
+          "5:rgba1010102 (default)] \n");
   fprintf(stderr,
           "    -b    raw sdr intent color format, optional. [1:yuv420, 3:rgba8888 (default)] \n");
   fprintf(stderr,
@@ -1353,6 +1388,12 @@ static void usage(const char* name) {
           "    -c    sdr intent color gamut, optional. [0:bt709 (default), 1:p3, 2:bt2100] \n");
   fprintf(stderr,
           "    -t    hdr intent color transfer, optional. [0:linear, 1:hlg (default), 2:pq] \n");
+  fprintf(stderr,
+          "          It should be noted that not all combinations of input color format and input "
+          "color transfer are supported. \n"
+          "          srgb color transfer shall be paired with rgba8888 or yuv420 only. \n"
+          "          hlg, pq shall be paired with rgba1010102 or p010. \n"
+          "          linear shall be paired with rgbahalffloat. \n");
   fprintf(stderr,
           "    -q    quality factor to be used while encoding sdr intent, optional. [0-100], 95 : "
           "default.\n");
@@ -1635,7 +1676,8 @@ int main(int argc, char* argv[]) {
           appInput.convertRgba8888ToYUV444Image();
           appInput.computeYUVSdrPSNR();
         }
-      } else if (out_cf == UHDR_IMG_FMT_32bppRGBA1010102 && hdr_intent_raw_file != nullptr) {
+      } else if (out_cf == UHDR_IMG_FMT_32bppRGBA1010102 && hdr_intent_raw_file != nullptr &&
+                 hdr_cf != UHDR_IMG_FMT_64bppRGBAHalfFloat) {
         if (hdr_cf == UHDR_IMG_FMT_24bppYCbCrP010) {
           appInput.convertP010ToRGBImage();
         }

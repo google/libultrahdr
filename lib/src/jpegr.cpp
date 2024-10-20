@@ -190,7 +190,8 @@ uhdr_error_info_t JpegR::encodeJPEGR(uhdr_raw_image_t* hdr_intent, uhdr_compress
     sdr_intent_fmt = UHDR_IMG_FMT_12bppYCbCr420;
   } else if (hdr_intent->fmt == UHDR_IMG_FMT_30bppYCbCr444) {
     sdr_intent_fmt = UHDR_IMG_FMT_24bppYCbCr444;
-  } else if (hdr_intent->fmt == UHDR_IMG_FMT_32bppRGBA1010102) {
+  } else if (hdr_intent->fmt == UHDR_IMG_FMT_32bppRGBA1010102 ||
+             hdr_intent->fmt == UHDR_IMG_FMT_64bppRGBAHalfFloat) {
     sdr_intent_fmt = UHDR_IMG_FMT_32bppRGBA8888;
   } else {
     uhdr_error_info_t status;
@@ -525,13 +526,14 @@ uhdr_error_info_t JpegR::generateGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_
   }
   if (hdr_intent->fmt != UHDR_IMG_FMT_24bppYCbCrP010 &&
       hdr_intent->fmt != UHDR_IMG_FMT_30bppYCbCr444 &&
-      hdr_intent->fmt != UHDR_IMG_FMT_32bppRGBA1010102) {
+      hdr_intent->fmt != UHDR_IMG_FMT_32bppRGBA1010102 &&
+      hdr_intent->fmt != UHDR_IMG_FMT_64bppRGBAHalfFloat) {
     status.error_code = UHDR_CODEC_UNSUPPORTED_FEATURE;
     status.has_detail = 1;
     snprintf(status.detail, sizeof status.detail,
              "generate gainmap method expects hdr intent color format to be one of "
              "{UHDR_IMG_FMT_24bppYCbCrP010, UHDR_IMG_FMT_30bppYCbCr444, "
-             "UHDR_IMG_FMT_32bppRGBA1010102}. Received %d",
+             "UHDR_IMG_FMT_32bppRGBA1010102, UHDR_IMG_FMT_64bppRGBAHalfFloat}. Received %d",
              hdr_intent->fmt);
     return status;
   }
@@ -683,7 +685,7 @@ uhdr_error_info_t JpegR::generateGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_
     if (this->mTargetDispPeakBrightness != -1.0f) {
       gainmap_metadata->hdr_capacity_max = this->mTargetDispPeakBrightness / kSdrWhiteNits;
     } else {
-      gainmap_metadata->hdr_capacity_max = hdr_white_nits / kSdrWhiteNits;
+      gainmap_metadata->hdr_capacity_max = gainmap_metadata->max_content_boost;
     }
 
     float log2MinBoost = log2(gainmap_metadata->min_content_boost);
@@ -701,6 +703,8 @@ uhdr_error_info_t JpegR::generateGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_
       size_t rowStart, rowEnd;
       const bool isHdrIntentRgb = isPixelFormatRgb(hdr_intent->fmt);
       const bool isSdrIntentRgb = isPixelFormatRgb(sdr_intent->fmt);
+      const float hdrSampleToNitsFactor =
+          hdr_intent->ct == UHDR_CT_LINEAR ? kSdrWhiteNits : hdr_white_nits;
       while (jobQueue.dequeueJob(rowStart, rowEnd)) {
         for (size_t y = rowStart; y < rowEnd; ++y) {
           for (size_t x = 0; x < dest->w; ++x) {
@@ -734,7 +738,7 @@ uhdr_error_info_t JpegR::generateGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_
 
             if (mUseMultiChannelGainMap) {
               Color sdr_rgb_nits = sdr_rgb * kSdrWhiteNits;
-              Color hdr_rgb_nits = hdr_rgb * hdr_white_nits;
+              Color hdr_rgb_nits = hdr_rgb * hdrSampleToNitsFactor;
               size_t pixel_idx = (x + y * dest->stride[UHDR_PLANE_PACKED]) * 3;
 
               reinterpret_cast<uint8_t*>(dest->planes[UHDR_PLANE_PACKED])[pixel_idx] = encodeGain(
@@ -750,10 +754,10 @@ uhdr_error_info_t JpegR::generateGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_
               float hdr_y_nits;
               if (use_luminance) {
                 sdr_y_nits = luminanceFn(sdr_rgb) * kSdrWhiteNits;
-                hdr_y_nits = luminanceFn(hdr_rgb) * hdr_white_nits;
+                hdr_y_nits = luminanceFn(hdr_rgb) * hdrSampleToNitsFactor;
               } else {
                 sdr_y_nits = fmax(sdr_rgb.r, fmax(sdr_rgb.g, sdr_rgb.b)) * kSdrWhiteNits;
-                hdr_y_nits = fmax(hdr_rgb.r, fmax(hdr_rgb.g, hdr_rgb.b)) * hdr_white_nits;
+                hdr_y_nits = fmax(hdr_rgb.r, fmax(hdr_rgb.g, hdr_rgb.b)) * hdrSampleToNitsFactor;
               }
 
               size_t pixel_idx = x + y * dest->stride[UHDR_PLANE_Y];
@@ -805,6 +809,8 @@ uhdr_error_info_t JpegR::generateGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_
       size_t rowStart, rowEnd;
       const bool isHdrIntentRgb = isPixelFormatRgb(hdr_intent->fmt);
       const bool isSdrIntentRgb = isPixelFormatRgb(sdr_intent->fmt);
+      const float hdrSampleToNitsFactor =
+          hdr_intent->ct == UHDR_CT_LINEAR ? kSdrWhiteNits : hdr_white_nits;
       float gainmap_min_th[3] = {127.0f, 127.0f, 127.0f};
       float gainmap_max_th[3] = {-128.0f, -128.0f, -128.0f};
 
@@ -841,7 +847,7 @@ uhdr_error_info_t JpegR::generateGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_
 
             if (mUseMultiChannelGainMap) {
               Color sdr_rgb_nits = sdr_rgb * kSdrWhiteNits;
-              Color hdr_rgb_nits = hdr_rgb * hdr_white_nits;
+              Color hdr_rgb_nits = hdr_rgb * hdrSampleToNitsFactor;
               size_t pixel_idx = (x + y * map_width) * 3;
 
               gainmap_data[pixel_idx] = computeGain(sdr_rgb_nits.r, hdr_rgb_nits.r);
@@ -857,10 +863,10 @@ uhdr_error_info_t JpegR::generateGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_
 
               if (use_luminance) {
                 sdr_y_nits = luminanceFn(sdr_rgb) * kSdrWhiteNits;
-                hdr_y_nits = luminanceFn(hdr_rgb) * hdr_white_nits;
+                hdr_y_nits = luminanceFn(hdr_rgb) * hdrSampleToNitsFactor;
               } else {
                 sdr_y_nits = fmax(sdr_rgb.r, fmax(sdr_rgb.g, sdr_rgb.b)) * kSdrWhiteNits;
-                hdr_y_nits = fmax(hdr_rgb.r, fmax(hdr_rgb.g, hdr_rgb.b)) * hdr_white_nits;
+                hdr_y_nits = fmax(hdr_rgb.r, fmax(hdr_rgb.g, hdr_rgb.b)) * hdrSampleToNitsFactor;
               }
 
               size_t pixel_idx = x + y * map_width;
@@ -1702,12 +1708,13 @@ static float ReinhardMap(float y_hdr, float headroom) {
   return out * y_hdr;
 }
 
-GlobalTonemapOutputs globalTonemap(const std::array<float, 3>& rgb_in, float headroom) {
+GlobalTonemapOutputs globalTonemap(const std::array<float, 3>& rgb_in, float headroom,
+                                   bool is_normalized) {
   // Scale to Headroom to get HDR values that are referenced to SDR white. The range [0.0, 1.0] is
   // linearly stretched to [0.0, headroom].
   std::array<float, 3> rgb_hdr;
   std::transform(rgb_in.begin(), rgb_in.end(), rgb_hdr.begin(),
-                 [&](float x) { return x * headroom; });
+                 [&](float x) { return is_normalized ? x * headroom : x; });
 
   // Apply a tone mapping to compress the range [0, headroom] to [0, 1] by
   // keeping the shadows the same and crushing the highlights.
@@ -1738,15 +1745,16 @@ uint8_t ScaleTo8Bit(float value) {
 uhdr_error_info_t JpegR::toneMap(uhdr_raw_image_t* hdr_intent, uhdr_raw_image_t* sdr_intent) {
   if (hdr_intent->fmt != UHDR_IMG_FMT_24bppYCbCrP010 &&
       hdr_intent->fmt != UHDR_IMG_FMT_30bppYCbCr444 &&
-      hdr_intent->fmt != UHDR_IMG_FMT_32bppRGBA1010102) {
+      hdr_intent->fmt != UHDR_IMG_FMT_32bppRGBA1010102 &&
+      hdr_intent->fmt != UHDR_IMG_FMT_64bppRGBAHalfFloat) {
     uhdr_error_info_t status;
     status.error_code = UHDR_CODEC_UNSUPPORTED_FEATURE;
     status.has_detail = 1;
-    snprintf(
-        status.detail, sizeof status.detail,
-        "tonemap method expects hdr intent color format to be one of {UHDR_IMG_FMT_24bppYCbCrP010, "
-        "UHDR_IMG_FMT_30bppYCbCr444, UHDR_IMG_FMT_32bppRGBA1010102}. Received %d",
-        hdr_intent->fmt);
+    snprintf(status.detail, sizeof status.detail,
+             "tonemap method expects hdr intent color format to be one of "
+             "{UHDR_IMG_FMT_24bppYCbCrP010, UHDR_IMG_FMT_30bppYCbCr444, "
+             "UHDR_IMG_FMT_32bppRGBA1010102, UHDR_IMG_FMT_64bppRGBAHalfFloat}. Received %d",
+             hdr_intent->fmt);
     return status;
   }
 
@@ -1774,14 +1782,16 @@ uhdr_error_info_t JpegR::toneMap(uhdr_raw_image_t* hdr_intent, uhdr_raw_image_t*
     return status;
   }
 
-  if (hdr_intent->fmt == UHDR_IMG_FMT_32bppRGBA1010102 &&
+  if ((hdr_intent->fmt == UHDR_IMG_FMT_32bppRGBA1010102 ||
+       hdr_intent->fmt == UHDR_IMG_FMT_64bppRGBAHalfFloat) &&
       sdr_intent->fmt != UHDR_IMG_FMT_32bppRGBA8888) {
     uhdr_error_info_t status;
     status.error_code = UHDR_CODEC_UNSUPPORTED_FEATURE;
     status.has_detail = 1;
     snprintf(status.detail, sizeof status.detail,
              "tonemap method expects sdr intent color format to be UHDR_IMG_FMT_32bppRGBA8888, if "
-             "hdr intent color format is UHDR_IMG_FMT_32bppRGBA1010102. Received %d",
+             "hdr intent color format is UHDR_IMG_FMT_32bppRGBA1010102 or "
+             "UHDR_IMG_FMT_64bppRGBAHalfFloat. Received %d",
              sdr_intent->fmt);
     return status;
   }
@@ -1886,6 +1896,7 @@ uhdr_error_info_t JpegR::toneMap(uhdr_raw_image_t* hdr_intent, uhdr_raw_image_t*
     const int vfactor = hdr_intent->fmt == UHDR_IMG_FMT_24bppYCbCrP010 ? 2 : 1;
     const bool isHdrIntentRgb = isPixelFormatRgb(hdr_intent->fmt);
     const bool isSdrIntentRgb = isPixelFormatRgb(sdr_intent->fmt);
+    const bool is_normalized = hdr_intent->ct != UHDR_CT_LINEAR;
     uint8_t* luma_data = reinterpret_cast<uint8_t*>(sdr_intent->planes[UHDR_PLANE_Y]);
     uint8_t* cb_data = reinterpret_cast<uint8_t*>(sdr_intent->planes[UHDR_PLANE_U]);
     uint8_t* cr_data = reinterpret_cast<uint8_t*>(sdr_intent->planes[UHDR_PLANE_V]);
@@ -1913,8 +1924,8 @@ uhdr_error_info_t JpegR::toneMap(uhdr_raw_image_t* hdr_intent, uhdr_raw_image_t*
               Color hdr_rgb = hdrInvOetf(hdr_rgb_gamma);
               hdr_rgb = hdrOotfFn(hdr_rgb, hdrLuminanceFn);
 
-              GlobalTonemapOutputs tonemap_outputs =
-                  globalTonemap({hdr_rgb.r, hdr_rgb.g, hdr_rgb.b}, hdr_white_nits / kSdrWhiteNits);
+              GlobalTonemapOutputs tonemap_outputs = globalTonemap(
+                  {hdr_rgb.r, hdr_rgb.g, hdr_rgb.b}, hdr_white_nits / kSdrWhiteNits, is_normalized);
               Color sdr_rgb_linear_bt2100 = {
                   {{tonemap_outputs.rgb_out[0], tonemap_outputs.rgb_out[1],
                     tonemap_outputs.rgb_out[2]}}};
