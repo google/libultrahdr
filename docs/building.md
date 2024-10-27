@@ -310,6 +310,21 @@ This will generate the following files under `build_directory`:
 **ultrahdr_app** - sample application <br>
 **ultrahdr_unit_test** - unit tests <br>
 
+#### Target - Wasm
+
+Install the prerequisite packages before building: Follow the instructions given [here](https://emscripten.org/docs/getting_started/downloads.html#installation-instructions-using-the-emsdk-recommended).
+
+Compile:
+```sh
+emcmake cmake -G Ninja ../
+ninja
+```
+
+This will generate the following files under `build_directory`:
+
+**ultrahdr_app.wasm** - wasm module <br>
+**ultrahdr_app.js** - sample application <br>
+
 ## Building Fuzzers
 
 Refer to [fuzzers.md](fuzzers.md) for complete instructions.

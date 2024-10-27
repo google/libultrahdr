@@ -93,7 +93,11 @@ if(NOT IS_MULTI)
   endif()
 endif()
 
-if(NOT DEFINED BUILD_SHARED_LIBS)
+if(EMSCRIPTEN)
+  # platform does not support dynamic linking?
+  message(STATUS "For wasm targets, selecting static only builds")
+  option(BUILD_SHARED_LIBS "Build shared libraries" FALSE)
+elseif(NOT DEFINED BUILD_SHARED_LIBS)
   message(STATUS "No target type chosen, selecting Shared")
   option(BUILD_SHARED_LIBS "Build shared libraries" TRUE)
 endif()
@@ -120,7 +124,7 @@ option_if_not_defined(UHDR_ENABLE_WERROR "Build with -Werror" FALSE)
 
 # pre-requisites
 if(UHDR_BUILD_TESTS AND EMSCRIPTEN)
-  message(FATAL_ERROR "Building tests not supported in Web Assembly Path")
+  message(FATAL_ERROR "Building tests not supported for wasm targets")
 endif()
 
 if(UHDR_BUILD_BENCHMARK AND WIN32)
@@ -128,7 +132,7 @@ if(UHDR_BUILD_BENCHMARK AND WIN32)
 endif()
 
 if(UHDR_BUILD_BENCHMARK AND EMSCRIPTEN)
-  message(FATAL_ERROR "Building benchmarks not supported in Web Assembly Path")
+  message(FATAL_ERROR "Building benchmarks not supported for wasm targets")
 endif()
 
 # side effects
@@ -227,6 +231,27 @@ if(MSVC)
   add_compile_options(/wd4838) # conversion from 'type1' to 'type2' requires a narrowing conversion
   add_compile_options(/wd26812) # Prefer enum class over enum
 elseif(EMSCRIPTEN)
+  if(NOT UHDR_BUILD_DEPS)
+    include(CheckCSourceCompiles)
+    set(CMAKE_REQUIRED_FLAGS "--use-port=libjpeg")
+    set(CMAKE_REQUIRED_LINK_OPTIONS "--use-port=libjpeg")
+    check_c_source_compiles([=[
+       #include <stdio.h>
+       #include <jpeglib.h>
+       int main(void) {
+         struct jpeg_compress_struct cinfo;
+         struct jpeg_error_mgr jerr;
+         cinfo.err=jpeg_std_error(&jerr);
+         jpeg_create_compress(&cinfo);
+         jpeg_destroy_compress(&cinfo);
+         return 0;
+       }
+     ]=] HAVE_JPEG)
+    if(NOT HAVE_JPEG)
+      message(FATAL_ERROR "Could NOT compile with --use-port=libjpeg, resolve this \
+                           or try 'cmake -DUHDR_BUILD_DEPS=1'")
+    endif()
+  endif()
 else()
   add_compile_options(-ffunction-sections)
   add_compile_options(-fdata-sections)
