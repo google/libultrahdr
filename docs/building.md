@@ -8,7 +8,7 @@
 
 ### Requirements
 
-- [CMake](http://www.cmake.org) v3.13 or later
+- [CMake](http://www.cmake.org) v3.15 or later
 - C++ compiler, supporting at least C++17.
 - libultrahdr uses jpeg compression format to store sdr image and gainmap quotient.
   So, libjpeg or any other jpeg codec that is ABI and API compatible with libjpeg.
