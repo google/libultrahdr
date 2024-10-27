@@ -601,16 +601,17 @@ endif()
 target_link_libraries(${UHDR_CORE_LIB_NAME} PRIVATE ${COMMON_LIBS_LIST} ${IMAGEIO_TARGET_NAME})
 
 if(UHDR_BUILD_EXAMPLES)
-  add_executable(ultrahdr_app "${EXAMPLES_DIR}/ultrahdr_app.cpp")
-  add_dependencies(ultrahdr_app ${UHDR_CORE_LIB_NAME})
-  target_compile_options(ultrahdr_app PRIVATE ${UHDR_WERROR_FLAGS})
+  set(UHDR_SAMPLE_APP ultrahdr_app)
+  add_executable(${UHDR_SAMPLE_APP} "${EXAMPLES_DIR}/ultrahdr_app.cpp")
+  add_dependencies(${UHDR_SAMPLE_APP} ${UHDR_CORE_LIB_NAME})
+  target_compile_options(${UHDR_SAMPLE_APP} PRIVATE ${UHDR_WERROR_FLAGS})
   if(UHDR_BUILD_FUZZERS)
-    target_link_options(ultrahdr_app PRIVATE -fsanitize=fuzzer-no-link)
+    target_link_options(${UHDR_SAMPLE_APP} PRIVATE -fsanitize=fuzzer-no-link)
   endif()
   if(UHDR_ENABLE_STATIC_LINKING)
-    target_link_options(ultrahdr_app PRIVATE -static)
+    target_link_options(${UHDR_SAMPLE_APP} PRIVATE -static)
   endif()
-  target_link_libraries(ultrahdr_app PRIVATE ${UHDR_CORE_LIB_NAME})
+  target_link_libraries(${UHDR_SAMPLE_APP} PRIVATE ${UHDR_CORE_LIB_NAME})
 endif()
 
 if(UHDR_BUILD_TESTS OR UHDR_BUILD_BENCHMARK)
@@ -791,7 +792,7 @@ if(UHDR_ENABLE_INSTALL)
                    "${CMAKE_CURRENT_BINARY_DIR}/libuhdr.pc" @ONLY NEWLINE_STYLE UNIX)
     install(FILES "${CMAKE_CURRENT_BINARY_DIR}/libuhdr.pc"
             DESTINATION "${CMAKE_INSTALL_LIBDIR}/pkgconfig")
-    install(TARGETS ${UHDR_TARGET_NAME} ${UHDR_TARGET_NAME_STATIC}
+    install(TARGETS ${UHDR_TARGET_NAME} ${UHDR_TARGET_NAME_STATIC} ${UHDR_SAMPLE_APP}
             RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}"
             LIBRARY DESTINATION "${CMAKE_INSTALL_LIBDIR}"
             ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}"
