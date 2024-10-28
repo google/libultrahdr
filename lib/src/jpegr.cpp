@@ -2018,6 +2018,46 @@ status_t JpegR::areInputArgumentsValid(jr_uncompressed_ptr p010_image_ptr,
     ALOGE("Invalid hdr transfer function %d", hdr_tf);
     return ERROR_JPEGR_INVALID_TRANS_FUNC;
   }
+  if (mMapDimensionScaleFactor <= 0 || mMapDimensionScaleFactor > 128) {
+    ALOGE("gainmap scale factor is ecpected to be in range (0, 128], received %zu",
+          mMapDimensionScaleFactor);
+    return ERROR_JPEGR_UNSUPPORTED_MAP_SCALE_FACTOR;
+  }
+  if (mMapCompressQuality < 0 || mMapCompressQuality > 100) {
+    ALOGE("invalid quality factor %d, expects in range [0-100]", mMapCompressQuality);
+    return ERROR_JPEGR_INVALID_QUALITY_FACTOR;
+  }
+  if (!std::isfinite(mGamma) || mGamma <= 0.0f) {
+    ALOGE("unsupported gainmap gamma %f, expects to be > 0", mGamma);
+    return ERROR_JPEGR_INVALID_GAMMA;
+  }
+  if (mEncPreset != UHDR_USAGE_REALTIME && mEncPreset != UHDR_USAGE_BEST_QUALITY) {
+    ALOGE("invalid preset %d, expects one of {UHDR_USAGE_REALTIME, UHDR_USAGE_BEST_QUALITY}",
+          mEncPreset);
+    return ERROR_JPEGR_INVALID_ENC_PRESET;
+  }
+  if (!std::isfinite(mMinContentBoost) || !std::isfinite(mMaxContentBoost) ||
+      mMaxContentBoost < mMinContentBoost || mMinContentBoost <= 0.0f) {
+    ALOGE("Invalid min boost / max boost configuration. Configured max boost %f, min boost %f",
+          mMaxContentBoost, mMinContentBoost);
+    return ERROR_JPEGR_INVALID_DISPLAY_BOOST;
+  }
+  if (mMasteringDispPeakBrightness != -1.0f &&
+      (!std::isfinite(mMasteringDispPeakBrightness) ||
+       mMasteringDispPeakBrightness < ultrahdr::kSdrWhiteNits ||
+       mMasteringDispPeakBrightness > ultrahdr::kPqMaxNits)) {
+    ALOGE(
+        "unexpected mastering display peak brightness nits %f, expects to be with in range [%f %f]",
+        mMasteringDispPeakBrightness, ultrahdr::kSdrWhiteNits, ultrahdr::kPqMaxNits);
+    return ERROR_JPEGR_INVALID_MASTER_DISP_PEAK_BRIGHTNESS;
+  }
+  if (mTargetDispPeakBrightness != -1.0f && (!std::isfinite(mTargetDispPeakBrightness) ||
+                                             mTargetDispPeakBrightness < ultrahdr::kSdrWhiteNits ||
+                                             mTargetDispPeakBrightness > ultrahdr::kPqMaxNits)) {
+    ALOGE("unexpected target display peak brightness nits %f, expects to be with in range [%f %f]",
+          mTargetDispPeakBrightness, ultrahdr::kSdrWhiteNits, ultrahdr::kPqMaxNits);
+    return ERROR_JPEGR_INVALID_TARGET_DISP_PEAK_BRIGHTNESS;
+  }
   if (yuv420_image_ptr == nullptr) {
     return JPEGR_NO_ERROR;
   }
