@@ -52,7 +52,7 @@ uhdr_raw_image_ext::uhdr_raw_image_ext(uhdr_img_fmt_t fmt_, uhdr_color_gamut_t c
 
   int aligned_width = ALIGNM(w_, align_stride_to);
 
-  int bpp = 1;
+  size_t bpp = 1;
   if (fmt_ == UHDR_IMG_FMT_24bppYCbCrP010 || fmt_ == UHDR_IMG_FMT_30bppYCbCr444) {
     bpp = 2;
   } else if (fmt_ == UHDR_IMG_FMT_24bppRGB888) {
@@ -67,14 +67,14 @@ uhdr_raw_image_ext::uhdr_raw_image_ext(uhdr_img_fmt_t fmt_, uhdr_color_gamut_t c
   size_t plane_2_sz;
   size_t plane_3_sz;
   if (fmt_ == UHDR_IMG_FMT_24bppYCbCrP010) {
-    plane_2_sz = (2 /* planes */ * ((aligned_width / 2) * (h_ / 2) * bpp));
+    plane_2_sz = (2 /* planes */ * bpp * (aligned_width / 2) * (h_ / 2));
     plane_3_sz = 0;
   } else if (fmt_ == UHDR_IMG_FMT_30bppYCbCr444 || fmt_ == UHDR_IMG_FMT_24bppYCbCr444) {
     plane_2_sz = bpp * aligned_width * h_;
     plane_3_sz = bpp * aligned_width * h_;
   } else if (fmt_ == UHDR_IMG_FMT_12bppYCbCr420) {
-    plane_2_sz = (((aligned_width / 2) * (h_ / 2) * bpp));
-    plane_3_sz = (((aligned_width / 2) * (h_ / 2) * bpp));
+    plane_2_sz = (bpp * (aligned_width / 2) * (h_ / 2));
+    plane_3_sz = (bpp * (aligned_width / 2) * (h_ / 2));
   } else {
     plane_2_sz = 0;
     plane_3_sz = 0;
@@ -219,13 +219,13 @@ uhdr_error_info_t apply_effects(uhdr_encoder_private* enc) {
       int dst_w = resize_effect->m_width;
       int dst_h = resize_effect->m_height;
       auto& hdr_raw_entry = enc->m_raw_images.find(UHDR_HDR_IMG)->second;
-      if (dst_w <= 0 || dst_h <= 0) {
+      if (dst_w <= 0 || dst_h <= 0 || dst_w > ultrahdr::kMaxWidth || dst_h > ultrahdr::kMaxHeight) {
         uhdr_error_info_t status;
         status.error_code = UHDR_CODEC_INVALID_PARAM;
         snprintf(status.detail, sizeof status.detail,
-                 "destination dimensions cannot be <= zero. dest image width is %d, dest image "
-                 "height is %d",
-                 dst_w, dst_h);
+                 "destination dimensions must be in range (0, %d] x (0, %d]. dest image width "
+                 "is %d, dest image height is %d",
+                 ultrahdr::kMaxWidth, ultrahdr::kMaxHeight, dst_w, dst_h);
         return status;
       }
       if ((dst_w % 2 != 0 || dst_h % 2 != 0) && hdr_raw_entry->fmt == UHDR_IMG_FMT_24bppYCbCrP010) {
@@ -387,13 +387,15 @@ uhdr_error_info_t apply_effects(uhdr_decoder_private* dec) {
           ((float)dec->m_decoded_img_buffer.get()->h) / dec->m_gainmap_img_buffer.get()->h;
       int dst_gm_w = dst_w / wd_ratio;
       int dst_gm_h = dst_h / ht_ratio;
-      if (dst_w <= 0 || dst_h <= 0 || dst_gm_w <= 0 || dst_gm_h <= 0) {
+      if (dst_w <= 0 || dst_h <= 0 || dst_gm_w <= 0 || dst_gm_h <= 0 ||
+          dst_w > ultrahdr::kMaxWidth || dst_h > ultrahdr::kMaxHeight ||
+          dst_gm_w > ultrahdr::kMaxWidth || dst_gm_h > ultrahdr::kMaxHeight) {
         uhdr_error_info_t status;
         status.error_code = UHDR_CODEC_INVALID_PARAM;
         snprintf(status.detail, sizeof status.detail,
-                 "destination dimension cannot be <= zero. dest image width is %d, dest image "
-                 "height is %d, dest gainmap width is %d, dest gainmap height is %d",
-                 dst_w, dst_h, dst_gm_w, dst_gm_h);
+                 "destination dimension must be in range (0, %d] x (0, %d]. dest image width is "
+                 "%d, dest image height is %d, dest gainmap width is %d, dest gainmap height is %d",
+                 ultrahdr::kMaxWidth, ultrahdr::kMaxHeight, dst_w, dst_h, dst_gm_w, dst_gm_h);
         return status;
       }
       disp_img =
