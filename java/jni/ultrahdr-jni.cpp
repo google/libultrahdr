@@ -388,6 +388,8 @@ Java_com_google_media_codecs_ultrahdr_UltraHDREncoder_getOutputNative(JNIEnv *en
                   "no output returned, may be call to uhdr_encode() was not made or encountered "
                   "error during encoding process.",
                   nullptr)
+  RET_VAL_IF_TRUE(enc_output->data_sz >= INT32_MAX, "java/lang/OutOfMemoryError",
+                  "encoded output size exceeds integer max", nullptr)
   jbyteArray output = env->NewByteArray(enc_output->data_sz);
   RET_VAL_IF_TRUE(output == nullptr, "java/io/IOException", "failed to allocate storage for output",
                   nullptr)

@@ -142,19 +142,19 @@ void UltraHdrEncFuzzer::process() {
 
     // raw buffer config
     bool hasHdrStride = mFdp.ConsumeBool();
-    int yHdrStride = mFdp.ConsumeIntegralInRange<uint16_t>(width, width + 128);
+    size_t yHdrStride = mFdp.ConsumeIntegralInRange<uint16_t>(width, width + 128);
     if (!hasHdrStride) yHdrStride = width;
     bool isHdrUVContiguous = mFdp.ConsumeBool();
     bool hasHdrUVStride = mFdp.ConsumeBool();
-    int uvHdrStride = mFdp.ConsumeIntegralInRange<uint16_t>(width, width + 128);
+    size_t uvHdrStride = mFdp.ConsumeIntegralInRange<uint16_t>(width, width + 128);
     if (!hasHdrUVStride) uvHdrStride = width;
 
     bool hasSdrStride = mFdp.ConsumeBool();
-    int ySdrStride = mFdp.ConsumeIntegralInRange<uint16_t>(width, width + 128);
+    size_t ySdrStride = mFdp.ConsumeIntegralInRange<uint16_t>(width, width + 128);
     if (!hasSdrStride) ySdrStride = width;
     bool isSdrUVContiguous = mFdp.ConsumeBool();
     bool hasSdrUVStride = mFdp.ConsumeBool();
-    int uvSdrStride = mFdp.ConsumeIntegralInRange<uint16_t>(width / 2, width / 2 + 128);
+    size_t uvSdrStride = mFdp.ConsumeIntegralInRange<uint16_t>(width / 2, width / 2 + 128);
     if (!hasSdrUVStride) uvSdrStride = width / 2;
 
     // editing effects
@@ -172,8 +172,8 @@ void UltraHdrEncFuzzer::process() {
     int bottom = mFdp.ConsumeIntegral<int16_t>();
 
     auto applyResize = mFdp.ConsumeBool();
-    int resizeWidth = mFdp.ConsumeIntegralInRange<int16_t>(-32, kMaxWidth + 128);
-    int resizeHeight = mFdp.ConsumeIntegralInRange<int16_t>(-32, kMaxHeight + 128);
+    int resizeWidth = mFdp.ConsumeIntegralInRange<int32_t>(-32, kMaxWidth + 128);
+    int resizeHeight = mFdp.ConsumeIntegralInRange<int32_t>(-32, kMaxHeight + 128);
 
     // exif
     char greeting[] = "Exif says hello world";

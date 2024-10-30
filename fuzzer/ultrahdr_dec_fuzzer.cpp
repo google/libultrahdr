@@ -55,8 +55,8 @@ void UltraHdrDecFuzzer::process() {
   int bottom = mFdp.ConsumeIntegral<int16_t>();
 
   auto applyResize = mFdp.ConsumeBool();
-  int resizeWidth = mFdp.ConsumeIntegralInRange<int16_t>(-32, kMaxWidth + 128);
-  int resizeHeight = mFdp.ConsumeIntegralInRange<int16_t>(-32, kMaxHeight + 128);
+  int resizeWidth = mFdp.ConsumeIntegralInRange<int32_t>(-32, kMaxWidth + 128);
+  int resizeHeight = mFdp.ConsumeIntegralInRange<int32_t>(-32, kMaxHeight + 128);
 
   auto buffer = mFdp.ConsumeRemainingBytes<uint8_t>();
 

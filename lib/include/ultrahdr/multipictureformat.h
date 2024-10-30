@@ -69,8 +69,8 @@ constexpr uint32_t kMPEntryAttributeFormatJpeg = 0x0000000;
 constexpr uint32_t kMPEntryAttributeTypePrimary = 0x030000;
 
 size_t calculateMpfSize();
-std::shared_ptr<DataStruct> generateMpf(int primary_image_size, int primary_image_offset,
-                                        int secondary_image_size, int secondary_image_offset);
+std::shared_ptr<DataStruct> generateMpf(size_t primary_image_size, size_t primary_image_offset,
+                                        size_t secondary_image_size, size_t secondary_image_offset);
 
 }  // namespace ultrahdr
 

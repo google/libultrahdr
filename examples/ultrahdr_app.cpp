@@ -33,33 +33,40 @@
 #include "ultrahdr_api.h"
 
 const float BT601YUVtoRGBMatrix[9] = {
-    1, 0, 1.402, 1, (-0.202008 / 0.587), (-0.419198 / 0.587), 1.0, 1.772, 0.0};
+    1.f, 0.f, 1.402f, 1.f, (-0.202008f / 0.587f), (-0.419198f / 0.587f), 1.0f, 1.772f, 0.0f};
 const float BT709YUVtoRGBMatrix[9] = {
-    1, 0, 1.5748, 1, (-0.13397432 / 0.7152), (-0.33480248 / 0.7152), 1.0, 1.8556, 0.0};
+    1.f,  0.f,     1.5748f, 1.f, (-0.13397432f / 0.7152f), (-0.33480248f / 0.7152f),
+    1.0f, 1.8556f, 0.0f};
 const float BT2020YUVtoRGBMatrix[9] = {
-    1, 0, 1.4746, 1, (-0.11156702 / 0.6780), (-0.38737742 / 0.6780), 1, 1.8814, 0};
+    1.f, 0.f, 1.4746f, 1.f, (-0.11156702f / 0.6780f), (-0.38737742f / 0.6780f), 1.f, 1.8814f, 0.f};
 
-const float BT601RGBtoYUVMatrix[9] = {
-    0.299,           0.587, 0.114, (-0.299 / 1.772), (-0.587 / 1.772), 0.5, 0.5, (-0.587 / 1.402),
-    (-0.114 / 1.402)};
-const float BT709RGBtoYUVMatrix[9] = {0.2126,
-                                      0.7152,
-                                      0.0722,
-                                      (-0.2126 / 1.8556),
-                                      (-0.7152 / 1.8556),
-                                      0.5,
-                                      0.5,
-                                      (-0.7152 / 1.5748),
-                                      (-0.0722 / 1.5748)};
-const float BT2020RGBtoYUVMatrix[9] = {0.2627,
-                                       0.6780,
-                                       0.0593,
-                                       (-0.2627 / 1.8814),
-                                       (-0.6780 / 1.8814),
-                                       0.5,
-                                       0.5,
-                                       (-0.6780 / 1.4746),
-                                       (-0.0593 / 1.4746)};
+const float BT601RGBtoYUVMatrix[9] = {0.299f,
+                                      0.587f,
+                                      0.114f,
+                                      (-0.299f / 1.772f),
+                                      (-0.587f / 1.772f),
+                                      0.5f,
+                                      0.5f,
+                                      (-0.587f / 1.402f),
+                                      (-0.114f / 1.402f)};
+const float BT709RGBtoYUVMatrix[9] = {0.2126f,
+                                      0.7152f,
+                                      0.0722f,
+                                      (-0.2126f / 1.8556f),
+                                      (-0.7152f / 1.8556f),
+                                      0.5f,
+                                      0.5f,
+                                      (-0.7152f / 1.5748f),
+                                      (-0.0722f / 1.5748f)};
+const float BT2020RGBtoYUVMatrix[9] = {0.2627f,
+                                       0.6780f,
+                                       0.0593f,
+                                       (-0.2627f / 1.8814f),
+                                       (-0.6780f / 1.8814f),
+                                       0.5f,
+                                       0.5f,
+                                       (-0.6780f / 1.4746f),
+                                       (-0.0593f / 1.4746f)};
 
 // remove these once introduced in ultrahdr_api.h
 const int UHDR_IMG_FMT_48bppYCbCr444 = 101;
@@ -105,7 +112,7 @@ class Profiler {
 
   void timerStop() { QueryPerformanceCounter(&mEndingTime); }
 
-  int64_t elapsedTime() {
+  double elapsedTime() {
     LARGE_INTEGER frequency;
     LARGE_INTEGER elapsedMicroseconds;
     QueryPerformanceFrequency(&frequency);
@@ -145,10 +152,15 @@ class Profiler {
     return false;                                                                               \
   }
 
-static bool loadFile(const char* filename, void*& result, int length) {
+static bool loadFile(const char* filename, void*& result, std::streamoff length) {
+  if (length <= 0) {
+    std::cerr << "requested to read invalid length : " << length
+              << " bytes from file : " << filename << std::endl;
+    return false;
+  }
   std::ifstream ifd(filename, std::ios::binary | std::ios::ate);
   if (ifd.good()) {
-    int size = ifd.tellg();
+    auto size = ifd.tellg();
     if (size < length) {
       std::cerr << "requested to read " << length << " bytes from file : " << filename
                 << ", file contains only " << size << " bytes" << std::endl;
@@ -172,23 +184,23 @@ static bool loadFile(const char* filename, uhdr_raw_image_t* handle) {
   std::ifstream ifd(filename, std::ios::binary);
   if (ifd.good()) {
     if (handle->fmt == UHDR_IMG_FMT_24bppYCbCrP010) {
-      const int bpp = 2;
-      READ_BYTES(ifd, handle->planes[UHDR_PLANE_Y], handle->w * handle->h * bpp)
-      READ_BYTES(ifd, handle->planes[UHDR_PLANE_UV], (handle->w / 2) * (handle->h / 2) * bpp * 2)
+      const size_t bpp = 2;
+      READ_BYTES(ifd, handle->planes[UHDR_PLANE_Y], bpp * handle->w * handle->h)
+      READ_BYTES(ifd, handle->planes[UHDR_PLANE_UV], bpp * (handle->w / 2) * (handle->h / 2) * 2)
       return true;
     } else if (handle->fmt == UHDR_IMG_FMT_32bppRGBA1010102 ||
                handle->fmt == UHDR_IMG_FMT_32bppRGBA8888) {
-      const int bpp = 4;
-      READ_BYTES(ifd, handle->planes[UHDR_PLANE_PACKED], handle->w * handle->h * bpp)
+      const size_t bpp = 4;
+      READ_BYTES(ifd, handle->planes[UHDR_PLANE_PACKED], bpp * handle->w * handle->h)
       return true;
     } else if (handle->fmt == UHDR_IMG_FMT_64bppRGBAHalfFloat) {
-      const int bpp = 8;
-      READ_BYTES(ifd, handle->planes[UHDR_PLANE_PACKED], handle->w * handle->h * bpp)
+      const size_t bpp = 8;
+      READ_BYTES(ifd, handle->planes[UHDR_PLANE_PACKED], bpp * handle->w * handle->h)
       return true;
     } else if (handle->fmt == UHDR_IMG_FMT_12bppYCbCr420) {
-      READ_BYTES(ifd, handle->planes[UHDR_PLANE_Y], handle->w * handle->h)
-      READ_BYTES(ifd, handle->planes[UHDR_PLANE_U], (handle->w / 2) * (handle->h / 2))
-      READ_BYTES(ifd, handle->planes[UHDR_PLANE_V], (handle->w / 2) * (handle->h / 2))
+      READ_BYTES(ifd, handle->planes[UHDR_PLANE_Y], (size_t)handle->w * handle->h)
+      READ_BYTES(ifd, handle->planes[UHDR_PLANE_U], (size_t)(handle->w / 2) * (handle->h / 2))
+      READ_BYTES(ifd, handle->planes[UHDR_PLANE_V], (size_t)(handle->w / 2) * (handle->h / 2))
       return true;
     }
     return false;
@@ -197,7 +209,7 @@ static bool loadFile(const char* filename, uhdr_raw_image_t* handle) {
   return false;
 }
 
-static bool writeFile(const char* filename, void*& result, int length) {
+static bool writeFile(const char* filename, void*& result, size_t length) {
   std::ofstream ofd(filename, std::ios::binary);
   if (ofd.is_open()) {
     ofd.write(static_cast<char*>(result), length);
@@ -213,7 +225,7 @@ static bool writeFile(const char* filename, uhdr_raw_image_t* img) {
     if (img->fmt == UHDR_IMG_FMT_32bppRGBA8888 || img->fmt == UHDR_IMG_FMT_64bppRGBAHalfFloat ||
         img->fmt == UHDR_IMG_FMT_32bppRGBA1010102) {
       char* data = static_cast<char*>(img->planes[UHDR_PLANE_PACKED]);
-      int bpp = img->fmt == UHDR_IMG_FMT_64bppRGBAHalfFloat ? 8 : 4;
+      const size_t bpp = img->fmt == UHDR_IMG_FMT_64bppRGBAHalfFloat ? 8 : 4;
       const size_t stride = img->stride[UHDR_PLANE_PACKED] * bpp;
       const size_t length = img->w * bpp;
       for (unsigned i = 0; i < img->h; i++, data += stride) {
@@ -223,7 +235,7 @@ static bool writeFile(const char* filename, uhdr_raw_image_t* img) {
     } else if ((int)img->fmt == UHDR_IMG_FMT_24bppYCbCr444 ||
                (int)img->fmt == UHDR_IMG_FMT_48bppYCbCr444) {
       char* data = static_cast<char*>(img->planes[UHDR_PLANE_Y]);
-      int bpp = (int)img->fmt == UHDR_IMG_FMT_48bppYCbCr444 ? 2 : 1;
+      const size_t bpp = (int)img->fmt == UHDR_IMG_FMT_48bppYCbCr444 ? 2 : 1;
       size_t stride = img->stride[UHDR_PLANE_Y] * bpp;
       size_t length = img->w * bpp;
       for (unsigned i = 0; i < img->h; i++, data += stride) {
@@ -249,19 +261,21 @@ static bool writeFile(const char* filename, uhdr_raw_image_t* img) {
 
 class UltraHdrAppInput {
  public:
-  UltraHdrAppInput(
-      const char* hdrIntentRawFile, const char* sdrIntentRawFile,
-      const char* sdrIntentCompressedFile, const char* gainmapCompressedFile,
-      const char* gainmapMetadataCfgFile, const char* exifFile, const char* outputFile,
-      size_t width, size_t height, uhdr_img_fmt_t hdrCf = UHDR_IMG_FMT_32bppRGBA1010102,
-      uhdr_img_fmt_t sdrCf = UHDR_IMG_FMT_32bppRGBA8888,
-      uhdr_color_gamut_t hdrCg = UHDR_CG_DISPLAY_P3, uhdr_color_gamut_t sdrCg = UHDR_CG_BT_709,
-      uhdr_color_transfer_t hdrTf = UHDR_CT_HLG, int quality = 95,
-      uhdr_color_transfer_t oTf = UHDR_CT_HLG, uhdr_img_fmt_t oFmt = UHDR_IMG_FMT_32bppRGBA1010102,
-      bool isHdrCrFull = false, int gainmapScaleFactor = 1, int gainmapQuality = 95,
-      bool enableMultiChannelGainMap = true, float gamma = 1.0f, bool enableGLES = false,
-      uhdr_enc_preset_t encPreset = UHDR_USAGE_BEST_QUALITY, float minContentBoost = FLT_MIN,
-      float maxContentBoost = FLT_MAX, float targetDispPeakBrightness = -1.0f)
+  UltraHdrAppInput(const char* hdrIntentRawFile, const char* sdrIntentRawFile,
+                   const char* sdrIntentCompressedFile, const char* gainmapCompressedFile,
+                   const char* gainmapMetadataCfgFile, const char* exifFile, const char* outputFile,
+                   int width, int height, uhdr_img_fmt_t hdrCf = UHDR_IMG_FMT_32bppRGBA1010102,
+                   uhdr_img_fmt_t sdrCf = UHDR_IMG_FMT_32bppRGBA8888,
+                   uhdr_color_gamut_t hdrCg = UHDR_CG_DISPLAY_P3,
+                   uhdr_color_gamut_t sdrCg = UHDR_CG_BT_709,
+                   uhdr_color_transfer_t hdrTf = UHDR_CT_HLG, int quality = 95,
+                   uhdr_color_transfer_t oTf = UHDR_CT_HLG,
+                   uhdr_img_fmt_t oFmt = UHDR_IMG_FMT_32bppRGBA1010102, bool isHdrCrFull = false,
+                   int gainmapScaleFactor = 1, int gainmapQuality = 95,
+                   bool enableMultiChannelGainMap = true, float gamma = 1.0f,
+                   bool enableGLES = false, uhdr_enc_preset_t encPreset = UHDR_USAGE_BEST_QUALITY,
+                   float minContentBoost = FLT_MIN, float maxContentBoost = FLT_MAX,
+                   float targetDispPeakBrightness = -1.0f)
       : mHdrIntentRawFile(hdrIntentRawFile),
         mSdrIntentRawFile(sdrIntentRawFile),
         mSdrIntentCompressedFile(sdrIntentCompressedFile),
@@ -313,7 +327,7 @@ class UltraHdrAppInput {
         mQuality(95),
         mOTf(oTf),
         mOfmt(oFmt),
-        mFullRange(UHDR_CR_UNSPECIFIED),
+        mFullRange(false),
         mMapDimensionScaleFactor(1),
         mMapCompressQuality(95),
         mUseMultiChannelGainMap(true),
@@ -402,7 +416,7 @@ class UltraHdrAppInput {
   const uhdr_color_transfer_t mOTf;
   const uhdr_img_fmt_t mOfmt;
   const bool mFullRange;
-  const size_t mMapDimensionScaleFactor;
+  const int mMapDimensionScaleFactor;
   const int mMapCompressQuality;
   const bool mUseMultiChannelGainMap;
   const float mGamma;
@@ -429,8 +443,8 @@ class UltraHdrAppInput {
 };
 
 bool UltraHdrAppInput::fillP010ImageHandle() {
-  const int bpp = 2;
-  int p010Size = mWidth * mHeight * bpp * 1.5;
+  const size_t bpp = 2;
+  size_t p010Size = bpp * mWidth * mHeight * 3 / 2;
   mRawP010Image.fmt = UHDR_IMG_FMT_24bppYCbCrP010;
   mRawP010Image.cg = mHdrCg;
   mRawP010Image.ct = mHdrTf;
@@ -438,8 +452,8 @@ bool UltraHdrAppInput::fillP010ImageHandle() {
   mRawP010Image.range = mFullRange ? UHDR_CR_FULL_RANGE : UHDR_CR_LIMITED_RANGE;
   mRawP010Image.w = mWidth;
   mRawP010Image.h = mHeight;
-  mRawP010Image.planes[UHDR_PLANE_Y] = malloc(mWidth * mHeight * bpp);
-  mRawP010Image.planes[UHDR_PLANE_UV] = malloc((mWidth / 2) * (mHeight / 2) * bpp * 2);
+  mRawP010Image.planes[UHDR_PLANE_Y] = malloc(bpp * mWidth * mHeight);
+  mRawP010Image.planes[UHDR_PLANE_UV] = malloc(bpp * (mWidth / 2) * (mHeight / 2) * 2);
   mRawP010Image.planes[UHDR_PLANE_V] = nullptr;
   mRawP010Image.stride[UHDR_PLANE_Y] = mWidth;
   mRawP010Image.stride[UHDR_PLANE_UV] = mWidth;
@@ -448,16 +462,16 @@ bool UltraHdrAppInput::fillP010ImageHandle() {
 }
 
 bool UltraHdrAppInput::fillYuv420ImageHandle() {
-  int yuv420Size = mWidth * mHeight * 1.5;
+  size_t yuv420Size = (size_t)mWidth * mHeight * 3 / 2;
   mRawYuv420Image.fmt = UHDR_IMG_FMT_12bppYCbCr420;
   mRawYuv420Image.cg = mSdrCg;
   mRawYuv420Image.ct = UHDR_CT_SRGB;
   mRawYuv420Image.range = UHDR_CR_FULL_RANGE;
   mRawYuv420Image.w = mWidth;
   mRawYuv420Image.h = mHeight;
-  mRawYuv420Image.planes[UHDR_PLANE_Y] = malloc(mWidth * mHeight);
-  mRawYuv420Image.planes[UHDR_PLANE_U] = malloc((mWidth / 2) * (mHeight / 2));
-  mRawYuv420Image.planes[UHDR_PLANE_V] = malloc((mWidth / 2) * (mHeight / 2));
+  mRawYuv420Image.planes[UHDR_PLANE_Y] = malloc((size_t)mWidth * mHeight);
+  mRawYuv420Image.planes[UHDR_PLANE_U] = malloc((size_t)(mWidth / 2) * (mHeight / 2));
+  mRawYuv420Image.planes[UHDR_PLANE_V] = malloc((size_t)(mWidth / 2) * (mHeight / 2));
   mRawYuv420Image.stride[UHDR_PLANE_Y] = mWidth;
   mRawYuv420Image.stride[UHDR_PLANE_U] = mWidth / 2;
   mRawYuv420Image.stride[UHDR_PLANE_V] = mWidth / 2;
@@ -465,14 +479,14 @@ bool UltraHdrAppInput::fillYuv420ImageHandle() {
 }
 
 bool UltraHdrAppInput::fillRGBA1010102ImageHandle() {
-  const int bpp = 4;
+  const size_t bpp = 4;
   mRawRgba1010102Image.fmt = UHDR_IMG_FMT_32bppRGBA1010102;
   mRawRgba1010102Image.cg = mHdrCg;
   mRawRgba1010102Image.ct = mHdrTf;
   mRawRgba1010102Image.range = UHDR_CR_FULL_RANGE;
   mRawRgba1010102Image.w = mWidth;
   mRawRgba1010102Image.h = mHeight;
-  mRawRgba1010102Image.planes[UHDR_PLANE_PACKED] = malloc(mWidth * mHeight * bpp);
+  mRawRgba1010102Image.planes[UHDR_PLANE_PACKED] = malloc(bpp * mWidth * mHeight);
   mRawRgba1010102Image.planes[UHDR_PLANE_UV] = nullptr;
   mRawRgba1010102Image.planes[UHDR_PLANE_V] = nullptr;
   mRawRgba1010102Image.stride[UHDR_PLANE_PACKED] = mWidth;
@@ -482,14 +496,14 @@ bool UltraHdrAppInput::fillRGBA1010102ImageHandle() {
 }
 
 bool UltraHdrAppInput::fillRGBAF16ImageHandle() {
-  const int bpp = 8;
+  const size_t bpp = 8;
   mRawRgbaF16Image.fmt = UHDR_IMG_FMT_64bppRGBAHalfFloat;
   mRawRgbaF16Image.cg = mHdrCg;
   mRawRgbaF16Image.ct = mHdrTf;
   mRawRgbaF16Image.range = UHDR_CR_FULL_RANGE;
   mRawRgbaF16Image.w = mWidth;
   mRawRgbaF16Image.h = mHeight;
-  mRawRgbaF16Image.planes[UHDR_PLANE_PACKED] = malloc(mWidth * mHeight * bpp);
+  mRawRgbaF16Image.planes[UHDR_PLANE_PACKED] = malloc(bpp * mWidth * mHeight);
   mRawRgbaF16Image.planes[UHDR_PLANE_UV] = nullptr;
   mRawRgbaF16Image.planes[UHDR_PLANE_V] = nullptr;
   mRawRgbaF16Image.stride[UHDR_PLANE_PACKED] = mWidth;
@@ -499,14 +513,14 @@ bool UltraHdrAppInput::fillRGBAF16ImageHandle() {
 }
 
 bool UltraHdrAppInput::fillRGBA8888ImageHandle() {
-  const int bpp = 4;
+  const size_t bpp = 4;
   mRawRgba8888Image.fmt = UHDR_IMG_FMT_32bppRGBA8888;
   mRawRgba8888Image.cg = mSdrCg;
   mRawRgba8888Image.ct = UHDR_CT_SRGB;
   mRawRgba8888Image.range = UHDR_CR_FULL_RANGE;
   mRawRgba8888Image.w = mWidth;
   mRawRgba8888Image.h = mHeight;
-  mRawRgba8888Image.planes[UHDR_PLANE_PACKED] = malloc(mWidth * mHeight * bpp);
+  mRawRgba8888Image.planes[UHDR_PLANE_PACKED] = malloc(bpp * mWidth * mHeight);
   mRawRgba8888Image.planes[UHDR_PLANE_U] = nullptr;
   mRawRgba8888Image.planes[UHDR_PLANE_V] = nullptr;
   mRawRgba8888Image.stride[UHDR_PLANE_Y] = mWidth;
@@ -518,7 +532,7 @@ bool UltraHdrAppInput::fillRGBA8888ImageHandle() {
 bool UltraHdrAppInput::fillSdrCompressedImageHandle() {
   std::ifstream ifd(mSdrIntentCompressedFile, std::ios::binary | std::ios::ate);
   if (ifd.good()) {
-    int size = ifd.tellg();
+    auto size = ifd.tellg();
     mSdrIntentCompressedImage.capacity = size;
     mSdrIntentCompressedImage.data_sz = size;
     mSdrIntentCompressedImage.data = nullptr;
@@ -534,7 +548,7 @@ bool UltraHdrAppInput::fillSdrCompressedImageHandle() {
 bool UltraHdrAppInput::fillGainMapCompressedImageHandle() {
   std::ifstream ifd(mGainMapCompressedFile, std::ios::binary | std::ios::ate);
   if (ifd.good()) {
-    int size = ifd.tellg();
+    auto size = ifd.tellg();
     mGainMapCompressedImage.capacity = size;
     mGainMapCompressedImage.data_sz = size;
     mGainMapCompressedImage.data = nullptr;
@@ -586,7 +600,7 @@ bool UltraHdrAppInput::fillGainMapMetadataDescriptor() {
 bool UltraHdrAppInput::fillExifMemoryBlock() {
   std::ifstream ifd(mExifFile, std::ios::binary | std::ios::ate);
   if (ifd.good()) {
-    int size = ifd.tellg();
+    auto size = ifd.tellg();
     ifd.close();
     return loadFile(mExifFile, mExifBlock.data, size);
   }
@@ -612,7 +626,7 @@ bool UltraHdrAppInput::writeGainMapMetadataToFile(uhdr_gainmap_metadata_t* metad
 bool UltraHdrAppInput::fillUhdrImageHandle() {
   std::ifstream ifd(mUhdrFile, std::ios::binary | std::ios::ate);
   if (ifd.good()) {
-    int size = ifd.tellg();
+    auto size = ifd.tellg();
     mUhdrImage.capacity = size;
     mUhdrImage.data_sz = size;
     mUhdrImage.data = nullptr;
@@ -825,8 +839,8 @@ bool UltraHdrAppInput::decode() {
   mDecodedUhdrRgbImage.range = output->range;
   mDecodedUhdrRgbImage.w = output->w;
   mDecodedUhdrRgbImage.h = output->h;
-  int bpp = (output->fmt == UHDR_IMG_FMT_64bppRGBAHalfFloat) ? 8 : 4;
-  mDecodedUhdrRgbImage.planes[UHDR_PLANE_PACKED] = malloc(output->w * output->h * bpp);
+  size_t bpp = (output->fmt == UHDR_IMG_FMT_64bppRGBAHalfFloat) ? 8 : 4;
+  mDecodedUhdrRgbImage.planes[UHDR_PLANE_PACKED] = malloc(bpp * output->w * output->h);
   char* inData = static_cast<char*>(output->planes[UHDR_PLANE_PACKED]);
   char* outData = static_cast<char*>(mDecodedUhdrRgbImage.planes[UHDR_PLANE_PACKED]);
   const size_t inStride = output->stride[UHDR_PLANE_PACKED] * bpp;
@@ -855,13 +869,14 @@ bool UltraHdrAppInput::convertP010ToRGBImage() {
               << std::endl;
   }
 
+  size_t bpp = 4;
   mRawRgba1010102Image.fmt = UHDR_IMG_FMT_32bppRGBA1010102;
   mRawRgba1010102Image.cg = mRawP010Image.cg;
   mRawRgba1010102Image.ct = mRawP010Image.ct;
   mRawRgba1010102Image.range = UHDR_CR_FULL_RANGE;
   mRawRgba1010102Image.w = mRawP010Image.w;
   mRawRgba1010102Image.h = mRawP010Image.h;
-  mRawRgba1010102Image.planes[UHDR_PLANE_PACKED] = malloc(mRawP010Image.w * mRawP010Image.h * 4);
+  mRawRgba1010102Image.planes[UHDR_PLANE_PACKED] = malloc(bpp * mRawP010Image.w * mRawP010Image.h);
   mRawRgba1010102Image.planes[UHDR_PLANE_U] = nullptr;
   mRawRgba1010102Image.planes[UHDR_PLANE_V] = nullptr;
   mRawRgba1010102Image.stride[UHDR_PLANE_PACKED] = mWidth;
@@ -921,13 +936,14 @@ bool UltraHdrAppInput::convertP010ToRGBImage() {
 }
 
 bool UltraHdrAppInput::convertYuv420ToRGBImage() {
+  size_t bpp = 4;
   mRawRgba8888Image.fmt = UHDR_IMG_FMT_32bppRGBA8888;
   mRawRgba8888Image.cg = mRawYuv420Image.cg;
   mRawRgba8888Image.ct = mRawYuv420Image.ct;
   mRawRgba8888Image.range = UHDR_CR_FULL_RANGE;
   mRawRgba8888Image.w = mRawYuv420Image.w;
   mRawRgba8888Image.h = mRawYuv420Image.h;
-  mRawRgba8888Image.planes[UHDR_PLANE_PACKED] = malloc(mRawYuv420Image.w * mRawYuv420Image.h * 4);
+  mRawRgba8888Image.planes[UHDR_PLANE_PACKED] = malloc(bpp * mRawYuv420Image.w * mRawYuv420Image.h);
   mRawRgba8888Image.planes[UHDR_PLANE_U] = nullptr;
   mRawRgba8888Image.planes[UHDR_PLANE_V] = nullptr;
   mRawRgba8888Image.stride[UHDR_PLANE_PACKED] = mWidth;
@@ -994,11 +1010,11 @@ bool UltraHdrAppInput::convertRgba8888ToYUV444Image() {
   mDecodedUhdrYuv444Image.w = mDecodedUhdrRgbImage.w;
   mDecodedUhdrYuv444Image.h = mDecodedUhdrRgbImage.h;
   mDecodedUhdrYuv444Image.planes[UHDR_PLANE_Y] =
-      malloc(mDecodedUhdrRgbImage.w * mDecodedUhdrRgbImage.h);
+      malloc((size_t)mDecodedUhdrRgbImage.w * mDecodedUhdrRgbImage.h);
   mDecodedUhdrYuv444Image.planes[UHDR_PLANE_U] =
-      malloc(mDecodedUhdrRgbImage.w * mDecodedUhdrRgbImage.h);
+      malloc((size_t)mDecodedUhdrRgbImage.w * mDecodedUhdrRgbImage.h);
   mDecodedUhdrYuv444Image.planes[UHDR_PLANE_V] =
-      malloc(mDecodedUhdrRgbImage.w * mDecodedUhdrRgbImage.h);
+      malloc((size_t)mDecodedUhdrRgbImage.w * mDecodedUhdrRgbImage.h);
   mDecodedUhdrYuv444Image.stride[UHDR_PLANE_Y] = mWidth;
   mDecodedUhdrYuv444Image.stride[UHDR_PLANE_U] = mWidth;
   mDecodedUhdrYuv444Image.stride[UHDR_PLANE_V] = mWidth;
@@ -1069,6 +1085,7 @@ bool UltraHdrAppInput::convertRgba1010102ToYUV444Image() {
               << " using BT2020Matrix" << std::endl;
   }
 
+  size_t bpp = 2;
   mDecodedUhdrYuv444Image.fmt = static_cast<uhdr_img_fmt_t>(UHDR_IMG_FMT_48bppYCbCr444);
   mDecodedUhdrYuv444Image.cg = mDecodedUhdrRgbImage.cg;
   mDecodedUhdrYuv444Image.ct = mDecodedUhdrRgbImage.ct;
@@ -1076,11 +1093,11 @@ bool UltraHdrAppInput::convertRgba1010102ToYUV444Image() {
   mDecodedUhdrYuv444Image.w = mDecodedUhdrRgbImage.w;
   mDecodedUhdrYuv444Image.h = mDecodedUhdrRgbImage.h;
   mDecodedUhdrYuv444Image.planes[UHDR_PLANE_Y] =
-      malloc(mDecodedUhdrRgbImage.w * mDecodedUhdrRgbImage.h * 2);
+      malloc(bpp * mDecodedUhdrRgbImage.w * mDecodedUhdrRgbImage.h);
   mDecodedUhdrYuv444Image.planes[UHDR_PLANE_U] =
-      malloc(mDecodedUhdrRgbImage.w * mDecodedUhdrRgbImage.h * 2);
+      malloc(bpp * mDecodedUhdrRgbImage.w * mDecodedUhdrRgbImage.h);
   mDecodedUhdrYuv444Image.planes[UHDR_PLANE_V] =
-      malloc(mDecodedUhdrRgbImage.w * mDecodedUhdrRgbImage.h * 2);
+      malloc(bpp * mDecodedUhdrRgbImage.w * mDecodedUhdrRgbImage.h);
   mDecodedUhdrYuv444Image.stride[UHDR_PLANE_Y] = mWidth;
   mDecodedUhdrYuv444Image.stride[UHDR_PLANE_U] = mWidth;
   mDecodedUhdrYuv444Image.stride[UHDR_PLANE_V] = mWidth;
@@ -1158,7 +1175,7 @@ void UltraHdrAppInput::computeRGBHdrPSNR() {
               << std::endl;
   }
   uint64_t rSqError = 0, gSqError = 0, bSqError = 0;
-  for (size_t i = 0; i < mDecodedUhdrRgbImage.w * mDecodedUhdrRgbImage.h; i++) {
+  for (size_t i = 0; i < (size_t)mDecodedUhdrRgbImage.w * mDecodedUhdrRgbImage.h; i++) {
     int rSrc = *rgbDataSrc & 0x3ff;
     int rDst = *rgbDataDst & 0x3ff;
     rSqError += (rSrc - rDst) * (rSrc - rDst);
@@ -1174,13 +1191,14 @@ void UltraHdrAppInput::computeRGBHdrPSNR() {
     rgbDataSrc++;
     rgbDataDst++;
   }
-  double meanSquareError = (double)rSqError / (mDecodedUhdrRgbImage.w * mDecodedUhdrRgbImage.h);
+  double meanSquareError =
+      (double)rSqError / ((size_t)mDecodedUhdrRgbImage.w * mDecodedUhdrRgbImage.h);
   mPsnr[0] = meanSquareError ? 10 * log10((double)1023 * 1023 / meanSquareError) : 100;
 
-  meanSquareError = (double)gSqError / (mDecodedUhdrRgbImage.w * mDecodedUhdrRgbImage.h);
+  meanSquareError = (double)gSqError / ((size_t)mDecodedUhdrRgbImage.w * mDecodedUhdrRgbImage.h);
   mPsnr[1] = meanSquareError ? 10 * log10((double)1023 * 1023 / meanSquareError) : 100;
 
-  meanSquareError = (double)bSqError / (mDecodedUhdrRgbImage.w * mDecodedUhdrRgbImage.h);
+  meanSquareError = (double)bSqError / ((size_t)mDecodedUhdrRgbImage.w * mDecodedUhdrRgbImage.h);
   mPsnr[2] = meanSquareError ? 10 * log10((double)1023 * 1023 / meanSquareError) : 100;
 
   std::cout << "psnr rgb: \t" << mPsnr[0] << " \t " << mPsnr[1] << " \t " << mPsnr[2] << std::endl;
@@ -1199,7 +1217,7 @@ void UltraHdrAppInput::computeRGBSdrPSNR() {
   }
 
   uint64_t rSqError = 0, gSqError = 0, bSqError = 0;
-  for (size_t i = 0; i < mDecodedUhdrRgbImage.w * mDecodedUhdrRgbImage.h; i++) {
+  for (size_t i = 0; i < (size_t)mDecodedUhdrRgbImage.w * mDecodedUhdrRgbImage.h; i++) {
     int rSrc = *rgbDataSrc & 0xff;
     int rDst = *rgbDataDst & 0xff;
     rSqError += (rSrc - rDst) * (rSrc - rDst);
@@ -1215,13 +1233,14 @@ void UltraHdrAppInput::computeRGBSdrPSNR() {
     rgbDataSrc++;
     rgbDataDst++;
   }
-  double meanSquareError = (double)rSqError / (mDecodedUhdrRgbImage.w * mDecodedUhdrRgbImage.h);
+  double meanSquareError =
+      (double)rSqError / ((size_t)mDecodedUhdrRgbImage.w * mDecodedUhdrRgbImage.h);
   mPsnr[0] = meanSquareError ? 10 * log10((double)255 * 255 / meanSquareError) : 100;
 
-  meanSquareError = (double)gSqError / (mDecodedUhdrRgbImage.w * mDecodedUhdrRgbImage.h);
+  meanSquareError = (double)gSqError / ((size_t)mDecodedUhdrRgbImage.w * mDecodedUhdrRgbImage.h);
   mPsnr[1] = meanSquareError ? 10 * log10((double)255 * 255 / meanSquareError) : 100;
 
-  meanSquareError = (double)bSqError / (mDecodedUhdrRgbImage.w * mDecodedUhdrRgbImage.h);
+  meanSquareError = (double)bSqError / ((size_t)mDecodedUhdrRgbImage.w * mDecodedUhdrRgbImage.h);
   mPsnr[2] = meanSquareError ? 10 * log10((double)255 * 255 / meanSquareError) : 100;
 
   std::cout << "psnr rgb: \t" << mPsnr[0] << " \t " << mPsnr[1] << " \t " << mPsnr[2] << std::endl;
@@ -1293,13 +1312,15 @@ void UltraHdrAppInput::computeYUVHdrPSNR() {
   }
 
   double meanSquareError =
-      (double)ySqError / (mDecodedUhdrYuv444Image.w * mDecodedUhdrYuv444Image.h);
+      (double)ySqError / ((size_t)mDecodedUhdrYuv444Image.w * mDecodedUhdrYuv444Image.h);
   mPsnr[0] = meanSquareError ? 10 * log10((double)1023 * 1023 / meanSquareError) : 100;
 
-  meanSquareError = (double)uSqError / (mDecodedUhdrYuv444Image.w * mDecodedUhdrYuv444Image.h / 4);
+  meanSquareError =
+      (double)uSqError / ((size_t)mDecodedUhdrYuv444Image.w * mDecodedUhdrYuv444Image.h / 4);
   mPsnr[1] = meanSquareError ? 10 * log10((double)1023 * 1023 / meanSquareError) : 100;
 
-  meanSquareError = (double)vSqError / (mDecodedUhdrYuv444Image.w * mDecodedUhdrYuv444Image.h / 4);
+  meanSquareError =
+      (double)vSqError / ((size_t)mDecodedUhdrYuv444Image.w * mDecodedUhdrYuv444Image.h / 4);
   mPsnr[2] = meanSquareError ? 10 * log10((double)1023 * 1023 / meanSquareError) : 100;
 
   std::cout << "psnr yuv: \t" << mPsnr[0] << " \t " << mPsnr[1] << " \t " << mPsnr[2] << std::endl;
@@ -1346,13 +1367,15 @@ void UltraHdrAppInput::computeYUVSdrPSNR() {
     }
   }
   double meanSquareError =
-      (double)ySqError / (mDecodedUhdrYuv444Image.w * mDecodedUhdrYuv444Image.h);
+      (double)ySqError / ((size_t)mDecodedUhdrYuv444Image.w * mDecodedUhdrYuv444Image.h);
   mPsnr[0] = meanSquareError ? 10 * log10((double)255 * 255 / meanSquareError) : 100;
 
-  meanSquareError = (double)uSqError / (mDecodedUhdrYuv444Image.w * mDecodedUhdrYuv444Image.h / 4);
+  meanSquareError =
+      (double)uSqError / ((size_t)mDecodedUhdrYuv444Image.w * mDecodedUhdrYuv444Image.h / 4);
   mPsnr[1] = meanSquareError ? 10 * log10((double)255 * 255 / meanSquareError) : 100;
 
-  meanSquareError = (double)vSqError / (mDecodedUhdrYuv444Image.w * mDecodedUhdrYuv444Image.h / 4);
+  meanSquareError =
+      (double)vSqError / ((size_t)mDecodedUhdrYuv444Image.w * mDecodedUhdrYuv444Image.h / 4);
   mPsnr[2] = meanSquareError ? 10 * log10((double)255 * 255 / meanSquareError) : 100;
 
   std::cout << "psnr yuv: \t" << mPsnr[0] << " \t " << mPsnr[1] << " \t " << mPsnr[2] << std::endl;
@@ -1606,7 +1629,7 @@ int main(int argc, char* argv[]) {
         gainmap_compression_quality = atoi(optarg_s);
         break;
       case 'G':
-        gamma = atof(optarg_s);
+        gamma = (float)atof(optarg_s);
         break;
       case 'j':
         uhdr_file = optarg_s;
@@ -1627,13 +1650,13 @@ int main(int argc, char* argv[]) {
         enc_preset = static_cast<uhdr_enc_preset_t>(atoi(optarg_s));
         break;
       case 'k':
-        min_content_boost = atof(optarg_s);
+        min_content_boost = (float)atof(optarg_s);
         break;
       case 'K':
-        max_content_boost = atof(optarg_s);
+        max_content_boost = (float)atof(optarg_s);
         break;
       case 'L':
-        target_disp_peak_brightness = atof(optarg_s);
+        target_disp_peak_brightness = (float)atof(optarg_s);
         break;
       default:
         usage(argv[0]);

@@ -47,8 +47,8 @@ class JpegEncoderHelperTest : public testing::Test {
  public:
   struct Image {
     std::unique_ptr<uint8_t[]> buffer;
-    size_t width;
-    size_t height;
+    unsigned int width;
+    unsigned int height;
   };
   JpegEncoderHelperTest();
   ~JpegEncoderHelperTest();
@@ -108,7 +108,8 @@ TEST_F(JpegEncoderHelperTest, encodeAlignedImage) {
   const uint8_t* uPlane = yPlane + mAlignedImage.width * mAlignedImage.height;
   const uint8_t* vPlane = uPlane + mAlignedImage.width * mAlignedImage.height / 4;
   const uint8_t* planes[3]{yPlane, uPlane, vPlane};
-  const size_t strides[3]{mAlignedImage.width, mAlignedImage.width / 2, mAlignedImage.width / 2};
+  const unsigned int strides[3]{mAlignedImage.width, mAlignedImage.width / 2,
+                                mAlignedImage.width / 2};
   EXPECT_EQ(encoder
                 .compressImage(planes, strides, mAlignedImage.width, mAlignedImage.height,
                                UHDR_IMG_FMT_12bppYCbCr420, JPEG_QUALITY, NULL, 0)
@@ -123,8 +124,8 @@ TEST_F(JpegEncoderHelperTest, encodeUnalignedImage) {
   const uint8_t* uPlane = yPlane + mUnalignedImage.width * mUnalignedImage.height;
   const uint8_t* vPlane = uPlane + mUnalignedImage.width * mUnalignedImage.height / 4;
   const uint8_t* planes[3]{yPlane, uPlane, vPlane};
-  const size_t strides[3]{mUnalignedImage.width, mUnalignedImage.width / 2,
-                          mUnalignedImage.width / 2};
+  const unsigned int strides[3]{mUnalignedImage.width, mUnalignedImage.width / 2,
+                                mUnalignedImage.width / 2};
   EXPECT_EQ(encoder
                 .compressImage(planes, strides, mUnalignedImage.width, mUnalignedImage.height,
                                UHDR_IMG_FMT_12bppYCbCr420, JPEG_QUALITY, NULL, 0)
@@ -137,7 +138,7 @@ TEST_F(JpegEncoderHelperTest, encodeSingleChannelImage) {
   JpegEncoderHelper encoder;
   const uint8_t* yPlane = mSingleChannelImage.buffer.get();
   const uint8_t* planes[1]{yPlane};
-  const size_t strides[1]{mSingleChannelImage.width};
+  const unsigned int strides[1]{mSingleChannelImage.width};
   EXPECT_EQ(
       encoder
           .compressImage(planes, strides, mSingleChannelImage.width, mSingleChannelImage.height,
@@ -151,7 +152,7 @@ TEST_F(JpegEncoderHelperTest, encodeRGBImage) {
   JpegEncoderHelper encoder;
   const uint8_t* rgbPlane = mRgbImage.buffer.get();
   const uint8_t* planes[1]{rgbPlane};
-  const size_t strides[1]{mRgbImage.width};
+  const unsigned int strides[1]{mRgbImage.width};
   EXPECT_EQ(encoder
                 .compressImage(planes, strides, mRgbImage.width, mRgbImage.height,
                                UHDR_IMG_FMT_24bppRGB888, JPEG_QUALITY, NULL, 0)

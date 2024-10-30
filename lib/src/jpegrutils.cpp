@@ -45,7 +45,7 @@ static inline string Name(const string& prefix, const string& suffix) {
   return ss.str();
 }
 
-DataStruct::DataStruct(int s) {
+DataStruct::DataStruct(size_t s) {
   data = malloc(s);
   length = s;
   memset(data, 0, s);
@@ -60,9 +60,9 @@ DataStruct::~DataStruct() {
 
 void* DataStruct::getData() { return data; }
 
-int DataStruct::getLength() { return length; }
+size_t DataStruct::getLength() { return length; }
 
-int DataStruct::getBytesWritten() { return writePos; }
+size_t DataStruct::getBytesWritten() { return writePos; }
 
 bool DataStruct::write8(uint8_t value) {
   uint8_t v = value;
@@ -79,9 +79,9 @@ bool DataStruct::write32(uint32_t value) {
   return write(&v, 4);
 }
 
-bool DataStruct::write(const void* src, int size) {
+bool DataStruct::write(const void* src, size_t size) {
   if (writePos + size > length) {
-    ALOGE("Writing out of boundary: write position: %d, size: %d, capacity: %d", writePos, size,
+    ALOGE("Writing out of boundary: write position: %zd, size: %zd, capacity: %zd", writePos, size,
           length);
     return false;
   }
@@ -93,14 +93,16 @@ bool DataStruct::write(const void* src, int size) {
 /*
  * Helper function used for writing data to destination.
  */
-uhdr_error_info_t Write(uhdr_compressed_image_t* destination, const void* source, int length,
-                        int& position) {
-  if (position + length > (int)destination->capacity) {
+uhdr_error_info_t Write(uhdr_compressed_image_t* destination, const void* source, size_t length,
+                        size_t& position) {
+  if (position + length > destination->capacity) {
     uhdr_error_info_t status;
     status.error_code = UHDR_CODEC_MEM_ERROR;
     status.has_detail = 1;
     snprintf(status.detail, sizeof status.detail,
-             "output buffer to store compressed data is too small");
+             "output buffer to store compressed data is too small: write position: %zd, size: %zd, "
+             "capacity: %zd",
+             position, length, destination->capacity);
     return status;
   }
 
@@ -440,17 +442,17 @@ const string XMPXmlHandler::hdrCapacityMinAttrName = kMapHDRCapacityMin;
 const string XMPXmlHandler::hdrCapacityMaxAttrName = kMapHDRCapacityMax;
 const string XMPXmlHandler::baseRenditionIsHdrAttrName = kMapBaseRenditionIsHDR;
 
-uhdr_error_info_t getMetadataFromXMP(uint8_t* xmp_data, int xmp_size,
+uhdr_error_info_t getMetadataFromXMP(uint8_t* xmp_data, size_t xmp_size,
                                      uhdr_gainmap_metadata_ext_t* metadata) {
   string nameSpace = "http://ns.adobe.com/xap/1.0/\0";
 
-  if (xmp_size < (int)nameSpace.size() + 2) {
+  if (xmp_size < nameSpace.size() + 2) {
     uhdr_error_info_t status;
     status.error_code = UHDR_CODEC_ERROR;
     status.has_detail = 1;
     snprintf(status.detail, sizeof status.detail,
-             "size of xmp block is expected to be atleast %d bytes, received only %d bytes",
-             (int)nameSpace.size() + 2, xmp_size);
+             "size of xmp block is expected to be atleast %zd bytes, received only %zd bytes",
+             nameSpace.size() + 2, xmp_size);
     return status;
   }
 
@@ -472,8 +474,8 @@ uhdr_error_info_t getMetadataFromXMP(uint8_t* xmp_data, int xmp_size,
   // xml parser fails to parse packet header, wrapper. remove them before handing the data to
   // parser. if there is no packet header, do nothing otherwise go to the position of '<' without
   // '?' after it.
-  int offset = 0;
-  for (int i = 0; i < xmp_size - 1; ++i) {
+  size_t offset = 0;
+  for (size_t i = 0; i < xmp_size - 1; ++i) {
     if (xmp_data[i] == '<') {
       if (xmp_data[i + 1] != '?') {
         offset = i;
@@ -487,7 +489,7 @@ uhdr_error_info_t getMetadataFromXMP(uint8_t* xmp_data, int xmp_size,
   // If there is no packet wrapper, do nothing other wise go to the position of last '>' without '?'
   // before it.
   offset = 0;
-  for (int i = xmp_size - 1; i >= 1; --i) {
+  for (size_t i = xmp_size - 1; i >= 1; --i) {
     if (xmp_data[i] == '>') {
       if (xmp_data[i - 1] != '?') {
         offset = xmp_size - (i + 1);
@@ -625,7 +627,7 @@ uhdr_error_info_t getMetadataFromXMP(uint8_t* xmp_data, int xmp_size,
   return g_no_error;
 }
 
-string generateXmpForPrimaryImage(int secondary_image_length,
+string generateXmpForPrimaryImage(size_t secondary_image_length,
                                   uhdr_gainmap_metadata_ext_t& metadata) {
   const vector<string> kConDirSeq({kConDirectory, string("rdf:Seq")});
   const vector<string> kLiItem({string("rdf:li"), kConItem});

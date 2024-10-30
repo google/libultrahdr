@@ -63,7 +63,7 @@ class JpegDecoderHelper {
    *
    * \return uhdr_error_info_t #UHDR_CODEC_OK if operation succeeds, uhdr_codec_err_t otherwise.
    */
-  uhdr_error_info_t decompressImage(const void* image, int length,
+  uhdr_error_info_t decompressImage(const void* image, size_t length,
                                     decode_mode_t mode = DECODE_TO_YCBCR_CS);
 
   /*!\brief This function parses the bitstream that is passed to it and makes image information
@@ -75,7 +75,7 @@ class JpegDecoderHelper {
    *
    * \return uhdr_error_info_t #UHDR_CODEC_OK if operation succeeds, uhdr_codec_err_t otherwise.
    */
-  uhdr_error_info_t parseImage(const void* image, int length) {
+  uhdr_error_info_t parseImage(const void* image, size_t length) {
     return decompressImage(image, length, PARSE_STREAM);
   }
 
@@ -99,13 +99,13 @@ class JpegDecoderHelper {
    * and it returned true. */
 
   /*!\brief returns image width */
-  size_t getDecompressedImageWidth() { return mPlaneWidth[0]; }
+  unsigned int getDecompressedImageWidth() { return mPlaneWidth[0]; }
 
   /*!\brief returns image height */
-  size_t getDecompressedImageHeight() { return mPlaneHeight[0]; }
+  unsigned int getDecompressedImageHeight() { return mPlaneHeight[0]; }
 
   /*!\brief returns number of components in image */
-  size_t getNumComponentsInImage() { return mNumComponents; }
+  unsigned int getNumComponentsInImage() { return mNumComponents; }
 
   /*!\brief returns pointer to xmp block present in input image */
   void* getXMPPtr() { return mXMPBuffer.data(); }
@@ -135,13 +135,13 @@ class JpegDecoderHelper {
    * via parseImage()/decompressImage() call. Note this does not include jpeg marker (0xffe1) and
    * the next 2 bytes indicating the size of the payload. If exif block is not present in the image
    * passed, then it returns -1. */
-  int getEXIFPos() { return mExifPayLoadOffset; }
+  long getEXIFPos() { return mExifPayLoadOffset; }
 
  private:
   // max number of components supported
   static constexpr int kMaxNumComponents = 3;
 
-  uhdr_error_info_t decode(const void* image, int length, decode_mode_t mode);
+  uhdr_error_info_t decode(const void* image, size_t length, decode_mode_t mode);
   uhdr_error_info_t decode(jpeg_decompress_struct* cinfo, uint8_t* dest);
   uhdr_error_info_t decodeToCSYCbCr(jpeg_decompress_struct* cinfo, uint8_t* dest);
   uhdr_error_info_t decodeToCSRGB(jpeg_decompress_struct* cinfo, uint8_t* dest);
@@ -157,14 +157,14 @@ class JpegDecoderHelper {
 
   // image attributes
   uhdr_img_fmt_t mOutFormat;
-  size_t mNumComponents;
-  size_t mPlaneWidth[kMaxNumComponents];
-  size_t mPlaneHeight[kMaxNumComponents];
-  size_t mPlaneHStride[kMaxNumComponents];
-  size_t mPlaneVStride[kMaxNumComponents];
+  unsigned int mNumComponents;
+  unsigned int mPlaneWidth[kMaxNumComponents];
+  unsigned int mPlaneHeight[kMaxNumComponents];
+  unsigned int mPlaneHStride[kMaxNumComponents];
+  unsigned int mPlaneVStride[kMaxNumComponents];
 
-  int mExifPayLoadOffset;  // Position of EXIF package, default value is -1 which means no EXIF
-                           // package appears.
+  long mExifPayLoadOffset;  // Position of EXIF package, default value is -1 which means no EXIF
+                            // package appears.
 };
 
 } /* namespace ultrahdr  */

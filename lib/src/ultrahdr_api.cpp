@@ -110,7 +110,7 @@ uhdr_raw_image_ext::uhdr_raw_image_ext(uhdr_img_fmt_t fmt_, uhdr_color_gamut_t c
 
 uhdr_compressed_image_ext::uhdr_compressed_image_ext(uhdr_color_gamut_t cg_,
                                                      uhdr_color_transfer_t ct_,
-                                                     uhdr_color_range_t range_, unsigned size) {
+                                                     uhdr_color_range_t range_, size_t size) {
   this->m_block = std::make_unique<uhdr_memory_block_t>(size);
   this->data = this->m_block->m_buffer.get();
   this->capacity = size;
@@ -347,8 +347,8 @@ uhdr_error_info_t apply_effects(uhdr_decoder_private* dec) {
 
       float wd_ratio = ((float)disp->w) / gm->w;
       float ht_ratio = ((float)disp->h) / gm->h;
-      int gm_left = left / wd_ratio;
-      int gm_right = right / wd_ratio;
+      int gm_left = (int)(left / wd_ratio);
+      int gm_right = (int)(right / wd_ratio);
       if (gm_right <= gm_left) {
         uhdr_error_info_t status;
         status.error_code = UHDR_CODEC_INVALID_PARAM;
@@ -360,8 +360,8 @@ uhdr_error_info_t apply_effects(uhdr_decoder_private* dec) {
         return status;
       }
 
-      int gm_top = top / ht_ratio;
-      int gm_bottom = bottom / ht_ratio;
+      int gm_top = (int)(top / ht_ratio);
+      int gm_bottom = (int)(bottom / ht_ratio);
       if (gm_bottom <= gm_top) {
         uhdr_error_info_t status;
         status.error_code = UHDR_CODEC_INVALID_PARAM;
@@ -385,8 +385,8 @@ uhdr_error_info_t apply_effects(uhdr_decoder_private* dec) {
           ((float)dec->m_decoded_img_buffer.get()->w) / dec->m_gainmap_img_buffer.get()->w;
       float ht_ratio =
           ((float)dec->m_decoded_img_buffer.get()->h) / dec->m_gainmap_img_buffer.get()->h;
-      int dst_gm_w = dst_w / wd_ratio;
-      int dst_gm_h = dst_h / ht_ratio;
+      int dst_gm_w = (int)(dst_w / wd_ratio);
+      int dst_gm_h = (int)(dst_h / ht_ratio);
       if (dst_w <= 0 || dst_h <= 0 || dst_gm_w <= 0 || dst_gm_h <= 0 ||
           dst_w > ultrahdr::kMaxWidth || dst_h > ultrahdr::kMaxHeight ||
           dst_gm_w > ultrahdr::kMaxWidth || dst_gm_h > ultrahdr::kMaxHeight) {
@@ -512,7 +512,7 @@ uhdr_error_info_t uhdr_enc_validate_and_set_compressed_img(uhdr_codec_private_t*
   } else if (img->capacity < img->data_sz) {
     status.error_code = UHDR_CODEC_INVALID_PARAM;
     status.has_detail = 1;
-    snprintf(status.detail, sizeof status.detail, "img->capacity %d is less than img->data_sz %d",
+    snprintf(status.detail, sizeof status.detail, "img->capacity %zd is less than img->data_sz %zd",
              img->capacity, img->data_sz);
   }
   if (status.error_code != UHDR_CODEC_OK) return status;
@@ -1114,8 +1114,8 @@ uhdr_error_info_t uhdr_enc_set_exif_data(uhdr_codec_private_t* enc, uhdr_mem_blo
   } else if (exif->capacity < exif->data_sz) {
     status.error_code = UHDR_CODEC_INVALID_PARAM;
     status.has_detail = 1;
-    snprintf(status.detail, sizeof status.detail, "exif->capacity %d is less than exif->data_sz %d",
-             exif->capacity, exif->data_sz);
+    snprintf(status.detail, sizeof status.detail,
+             "exif->capacity %zd is less than exif->data_sz %zd", exif->capacity, exif->data_sz);
   }
   if (status.error_code != UHDR_CODEC_OK) return status;
 
@@ -1247,7 +1247,8 @@ uhdr_error_info_t uhdr_encode(uhdr_codec_private_t* enc) {
       auto& base_entry = handle->m_compressed_images.find(UHDR_BASE_IMG)->second;
       auto& gainmap_entry = handle->m_compressed_images.find(UHDR_GAIN_MAP_IMG)->second;
 
-      size_t size = (std::max)((8u * 1024), 2 * (base_entry->data_sz + gainmap_entry->data_sz));
+      size_t size =
+          (std::max)(((size_t)8 * 1024), 2 * (base_entry->data_sz + gainmap_entry->data_sz));
       handle->m_compressed_output_buffer = std::make_unique<ultrahdr::uhdr_compressed_image_ext_t>(
           UHDR_CG_UNSPECIFIED, UHDR_CT_UNSPECIFIED, UHDR_CR_UNSPECIFIED, size);
 
@@ -1414,7 +1415,7 @@ uhdr_error_info_t uhdr_dec_set_image(uhdr_codec_private_t* dec, uhdr_compressed_
   } else if (img->capacity < img->data_sz) {
     status.error_code = UHDR_CODEC_INVALID_PARAM;
     status.has_detail = 1;
-    snprintf(status.detail, sizeof status.detail, "img->capacity %d is less than img->data_sz %d",
+    snprintf(status.detail, sizeof status.detail, "img->capacity %zd is less than img->data_sz %zd",
              img->capacity, img->data_sz);
   }
   if (status.error_code != UHDR_CODEC_OK) return status;

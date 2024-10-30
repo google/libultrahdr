@@ -27,8 +27,9 @@ size_t calculateMpfSize() {
          kNumPictures * kMPEntrySize;      // MP Entries for each image
 }
 
-std::shared_ptr<DataStruct> generateMpf(int primary_image_size, int primary_image_offset,
-                                        int secondary_image_size, int secondary_image_offset) {
+std::shared_ptr<DataStruct> generateMpf(size_t primary_image_size, size_t primary_image_offset,
+                                        size_t secondary_image_size,
+                                        size_t secondary_image_offset) {
   size_t mpf_size = calculateMpfSize();
   std::shared_ptr<DataStruct> dataStruct = std::make_shared<DataStruct>(mpf_size);
 
