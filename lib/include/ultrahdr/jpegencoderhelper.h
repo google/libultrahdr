@@ -61,7 +61,7 @@ class JpegEncoderHelper {
    * \return uhdr_error_info_t #UHDR_CODEC_OK if operation succeeds, uhdr_codec_err_t otherwise.
    */
   uhdr_error_info_t compressImage(const uhdr_raw_image_t* img, const int qfactor,
-                                  const void* iccBuffer, const unsigned int iccSize);
+                                  const void* iccBuffer, const size_t iccSize);
 
   /*!\brief This function encodes the raw image that is passed to it and stores the results
    * internally. The result is accessible via getter functions.
@@ -77,10 +77,9 @@ class JpegEncoderHelper {
    *
    * \return uhdr_error_info_t #UHDR_CODEC_OK if operation succeeds, uhdr_codec_err_t otherwise.
    */
-  uhdr_error_info_t compressImage(const uint8_t* planes[3], const size_t strides[3],
+  uhdr_error_info_t compressImage(const uint8_t* planes[3], const unsigned int strides[3],
                                   const int width, const int height, const uhdr_img_fmt_t format,
-                                  const int qfactor, const void* iccBuffer,
-                                  const unsigned int iccSize);
+                                  const int qfactor, const void* iccBuffer, const size_t iccSize);
 
   /*! Below public methods are only effective if a call to compressImage() is made and it returned
    * true. */
@@ -102,20 +101,20 @@ class JpegEncoderHelper {
   // max number of components supported
   static constexpr int kMaxNumComponents = 3;
 
-  uhdr_error_info_t encode(const uint8_t* planes[3], const size_t strides[3], const int width,
+  uhdr_error_info_t encode(const uint8_t* planes[3], const unsigned int strides[3], const int width,
                            const int height, const uhdr_img_fmt_t format, const int qfactor,
-                           const void* iccBuffer, const unsigned int iccSize);
+                           const void* iccBuffer, const size_t iccSize);
 
   uhdr_error_info_t compressYCbCr(jpeg_compress_struct* cinfo, const uint8_t* planes[3],
-                                  const size_t strides[3]);
+                                  const unsigned int strides[3]);
 
   destination_mgr_impl mDestMgr;  // object for managing output
 
   // temporary storage
   std::unique_ptr<uint8_t[]> mPlanesMCURow[kMaxNumComponents];
 
-  size_t mPlaneWidth[kMaxNumComponents];
-  size_t mPlaneHeight[kMaxNumComponents];
+  unsigned int mPlaneWidth[kMaxNumComponents];
+  unsigned int mPlaneHeight[kMaxNumComponents];
 };
 
 } /* namespace ultrahdr  */

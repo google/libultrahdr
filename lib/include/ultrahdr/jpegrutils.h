@@ -39,20 +39,20 @@ static inline uint16_t EndianSwap16(uint16_t value) {
 class DataStruct {
  private:
   void* data;
-  int writePos;
-  int length;
+  size_t writePos;
+  size_t length;
 
  public:
-  DataStruct(int s);
+  DataStruct(size_t s);
   ~DataStruct();
 
   void* getData();
-  int getLength();
-  int getBytesWritten();
+  size_t getLength();
+  size_t getBytesWritten();
   bool write8(uint8_t value);
   bool write16(uint16_t value);
   bool write32(uint32_t value);
-  bool write(const void* src, int size);
+  bool write(const void* src, size_t size);
 };
 
 /*
@@ -64,8 +64,8 @@ class DataStruct {
  * @param position cursor in desitination where the data is to be written.
  * @return success or error code.
  */
-uhdr_error_info_t Write(uhdr_compressed_image_t* destination, const void* source, int length,
-                        int& position);
+uhdr_error_info_t Write(uhdr_compressed_image_t* destination, const void* source, size_t length,
+                        size_t& position);
 
 /*
  * Parses XMP packet and fills metadata with data from XMP
@@ -75,7 +75,7 @@ uhdr_error_info_t Write(uhdr_compressed_image_t* destination, const void* source
  * @param metadata place to store HDR metadata values
  * @return success or error code.
  */
-uhdr_error_info_t getMetadataFromXMP(uint8_t* xmp_data, int xmp_size,
+uhdr_error_info_t getMetadataFromXMP(uint8_t* xmp_data, size_t xmp_size,
                                      uhdr_gainmap_metadata_ext_t* metadata);
 
 /*
@@ -118,7 +118,7 @@ uhdr_error_info_t getMetadataFromXMP(uint8_t* xmp_data, int xmp_size,
  * @param secondary_image_length length of secondary image
  * @return XMP metadata in type of string
  */
-std::string generateXmpForPrimaryImage(int secondary_image_length,
+std::string generateXmpForPrimaryImage(size_t secondary_image_length,
                                        uhdr_gainmap_metadata_ext_t& metadata);
 
 /*

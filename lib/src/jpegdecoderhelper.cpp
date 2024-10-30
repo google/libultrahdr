@@ -65,7 +65,7 @@ const int kMaxHeight = UHDR_MAX_DIMENSION;
 
 /*!\brief module for managing input */
 struct jpeg_source_mgr_impl : jpeg_source_mgr {
-  jpeg_source_mgr_impl(const uint8_t* ptr, int len);
+  jpeg_source_mgr_impl(const uint8_t* ptr, size_t len);
   ~jpeg_source_mgr_impl() = default;
 
   const uint8_t* mBufferPtr;
@@ -101,7 +101,7 @@ static void jpegr_skip_input_data(j_decompress_ptr cinfo, long num_bytes) {
 
 static void jpegr_term_source(j_decompress_ptr /*cinfo*/) {}
 
-jpeg_source_mgr_impl::jpeg_source_mgr_impl(const uint8_t* ptr, int len)
+jpeg_source_mgr_impl::jpeg_source_mgr_impl(const uint8_t* ptr, size_t len)
     : mBufferPtr(ptr), mBufferLength(len) {
   init_source = jpegr_init_source;
   fill_input_buffer = jpegr_fill_input_buffer;
@@ -126,8 +126,8 @@ static void jpeg_extract_marker_payload(const j_decompress_ptr cinfo, const uint
                                         const uint8_t* marker_fourcc_code,
                                         const uint32_t fourcc_length,
                                         std::vector<JOCTET>& destination,
-                                        int& markerPayloadOffsetRelativeToSourceBuffer) {
-  size_t pos = 2; /* position after reading SOI marker (0xffd8) */
+                                        long& markerPayloadOffsetRelativeToSourceBuffer) {
+  unsigned int pos = 2; /* position after reading SOI marker (0xffd8) */
   markerPayloadOffsetRelativeToSourceBuffer = -1;
 
   for (jpeg_marker_struct* marker = cinfo->marker_list; marker; marker = marker->next) {
@@ -172,7 +172,7 @@ static uhdr_img_fmt_t getOutputSamplingFormat(const j_decompress_ptr cinfo) {
   return UHDR_IMG_FMT_UNSPECIFIED;
 }
 
-uhdr_error_info_t JpegDecoderHelper::decompressImage(const void* image, int length,
+uhdr_error_info_t JpegDecoderHelper::decompressImage(const void* image, size_t length,
                                                      decode_mode_t mode) {
   if (image == nullptr) {
     uhdr_error_info_t status;
@@ -185,7 +185,7 @@ uhdr_error_info_t JpegDecoderHelper::decompressImage(const void* image, int leng
     uhdr_error_info_t status;
     status.error_code = UHDR_CODEC_INVALID_PARAM;
     status.has_detail = 1;
-    snprintf(status.detail, sizeof status.detail, "received bad compressed image size %d", length);
+    snprintf(status.detail, sizeof status.detail, "received bad compressed image size %zd", length);
     return status;
   }
 
@@ -209,7 +209,7 @@ uhdr_error_info_t JpegDecoderHelper::decompressImage(const void* image, int leng
   return decode(image, length, mode);
 }
 
-uhdr_error_info_t JpegDecoderHelper::decode(const void* image, int length, decode_mode_t mode) {
+uhdr_error_info_t JpegDecoderHelper::decode(const void* image, size_t length, decode_mode_t mode) {
   jpeg_source_mgr_impl mgr(static_cast<const uint8_t*>(image), length);
   jpeg_decompress_struct cinfo;
   jpeg_error_mgr_impl myerr;
@@ -234,7 +234,7 @@ uhdr_error_info_t JpegDecoderHelper::decode(const void* image, int length, decod
       jpeg_destroy_decompress(&cinfo);
       return status;
     }
-    int payloadOffset = -1;
+    long payloadOffset = -1;
     jpeg_extract_marker_payload(&cinfo, kAPP1Marker, kXmpNameSpace,
                                 sizeof kXmpNameSpace / sizeof kXmpNameSpace[0], mXMPBuffer,
                                 payloadOffset);
@@ -373,10 +373,10 @@ uhdr_error_info_t JpegDecoderHelper::decode(const void* image, int length, decod
         mPlaneVStride[i] = 0;
       }
 #ifdef JCS_ALPHA_EXTENSIONS
-      mResultBuffer.resize(mPlaneHStride[0] * mPlaneVStride[0] * 4);
+      mResultBuffer.resize((size_t)mPlaneHStride[0] * mPlaneVStride[0] * 4);
       cinfo.out_color_space = JCS_EXT_RGBA;
 #else
-      mResultBuffer.resize(mPlaneHStride[0] * mPlaneVStride[0] * 3);
+      mResultBuffer.resize((size_t)mPlaneHStride[0] * mPlaneVStride[0] * 3);
       cinfo.out_color_space = JCS_RGB;
 #endif
     } else if (DECODE_TO_YCBCR_CS == mode) {
@@ -389,11 +389,11 @@ uhdr_error_info_t JpegDecoderHelper::decode(const void* image, int length, decod
         jpeg_destroy_decompress(&cinfo);
         return status;
       }
-      int size = 0;
+      size_t size = 0;
       for (int i = 0; i < cinfo.num_components; i++) {
         mPlaneHStride[i] = ALIGNM(mPlaneWidth[i], cinfo.max_h_samp_factor);
         mPlaneVStride[i] = ALIGNM(mPlaneHeight[i], cinfo.max_v_samp_factor);
-        size += mPlaneHStride[i] * mPlaneVStride[i];
+        size += (size_t)mPlaneHStride[i] * mPlaneVStride[i];
       }
       mResultBuffer.resize(size);
       cinfo.out_color_space = cinfo.jpeg_color_space;
@@ -463,9 +463,9 @@ uhdr_error_info_t JpegDecoderHelper::decodeToCSRGB(jpeg_decompress_struct* cinfo
       return status;
     }
 #ifdef JCS_ALPHA_EXTENSIONS
-    out += mPlaneHStride[0] * 4;
+    out += (size_t)mPlaneHStride[0] * 4;
 #else
-    out += mPlaneHStride[0] * 3;
+    out += (size_t)mPlaneHStride[0] * 3;
 #endif
   }
   return g_no_error;
@@ -508,7 +508,7 @@ uhdr_error_info_t JpegDecoderHelper::decodeToCSYCbCr(jpeg_decompress_struct* cin
         JDIMENSION scanline = mcu_scanline_start[i] + j;
 
         if (scanline < mPlaneVStride[i]) {
-          mcuRows[i][j] = planes[i] + scanline * mPlaneHStride[i];
+          mcuRows[i][j] = planes[i] + (size_t)scanline * mPlaneHStride[i];
         } else {
           mcuRows[i][j] = mPlanesMCURow[i].get();
         }
@@ -553,7 +553,7 @@ uhdr_raw_image_t JpegDecoderHelper::getDecompressedImage() {
   for (int i = 0; i < 3; i++) {
     img.planes[i] = data;
     img.stride[i] = mPlaneHStride[i];
-    data += mPlaneHStride[i] * mPlaneVStride[i];
+    data += (size_t)mPlaneHStride[i] * mPlaneVStride[i];
   }
 
   return img;

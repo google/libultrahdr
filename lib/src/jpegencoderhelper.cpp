@@ -105,21 +105,20 @@ static void outputErrorMessage(j_common_ptr cinfo) {
 }
 
 uhdr_error_info_t JpegEncoderHelper::compressImage(const uhdr_raw_image_t* img, const int qfactor,
-                                                   const void* iccBuffer,
-                                                   const unsigned int iccSize) {
+                                                   const void* iccBuffer, const size_t iccSize) {
   const uint8_t* planes[3]{reinterpret_cast<uint8_t*>(img->planes[UHDR_PLANE_Y]),
                            reinterpret_cast<uint8_t*>(img->planes[UHDR_PLANE_U]),
                            reinterpret_cast<uint8_t*>(img->planes[UHDR_PLANE_V])};
-  const size_t strides[3]{img->stride[UHDR_PLANE_Y], img->stride[UHDR_PLANE_U],
-                          img->stride[UHDR_PLANE_V]};
+  const unsigned int strides[3]{img->stride[UHDR_PLANE_Y], img->stride[UHDR_PLANE_U],
+                                img->stride[UHDR_PLANE_V]};
   return compressImage(planes, strides, img->w, img->h, img->fmt, qfactor, iccBuffer, iccSize);
 }
 
 uhdr_error_info_t JpegEncoderHelper::compressImage(const uint8_t* planes[3],
-                                                   const size_t strides[3], const int width,
+                                                   const unsigned int strides[3], const int width,
                                                    const int height, const uhdr_img_fmt_t format,
                                                    const int qfactor, const void* iccBuffer,
-                                                   const unsigned int iccSize) {
+                                                   const size_t iccSize) {
   return encode(planes, strides, width, height, format, qfactor, iccBuffer, iccSize);
 }
 
@@ -135,10 +134,10 @@ uhdr_compressed_image_t JpegEncoderHelper::getCompressedImage() {
   return img;
 }
 
-uhdr_error_info_t JpegEncoderHelper::encode(const uint8_t* planes[3], const size_t strides[3],
+uhdr_error_info_t JpegEncoderHelper::encode(const uint8_t* planes[3], const unsigned int strides[3],
                                             const int width, const int height,
                                             const uhdr_img_fmt_t format, const int qfactor,
-                                            const void* iccBuffer, const unsigned int iccSize) {
+                                            const void* iccBuffer, const size_t iccSize) {
   jpeg_compress_struct cinfo;
   jpeg_error_mgr_impl myerr;
   uhdr_error_info_t status = g_no_error;
@@ -252,7 +251,7 @@ uhdr_error_info_t JpegEncoderHelper::encode(const uint8_t* planes[3], const size
 
 uhdr_error_info_t JpegEncoderHelper::compressYCbCr(jpeg_compress_struct* cinfo,
                                                    const uint8_t* planes[3],
-                                                   const size_t strides[3]) {
+                                                   const unsigned int strides[3]) {
   JSAMPROW mcuRows[kMaxNumComponents][2 * DCTSIZE];
   JSAMPROW mcuRowsTmp[kMaxNumComponents][2 * DCTSIZE];
   size_t alignedPlaneWidth[kMaxNumComponents]{};
@@ -292,7 +291,7 @@ uhdr_error_info_t JpegEncoderHelper::compressYCbCr(jpeg_compress_struct* cinfo,
         JDIMENSION scanline = mcu_scanline_start[i] + j;
 
         if (scanline < mPlaneHeight[i]) {
-          mcuRows[i][j] = const_cast<uint8_t*>(planes[i] + scanline * strides[i]);
+          mcuRows[i][j] = const_cast<uint8_t*>(planes[i] + (size_t)scanline * strides[i]);
           if (strides[i] < alignedPlaneWidth[i]) {
             memcpy(mcuRowsTmp[i][j], mcuRows[i][j], mPlaneWidth[i]);
           }

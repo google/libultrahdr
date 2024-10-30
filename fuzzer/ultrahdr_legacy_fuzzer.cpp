@@ -134,19 +134,19 @@ void UltraHdrEncFuzzer::process() {
 
     // raw buffer config
     bool hasP010Stride = mFdp.ConsumeBool();
-    int yP010Stride = mFdp.ConsumeIntegralInRange<uint16_t>(width, width + 128);
+    size_t yP010Stride = mFdp.ConsumeIntegralInRange<uint16_t>(width, width + 128);
     if (!hasP010Stride) yP010Stride = width;
     bool isP010UVContiguous = mFdp.ConsumeBool();
     bool hasP010UVStride = mFdp.ConsumeBool();
-    int uvP010Stride = mFdp.ConsumeIntegralInRange<uint16_t>(width, width + 128);
+    size_t uvP010Stride = mFdp.ConsumeIntegralInRange<uint16_t>(width, width + 128);
     if (!hasP010UVStride) uvP010Stride = width;
 
     bool hasYuv420Stride = mFdp.ConsumeBool();
-    int yYuv420Stride = mFdp.ConsumeIntegralInRange<uint16_t>(width, width + 128);
+    size_t yYuv420Stride = mFdp.ConsumeIntegralInRange<uint16_t>(width, width + 128);
     if (!hasYuv420Stride) yYuv420Stride = width;
     bool isYuv420UVContiguous = mFdp.ConsumeBool();
     bool hasYuv420UVStride = mFdp.ConsumeBool();
-    int uvYuv420Stride = mFdp.ConsumeIntegralInRange<uint16_t>(width / 2, width / 2 + 128);
+    size_t uvYuv420Stride = mFdp.ConsumeIntegralInRange<uint16_t>(width / 2, width / 2 + 128);
     if (!hasYuv420UVStride) uvYuv420Stride = width / 2;
 
     // display boost
@@ -271,8 +271,8 @@ void UltraHdrEncFuzzer::process() {
                                reinterpret_cast<uint8_t*>(yuv420ImgCopy.chroma_data),
                                reinterpret_cast<uint8_t*>(yuv420ImgCopy.chroma_data) +
                                    yuv420ImgCopy.chroma_stride * yuv420ImgCopy.height / 2};
-      const size_t strides[3]{yuv420ImgCopy.luma_stride, yuv420ImgCopy.chroma_stride,
-                              yuv420ImgCopy.chroma_stride};
+      const unsigned int strides[3]{yuv420ImgCopy.luma_stride, yuv420ImgCopy.chroma_stride,
+                                    yuv420ImgCopy.chroma_stride};
       if (encoder
               .compressImage(planes, strides, yuv420ImgCopy.width, yuv420ImgCopy.height,
                              UHDR_IMG_FMT_12bppYCbCr420, quality, nullptr, 0)
@@ -291,7 +291,7 @@ void UltraHdrEncFuzzer::process() {
           jpegImgR.length = 0;
           JpegEncoderHelper gainMapEncoder;
           const uint8_t* planeGm[1]{reinterpret_cast<uint8_t*>(grayImg.data)};
-          const size_t strideGm[1]{grayImg.width};
+          const unsigned int strideGm[1]{grayImg.width};
           if (gainMapEncoder
                   .compressImage(planeGm, strideGm, grayImg.width, grayImg.height,
                                  UHDR_IMG_FMT_8bppYCbCr400, quality, nullptr, 0)

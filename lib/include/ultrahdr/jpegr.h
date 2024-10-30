@@ -30,8 +30,8 @@ namespace ultrahdr {
 
 // Default configurations
 // gainmap image downscale factor
-static const size_t kMapDimensionScaleFactorDefault = 1;
-static const size_t kMapDimensionScaleFactorAndroidDefault = 4;
+static const int kMapDimensionScaleFactorDefault = 1;
+static const int kMapDimensionScaleFactorAndroidDefault = 4;
 
 // JPEG compress quality (0 ~ 100) for base image
 static const int kBaseCompressQualityDefault = 95;
@@ -63,17 +63,17 @@ struct jpeg_info_struct {
   std::vector<uint8_t> exifData = std::vector<uint8_t>(0);
   std::vector<uint8_t> xmpData = std::vector<uint8_t>(0);
   std::vector<uint8_t> isoData = std::vector<uint8_t>(0);
-  size_t width;
-  size_t height;
-  size_t numComponents;
+  unsigned int width;
+  unsigned int height;
+  unsigned int numComponents;
 };
 
 /*
  * Holds information of jpegr image
  */
 struct jpegr_info_struct {
-  size_t width;   // copy of primary image width (for easier access)
-  size_t height;  // copy of primary image height (for easier access)
+  unsigned int width;   // copy of primary image width (for easier access)
+  unsigned int height;  // copy of primary image height (for easier access)
   jpeg_info_struct* primaryImgInfo = nullptr;
   jpeg_info_struct* gainmapImgInfo = nullptr;
 };
@@ -84,7 +84,7 @@ typedef struct jpegr_info_struct* jr_info_ptr;
 class JpegR {
  public:
   JpegR(void* uhdrGLESCtxt = nullptr,
-        size_t mapDimensionScaleFactor = kMapDimensionScaleFactorAndroidDefault,
+        int mapDimensionScaleFactor = kMapDimensionScaleFactorAndroidDefault,
         int mapCompressQuality = kMapCompressQualityAndroidDefault,
         bool useMultiChannelGainMap = kUseMultiChannelGainMapAndroidDefault,
         float gamma = kGainMapGammaDefault,
@@ -260,7 +260,7 @@ class JpegR {
    *
    * \return none
    */
-  void setMapDimensionScaleFactor(size_t mapDimensionScaleFactor) {
+  void setMapDimensionScaleFactor(int mapDimensionScaleFactor) {
     this->mMapDimensionScaleFactor = mapDimensionScaleFactor;
   }
 
@@ -269,7 +269,7 @@ class JpegR {
    *
    * \return mapDimensionScaleFactor
    */
-  size_t getMapDimensionScaleFactor() { return this->mMapDimensionScaleFactor; }
+  int getMapDimensionScaleFactor() { return this->mMapDimensionScaleFactor; }
 
   /*!\brief set gain map compression quality factor
    * NOTE: Applicable only in encoding scenario
@@ -415,8 +415,9 @@ class JpegR {
    *
    * \return uhdr_error_info_t #UHDR_CODEC_OK if operation succeeds, uhdr_codec_err_t otherwise.
    */
-  uhdr_error_info_t parseGainMapMetadata(uint8_t* iso_data, int iso_size, uint8_t* xmp_data,
-                                         int xmp_size, uhdr_gainmap_metadata_ext_t* uhdr_metadata);
+  uhdr_error_info_t parseGainMapMetadata(uint8_t* iso_data, size_t iso_size, uint8_t* xmp_data,
+                                         size_t xmp_size,
+                                         uhdr_gainmap_metadata_ext_t* uhdr_metadata);
 
   /*!\brief This method is used to tone map a hdr image
    *
@@ -514,7 +515,8 @@ class JpegR {
    * \return uhdr_error_info_t #UHDR_CODEC_OK if operation succeeds, uhdr_codec_err_t otherwise.
    */
   uhdr_error_info_t parseJpegInfo(uhdr_compressed_image_t* jpeg_image, j_info_ptr image_info,
-                                  size_t* img_width = nullptr, size_t* img_height = nullptr);
+                                  unsigned int* img_width = nullptr,
+                                  unsigned int* img_height = nullptr);
 
   /*!\brief This method takes compressed sdr intent, compressed gainmap coefficient, gainmap
    * metadata and creates a ultrahdr image. This is done by first generating XMP packet from gainmap
@@ -597,7 +599,7 @@ class JpegR {
 
   // Configurations
   void* mUhdrGLESCtxt;              // opengl es context
-  size_t mMapDimensionScaleFactor;  // gain map scale factor
+  int mMapDimensionScaleFactor;     // gain map scale factor
   int mMapCompressQuality;          // gain map quality factor
   bool mUseMultiChannelGainMap;     // enable multichannel gain map
   float mGamma;                     // gain map gamma parameter
