@@ -132,15 +132,29 @@
     }                                         \
   }
 
-// This needs to be kept in sync with version in CMakeLists.txt
-#define UHDR_LIB_VERSION "v1.1.1"
-
 #if defined(_MSC_VER)
 #define FORCE_INLINE __forceinline
 #define INLINE __inline
 #else
 #define FORCE_INLINE __inline__ __attribute__((always_inline))
 #define INLINE inline
+#endif
+
+// '__has_attribute' macro was introduced by clang. later picked up by gcc.
+// If not supported by the current toolchain, define it to zero.
+#ifndef __has_attribute
+#define __has_attribute(x) 0
+#endif
+
+// Disables undefined behavior analysis for a function.
+// GCC 4.9+ uses __attribute__((no_sanitize_undefined))
+// clang uses __attribute__((no_sanitize("undefined")))
+#if defined(__GNUC__) && ((__GNUC__ * 100 + __GNUC_MINOR__) >= 409)
+#define UHDR_NO_SANITIZE_UNDEFINED __attribute__((no_sanitize_undefined))
+#elif __has_attribute(no_sanitize)
+#define UHDR_NO_SANITIZE_UNDEFINED __attribute__((no_sanitize("undefined")))
+#else
+#define UHDR_NO_SANITIZE_UNDEFINED
 #endif
 
 static const uhdr_error_info_t g_no_error = {UHDR_CODEC_OK, 0, ""};
@@ -227,9 +241,10 @@ typedef struct uhdr_opengl_ctxt {
   EGLConfig mEGLConfig;   /**< EGL frame buffer configuration */
 
   // GLES Context
-  GLuint mQuadVAO, mQuadVBO, mQuadEBO;    /**< GL objects */
-  GLuint mShaderProgram[UHDR_RESIZE + 1]; /**< Shader programs */
-  uhdr_error_info_t mErrorStatus;         /**< Context status */
+  GLuint mQuadVAO, mQuadVBO, mQuadEBO;           /**< GL objects */
+  GLuint mShaderProgram[UHDR_RESIZE + 1];        /**< Shader programs */
+  GLuint mDecodedImgTexture, mGainmapImgTexture; /**< GL Textures */
+  uhdr_error_info_t mErrorStatus;                /**< Context status */
 
   uhdr_opengl_ctxt();
   ~uhdr_opengl_ctxt();
@@ -326,6 +341,8 @@ bool isBufferDataContiguous(uhdr_raw_image_t* img);
 
 #endif
 
+uhdr_error_info_t uhdr_validate_gainmap_metadata_descriptor(uhdr_gainmap_metadata_t* metadata);
+
 }  // namespace ultrahdr
 
 // ===============================================================================================
@@ -358,6 +375,7 @@ struct uhdr_encoder_private : uhdr_codec_private {
   uhdr_enc_preset_t m_enc_preset;
   float m_min_content_boost;
   float m_max_content_boost;
+  float m_target_disp_max_brightness;
 
   // internal data
   std::unique_ptr<ultrahdr::uhdr_compressed_image_ext_t> m_compressed_output_buffer;
@@ -381,6 +399,10 @@ struct uhdr_decoder_private : uhdr_codec_private {
   uhdr_mem_block_t m_exif_block;
   std::vector<uint8_t> m_icc;
   uhdr_mem_block_t m_icc_block;
+  std::vector<uint8_t> m_base_img;
+  uhdr_mem_block_t m_base_img_block;
+  std::vector<uint8_t> m_gainmap_img;
+  uhdr_mem_block_t m_gainmap_img_block;
   uhdr_gainmap_metadata_t m_metadata;
   uhdr_error_info_t m_probe_call_status;
   uhdr_error_info_t m_decode_call_status;

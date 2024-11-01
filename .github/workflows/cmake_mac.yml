@@ -17,7 +17,7 @@ jobs:
             build_type: Release
             cc: clang
             cxx: clang++
-            cmake-opts: '-DUHDR_BUILD_TESTS=1 -DUHDR_ENABLE_LOGS=1 -DUHDR_ENABLE_INSTALL=1'
+            cmake-opts: '-DUHDR_BUILD_TESTS=1 -DUHDR_ENABLE_LOGS=1 -DUHDR_ENABLE_INSTALL=1 -DUHDR_ENABLE_WERROR=1'
 
           # <macOS-13 Platform, Release Build, Clang toolchain, Ninja generator>
           - name: "macOS-13 clang rel ninja"
@@ -25,7 +25,7 @@ jobs:
             build_type: Release
             cc: clang
             cxx: clang++
-            cmake-opts: '-DUHDR_BUILD_TESTS=1 -DUHDR_ENABLE_LOGS=1 -DUHDR_ENABLE_INSTALL=1'
+            cmake-opts: '-DUHDR_BUILD_TESTS=1 -DUHDR_ENABLE_LOGS=1 -DUHDR_ENABLE_INSTALL=1 -DUHDR_ENABLE_WERROR=1'
 
           # <macOS-latest ARM64 Platform, Release Build, Clang toolchain, Ninja generator, Build Deps>
           - name: "macOS latest ARM64 clang rel ninja with deps"
@@ -33,7 +33,7 @@ jobs:
             build_type: Release
             cc: clang
             cxx: clang++
-            cmake-opts: '-DUHDR_BUILD_TESTS=1 -DUHDR_ENABLE_LOGS=1 -DUHDR_BUILD_DEPS=1'
+            cmake-opts: '-DUHDR_BUILD_TESTS=1 -DUHDR_ENABLE_LOGS=1 -DUHDR_BUILD_DEPS=1 -DUHDR_ENABLE_WERROR=1'
 
           # <macOS-latest ARM64 Platform, Release Build, Clang toolchain, Ninja generator, Static linking>
           - name: "macOS latest ARM64 clang rel ninja static"
@@ -41,7 +41,7 @@ jobs:
             build_type: Release
             cc: clang
             cxx: clang++
-            cmake-opts: '-DUHDR_BUILD_TESTS=1 -DUHDR_ENABLE_LOGS=1 -DUHDR_ENABLE_INSTALL=1 -DBUILD_SHARED_LIBS=0'
+            cmake-opts: '-DUHDR_BUILD_TESTS=1 -DUHDR_ENABLE_LOGS=1 -DUHDR_ENABLE_INSTALL=1 -DBUILD_SHARED_LIBS=0 -DUHDR_ENABLE_WERROR=1'
 
           # <macOS-13 Platform, Release Build, Clang toolchain, Ninja generator, Static linking>
           - name: "macOS-13 clang rel ninja static"
@@ -49,7 +49,7 @@ jobs:
             build_type: Release
             cc: clang
             cxx: clang++
-            cmake-opts: '-DUHDR_BUILD_TESTS=1 -DUHDR_ENABLE_LOGS=1 -DUHDR_ENABLE_INSTALL=1 -DBUILD_SHARED_LIBS=0'
+            cmake-opts: '-DUHDR_BUILD_TESTS=1 -DUHDR_ENABLE_LOGS=1 -DUHDR_ENABLE_INSTALL=1 -DBUILD_SHARED_LIBS=0 -DUHDR_ENABLE_WERROR=1'
 
     steps:
     - name: Checkout the repository

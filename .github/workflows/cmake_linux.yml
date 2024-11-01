@@ -17,7 +17,7 @@ jobs:
             build_type: Release
             cc: gcc
             cxx: g++
-            cmake-opts: '-DUHDR_BUILD_TESTS=1 -DUHDR_ENABLE_LOGS=1 -DUHDR_ENABLE_INSTALL=1'
+            cmake-opts: '-DUHDR_BUILD_TESTS=1 -DUHDR_ENABLE_LOGS=1 -DUHDR_ENABLE_INSTALL=1 -DUHDR_ENABLE_WERROR=1'
 
           # <Ubuntu-latest Platform, Release Build, Clang toolchain, Ninja generator>
           - name: "ubuntu latest clang rel ninja"
@@ -25,7 +25,7 @@ jobs:
             build_type: Release
             cc: clang
             cxx: clang++
-            cmake-opts: '-DUHDR_BUILD_TESTS=1 -DUHDR_ENABLE_LOGS=1 -DUHDR_ENABLE_INSTALL=1'
+            cmake-opts: '-DUHDR_BUILD_TESTS=1 -DUHDR_ENABLE_LOGS=1 -DUHDR_ENABLE_INSTALL=1 -DUHDR_ENABLE_WERROR=1'
 
           # <Ubuntu-latest Platform, Release Build, GCC toolchain, Ninja generator, Build Deps>
           - name: "ubuntu latest gcc rel ninja with deps"
@@ -33,7 +33,7 @@ jobs:
             build_type: Release
             cc: gcc
             cxx: g++
-            cmake-opts: '-DUHDR_BUILD_TESTS=1 -DUHDR_ENABLE_LOGS=1 -DUHDR_BUILD_DEPS=1'
+            cmake-opts: '-DUHDR_BUILD_TESTS=1 -DUHDR_ENABLE_LOGS=1 -DUHDR_BUILD_DEPS=1 -DUHDR_ENABLE_WERROR=1'
 
           # <Ubuntu-latest Platform, Release Build, Clang toolchain, Ninja generator, Build Deps, Sanitizer Address>
           - name: "ubuntu latest clang rel ninja with deps sanitize address"
@@ -41,7 +41,15 @@ jobs:
             build_type: Release
             cc: clang
             cxx: clang++
-            cmake-opts: '-DUHDR_BUILD_TESTS=1 -DUHDR_ENABLE_LOGS=1 -DUHDR_BUILD_DEPS=1 -DUHDR_SANITIZE_OPTIONS=address'
+            cmake-opts: '-DUHDR_BUILD_TESTS=1 -DUHDR_ENABLE_LOGS=1 -DUHDR_BUILD_DEPS=1 -DUHDR_SANITIZE_OPTIONS=address -DUHDR_ENABLE_WERROR=1'
+
+          # <Ubuntu-latest Platform, Release Build, Clang toolchain, Ninja generator, Build Fuzzers, Sanitizer Address>
+          - name: "ubuntu latest clang rel ninja fuzzers sanitize address"
+            os: ubuntu-latest
+            build_type: Release
+            cc: clang
+            cxx: clang++
+            cmake-opts: '-DUHDR_BUILD_FUZZERS=1 -DUHDR_SANITIZE_OPTIONS=address -DUHDR_ENABLE_WERROR=1'
 
           # <Ubuntu-latest Platform, Release Build, GCC toolchain, Ninja generator, Static linking>
           - name: "ubuntu latest gcc rel ninja static"
@@ -49,7 +57,7 @@ jobs:
             build_type: Release
             cc: gcc
             cxx: g++
-            cmake-opts: '-DUHDR_BUILD_TESTS=1 -DUHDR_ENABLE_LOGS=1 -DUHDR_ENABLE_INSTALL=1 -DBUILD_SHARED_LIBS=0'
+            cmake-opts: '-DUHDR_BUILD_TESTS=1 -DUHDR_ENABLE_LOGS=1 -DUHDR_ENABLE_INSTALL=1 -DBUILD_SHARED_LIBS=0 -DUHDR_ENABLE_WERROR=1'
 
           # <Ubuntu-latest Platform, Release Build, Clang toolchain, Ninja generator, Static linking>
           - name: "ubuntu latest clang rel ninja static"
@@ -57,7 +65,7 @@ jobs:
             build_type: Release
             cc: clang
             cxx: clang++
-            cmake-opts: '-DUHDR_BUILD_TESTS=1 -DUHDR_ENABLE_LOGS=1 -DUHDR_ENABLE_INSTALL=1 -DBUILD_SHARED_LIBS=0'
+            cmake-opts: '-DUHDR_BUILD_TESTS=1 -DUHDR_ENABLE_LOGS=1 -DUHDR_ENABLE_INSTALL=1 -DBUILD_SHARED_LIBS=0 -DUHDR_ENABLE_WERROR=1'
 
     steps:
     - name: Checkout the repository

@@ -16,9 +16,8 @@
 
 #include <fuzzer/FuzzedDataProvider.h>
 #include <algorithm>
-#include <iostream>
-#include <memory>
 #include <random>
+#include <type_traits>
 
 #include "ultrahdr_api.h"
 #include "ultrahdr/ultrahdrcommon.h"
@@ -27,20 +26,20 @@
 using namespace ultrahdr;
 
 // Color gamuts for image data, sync with ultrahdr_api.h
-constexpr int kCgMin = UHDR_CG_UNSPECIFIED + 1;
+constexpr int kCgMin = UHDR_CG_UNSPECIFIED;
 constexpr int kCgMax = UHDR_CG_BT_2100;
 
-// Transfer functions for image data, sync with ultrahdr_api.h
-constexpr int kTfMin = UHDR_CT_UNSPECIFIED + 1;
-constexpr int kTfMax = UHDR_CT_PQ;
+// Color ranges for image data, sync with ultrahdr_api.h
+constexpr int kCrMin = UHDR_CR_UNSPECIFIED;
+constexpr int kCrMax = UHDR_CR_FULL_RANGE;
 
-// quality factor
-constexpr int kQfMin = 0;
-constexpr int kQfMax = 100;
+// Transfer functions for image data, sync with ultrahdr_api.h
+constexpr int kTfMin = UHDR_CT_UNSPECIFIED;
+constexpr int kTfMax = UHDR_CT_SRGB;
 
 class UltraHdrEncFuzzer {
  public:
-  UltraHdrEncFuzzer(const uint8_t* data, size_t size) : mFdp(data, size){};
+  UltraHdrEncFuzzer(const uint8_t* data, size_t size) : mFdp(data, size) {};
   void process();
   template <typename T>
   void fillBuffer(T* data, int width, int height, int stride);
@@ -51,10 +50,12 @@ class UltraHdrEncFuzzer {
 
 template <typename T>
 void UltraHdrEncFuzzer::fillBuffer(T* data, int width, int height, int stride) {
+  if (!mFdp.remaining_bytes()) return;
+
   T* tmp = data;
-  std::vector<T> buffer(16);
+  std::vector<T> buffer(width);
   for (int i = 0; i < buffer.size(); i++) {
-    buffer[i] = (mFdp.ConsumeIntegralInRange<int>(0, (1 << 10) - 1)) << 6;
+    buffer[i] = mFdp.ConsumeIntegral<T>();
   }
   for (int j = 0; j < height; j++) {
     for (int i = 0; i < width; i += buffer.size()) {
@@ -67,54 +68,143 @@ void UltraHdrEncFuzzer::fillBuffer(T* data, int width, int height, int stride) {
 }
 
 void UltraHdrEncFuzzer::process() {
-  while (mFdp.remaining_bytes()) {
-    struct uhdr_raw_image hdrImg {};
-    struct uhdr_raw_image sdrImg {};
-    struct uhdr_raw_image gainmapImg {};
+  if (mFdp.remaining_bytes()) {
+    struct uhdr_raw_image hdrImg{};
+    struct uhdr_raw_image sdrImg{};
+    struct uhdr_raw_image gainmapImg{};
 
     // which encode api to select
-    int muxSwitch = mFdp.ConsumeIntegralInRange<int>(0, 4);
-
-    // base quality factor
-    int base_quality = mFdp.ConsumeIntegralInRange<int>(kQfMin, kQfMax);
-
-    // gain_map quality factor
-    int gainmap_quality = mFdp.ConsumeIntegralInRange<int>(kQfMin, kQfMax);
-
-    // hdr_tf
-    auto tf = static_cast<uhdr_color_transfer>(mFdp.ConsumeIntegralInRange<int>(kTfMin, kTfMax));
-
-    // hdr Cg
-    auto hdr_cg = static_cast<uhdr_color_gamut>(mFdp.ConsumeIntegralInRange<int>(kCgMin, kCgMax));
-
-    // sdr Cg
-    auto sdr_cg = static_cast<uhdr_color_gamut>(mFdp.ConsumeIntegralInRange<int>(kCgMin, kCgMax));
-
-    // color range
-    auto color_range = mFdp.ConsumeBool() ? UHDR_CR_LIMITED_RANGE : UHDR_CR_FULL_RANGE;
+    int muxSwitch = mFdp.ConsumeIntegralInRange<int8_t>(0, 4);
 
     // hdr_img_fmt
     auto hdr_img_fmt =
         mFdp.ConsumeBool() ? UHDR_IMG_FMT_24bppYCbCrP010 : UHDR_IMG_FMT_32bppRGBA1010102;
 
     // sdr_img_fmt
-    auto sdr_img_fmt = mFdp.ConsumeBool() ? UHDR_IMG_FMT_12bppYCbCr420 : UHDR_IMG_FMT_32bppRGBA8888;
+    uhdr_img_fmt_t sdr_img_fmt =
+        mFdp.ConsumeBool() ? UHDR_IMG_FMT_12bppYCbCr420 : UHDR_IMG_FMT_32bppRGBA8888;
     if (muxSwitch > 1) sdr_img_fmt = UHDR_IMG_FMT_12bppYCbCr420;
 
+    // width
+    int width = mFdp.ConsumeIntegralInRange<uint16_t>(kMinWidth, kMaxWidth);
+    if (hdr_img_fmt == UHDR_IMG_FMT_24bppYCbCrP010 || sdr_img_fmt == UHDR_IMG_FMT_12bppYCbCr420) {
+      width = (width >> 1) << 1;
+    }
+
+    // height
+    int height = mFdp.ConsumeIntegralInRange<uint16_t>(kMinHeight, kMaxHeight);
+    if (hdr_img_fmt == UHDR_IMG_FMT_24bppYCbCrP010 || sdr_img_fmt == UHDR_IMG_FMT_12bppYCbCr420) {
+      height = (height >> 1) << 1;
+    }
+
+    // hdr Ct
+    auto hdr_ct =
+        static_cast<uhdr_color_transfer_t>(mFdp.ConsumeIntegralInRange<int8_t>(kTfMin, kTfMax));
+
+    // hdr Cg
+    auto hdr_cg =
+        static_cast<uhdr_color_gamut_t>(mFdp.ConsumeIntegralInRange<int8_t>(kCgMin, kCgMax));
+
+    // sdr Cg
+    auto sdr_cg =
+        static_cast<uhdr_color_gamut_t>(mFdp.ConsumeIntegralInRange<int8_t>(kCgMin, kCgMax));
+
+    // color range
+    auto hdr_cr =
+        static_cast<uhdr_color_range_t>(mFdp.ConsumeIntegralInRange<int8_t>(kCrMin, kCrMax));
+
+    // base quality factor
+    auto base_quality = mFdp.ConsumeIntegral<int8_t>();
+
+    // gain_map quality factor
+    auto gainmap_quality = mFdp.ConsumeIntegral<int8_t>();
+
     // multi channel gainmap
-    auto multi_channel_gainmap = mFdp.ConsumeBool();
-
-    int width = mFdp.ConsumeIntegralInRange<int>(kMinWidth, kMaxWidth);
-    width = (width >> 1) << 1;
-
-    int height = mFdp.ConsumeIntegralInRange<int>(kMinHeight, kMaxHeight);
-    height = (height >> 1) << 1;
+    auto multi_channel_gainmap = mFdp.ConsumeIntegral<int8_t>();
 
     // gainmap scale factor
-    auto gm_scale_factor = mFdp.ConsumeIntegralInRange<int>(1, 128);
+    auto gm_scale_factor = mFdp.ConsumeIntegralInRange<int16_t>(-32, 192);
 
     // encoding speed preset
-    auto enc_preset = static_cast<uhdr_enc_preset_t>(mFdp.ConsumeIntegralInRange<int>(0, 1));
+    auto enc_preset = mFdp.ConsumeBool() ? UHDR_USAGE_REALTIME : UHDR_USAGE_BEST_QUALITY;
+
+    // gainmap metadata
+    auto minBoost = mFdp.ConsumeFloatingPointInRange<float>(-4.0f, 64.0f);
+    auto maxBoost = mFdp.ConsumeFloatingPointInRange<float>(-4.0f, 64.0f);
+    auto gamma = mFdp.ConsumeFloatingPointInRange<float>(-1.0f, 5);
+    auto offsetSdr = mFdp.ConsumeFloatingPointInRange<float>(-1.0f, 1.0f);
+    auto offsetHdr = mFdp.ConsumeFloatingPointInRange<float>(-1.0f, 1.0f);
+    auto minCapacity = mFdp.ConsumeFloatingPointInRange<float>(-4.0f, 48.0f);
+    auto maxCapacity = mFdp.ConsumeFloatingPointInRange<float>(-4.0f, 48.0f);
+
+    // target display peak brightness
+    auto targetDispPeakBrightness = mFdp.ConsumeFloatingPointInRange<float>(100.0f, 10500.0f);
+
+    // raw buffer config
+    bool hasHdrStride = mFdp.ConsumeBool();
+    int yHdrStride = mFdp.ConsumeIntegralInRange<uint16_t>(width, width + 128);
+    if (!hasHdrStride) yHdrStride = width;
+    bool isHdrUVContiguous = mFdp.ConsumeBool();
+    bool hasHdrUVStride = mFdp.ConsumeBool();
+    int uvHdrStride = mFdp.ConsumeIntegralInRange<uint16_t>(width, width + 128);
+    if (!hasHdrUVStride) uvHdrStride = width;
+
+    bool hasSdrStride = mFdp.ConsumeBool();
+    int ySdrStride = mFdp.ConsumeIntegralInRange<uint16_t>(width, width + 128);
+    if (!hasSdrStride) ySdrStride = width;
+    bool isSdrUVContiguous = mFdp.ConsumeBool();
+    bool hasSdrUVStride = mFdp.ConsumeBool();
+    int uvSdrStride = mFdp.ConsumeIntegralInRange<uint16_t>(width / 2, width / 2 + 128);
+    if (!hasSdrUVStride) uvSdrStride = width / 2;
+
+    // editing effects
+    auto applyMirror = mFdp.ConsumeBool();
+    uhdr_mirror_direction_t direction =
+        mFdp.ConsumeBool() ? UHDR_MIRROR_VERTICAL : UHDR_MIRROR_HORIZONTAL;
+
+    auto applyRotate = mFdp.ConsumeBool();
+    int degrees = degrees = mFdp.PickValueInArray({-90, 0, 90, 180, 270});
+
+    auto applyCrop = mFdp.ConsumeBool();
+    int left = mFdp.ConsumeIntegral<int16_t>();
+    int right = mFdp.ConsumeIntegral<int16_t>();
+    int top = mFdp.ConsumeIntegral<int16_t>();
+    int bottom = mFdp.ConsumeIntegral<int16_t>();
+
+    auto applyResize = mFdp.ConsumeBool();
+    int resizeWidth = mFdp.ConsumeIntegralInRange<int16_t>(-32, kMaxWidth + 128);
+    int resizeHeight = mFdp.ConsumeIntegralInRange<int16_t>(-32, kMaxHeight + 128);
+
+    // exif
+    char greeting[] = "Exif says hello world";
+    uhdr_mem_block_t exif{greeting, mFdp.ConsumeIntegralInRange<uint8_t>(0, sizeof greeting * 2),
+                          sizeof greeting};
+
+    ALOGV("encoding configuration options : ");
+    ALOGV("encoding api - %d ", (int)muxSwitch);
+    ALOGV("image dimensions %d x %d ", (int)width, (int)height);
+    ALOGV("hdr intent color aspects: gamut %d, transfer %d, range %d, format %d ", (int)hdr_cg,
+          (int)hdr_ct, (int)hdr_cr, (int)hdr_img_fmt);
+    ALOGV("sdr intent color aspects: gamut %d, format %d ", (int)sdr_cg, (int)sdr_img_fmt);
+    ALOGV(
+        "gainmap img config: scale factor %d, enabled multichannel gainmap %s, gainmap quality %d ",
+        (int)gm_scale_factor, (int)multi_channel_gainmap ? "Yes" : "No", (int)gainmap_quality);
+    ALOGV("base image quality %d ", (int)base_quality);
+    ALOGV("encoding preset %d ", (int)enc_preset);
+    ALOGV(
+        "gainmap metadata: min content boost %f, max content boost %f, gamma %f, offset sdr %f, "
+        "offset hdr %f, hdr min capacity %f, hdr max capacity %f",
+        (float)minBoost, (float)maxBoost, (float)gamma, (float)offsetSdr, (float)offsetHdr,
+        (float)minCapacity, (float)maxCapacity);
+    ALOGV("hdr intent luma stride %d, chroma stride %d", yHdrStride, uvHdrStride);
+    ALOGV("sdr intent luma stride %d, chroma stride %d", ySdrStride, uvSdrStride);
+    if (applyMirror) ALOGV("added mirror effect, direction %d", (int)direction);
+    if (applyRotate) ALOGV("added rotate effect, degrees %d", (int)degrees);
+    if (applyCrop)
+      ALOGV("added crop effect, crop-left %d, crop-right %d, crop-top %d, crop-bottom %d", left,
+            right, top, bottom);
+    if (applyResize)
+      ALOGV("added resize effect, resize wd %d, resize ht %d", resizeWidth, resizeHeight);
 
     std::unique_ptr<uint32_t[]> bufferHdr = nullptr;
     std::unique_ptr<uint16_t[]> bufferYHdr = nullptr;
@@ -125,7 +215,7 @@ void UltraHdrEncFuzzer::process() {
     uhdr_codec_private_t* enc_handle = uhdr_create_encoder();
     if (!enc_handle) {
       ALOGE("Failed to create encoder");
-      continue;
+      return;
     }
 
 #define ON_ERR(x)                              \
@@ -139,42 +229,39 @@ void UltraHdrEncFuzzer::process() {
   }
     if (muxSwitch != 4) {
       // init p010/rgba1010102 image
-      bool hasStride = mFdp.ConsumeBool();
-      int yStride = hasStride ? mFdp.ConsumeIntegralInRange<int>(width, width + 128) : width;
       hdrImg.w = width;
       hdrImg.h = height;
       hdrImg.cg = hdr_cg;
       hdrImg.fmt = hdr_img_fmt;
-      hdrImg.ct = tf;
-      hdrImg.range = color_range;
-      hdrImg.stride[UHDR_PLANE_Y] = yStride;
+      hdrImg.ct = hdr_ct;
+      hdrImg.range = hdr_cr;
+      hdrImg.stride[UHDR_PLANE_Y] = yHdrStride;
       if (hdr_img_fmt == UHDR_IMG_FMT_24bppYCbCrP010) {
-        bool isUVContiguous = mFdp.ConsumeBool();
-        if (isUVContiguous) {
-          size_t p010Size = yStride * height * 3 / 2;
+        if (isHdrUVContiguous) {
+          size_t p010Size = yHdrStride * height * 3 / 2;
           bufferYHdr = std::make_unique<uint16_t[]>(p010Size);
           hdrImg.planes[UHDR_PLANE_Y] = bufferYHdr.get();
-          fillBuffer<uint16_t>(bufferYHdr.get(), width, height, yStride);
-          fillBuffer<uint16_t>(bufferYHdr.get() + yStride * height, width, height / 2, yStride);
-          hdrImg.planes[UHDR_PLANE_UV] = bufferYHdr.get() + yStride * height;
-          hdrImg.stride[UHDR_PLANE_UV] = yStride;
+          fillBuffer<uint16_t>(bufferYHdr.get(), width, height, yHdrStride);
+          fillBuffer<uint16_t>(bufferYHdr.get() + yHdrStride * height, width, height / 2,
+                               yHdrStride);
+          hdrImg.planes[UHDR_PLANE_UV] = bufferYHdr.get() + yHdrStride * height;
+          hdrImg.stride[UHDR_PLANE_UV] = yHdrStride;
         } else {
-          int uvStride = mFdp.ConsumeIntegralInRange<int>(width, width + 128);
-          size_t p010Size = yStride * height;
+          size_t p010Size = yHdrStride * height;
           bufferYHdr = std::make_unique<uint16_t[]>(p010Size);
           hdrImg.planes[UHDR_PLANE_Y] = bufferYHdr.get();
-          fillBuffer<uint16_t>(bufferYHdr.get(), width, height, yStride);
-          size_t p010UVSize = uvStride * hdrImg.h / 2;
+          fillBuffer<uint16_t>(bufferYHdr.get(), width, height, yHdrStride);
+          size_t p010UVSize = uvHdrStride * hdrImg.h / 2;
           bufferUVHdr = std::make_unique<uint16_t[]>(p010UVSize);
           hdrImg.planes[UHDR_PLANE_UV] = bufferUVHdr.get();
-          hdrImg.stride[UHDR_PLANE_UV] = uvStride;
-          fillBuffer<uint16_t>(bufferUVHdr.get(), width, height / 2, uvStride);
+          hdrImg.stride[UHDR_PLANE_UV] = uvHdrStride;
+          fillBuffer<uint16_t>(bufferUVHdr.get(), width, height / 2, uvHdrStride);
         }
       } else if (hdr_img_fmt == UHDR_IMG_FMT_32bppRGBA1010102) {
-        size_t rgba1010102Size = yStride * height;
+        size_t rgba1010102Size = yHdrStride * height;
         bufferHdr = std::make_unique<uint32_t[]>(rgba1010102Size);
         hdrImg.planes[UHDR_PLANE_PACKED] = bufferHdr.get();
-        fillBuffer<uint32_t>(bufferHdr.get(), width, height, yStride);
+        fillBuffer<uint32_t>(bufferHdr.get(), width, height, yHdrStride);
         hdrImg.planes[UHDR_PLANE_U] = nullptr;
         hdrImg.stride[UHDR_PLANE_U] = 0;
       }
@@ -182,8 +269,8 @@ void UltraHdrEncFuzzer::process() {
       hdrImg.stride[UHDR_PLANE_V] = 0;
       ON_ERR(uhdr_enc_set_raw_image(enc_handle, &hdrImg, UHDR_HDR_IMG))
     } else {
-      size_t map_width = width / gm_scale_factor;
-      size_t map_height = height / gm_scale_factor;
+      size_t map_width = width / ((gm_scale_factor <= 0) ? 1 : gm_scale_factor);
+      size_t map_height = height / ((gm_scale_factor <= 0) ? 1 : gm_scale_factor);
       gainmapImg.fmt = UHDR_IMG_FMT_8bppYCbCr400;
       gainmapImg.w = map_width;
       gainmapImg.h = map_height;
@@ -202,46 +289,42 @@ void UltraHdrEncFuzzer::process() {
     }
 
     if (muxSwitch > 0) {
-      bool hasStride = mFdp.ConsumeBool();
-      int yStride = hasStride ? mFdp.ConsumeIntegralInRange<int>(width, width + 128) : width;
       // init yuv420 Image
       if (sdr_img_fmt == UHDR_IMG_FMT_12bppYCbCr420) {
-        bool isUVContiguous = mFdp.ConsumeBool();
         sdrImg.w = width;
         sdrImg.h = height;
         sdrImg.cg = sdr_cg;
         sdrImg.fmt = UHDR_IMG_FMT_12bppYCbCr420;
         sdrImg.ct = UHDR_CT_SRGB;
         sdrImg.range = UHDR_CR_FULL_RANGE;
-        sdrImg.stride[UHDR_PLANE_Y] = yStride;
-        if (isUVContiguous) {
-          size_t yuv420Size = yStride * height * 3 / 2;
+        sdrImg.stride[UHDR_PLANE_Y] = ySdrStride;
+        if (isSdrUVContiguous) {
+          size_t yuv420Size = ySdrStride * height * 3 / 2;
           bufferYSdr = std::make_unique<uint8_t[]>(yuv420Size);
           sdrImg.planes[UHDR_PLANE_Y] = bufferYSdr.get();
-          sdrImg.planes[UHDR_PLANE_U] = bufferYSdr.get() + yStride * height;
-          sdrImg.planes[UHDR_PLANE_V] = bufferYSdr.get() + yStride * height * 5 / 4;
-          sdrImg.stride[UHDR_PLANE_U] = yStride / 2;
-          sdrImg.stride[UHDR_PLANE_V] = yStride / 2;
-          fillBuffer<uint8_t>(bufferYSdr.get(), width, height, yStride);
-          fillBuffer<uint8_t>(bufferYSdr.get() + yStride * height, width / 2, height / 2,
-                              yStride / 2);
-          fillBuffer<uint8_t>(bufferYSdr.get() + yStride * height * 5 / 4, width / 2, height / 2,
-                              yStride / 2);
+          sdrImg.planes[UHDR_PLANE_U] = bufferYSdr.get() + ySdrStride * height;
+          sdrImg.planes[UHDR_PLANE_V] = bufferYSdr.get() + ySdrStride * height * 5 / 4;
+          sdrImg.stride[UHDR_PLANE_U] = ySdrStride / 2;
+          sdrImg.stride[UHDR_PLANE_V] = ySdrStride / 2;
+          fillBuffer<uint8_t>(bufferYSdr.get(), width, height, ySdrStride);
+          fillBuffer<uint8_t>(bufferYSdr.get() + ySdrStride * height, width / 2, height / 2,
+                              ySdrStride / 2);
+          fillBuffer<uint8_t>(bufferYSdr.get() + ySdrStride * height * 5 / 4, width / 2, height / 2,
+                              ySdrStride / 2);
         } else {
-          int uvStride = mFdp.ConsumeIntegralInRange<int>(width / 2, width / 2 + 128);
-          size_t yuv420YSize = yStride * height;
+          size_t yuv420YSize = ySdrStride * height;
           bufferYSdr = std::make_unique<uint8_t[]>(yuv420YSize);
           sdrImg.planes[UHDR_PLANE_Y] = bufferYSdr.get();
-          fillBuffer<uint8_t>(bufferYSdr.get(), width, height, yStride);
-          size_t yuv420UVSize = uvStride * sdrImg.h / 2 * 2;
+          fillBuffer<uint8_t>(bufferYSdr.get(), width, height, ySdrStride);
+          size_t yuv420UVSize = uvSdrStride * sdrImg.h / 2 * 2;
           bufferUVSdr = std::make_unique<uint8_t[]>(yuv420UVSize);
           sdrImg.planes[UHDR_PLANE_U] = bufferUVSdr.get();
-          sdrImg.stride[UHDR_PLANE_U] = uvStride;
-          fillBuffer<uint8_t>(bufferUVSdr.get(), width / 2, height / 2, uvStride);
-          fillBuffer<uint8_t>(bufferUVSdr.get() + uvStride * height / 2, width / 2, height / 2,
-                              uvStride);
-          sdrImg.planes[UHDR_PLANE_V] = bufferUVSdr.get() + uvStride * height / 2;
-          sdrImg.stride[UHDR_PLANE_V] = uvStride;
+          sdrImg.stride[UHDR_PLANE_U] = uvSdrStride;
+          fillBuffer<uint8_t>(bufferUVSdr.get(), width / 2, height / 2, uvSdrStride);
+          fillBuffer<uint8_t>(bufferUVSdr.get() + uvSdrStride * height / 2, width / 2, height / 2,
+                              uvSdrStride);
+          sdrImg.planes[UHDR_PLANE_V] = bufferUVSdr.get() + uvSdrStride * height / 2;
+          sdrImg.stride[UHDR_PLANE_V] = uvSdrStride;
         }
       } else if (sdr_img_fmt == UHDR_IMG_FMT_32bppRGBA8888) {
         sdrImg.w = width;
@@ -250,11 +333,11 @@ void UltraHdrEncFuzzer::process() {
         sdrImg.fmt = UHDR_IMG_FMT_32bppRGBA8888;
         sdrImg.ct = UHDR_CT_SRGB;
         sdrImg.range = UHDR_CR_FULL_RANGE;
-        sdrImg.stride[UHDR_PLANE_PACKED] = yStride;
-        size_t rgba8888Size = yStride * height;
+        sdrImg.stride[UHDR_PLANE_PACKED] = ySdrStride;
+        size_t rgba8888Size = ySdrStride * height;
         bufferHdr = std::make_unique<uint32_t[]>(rgba8888Size);
         sdrImg.planes[UHDR_PLANE_PACKED] = bufferHdr.get();
-        fillBuffer<uint32_t>(bufferHdr.get(), width, height, yStride);
+        fillBuffer<uint32_t>(bufferHdr.get(), width, height, ySdrStride);
         sdrImg.planes[UHDR_PLANE_U] = nullptr;
         sdrImg.planes[UHDR_PLANE_V] = nullptr;
         sdrImg.stride[UHDR_PLANE_U] = 0;
@@ -266,9 +349,18 @@ void UltraHdrEncFuzzer::process() {
     }
     ON_ERR(uhdr_enc_set_quality(enc_handle, base_quality, UHDR_BASE_IMG))
     ON_ERR(uhdr_enc_set_quality(enc_handle, gainmap_quality, UHDR_GAIN_MAP_IMG))
-    ON_ERR(uhdr_enc_set_gainmap_scale_factor(enc_handle, gm_scale_factor))
+    ON_ERR(uhdr_enc_set_exif_data(enc_handle, &exif))
     ON_ERR(uhdr_enc_set_using_multi_channel_gainmap(enc_handle, multi_channel_gainmap))
+    ON_ERR(uhdr_enc_set_gainmap_scale_factor(enc_handle, gm_scale_factor))
+    ON_ERR(uhdr_enc_set_gainmap_gamma(enc_handle, gamma))
+    ON_ERR(uhdr_enc_set_min_max_content_boost(enc_handle, minBoost, maxBoost))
+    ON_ERR(uhdr_enc_set_target_display_peak_brightness(enc_handle, targetDispPeakBrightness))
     ON_ERR(uhdr_enc_set_preset(enc_handle, enc_preset))
+    ON_ERR(uhdr_enable_gpu_acceleration(enc_handle, 1))
+    if (applyMirror) ON_ERR(uhdr_add_effect_mirror(enc_handle, direction))
+    if (applyRotate) ON_ERR(uhdr_add_effect_rotate(enc_handle, degrees))
+    if (applyCrop) ON_ERR(uhdr_add_effect_crop(enc_handle, left, right, top, bottom))
+    if (applyResize) ON_ERR(uhdr_add_effect_resize(enc_handle, resizeWidth, resizeHeight))
 
     uhdr_error_info_t status = {UHDR_CODEC_OK, 0, ""};
     if (muxSwitch == 0 || muxSwitch == 1) {  // api 0 or api 1
@@ -291,13 +383,13 @@ void UltraHdrEncFuzzer::process() {
               UHDR_CODEC_OK) {
             struct uhdr_compressed_image jpegGainMap = gainMapEncoder.getCompressedImage();
             uhdr_gainmap_metadata metadata;
-            metadata.max_content_boost = 17.0f;
-            metadata.min_content_boost = 1.0f;
-            metadata.gamma = 1.0f;
-            metadata.offset_sdr = 0.0f;
-            metadata.offset_hdr = 0.0f;
-            metadata.hdr_capacity_min = 1.0f;
-            metadata.hdr_capacity_max = metadata.max_content_boost;
+            metadata.max_content_boost = maxBoost;
+            metadata.min_content_boost = minBoost;
+            metadata.gamma = gamma;
+            metadata.offset_sdr = offsetSdr;
+            metadata.offset_hdr = offsetHdr;
+            metadata.hdr_capacity_min = minCapacity;
+            metadata.hdr_capacity_max = maxCapacity;
             ON_ERR(uhdr_enc_set_compressed_image(enc_handle, &jpegImg, UHDR_BASE_IMG))
             ON_ERR(uhdr_enc_set_gainmap_image(enc_handle, &jpegGainMap, &metadata))
             status = uhdr_encode(enc_handle);
@@ -311,10 +403,10 @@ void UltraHdrEncFuzzer::process() {
         uhdr_codec_private_t* dec_handle = uhdr_create_decoder();
         if (dec_handle) {
           ON_ERR(uhdr_dec_set_image(dec_handle, output))
-          ON_ERR(uhdr_dec_set_out_color_transfer(dec_handle, tf))
-          if (tf == UHDR_CT_LINEAR)
+          ON_ERR(uhdr_dec_set_out_color_transfer(dec_handle, hdr_ct))
+          if (hdr_ct == UHDR_CT_LINEAR)
             ON_ERR(uhdr_dec_set_out_img_format(dec_handle, UHDR_IMG_FMT_64bppRGBAHalfFloat))
-          else if (tf == UHDR_CT_SRGB)
+          else if (hdr_ct == UHDR_CT_SRGB)
             ON_ERR(uhdr_dec_set_out_img_format(dec_handle, UHDR_IMG_FMT_32bppRGBA8888))
           else
             ON_ERR(uhdr_dec_set_out_img_format(dec_handle, UHDR_IMG_FMT_32bppRGBA1010102))
@@ -322,11 +414,10 @@ void UltraHdrEncFuzzer::process() {
           uhdr_release_decoder(dec_handle);
         }
       }
-      uhdr_release_encoder(enc_handle);
-    } else {
-      uhdr_release_encoder(enc_handle);
-      ON_ERR(status);
     }
+    uhdr_reset_encoder(enc_handle);
+    uhdr_release_encoder(enc_handle);
+    ON_ERR(status);
   }
 }
 

@@ -72,7 +72,7 @@ static boolean emptyOutputBuffer(j_compress_ptr cinfo) {
   buffer.resize(oldsize + dest->kBlockSize);
   dest->next_output_byte = &buffer[oldsize];
   dest->free_in_buffer = dest->kBlockSize;
-  return true;
+  return TRUE;
 }
 
 /*!\brief  called by jpeg_finish_compress() to flush out all the remaining encoded data. client
@@ -176,10 +176,19 @@ uhdr_error_info_t JpegEncoderHelper::encode(const uint8_t* planes[3], const size
       if (format == UHDR_IMG_FMT_8bppYCbCr400) {
         cinfo.input_components = 1;
         cinfo.in_color_space = JCS_GRAYSCALE;
-      } else {
+      } else if (format == UHDR_IMG_FMT_12bppYCbCr420 || format == UHDR_IMG_FMT_24bppYCbCr444 ||
+                 format == UHDR_IMG_FMT_16bppYCbCr422 || format == UHDR_IMG_FMT_16bppYCbCr440 ||
+                 format == UHDR_IMG_FMT_12bppYCbCr411 || format == UHDR_IMG_FMT_10bppYCbCr410) {
         cinfo.input_components = 3;
         cinfo.in_color_space = JCS_YCbCr;
         isGainMapImg = false;
+      } else {
+        status.error_code = UHDR_CODEC_ERROR;
+        status.has_detail = 1;
+        snprintf(status.detail, sizeof status.detail,
+                 "unrecognized input color format for encoding, color format %d", format);
+        jpeg_destroy_compress(&cinfo);
+        return status;
       }
     }
     jpeg_set_defaults(&cinfo);
@@ -203,8 +212,8 @@ uhdr_error_info_t JpegEncoderHelper::encode(const uint8_t* planes[3], const size
     if (isGainMapImg) {
       char comment[255];
       snprintf(comment, sizeof comment,
-               "Source: google libuhdr %s, Coder: libjpeg v%d, Attrib: GainMap Image",
-               UHDR_LIB_VERSION, JPEG_LIB_VERSION);
+               "Source: google libuhdr v%s, Coder: libjpeg v%d, Attrib: GainMap Image",
+               UHDR_LIB_VERSION_STR, JPEG_LIB_VERSION);
       jpeg_write_marker(&cinfo, JPEG_COM, reinterpret_cast<JOCTET*>(comment), strlen(comment));
     }
     if (format == UHDR_IMG_FMT_24bppRGB888) {

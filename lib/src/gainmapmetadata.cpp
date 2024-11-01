@@ -309,9 +309,11 @@ uhdr_error_info_t uhdr_gainmap_metadata_frac::gainmapMetadataFractionToFloat(
     UHDR_CHECK_NON_ZERO(from->baseOffsetD[i], "baseOffset denominator");
     UHDR_CHECK_NON_ZERO(from->alternateOffsetD[i], "alternateOffset denominator");
   }
-  to->version = kGainMapVersion;
+
+  to->version = kJpegrVersion;
   to->max_content_boost = exp2((float)from->gainMapMaxN[0] / from->gainMapMaxD[0]);
   to->min_content_boost = exp2((float)from->gainMapMinN[0] / from->gainMapMinD[0]);
+
   to->gamma = (float)from->gainMapGammaN[0] / from->gainMapGammaD[0];
 
   // BaseRenditionIsHDR is false
@@ -337,30 +339,45 @@ uhdr_error_info_t uhdr_gainmap_metadata_frac::gainmapMetadataFloatToFraction(
   to->backwardDirection = false;
   to->useBaseColorSpace = true;
 
-  floatToUnsignedFraction(log2(from->max_content_boost), &to->gainMapMaxN[0], &to->gainMapMaxD[0]);
+#define CONVERT_FLT_TO_UNSIGNED_FRACTION(flt, numerator, denominator)                          \
+  if (!floatToUnsignedFraction(flt, numerator, denominator)) {                                 \
+    uhdr_error_info_t status;                                                                  \
+    status.error_code = UHDR_CODEC_INVALID_PARAM;                                              \
+    status.has_detail = 1;                                                                     \
+    snprintf(status.detail, sizeof status.detail,                                              \
+             "encountered error while representing float %f as a rational number (p/q form) ", \
+             flt);                                                                             \
+    return status;                                                                             \
+  }
+
+  CONVERT_FLT_TO_UNSIGNED_FRACTION(log2(from->max_content_boost), &to->gainMapMaxN[0],
+                                   &to->gainMapMaxD[0])
   to->gainMapMaxN[2] = to->gainMapMaxN[1] = to->gainMapMaxN[0];
   to->gainMapMaxD[2] = to->gainMapMaxD[1] = to->gainMapMaxD[0];
 
-  floatToUnsignedFraction(log2(from->min_content_boost), &to->gainMapMinN[0], &to->gainMapMinD[0]);
+  CONVERT_FLT_TO_UNSIGNED_FRACTION(log2(from->min_content_boost), &to->gainMapMinN[0],
+                                   &to->gainMapMinD[0]);
   to->gainMapMinN[2] = to->gainMapMinN[1] = to->gainMapMinN[0];
   to->gainMapMinD[2] = to->gainMapMinD[1] = to->gainMapMinD[0];
 
-  floatToUnsignedFraction(from->gamma, &to->gainMapGammaN[0], &to->gainMapGammaD[0]);
+  CONVERT_FLT_TO_UNSIGNED_FRACTION(from->gamma, &to->gainMapGammaN[0], &to->gainMapGammaD[0]);
   to->gainMapGammaN[2] = to->gainMapGammaN[1] = to->gainMapGammaN[0];
   to->gainMapGammaD[2] = to->gainMapGammaD[1] = to->gainMapGammaD[0];
 
-  floatToUnsignedFraction(from->offset_sdr, &to->baseOffsetN[0], &to->baseOffsetD[0]);
+  CONVERT_FLT_TO_UNSIGNED_FRACTION(from->offset_sdr, &to->baseOffsetN[0], &to->baseOffsetD[0]);
   to->baseOffsetN[2] = to->baseOffsetN[1] = to->baseOffsetN[0];
   to->baseOffsetD[2] = to->baseOffsetD[1] = to->baseOffsetD[0];
 
-  floatToUnsignedFraction(from->offset_hdr, &to->alternateOffsetN[0], &to->alternateOffsetD[0]);
+  CONVERT_FLT_TO_UNSIGNED_FRACTION(from->offset_hdr, &to->alternateOffsetN[0],
+                                   &to->alternateOffsetD[0]);
   to->alternateOffsetN[2] = to->alternateOffsetN[1] = to->alternateOffsetN[0];
   to->alternateOffsetD[2] = to->alternateOffsetD[1] = to->alternateOffsetD[0];
 
-  floatToUnsignedFraction(log2(from->hdr_capacity_min), &to->baseHdrHeadroomN, &to->baseHdrHeadroomD);
+  CONVERT_FLT_TO_UNSIGNED_FRACTION(log2(from->hdr_capacity_min), &to->baseHdrHeadroomN,
+                                   &to->baseHdrHeadroomD);
 
-  floatToUnsignedFraction(log2(from->hdr_capacity_max), &to->alternateHdrHeadroomN,
-                          &to->alternateHdrHeadroomD);
+  CONVERT_FLT_TO_UNSIGNED_FRACTION(log2(from->hdr_capacity_max), &to->alternateHdrHeadroomN,
+                                   &to->alternateHdrHeadroomD);
 
   return g_no_error;
 }

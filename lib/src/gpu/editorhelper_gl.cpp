@@ -269,15 +269,14 @@ std::unique_ptr<uhdr_raw_image_ext_t> apply_rotate_gles(ultrahdr::uhdr_rotate_ef
   return dst;
 }
 
-void apply_crop_gles(uhdr_raw_image_t* src, int left, int top, int wd, int ht,
-                     uhdr_opengl_ctxt* gl_ctxt, GLuint* srcTexture) {
+std::unique_ptr<uhdr_raw_image_ext_t> apply_crop_gles(uhdr_raw_image_t* src, int left, int top,
+                                                      int wd, int ht, uhdr_opengl_ctxt* gl_ctxt,
+                                                      GLuint* srcTexture) {
+  std::unique_ptr<uhdr_raw_image_ext_t> dst =
+      std::make_unique<uhdr_raw_image_ext_t>(src->fmt, src->cg, src->ct, src->range, wd, ht, 1);
   GLuint dstTexture = 0;
   GLuint frameBuffer = 0;
-#define RETURN_IF_ERR()                                    \
-  if (gl_ctxt->mErrorStatus.error_code != UHDR_CODEC_OK) { \
-    release_resources(&dstTexture, &frameBuffer);          \
-    return;                                                \
-  }
+
   if (gl_ctxt->mShaderProgram[UHDR_CROP] == 0) {
     gl_ctxt->mShaderProgram[UHDR_CROP] =
         gl_ctxt->create_shader_program(vertex_shader.c_str(), crop_fragmentSource.c_str());
@@ -285,7 +284,7 @@ void apply_crop_gles(uhdr_raw_image_t* src, int left, int top, int wd, int ht,
   dstTexture = gl_ctxt->create_texture(src->fmt, wd, ht, NULL);
   frameBuffer = gl_ctxt->setup_framebuffer(dstTexture);
 
-  glViewport(0, 0, wd, ht);
+  glViewport(0, 0, dst->w, dst->h);
   glUseProgram(gl_ctxt->mShaderProgram[UHDR_CROP]);
 
   float normCropX = (float)left / src->w;
@@ -296,22 +295,19 @@ void apply_crop_gles(uhdr_raw_image_t* src, int left, int top, int wd, int ht,
   glActiveTexture(GL_TEXTURE0);
   glBindTexture(GL_TEXTURE_2D, *srcTexture);
   glUniform1i(glGetUniformLocation(gl_ctxt->mShaderProgram[UHDR_CROP], "srcTexture"), 0);
-  glUniform2f(glGetUniformLocation(gl_ctxt->mShaderProgram[UHDR_CROP], "cropStart"),
-              normCropX, normCropY);
-  glUniform2f(glGetUniformLocation(gl_ctxt->mShaderProgram[UHDR_CROP], "cropSize"),
-              normCropW, normCropH);
+  glUniform2f(glGetUniformLocation(gl_ctxt->mShaderProgram[UHDR_CROP], "cropStart"), normCropX,
+              normCropY);
+  glUniform2f(glGetUniformLocation(gl_ctxt->mShaderProgram[UHDR_CROP], "cropSize"), normCropW,
+              normCropH);
   gl_ctxt->check_gl_errors("binding values to uniform");
-  RETURN_IF_ERR()
+  RET_IF_ERR()
 
   glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
-  RETURN_IF_ERR()
+  RET_IF_ERR()
 
   std::swap(*srcTexture, dstTexture);
-  src->w = wd;
-  src->h = ht;
-  src->stride[UHDR_PLANE_PACKED] = wd;
   release_resources(&dstTexture, &frameBuffer);
-#undef RETURN_IF_ERR
+  return dst;
 }
 
 std::unique_ptr<uhdr_raw_image_ext_t> apply_resize_gles(uhdr_raw_image_t* src, int dst_w, int dst_h,

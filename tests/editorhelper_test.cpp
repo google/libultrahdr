@@ -333,28 +333,28 @@ TEST_P(EditorHelperTest, Crop) {
                     std::to_string(height) + " format: " + std::to_string(fmt);
   initImageHandle(&img_a, width, height, fmt);
   ASSERT_TRUE(loadFile(filename.c_str(), &img_a)) << "unable to load file " << filename;
-  uhdr_raw_image_t img_copy = img_a;
+  ultrahdr::uhdr_crop_effect_t crop(left, left + crop_wd, top, top + crop_ht);
 #ifdef UHDR_ENABLE_GLES
   if (gl_ctxt != nullptr) {
     Texture = opengl_ctxt->create_texture(img_a.fmt, img_a.w, img_a.h, img_a.planes[0]);
     texture = static_cast<void*>(&Texture);
   }
 #endif
-  apply_crop(&img_copy, left, top, crop_wd, crop_ht, gl_ctxt, texture);
+  auto dst = apply_crop(&crop, &img_a, left, top, crop_wd, crop_ht, gl_ctxt, texture);
 #ifdef UHDR_ENABLE_GLES
   if (gl_ctxt != nullptr) {
-    opengl_ctxt->read_texture(static_cast<GLuint*>(texture), img_copy.fmt, img_copy.w, img_copy.h,
-                              img_copy.planes[0]);
+    opengl_ctxt->read_texture(static_cast<GLuint*>(texture), dst->fmt, dst->w, dst->h,
+                              dst->planes[0]);
   }
 #endif
-  ASSERT_EQ(img_a.fmt, img_copy.fmt) << msg;
-  ASSERT_EQ(img_a.cg, img_copy.cg) << msg;
-  ASSERT_EQ(img_a.ct, img_copy.ct) << msg;
-  ASSERT_EQ(img_a.range, img_copy.range) << msg;
-  ASSERT_EQ(img_copy.w, crop_wd) << msg;
-  ASSERT_EQ(img_copy.h, crop_ht) << msg;
+  ASSERT_EQ(img_a.fmt, dst->fmt) << msg;
+  ASSERT_EQ(img_a.cg, dst->cg) << msg;
+  ASSERT_EQ(img_a.ct, dst->ct) << msg;
+  ASSERT_EQ(img_a.range, dst->range) << msg;
+  ASSERT_EQ(dst->w, crop_wd) << msg;
+  ASSERT_EQ(dst->h, crop_ht) << msg;
 #ifdef DUMP_OUTPUT
-  if (!writeFile("cropped", &img_copy)) {
+  if (!writeFile("cropped", dst.get())) {
     std::cerr << "unable to write output file" << std::endl;
   }
 #endif
@@ -470,20 +470,20 @@ TEST_P(EditorHelperTest, MultipleEffects) {
                         std::to_string(dst->w) + " x " + std::to_string(dst->h) +
                         " format: " + std::to_string(fmt);
   }
-  uhdr_raw_image_ext_t* img_copy = dst.get();
-  apply_crop(img_copy, left, top, crop_wd, crop_ht, gl_ctxt, texture);
+  ultrahdr::uhdr_crop_effect_t crop(left, left + crop_wd, top, top + crop_ht);
+  dst = apply_crop(&crop, dst.get(), left, top, crop_wd, crop_ht, gl_ctxt, texture);
 #ifdef UHDR_ENABLE_GLES
   if (gl_ctxt != nullptr) {
-    opengl_ctxt->read_texture(static_cast<GLuint*>(texture), img_copy->fmt, img_copy->w,
-                              img_copy->h, img_copy->planes[0]);
+    opengl_ctxt->read_texture(static_cast<GLuint*>(texture), dst->fmt, dst->w, dst->h,
+                              dst->planes[0]);
   }
 #endif
-  ASSERT_EQ(dst->fmt, img_copy->fmt) << msg;
-  ASSERT_EQ(dst->cg, img_copy->cg) << msg;
-  ASSERT_EQ(dst->ct, img_copy->ct) << msg;
-  ASSERT_EQ(dst->range, img_copy->range) << msg;
-  ASSERT_EQ(crop_wd, img_copy->w) << msg;
-  ASSERT_EQ(crop_ht, img_copy->h) << msg;
+  ASSERT_EQ(img_a.fmt, dst->fmt) << msg;
+  ASSERT_EQ(img_a.cg, dst->cg) << msg;
+  ASSERT_EQ(img_a.ct, dst->ct) << msg;
+  ASSERT_EQ(img_a.range, dst->range) << msg;
+  ASSERT_EQ(crop_wd, dst->w) << msg;
+  ASSERT_EQ(crop_ht, dst->h) << msg;
 }
 
 INSTANTIATE_TEST_SUITE_P(

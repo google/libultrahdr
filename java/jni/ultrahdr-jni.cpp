@@ -15,9 +15,11 @@
  */
 
 #include <cstring>
+#include <string>
 
-#include "com_google_media_codecs_ultrahdr_UltraHDREncoder.h"
+#include "com_google_media_codecs_ultrahdr_UltraHDRCommon.h"
 #include "com_google_media_codecs_ultrahdr_UltraHDRDecoder.h"
+#include "com_google_media_codecs_ultrahdr_UltraHDREncoder.h"
 #include "ultrahdr_api.h"
 
 static_assert(sizeof(void *) <= sizeof(jlong),
@@ -96,7 +98,7 @@ Java_com_google_media_codecs_ultrahdr_UltraHDREncoder_setRawImageNative___3IIIII
   RET_IF_TRUE(handle == 0, "java/io/IOException", "invalid encoder instance")
   jsize length = env->GetArrayLength(rgb_buff);
   RET_IF_TRUE(length < height * rgb_stride, "java/io/IOException",
-              "compressed image luma byteArray size is less than required size")
+              "raw image rgba byteArray size is less than required size")
   jint *rgbBody = env->GetIntArrayElements(rgb_buff, nullptr);
   uhdr_raw_image_t img{(uhdr_img_fmt_t)color_format,
                        (uhdr_color_gamut_t)color_gamut,
@@ -114,6 +116,31 @@ Java_com_google_media_codecs_ultrahdr_UltraHDREncoder_setRawImageNative___3IIIII
 }
 
 extern "C" JNIEXPORT void JNICALL
+Java_com_google_media_codecs_ultrahdr_UltraHDREncoder_setRawImageNative___3JIIIIIIII(
+    JNIEnv *env, jobject thiz, jlongArray rgb_buff, jint width, jint height, jint rgb_stride,
+    jint color_gamut, jint color_transfer, jint color_range, jint color_format, jint intent) {
+  GET_HANDLE()
+  RET_IF_TRUE(handle == 0, "java/io/IOException", "invalid encoder instance")
+  jsize length = env->GetArrayLength(rgb_buff);
+  RET_IF_TRUE(length < height * rgb_stride, "java/io/IOException",
+              "raw image rgba byteArray size is less than required size")
+  jlong *rgbBody = env->GetLongArrayElements(rgb_buff, nullptr);
+  uhdr_raw_image_t img{(uhdr_img_fmt_t)color_format,
+                       (uhdr_color_gamut_t)color_gamut,
+                       (uhdr_color_transfer_t)color_transfer,
+                       (uhdr_color_range_t)color_range,
+                       (unsigned int)width,
+                       (unsigned int)height,
+                       {rgbBody, nullptr, nullptr},
+                       {(unsigned int)rgb_stride, 0u, 0u}};
+  auto status =
+      uhdr_enc_set_raw_image((uhdr_codec_private_t *)handle, &img, (uhdr_img_label_t)intent);
+  env->ReleaseLongArrayElements(rgb_buff, rgbBody, 0);
+  RET_IF_TRUE(status.error_code != UHDR_CODEC_OK, "java/io/IOException",
+              status.has_detail ? status.detail : "uhdr_enc_set_raw_image() returned with error")
+}
+
+extern "C" JNIEXPORT void JNICALL
 Java_com_google_media_codecs_ultrahdr_UltraHDREncoder_setRawImageNative___3S_3SIIIIIIIII(
     JNIEnv *env, jobject thiz, jshortArray y_buff, jshortArray uv_buff, jint width, jint height,
     jint y_stride, jint uv_stride, jint color_gamut, jint color_transfer, jint color_range,
@@ -122,10 +149,10 @@ Java_com_google_media_codecs_ultrahdr_UltraHDREncoder_setRawImageNative___3S_3SI
   RET_IF_TRUE(handle == 0, "java/io/IOException", "invalid encoder instance")
   jsize length = env->GetArrayLength(y_buff);
   RET_IF_TRUE(length < height * y_stride, "java/io/IOException",
-              "compressed image luma byteArray size is less than required size")
+              "raw image luma byteArray size is less than required size")
   length = env->GetArrayLength(uv_buff);
   RET_IF_TRUE(length < height * uv_stride / 2, "java/io/IOException",
-              "compressed image cb byteArray size is less than required size")
+              "raw image chroma byteArray size is less than required size")
   jshort *lumaBody = env->GetShortArrayElements(y_buff, nullptr);
   jshort *chromaBody = env->GetShortArrayElements(uv_buff, nullptr);
   uhdr_raw_image_t img{(uhdr_img_fmt_t)color_format,
@@ -153,13 +180,13 @@ Java_com_google_media_codecs_ultrahdr_UltraHDREncoder_setRawImageNative___3B_3B_
   RET_IF_TRUE(handle == 0, "java/io/IOException", "invalid encoder instance")
   jsize length = env->GetArrayLength(y_buff);
   RET_IF_TRUE(length < height * y_stride, "java/io/IOException",
-              "compressed image luma byteArray size is less than required size")
+              "raw image luma byteArray size is less than required size")
   length = env->GetArrayLength(u_buff);
   RET_IF_TRUE(length < height * u_stride / 4, "java/io/IOException",
-              "compressed image cb byteArray size is less than required size")
+              "raw image cb byteArray size is less than required size")
   length = env->GetArrayLength(v_buff);
   RET_IF_TRUE(length < height * v_stride / 4, "java/io/IOException",
-              "compressed image cb byteArray size is less than required size")
+              "raw image cb byteArray size is less than required size")
   jbyte *lumaBody = env->GetByteArrayElements(y_buff, nullptr);
   jbyte *cbBody = env->GetByteArrayElements(u_buff, nullptr);
   jbyte *crBody = env->GetByteArrayElements(v_buff, nullptr);
@@ -329,6 +356,18 @@ Java_com_google_media_codecs_ultrahdr_UltraHDREncoder_setMinMaxContentBoostNativ
   RET_IF_TRUE(status.error_code != UHDR_CODEC_OK, "java/io/IOException",
               status.has_detail ? status.detail
                                 : "uhdr_enc_set_min_max_content_boost() returned with error")
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_google_media_codecs_ultrahdr_UltraHDREncoder_setTargetDisplayPeakBrightnessNative(
+    JNIEnv *env, jobject thiz, jfloat nits) {
+  GET_HANDLE()
+  RET_IF_TRUE(handle == 0, "java/io/IOException", "invalid encoder instance")
+  auto status = uhdr_enc_set_target_display_peak_brightness((uhdr_codec_private_t *)handle, nits);
+  RET_IF_TRUE(status.error_code != UHDR_CODEC_OK, "java/io/IOException",
+              status.has_detail
+                  ? status.detail
+                  : "uhdr_enc_set_target_display_peak_brightness() returned with error")
 }
 
 extern "C" JNIEXPORT void JNICALL
@@ -546,13 +585,41 @@ Java_com_google_media_codecs_ultrahdr_UltraHDRDecoder_getIccNative(JNIEnv *env, 
   return data;
 }
 
+extern "C" JNIEXPORT jbyteArray JNICALL
+Java_com_google_media_codecs_ultrahdr_UltraHDRDecoder_getBaseImageNative(JNIEnv *env,
+                                                                         jobject thiz) {
+  GET_HANDLE_VAL(nullptr)
+  uhdr_mem_block_t *baseImgData = uhdr_dec_get_base_image((uhdr_codec_private_t *)handle);
+  RET_VAL_IF_TRUE(baseImgData == nullptr, "java/io/IOException",
+                  "uhdr_dec_probe() is not yet called or it has returned with error", nullptr)
+  jbyteArray data = env->NewByteArray(baseImgData->data_sz);
+  jbyte *dataptr = env->GetByteArrayElements(data, nullptr);
+  std::memcpy(dataptr, baseImgData->data, baseImgData->data_sz);
+  env->ReleaseByteArrayElements(data, dataptr, 0);
+  return data;
+}
+
+extern "C" JNIEXPORT jbyteArray JNICALL
+Java_com_google_media_codecs_ultrahdr_UltraHDRDecoder_getGainMapImageNative(JNIEnv *env,
+                                                                            jobject thiz) {
+  GET_HANDLE_VAL(nullptr)
+  uhdr_mem_block_t *gainmapImgData = uhdr_dec_get_gainmap_image((uhdr_codec_private_t *)handle);
+  RET_VAL_IF_TRUE(gainmapImgData == nullptr, "java/io/IOException",
+                  "uhdr_dec_probe() is not yet called or it has returned with error", nullptr)
+  jbyteArray data = env->NewByteArray(gainmapImgData->data_sz);
+  jbyte *dataptr = env->GetByteArrayElements(data, nullptr);
+  std::memcpy(dataptr, gainmapImgData->data, gainmapImgData->data_sz);
+  env->ReleaseByteArrayElements(data, dataptr, 0);
+  return data;
+}
+
 extern "C" JNIEXPORT void JNICALL
 Java_com_google_media_codecs_ultrahdr_UltraHDRDecoder_getGainmapMetadataNative(JNIEnv *env,
                                                                                jobject thiz) {
   GET_HANDLE()
   RET_IF_TRUE(handle == 0, "java/io/IOException", "invalid decoder instance")
   uhdr_gainmap_metadata_t *gainmap_metadata =
-      uhdr_dec_get_gain_map_metadata((uhdr_codec_private_t *)handle);
+      uhdr_dec_get_gainmap_metadata((uhdr_codec_private_t *)handle);
   RET_IF_TRUE(gainmap_metadata == nullptr, "java/io/IOException",
               "uhdr_dec_probe() is not yet called or it has returned with error")
 #define SET_FLOAT_FIELD(name, val)                                    \
@@ -611,10 +678,10 @@ Java_com_google_media_codecs_ultrahdr_UltraHDRDecoder_getDecodedImageNative(JNIE
 }
 
 extern "C" JNIEXPORT jbyteArray JNICALL
-Java_com_google_media_codecs_ultrahdr_UltraHDRDecoder_getGainMapImageNative(JNIEnv *env,
-                                                                            jobject thiz) {
+Java_com_google_media_codecs_ultrahdr_UltraHDRDecoder_getDecodedGainMapImageNative(JNIEnv *env,
+                                                                                   jobject thiz) {
   GET_HANDLE_VAL(nullptr)
-  uhdr_raw_image_t *gainmapImg = uhdr_get_gain_map_image((uhdr_codec_private_t *)handle);
+  uhdr_raw_image_t *gainmapImg = uhdr_get_decoded_gainmap_image((uhdr_codec_private_t *)handle);
   RET_VAL_IF_TRUE(gainmapImg == nullptr, "java/io/IOException",
                   "uhdr_decode() is not yet called or it has returned with error", nullptr)
   int bpp = gainmapImg->fmt == UHDR_IMG_FMT_32bppRGBA8888 ? 4 : 1;
@@ -635,4 +702,16 @@ Java_com_google_media_codecs_ultrahdr_UltraHDRDecoder_resetNative(JNIEnv *env, j
   GET_HANDLE()
   RET_IF_TRUE(handle == 0, "java/io/IOException", "invalid decoder instance")
   uhdr_reset_decoder((uhdr_codec_private_t *)handle);
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_google_media_codecs_ultrahdr_UltraHDRCommon_getVersionStringNative(JNIEnv *env,
+                                                                            jclass clazz) {
+  std::string version{"v" UHDR_LIB_VERSION_STR};
+  return env->NewStringUTF(version.c_str());
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_com_google_media_codecs_ultrahdr_UltraHDRCommon_getVersionNative(JNIEnv *env, jclass clazz) {
+  return UHDR_LIB_VERSION;
 }

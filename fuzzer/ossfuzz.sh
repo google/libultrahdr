@@ -17,20 +17,15 @@
 test "${SRC}" != "" || exit 1
 test "${WORK}" != "" || exit 1
 
-#Opt out of shift sanitizer in undefined sanitizer
-if [[ $SANITIZER = *undefined* ]]; then
-  CFLAGS="$CFLAGS -fno-sanitize=shift"
-  CXXFLAGS="$CXXFLAGS -fno-sanitize=shift"
-fi
-
 # Build libultrahdr
 build_dir=$WORK/build
 rm -rf ${build_dir}
 mkdir -p ${build_dir}
 pushd ${build_dir}
 
-cmake $SRC/libultrahdr -DUHDR_BUILD_FUZZERS=1
-make -j$(nproc) ultrahdr_dec_fuzzer ultrahdr_enc_fuzzer
+cmake $SRC/libultrahdr -DUHDR_BUILD_FUZZERS=1 -DUHDR_MAX_DIMENSION=1280
+make -j$(nproc) ultrahdr_dec_fuzzer ultrahdr_enc_fuzzer ultrahdr_legacy_fuzzer
 cp ${build_dir}/ultrahdr_dec_fuzzer $OUT/
 cp ${build_dir}/ultrahdr_enc_fuzzer $OUT/
+cp ${build_dir}/ultrahdr_legacy_fuzzer $OUT/
 popd

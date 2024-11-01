@@ -4,11 +4,11 @@
 [![Build Status](https://github.com/google/libultrahdr/actions/workflows/cmake_mac.yml/badge.svg?event=push)](https://github.com/google/libultrahdr/actions/workflows/cmake_mac.yml?query=event%3Apush)
 [![Build Status](https://github.com/google/libultrahdr/actions/workflows/cmake_win.yml/badge.svg?event=push)](https://github.com/google/libultrahdr/actions/workflows/cmake_win.yml?query=event%3Apush)
 [![Build Status](https://github.com/google/libultrahdr/actions/workflows/cmake_android.yml/badge.svg?event=push)](https://github.com/google/libultrahdr/actions/workflows/cmake_android.yml?query=event%3Apush)
-[![Fuzz Status](https://oss-fuzz-build-logs.storage.googleapis.com/badges/libultrahdr.svg)](https://oss-fuzz-build-logs.storage.googleapis.com/index.html#libultrahdr)
+[![Fuzz Status](https://oss-fuzz-build-logs.storage.googleapis.com/badges/libultrahdr.svg)](https://introspector.oss-fuzz.com/project-profile?project=libultrahdr)
 
 ### Requirements
 
-- [CMake](http://www.cmake.org) v3.13 or later
+- [CMake](http://www.cmake.org) v3.15 or later
 - C++ compiler, supporting at least C++17.
 - libultrahdr uses jpeg compression format to store sdr image and gainmap quotient.
   So, libjpeg or any other jpeg codec that is ABI and API compatible with libjpeg.
@@ -52,17 +52,20 @@ Following is a list of available options:
 |:-------------|:--------------|:-----|
 | `CMAKE_BUILD_TYPE` | Release | See CMake documentation [here](https://cmake.org/cmake/help/latest/variable/CMAKE_BUILD_TYPE.html). |
 | `BUILD_SHARED_LIBS` | ON | See CMake documentation [here](https://cmake.org/cmake/help/latest/variable/BUILD_SHARED_LIBS.html). <ul><li> If `BUILD_SHARED_LIBS` is **OFF**, in the linking phase, static versions of dependencies are chosen. However, the executable targets are not purely static because the system libraries used are still dynamic. </li></ul> |
-| `UHDR_BUILD_EXAMPLES` | ON | Build sample application. This application demonstrates how to use [ultrahdr_api.h](ultrahdr_api.h). |
+| `UHDR_BUILD_EXAMPLES` | ON | Build sample application. This application demonstrates how to use [ultrahdr_api.h](../ultrahdr_api.h). |
 | `UHDR_BUILD_TESTS` | OFF | Build Unit Tests. Mostly for Devs. During development, different modules of libuhdr library are validated using GoogleTest framework. Developers after making changes to library are expected to run these tests to ensure every thing is functional. |
-| `UHDR_BUILD_BENCHMARK` | OFF | Build Benchmark Tests. These are for profiling libuhdr encode/decode API. Resources used by benchmark tests are shared [here](https://storage.googleapis.com/android_media/external/libultrahdr/benchmark/UltrahdrBenchmarkTestRes-1.0.zip). These are downloaded and extracted automatically during the build process for later benchmarking. <ul><li> Since [v1.0.0](https://github.com/google/libultrahdr/releases/tag/1.0.0), considerable API changes were made and benchmark tests need to be updated accordingly. So the current profile numbers may not be accurate and/or give a complete picture. </li><li> Benchmark tests are not supported on Windows and this parameter is forced to **OFF** internally while building on **WIN32** platforms. </li></ul>|
+| `UHDR_BUILD_BENCHMARK` | OFF | Build Benchmark Tests. These are for profiling libuhdr encode/decode API. Resources used by benchmark tests are shared [here](https://storage.googleapis.com/android_media/external/libultrahdr/benchmark/UltrahdrBenchmarkTestRes-1.1.zip). These are downloaded and extracted automatically during the build process for later benchmarking. <ul><li> Benchmark tests are not supported on Windows and this parameter is forced to **OFF** internally while building on **WIN32** platforms. </li></ul>|
 | `UHDR_BUILD_FUZZERS` | OFF | Build Fuzz Test Applications. Mostly for Devs. <ul><li> Fuzz applications are built by instrumenting the entire software suite. This includes dependency libraries. This is done by forcing `UHDR_BUILD_DEPS` to **ON** internally. </li></ul> |
 | `UHDR_BUILD_DEPS` | OFF | Clone and Build project dependencies and not use pre-installed packages. |
+| `UHDR_BUILD_JAVA` | OFF | Build JNI wrapper, Java front-end classes and Java sample application. |
 | `UHDR_ENABLE_LOGS` | OFF | Build with verbose logging. |
 | `UHDR_ENABLE_INSTALL` | ON | Enable install and uninstall targets for libuhdr package. <ul><li> For system wide installation it is best if dependencies are acquired from OS package manager instead of building from source. This is to avoid conflicts with software that is using a different version of the said dependency and also links to libuhdr. So if `UHDR_BUILD_DEPS` is **ON** then `UHDR_ENABLE_INSTALL` is forced to **OFF** internally. |
 | `UHDR_ENABLE_INTRINSICS` | ON | Build with SIMD acceleration. Sections of libuhdr are accelerated for Arm Neon architectures and these are enabled. <ul><li> For x86/x86_64 architectures currently no SIMD acceleration is present. Consequently this option has no effect. </li><li> This parameter has no effect no SIMD configuration settings of dependencies. </li></ul> |
 | `UHDR_ENABLE_GLES` | OFF | Build with GPU acceleration. |
-| `UHDR_BUILD_JAVA` | OFF | Build JNI wrapper, Java front-end classes and Java sample application. |
+| `UHDR_ENABLE_WERROR` | OFF | Enable -Werror when building. |
+| `UHDR_MAX_DIMENSION` | 8192 | Maximum dimension supported by the library. The library defaults to handling images upto resolution 8192x8192. For different resolution needs use this option. For example, `-DUHDR_MAX_DIMENSION=4096`. |
 | `UHDR_SANITIZE_OPTIONS` | OFF | Build library with sanitize options. Values set to this parameter are passed to directly to compilation option `-fsanitize`. For example, `-DUHDR_SANITIZE_OPTIONS=address,undefined` adds `-fsanitize=address,undefined` to the list of compilation options. CMake configuration errors are raised if the compiler does not support these flags. This is useful during fuzz testing. <ul><li> As `-fsanitize` is an instrumentation option, dependencies are also built from source instead of using pre-builts. This is done by forcing `UHDR_BUILD_DEPS` to **ON** internally. </li></ul> |
+| `UHDR_BUILD_PACKAGING` | OFF | Build distribution packages using CPack. |
 | | | |
 
 ### Generator
@@ -158,12 +161,12 @@ Uninstallation:
 sudo ninja uninstall
 ```
 
-### Windows Platform - MSYS Env
+### Windows Platform - MSYS2 Env
 
 Install the prerequisite packages before building:
 
 ```sh
-pacman -S mingw-w64-x86_64-libjpeg-turbo mingw-w64-x86_64-ninja
+pacman -S mingw-w64-ucrt-x86_64-libjpeg-turbo mingw-w64-ucrt-x86_64-ninja
 ```
 
 Compile and Test:
@@ -244,6 +247,22 @@ Compile:
 cmake -G Ninja -DCMAKE_TOOLCHAIN_FILE=../cmake/toolchains/aarch64-linux-gnu.cmake -DUHDR_BUILD_DEPS=1 ../
 ninja
 ```
+
+#### Target - Linux Platform - RISC-V Arch (64 bit)
+
+Install the prerequisite packages before building:
+
+```sh
+sudo apt install gcc-riscv64-linux-gnu g++-riscv64-linux-gnu
+```
+
+Compile:
+
+```sh
+cmake -G Ninja -DCMAKE_TOOLCHAIN_FILE=../cmake/toolchains/riscv64-linux-gnu.cmake -DUHDR_BUILD_DEPS=1 ../
+ninja
+```
+
 This will generate the following files under `build_directory`:
 
 **libuhdr.so.{version}** - Shared library for the libuhdr API <br>
@@ -251,6 +270,21 @@ This will generate the following files under `build_directory`:
 **libuhdr.a** - Static link library for the libuhdr API <br>
 **ultrahdr_app** - sample application <br>
 **ultrahdr_unit_test** - unit tests <br>
+
+#### Target - Linux Platform - LOONG Arch (64 bit)
+
+Install the prerequisite packages before building:
+
+```sh
+sudo apt install gcc-loongarch64-linux-gnu g++-loongarch64-linux-gnu
+```
+
+Compile:
+
+```sh
+cmake -G Ninja -DCMAKE_TOOLCHAIN_FILE=../cmake/toolchains/loong64-linux-gnu.cmake -DUHDR_BUILD_DEPS=1 ../
+ninja
+```
 
 #### Target - Android Platform
 
@@ -275,6 +309,21 @@ This will generate the following files under `build_directory`:
 **libuhdr.a** - Static link library for the libuhdr API <br>
 **ultrahdr_app** - sample application <br>
 **ultrahdr_unit_test** - unit tests <br>
+
+#### Target - Wasm
+
+Install the prerequisite packages before building: Follow the instructions given [here](https://emscripten.org/docs/getting_started/downloads.html#installation-instructions-using-the-emsdk-recommended).
+
+Compile:
+```sh
+emcmake cmake -G Ninja ../
+ninja
+```
+
+This will generate the following files under `build_directory`:
+
+**ultrahdr_app.wasm** - wasm module <br>
+**ultrahdr_app.js** - sample application <br>
 
 ## Building Fuzzers
 

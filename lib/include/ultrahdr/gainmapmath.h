@@ -44,14 +44,18 @@ namespace ultrahdr {
 ////////////////////////////////////////////////////////////////////////////////
 // Framework
 
-// This aligns with the suggested default reference diffuse white from
-// ISO/TS 22028-5
-const float kSdrWhiteNits = 203.0f;
-const float kHlgMaxNits = 1000.0f;
-const float kPqMaxNits = 10000.0f;
+// nominal {SDR, HLG, PQ} peak display luminance
+// This aligns with the suggested default reference diffuse white from ISO/TS 22028-5
+// sdr white
+static const float kSdrWhiteNits = 203.0f;
+// hlg peak white. 75% of hlg peak white maps to reference diffuse white
+static const float kHlgMaxNits = 1000.0f;
+// pq peak white. 58% of pq peak white maps to reference diffuse white
+static const float kPqMaxNits = 10000.0f;
 
-static const float kMaxPixelFloat = 1.0f;
+float getReferenceDisplayPeakLuminanceInNits(uhdr_color_transfer_t transfer);
 
+// Image pixel descriptor
 struct Color {
   union {
     struct {
@@ -68,33 +72,11 @@ struct Color {
 };
 
 typedef Color (*ColorTransformFn)(Color);
-typedef float (*ColorCalculationFn)(Color);
+typedef float (*LuminanceFn)(Color);
+typedef Color (*SceneToDisplayLuminanceFn)(Color, LuminanceFn);
 typedef Color (*GetPixelFn)(uhdr_raw_image_t*, size_t, size_t);
 typedef Color (*SamplePixelFn)(uhdr_raw_image_t*, size_t, size_t, size_t);
 typedef void (*PutPixelFn)(uhdr_raw_image_t*, size_t, size_t, Color&);
-
-static inline float clampPixelFloat(float value) {
-  return (value < 0.0f) ? 0.0f : (value > kMaxPixelFloat) ? kMaxPixelFloat : value;
-}
-static inline Color clampPixelFloat(Color e) {
-  return {{{clampPixelFloat(e.r), clampPixelFloat(e.g), clampPixelFloat(e.b)}}};
-}
-
-// A transfer function mapping encoded values to linear values,
-// represented by this 7-parameter piecewise function:
-//
-//   linear = sign(encoded) *  (c*|encoded| + f)       , 0 <= |encoded| < d
-//          = sign(encoded) * ((a*|encoded| + b)^g + e), d <= |encoded|
-//
-// (A simple gamma transfer function sets g to gamma and a to 1.)
-typedef struct TransferFunction {
-  float g, a, b, c, d, e, f;
-} TransferFunction;
-
-static constexpr TransferFunction kSRGB_TransFun = {
-    2.4f, (float)(1 / 1.055), (float)(0.055 / 1.055), (float)(1 / 12.92), 0.04045f, 0.0f, 0.0f};
-
-static constexpr TransferFunction kLinear_TransFun = {1.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
 
 inline Color operator+=(Color& lhs, const Color& rhs) {
   lhs.r += rhs.r;
@@ -102,6 +84,7 @@ inline Color operator+=(Color& lhs, const Color& rhs) {
   lhs.b += rhs.b;
   return lhs;
 }
+
 inline Color operator-=(Color& lhs, const Color& rhs) {
   lhs.r -= rhs.r;
   lhs.g -= rhs.g;
@@ -113,6 +96,7 @@ inline Color operator+(const Color& lhs, const Color& rhs) {
   Color temp = lhs;
   return temp += rhs;
 }
+
 inline Color operator-(const Color& lhs, const Color& rhs) {
   Color temp = lhs;
   return temp -= rhs;
@@ -124,18 +108,21 @@ inline Color operator+=(Color& lhs, const float rhs) {
   lhs.b += rhs;
   return lhs;
 }
+
 inline Color operator-=(Color& lhs, const float rhs) {
   lhs.r -= rhs;
   lhs.g -= rhs;
   lhs.b -= rhs;
   return lhs;
 }
+
 inline Color operator*=(Color& lhs, const float rhs) {
   lhs.r *= rhs;
   lhs.g *= rhs;
   lhs.b *= rhs;
   return lhs;
 }
+
 inline Color operator/=(Color& lhs, const float rhs) {
   lhs.r /= rhs;
   lhs.g /= rhs;
@@ -147,29 +134,40 @@ inline Color operator+(const Color& lhs, const float rhs) {
   Color temp = lhs;
   return temp += rhs;
 }
+
 inline Color operator-(const Color& lhs, const float rhs) {
   Color temp = lhs;
   return temp -= rhs;
 }
+
 inline Color operator*(const Color& lhs, const float rhs) {
   Color temp = lhs;
   return temp *= rhs;
 }
+
 inline Color operator/(const Color& lhs, const float rhs) {
   Color temp = lhs;
   return temp /= rhs;
 }
 
+////////////////////////////////////////////////////////////////////////////////
+// Float to Half and Half to Float conversions
 union FloatUIntUnion {
-  uint32_t fUInt;
-  float fFloat;
+  uint32_t mUInt;
+  float mFloat;
 };
 
+// FIXME: The shift operations in this function are causing UBSAN (Undefined-shift) errors
+// Precisely,
+// runtime error: left shift of negative value -112
+// runtime error : shift exponent 125 is too large for 32 - bit type 'uint32_t'(aka 'unsigned int')
+// These need to be addressed. Until then, disable ubsan analysis for this function
+UHDR_NO_SANITIZE_UNDEFINED
 inline uint16_t floatToHalf(float f) {
   FloatUIntUnion floatUnion;
-  floatUnion.fFloat = f;
+  floatUnion.mFloat = f;
   // round-to-nearest-even: add last bit after truncated mantissa
-  const uint32_t b = floatUnion.fUInt + 0x00001000;
+  const uint32_t b = floatUnion.mUInt + 0x00001000;
 
   const int32_t e = (b & 0x7F800000) >> 23;  // exponent
   const uint32_t m = b & 0x007FFFFF;         // mantissa
@@ -180,45 +178,53 @@ inline uint16_t floatToHalf(float f) {
          (e > 143) * 0x7FFF;
 }
 
-constexpr int32_t kGainFactorPrecision = 10;
-constexpr int32_t kGainFactorNumEntries = 1 << kGainFactorPrecision;
-struct GainLUT {
-  GainLUT(uhdr_gainmap_metadata_ext_t* metadata) {
-    this->mGammaInv = 1.0f / metadata->gamma;
-    for (int32_t idx = 0; idx < kGainFactorNumEntries; idx++) {
-      float value = static_cast<float>(idx) / static_cast<float>(kGainFactorNumEntries - 1);
-      float logBoost = log2(metadata->min_content_boost) * (1.0f - value) +
-                       log2(metadata->max_content_boost) * value;
-      mGainTable[idx] = exp2(logBoost);
+// Taken from frameworks/base/libs/hwui/jni/android_graphics_ColorSpace.cpp
+
+#if defined(__ANDROID__)  // __fp16 is not defined on non-Android builds
+inline float halfToFloat(uint16_t bits) {
+  __fp16 h;
+  memcpy(&h, &bits, 2);
+  return (float)h;
+}
+#else
+// This is Skia's implementation of SkHalfToFloat, which is
+// based on Fabien Giesen's half_to_float_fast2()
+// see https://fgiesen.wordpress.com/2012/03/28/half-to-float-done-quic/
+inline uint16_t halfMantissa(uint16_t h) { return h & 0x03ff; }
+
+inline uint16_t halfExponent(uint16_t h) { return (h >> 10) & 0x001f; }
+
+inline uint16_t halfSign(uint16_t h) { return h >> 15; }
+
+inline float halfToFloat(uint16_t bits) {
+  static const FloatUIntUnion magic = {126 << 23};
+  FloatUIntUnion o;
+
+  if (halfExponent(bits) == 0) {
+    // Zero / Denormal
+    o.mUInt = magic.mUInt + halfMantissa(bits);
+    o.mFloat -= magic.mFloat;
+  } else {
+    // Set mantissa
+    o.mUInt = halfMantissa(bits) << 13;
+    // Set exponent
+    if (halfExponent(bits) == 0x1f) {
+      // Inf/NaN
+      o.mUInt |= (255 << 23);
+    } else {
+      o.mUInt |= ((127 - 15 + halfExponent(bits)) << 23);
     }
   }
 
-  GainLUT(uhdr_gainmap_metadata_ext_t* metadata, float displayBoost) {
-    this->mGammaInv = 1.0f / metadata->gamma;
-    float boostFactor = displayBoost > 0 ? displayBoost / metadata->hdr_capacity_max : 1.0f;
-    for (int32_t idx = 0; idx < kGainFactorNumEntries; idx++) {
-      float value = static_cast<float>(idx) / static_cast<float>(kGainFactorNumEntries - 1);
-      float logBoost = log2(metadata->min_content_boost) * (1.0f - value) +
-                       log2(metadata->max_content_boost) * value;
-      mGainTable[idx] = exp2(logBoost * boostFactor);
-    }
-  }
+  // Set sign
+  o.mUInt |= (halfSign(bits) << 31);
+  return o.mFloat;
+}
+#endif  // defined(__ANDROID__)
 
-  ~GainLUT() {}
-
-  float getGainFactor(float gain) {
-    if (mGammaInv != 1.0f) gain = pow(gain, mGammaInv);
-    int32_t idx = static_cast<int32_t>(gain * (kGainFactorNumEntries - 1) + 0.5);
-    // TODO() : Remove once conversion modules have appropriate clamping in place
-    idx = CLIP3(idx, 0, kGainFactorNumEntries - 1);
-    return mGainTable[idx];
-  }
-
- private:
-  float mGainTable[kGainFactorNumEntries];
-  float mGammaInv;
-};
-
+////////////////////////////////////////////////////////////////////////////////
+// Use Shepard's method for inverse distance weighting. For more information:
+// en.wikipedia.org/wiki/Inverse_distance_weighting#Shepard's_method
 struct ShepardsIDW {
   ShepardsIDW(int mapScaleFactor) : mMapScaleFactor{mapScaleFactor} {
     const int size = mMapScaleFactor * mMapScaleFactor * 4;
@@ -231,6 +237,7 @@ struct ShepardsIDW {
     fillShepardsIDW(mWeightsNB, 1, 0);
     fillShepardsIDW(mWeightsC, 0, 0);
   }
+
   ~ShepardsIDW() {
     delete[] mWeights;
     delete[] mWeightsNR;
@@ -239,24 +246,8 @@ struct ShepardsIDW {
   }
 
   int mMapScaleFactor;
-  // Image :-
-  // p00 p01 p02 p03 p04 p05 p06 p07
-  // p10 p11 p12 p13 p14 p15 p16 p17
-  // p20 p21 p22 p23 p24 p25 p26 p27
-  // p30 p31 p32 p33 p34 p35 p36 p37
-  // p40 p41 p42 p43 p44 p45 p46 p47
-  // p50 p51 p52 p53 p54 p55 p56 p57
-  // p60 p61 p62 p63 p64 p65 p66 p67
-  // p70 p71 p72 p73 p74 p75 p76 p77
-
-  // Gain Map (for 4 scale factor) :-
-  // m00 p01
-  // m10 m11
-
-  // Gain sample of curr 4x4, right 4x4, bottom 4x4, bottom right 4x4 are used during
-  // reconstruction. hence table weight size is 4.
-  float* mWeights;
-  // TODO: check if its ok to mWeights at places
+  // curr, right, bottom, bottom-right are used during interpolation. hence table weight size is 4.
+  float* mWeights;    // default
   float* mWeightsNR;  // no right
   float* mWeightsNB;  // no bottom
   float* mWeightsC;   // no right & bottom
@@ -265,6 +256,98 @@ struct ShepardsIDW {
   void fillShepardsIDW(float* weights, int incR, int incB);
 };
 
+////////////////////////////////////////////////////////////////////////////////
+// sRGB transformations.
+// for all functions range in and out [0.0, 1.0]
+
+// sRGB luminance
+float srgbLuminance(Color e);
+
+// sRGB rgb <-> yuv  conversion
+Color srgbRgbToYuv(Color e_gamma);
+Color srgbYuvToRgb(Color e_gamma);
+
+// sRGB eotf
+float srgbInvOetf(float e_gamma);
+Color srgbInvOetf(Color e_gamma);
+float srgbInvOetfLUT(float e_gamma);
+Color srgbInvOetfLUT(Color e_gamma);
+
+// sRGB oetf
+float srgbOetf(float e);
+Color srgbOetf(Color e);
+
+constexpr int32_t kSrgbInvOETFPrecision = 10;
+constexpr int32_t kSrgbInvOETFNumEntries = 1 << kSrgbInvOETFPrecision;
+
+////////////////////////////////////////////////////////////////////////////////
+// Display-P3 transformations
+// for all functions range in and out [0.0, 1.0]
+
+// DispP3 luminance
+float p3Luminance(Color e);
+
+// DispP3 rgb <-> yuv  conversion
+Color p3RgbToYuv(Color e_gamma);
+Color p3YuvToRgb(Color e_gamma);
+
+////////////////////////////////////////////////////////////////////////////////
+// BT.2100 transformations
+// for all functions range in and out [0.0, 1.0]
+
+// bt2100 luminance
+float bt2100Luminance(Color e);
+
+// bt2100 rgb <-> yuv  conversion
+Color bt2100RgbToYuv(Color e_gamma);
+Color bt2100YuvToRgb(Color e_gamma);
+
+// hlg oetf (normalized)
+float hlgOetf(float e);
+Color hlgOetf(Color e);
+float hlgOetfLUT(float e);
+Color hlgOetfLUT(Color e);
+
+constexpr int32_t kHlgOETFPrecision = 16;
+constexpr int32_t kHlgOETFNumEntries = 1 << kHlgOETFPrecision;
+
+// hlg inverse oetf (normalized)
+float hlgInvOetf(float e_gamma);
+Color hlgInvOetf(Color e_gamma);
+float hlgInvOetfLUT(float e_gamma);
+Color hlgInvOetfLUT(Color e_gamma);
+
+constexpr int32_t kHlgInvOETFPrecision = 12;
+constexpr int32_t kHlgInvOETFNumEntries = 1 << kHlgInvOETFPrecision;
+
+// hlg ootf (normalized)
+Color hlgOotf(Color e, LuminanceFn luminance);
+Color hlgOotfApprox(Color e, [[maybe_unused]] LuminanceFn luminance);
+inline Color identityOotf(Color e, [[maybe_unused]] LuminanceFn) { return e; }
+
+// hlg inverse ootf (normalized)
+Color hlgInverseOotf(Color e, LuminanceFn luminance);
+Color hlgInverseOotfApprox(Color e);
+
+// pq oetf
+float pqOetf(float e);
+Color pqOetf(Color e);
+float pqOetfLUT(float e);
+Color pqOetfLUT(Color e);
+
+constexpr int32_t kPqOETFPrecision = 16;
+constexpr int32_t kPqOETFNumEntries = 1 << kPqOETFPrecision;
+
+// pq inverse oetf
+float pqInvOetf(float e_gamma);
+Color pqInvOetf(Color e_gamma);
+float pqInvOetfLUT(float e_gamma);
+Color pqInvOetfLUT(Color e_gamma);
+
+constexpr int32_t kPqInvOETFPrecision = 12;
+constexpr int32_t kPqInvOETFNumEntries = 1 << kPqInvOETFPrecision;
+
+// util class to prepare look up tables for oetf/eotf functions
 class LookUpTable {
  public:
   LookUpTable(size_t numEntries, std::function<float(float)> computeFunc) {
@@ -280,164 +363,38 @@ class LookUpTable {
 };
 
 ////////////////////////////////////////////////////////////////////////////////
-// sRGB transformations
-// NOTE: sRGB has the same color primaries as BT.709, but different transfer
-// function. For this reason, all sRGB transformations here apply to BT.709,
-// except for those concerning transfer functions.
+// Color access functions
 
-/*
- * Calculate the luminance of a linear RGB sRGB pixel, according to
- * IEC 61966-2-1/Amd 1:2003.
- *
- * [0.0, 1.0] range in and out.
- */
-float srgbLuminance(Color e);
+// Get pixel from the image at the provided location.
+Color getYuv444Pixel(uhdr_raw_image_t* image, size_t x, size_t y);
+Color getYuv422Pixel(uhdr_raw_image_t* image, size_t x, size_t y);
+Color getYuv420Pixel(uhdr_raw_image_t* image, size_t x, size_t y);
+Color getP010Pixel(uhdr_raw_image_t* image, size_t x, size_t y);
+Color getYuv444Pixel10bit(uhdr_raw_image_t* image, size_t x, size_t y);
+Color getRgba8888Pixel(uhdr_raw_image_t* image, size_t x, size_t y);
+Color getRgba1010102Pixel(uhdr_raw_image_t* image, size_t x, size_t y);
+Color getRgbaF16Pixel(uhdr_raw_image_t* image, size_t x, size_t y);
 
-/*
- * Convert from OETF'd srgb RGB to YUV, according to ITU-R BT.709-6.
- *
- * BT.709 YUV<->RGB matrix is used to match expectations for DataSpace.
- */
-Color srgbRgbToYuv(Color e_gamma);
+// Sample the image at the provided location, with a weighting based on nearby pixels and the map
+// scale factor.
+Color sampleYuv444(uhdr_raw_image_t* map, size_t map_scale_factor, size_t x, size_t y);
+Color sampleYuv422(uhdr_raw_image_t* map, size_t map_scale_factor, size_t x, size_t y);
+Color sampleYuv420(uhdr_raw_image_t* map, size_t map_scale_factor, size_t x, size_t y);
+Color sampleP010(uhdr_raw_image_t* map, size_t map_scale_factor, size_t x, size_t y);
+Color sampleYuv44410bit(uhdr_raw_image_t* image, size_t map_scale_factor, size_t x, size_t y);
+Color sampleRgba8888(uhdr_raw_image_t* image, size_t map_scale_factor, size_t x, size_t y);
+Color sampleRgba1010102(uhdr_raw_image_t* image, size_t map_scale_factor, size_t x, size_t y);
+Color sampleRgbaF16(uhdr_raw_image_t* image, size_t map_scale_factor, size_t x, size_t y);
 
-/*
- * Convert from OETF'd srgb YUV to RGB, according to ITU-R BT.709-6.
- *
- * BT.709 YUV<->RGB matrix is used to match expectations for DataSpace.
- */
-Color srgbYuvToRgb(Color e_gamma);
-
-/*
- * Convert from srgb to linear, according to IEC 61966-2-1/Amd 1:2003.
- *
- * [0.0, 1.0] range in and out.
- */
-float srgbInvOetf(float e_gamma);
-Color srgbInvOetf(Color e_gamma);
-float srgbInvOetfLUT(float e_gamma);
-Color srgbInvOetfLUT(Color e_gamma);
-
-/*
- * Convert from linear to srgb, according to IEC 61966-2-1/Amd 1:2003.
- *
- * [0.0, 1.0] range in and out.
- */
-float srgbOetf(float e);
-Color srgbOetf(Color e);
-
-constexpr int32_t kSrgbInvOETFPrecision = 10;
-constexpr int32_t kSrgbInvOETFNumEntries = 1 << kSrgbInvOETFPrecision;
-
-////////////////////////////////////////////////////////////////////////////////
-// Display-P3 transformations
-
-/*
- * Calculated the luminance of a linear RGB P3 pixel, according to SMPTE EG 432-1.
- *
- * [0.0, 1.0] range in and out.
- */
-float p3Luminance(Color e);
-
-/*
- * Convert from OETF'd P3 RGB to YUV, according to ITU-R BT.601-7.
- *
- * BT.601 YUV<->RGB matrix is used to match expectations for DataSpace.
- */
-Color p3RgbToYuv(Color e_gamma);
-
-/*
- * Convert from OETF'd P3 YUV to RGB, according to ITU-R BT.601-7.
- *
- * BT.601 YUV<->RGB matrix is used to match expectations for DataSpace.
- */
-Color p3YuvToRgb(Color e_gamma);
-
-////////////////////////////////////////////////////////////////////////////////
-// BT.2100 transformations - according to ITU-R BT.2100-2
-
-/*
- * Calculate the luminance of a linear RGB BT.2100 pixel.
- *
- * [0.0, 1.0] range in and out.
- */
-float bt2100Luminance(Color e);
-
-/*
- * Convert from OETF'd BT.2100 RGB to YUV, according to ITU-R BT.2100-2.
- *
- * BT.2100 YUV<->RGB matrix is used to match expectations for DataSpace.
- */
-Color bt2100RgbToYuv(Color e_gamma);
-
-/*
- * Convert from OETF'd BT.2100 YUV to RGB, according to ITU-R BT.2100-2.
- *
- * BT.2100 YUV<->RGB matrix is used to match expectations for DataSpace.
- */
-Color bt2100YuvToRgb(Color e_gamma);
-
-/*
- * Convert from scene luminance to HLG.
- *
- * [0.0, 1.0] range in and out.
- */
-float hlgOetf(float e);
-Color hlgOetf(Color e);
-float hlgOetfLUT(float e);
-Color hlgOetfLUT(Color e);
-
-constexpr int32_t kHlgOETFPrecision = 16;
-constexpr int32_t kHlgOETFNumEntries = 1 << kHlgOETFPrecision;
-
-/*
- * Convert from HLG to scene luminance.
- *
- * [0.0, 1.0] range in and out.
- */
-float hlgInvOetf(float e_gamma);
-Color hlgInvOetf(Color e_gamma);
-float hlgInvOetfLUT(float e_gamma);
-Color hlgInvOetfLUT(Color e_gamma);
-
-constexpr int32_t kHlgInvOETFPrecision = 12;
-constexpr int32_t kHlgInvOETFNumEntries = 1 << kHlgInvOETFPrecision;
-
-/*
- * Convert from scene luminance to PQ.
- *
- * [0.0, 1.0] range in and out.
- */
-float pqOetf(float e);
-Color pqOetf(Color e);
-float pqOetfLUT(float e);
-Color pqOetfLUT(Color e);
-
-constexpr int32_t kPqOETFPrecision = 16;
-constexpr int32_t kPqOETFNumEntries = 1 << kPqOETFPrecision;
-
-/*
- * Convert from PQ to scene luminance in nits.
- *
- * [0.0, 1.0] range in and out.
- */
-float pqInvOetf(float e_gamma);
-Color pqInvOetf(Color e_gamma);
-float pqInvOetfLUT(float e_gamma);
-Color pqInvOetfLUT(Color e_gamma);
-
-constexpr int32_t kPqInvOETFPrecision = 12;
-constexpr int32_t kPqInvOETFNumEntries = 1 << kPqInvOETFPrecision;
+// Put pixel in the image at the provided location.
+void putRgba8888Pixel(uhdr_raw_image_t* image, size_t x, size_t y, Color& pixel);
+void putYuv444Pixel(uhdr_raw_image_t* image, size_t x, size_t y, Color& pixel);
 
 ////////////////////////////////////////////////////////////////////////////////
 // Color space conversions
 
-/*
- * Convert between color spaces with linear RGB data, according to ITU-R BT.2407 and EG 432-1.
- *
- * All conversions are derived from multiplying the matrix for XYZ to output RGB color gamut by the
- * matrix for input RGB color gamut to XYZ. The matrix for converting from XYZ to an RGB gamut is
- * always the inverse of the RGB gamut to XYZ matrix.
- */
+// color gamut conversion (rgb) functions
+inline Color identityConversion(Color e) { return e; }
 Color bt709ToP3(Color e);
 Color bt709ToBt2100(Color e);
 Color p3ToBt709(Color e);
@@ -445,70 +402,13 @@ Color p3ToBt2100(Color e);
 Color bt2100ToBt709(Color e);
 Color bt2100ToP3(Color e);
 
-/*
- * Identity conversion.
- */
-inline Color identityConversion(Color e) { return e; }
-
-/*
- * Get the conversion to apply to the HDR image for gain map generation
- */
-ColorTransformFn getGamutConversionFn(uhdr_color_gamut_t dst_gamut, uhdr_color_gamut_t src_gamut);
-
-/*
- * Get the conversion to convert yuv to rgb
- */
-ColorTransformFn getYuvToRgbFn(uhdr_color_gamut_t gamut);
-
-/*
- * Get function to compute luminance
- */
-ColorCalculationFn getLuminanceFn(uhdr_color_gamut_t gamut);
-
-/*
- * Get function to linearize transfer characteristics
- */
-ColorTransformFn getInverseOetfFn(uhdr_color_transfer_t transfer);
-
-/*
- * Get function to read pixels from raw image for a given color format
- */
-GetPixelFn getPixelFn(uhdr_img_fmt_t format);
-
-/*
- * Get function to sample pixels from raw image for a given color format
- */
-SamplePixelFn getSamplePixelFn(uhdr_img_fmt_t format);
-
-/*
- * Get function to put pixels to raw image for a given color format
- */
-PutPixelFn putPixelFn(uhdr_img_fmt_t format);
-
-/*
- * Returns true if the pixel format is rgb
- */
-bool isPixelFormatRgb(uhdr_img_fmt_t format);
-
-/*
- * Get max display mastering luminance in nits
- */
-float getMaxDisplayMasteringLuminance(uhdr_color_transfer_t transfer);
-
-/*
- * Convert between YUV encodings, according to ITU-R BT.709-6, ITU-R BT.601-7, and ITU-R BT.2100-2.
- *
- * Bt.709 and Bt.2100 have well-defined YUV encodings; Display-P3's is less well defined, but is
- * treated as Bt.601 by DataSpace, hence we do the same.
- */
+// convert between yuv encodings
 extern const std::array<float, 9> kYuvBt709ToBt601;
 extern const std::array<float, 9> kYuvBt709ToBt2100;
 extern const std::array<float, 9> kYuvBt601ToBt709;
 extern const std::array<float, 9> kYuvBt601ToBt2100;
 extern const std::array<float, 9> kYuvBt2100ToBt709;
 extern const std::array<float, 9> kYuvBt2100ToBt601;
-
-Color yuvColorGamutConversion(Color e_gamma, const std::array<float, 9>& coeffs);
 
 #if (defined(UHDR_ENABLE_INTRINSICS) && (defined(__ARM_NEON__) || defined(__ARM_NEON)))
 
@@ -533,21 +433,52 @@ uhdr_error_info_t convertYuv_neon(uhdr_raw_image_t* image, uhdr_color_gamut_t sr
                                   uhdr_color_gamut_t dst_encoding);
 #endif
 
-/*
- * Performs a color gamut transformation on an entire YUV420 image.
- *
- * Apply the transformation by determining transformed YUV for each of the 4 Y + 1 UV; each Y gets
- * this result, and UV gets the averaged result.
- */
+// Performs a color gamut transformation on an yuv image.
+Color yuvColorGamutConversion(Color e_gamma, const std::array<float, 9>& coeffs);
 void transformYuv420(uhdr_raw_image_t* image, const std::array<float, 9>& coeffs);
-
-/*
- * Performs a color gamut transformation on an entire YUV444 image.
- */
 void transformYuv444(uhdr_raw_image_t* image, const std::array<float, 9>& coeffs);
 
 ////////////////////////////////////////////////////////////////////////////////
 // Gain map calculations
+
+constexpr int32_t kGainFactorPrecision = 10;
+constexpr int32_t kGainFactorNumEntries = 1 << kGainFactorPrecision;
+
+struct GainLUT {
+  GainLUT(uhdr_gainmap_metadata_ext_t* metadata) {
+    this->mGammaInv = 1.0f / metadata->gamma;
+    for (int32_t idx = 0; idx < kGainFactorNumEntries; idx++) {
+      float value = static_cast<float>(idx) / static_cast<float>(kGainFactorNumEntries - 1);
+      float logBoost = log2(metadata->min_content_boost) * (1.0f - value) +
+                       log2(metadata->max_content_boost) * value;
+      mGainTable[idx] = exp2(logBoost);
+    }
+  }
+
+  GainLUT(uhdr_gainmap_metadata_ext_t* metadata, float gainmapWeight) {
+    this->mGammaInv = 1.0f / metadata->gamma;
+    for (int32_t idx = 0; idx < kGainFactorNumEntries; idx++) {
+      float value = static_cast<float>(idx) / static_cast<float>(kGainFactorNumEntries - 1);
+      float logBoost = log2(metadata->min_content_boost) * (1.0f - value) +
+                       log2(metadata->max_content_boost) * value;
+      mGainTable[idx] = exp2(logBoost * gainmapWeight);
+    }
+  }
+
+  ~GainLUT() {}
+
+  float getGainFactor(float gain) {
+    if (mGammaInv != 1.0f) gain = pow(gain, mGammaInv);
+    int32_t idx = static_cast<int32_t>(gain * (kGainFactorNumEntries - 1) + 0.5);
+    // TODO() : Remove once conversion modules have appropriate clamping in place
+    idx = CLIP3(idx, 0, kGainFactorNumEntries - 1);
+    return mGainTable[idx];
+  }
+
+ private:
+  float mGainTable[kGainFactorNumEntries];
+  float mGammaInv;
+};
 
 /*
  * Calculate the 8-bit unsigned integer gain value for the given SDR and HDR
@@ -564,7 +495,7 @@ uint8_t affineMapGain(float gainlog2, float mingainlog2, float maxgainlog2, floa
  * value, with the given hdr ratio, to the given sdr input in the range [0, 1].
  */
 Color applyGain(Color e, float gain, uhdr_gainmap_metadata_ext_t* metadata);
-Color applyGain(Color e, float gain, uhdr_gainmap_metadata_ext_t* metadata, float displayBoost);
+Color applyGain(Color e, float gain, uhdr_gainmap_metadata_ext_t* metadata, float gainmapWeight);
 Color applyGainLUT(Color e, float gain, GainLUT& gainLUT);
 
 /*
@@ -572,37 +503,8 @@ Color applyGainLUT(Color e, float gain, GainLUT& gainLUT);
  * in the range [0, 1].
  */
 Color applyGain(Color e, Color gain, uhdr_gainmap_metadata_ext_t* metadata);
-Color applyGain(Color e, Color gain, uhdr_gainmap_metadata_ext_t* metadata, float displayBoost);
+Color applyGain(Color e, Color gain, uhdr_gainmap_metadata_ext_t* metadata, float gainmapWeight);
 Color applyGainLUT(Color e, Color gain, GainLUT& gainLUT);
-
-/*
- * Get pixel from the image at the provided location.
- */
-Color getYuv444Pixel(uhdr_raw_image_t* image, size_t x, size_t y);
-Color getYuv422Pixel(uhdr_raw_image_t* image, size_t x, size_t y);
-Color getYuv420Pixel(uhdr_raw_image_t* image, size_t x, size_t y);
-Color getP010Pixel(uhdr_raw_image_t* image, size_t x, size_t y);
-Color getYuv444Pixel10bit(uhdr_raw_image_t* image, size_t x, size_t y);
-Color getRgba8888Pixel(uhdr_raw_image_t* image, size_t x, size_t y);
-Color getRgba1010102Pixel(uhdr_raw_image_t* image, size_t x, size_t y);
-
-/*
- * Sample the image at the provided location, with a weighting based on nearby
- * pixels and the map scale factor.
- */
-Color sampleYuv444(uhdr_raw_image_t* map, size_t map_scale_factor, size_t x, size_t y);
-Color sampleYuv422(uhdr_raw_image_t* map, size_t map_scale_factor, size_t x, size_t y);
-Color sampleYuv420(uhdr_raw_image_t* map, size_t map_scale_factor, size_t x, size_t y);
-Color sampleP010(uhdr_raw_image_t* map, size_t map_scale_factor, size_t x, size_t y);
-Color sampleYuv44410bit(uhdr_raw_image_t* image, size_t map_scale_factor, size_t x, size_t y);
-Color sampleRgba8888(uhdr_raw_image_t* image, size_t map_scale_factor, size_t x, size_t y);
-Color sampleRgba1010102(uhdr_raw_image_t* image, size_t map_scale_factor, size_t x, size_t y);
-
-/*
- * Put pixel in the image at the provided location.
- */
-void putRgba8888Pixel(uhdr_raw_image_t* image, size_t x, size_t y, Color& pixel);
-void putYuv444Pixel(uhdr_raw_image_t* image, size_t x, size_t y, Color& pixel);
 
 /*
  * Sample the gain value for the map from a given x,y coordinate on a scale
@@ -616,35 +518,62 @@ Color sampleMap3Channel(uhdr_raw_image_t* map, float map_scale_factor, size_t x,
 Color sampleMap3Channel(uhdr_raw_image_t* map, size_t map_scale_factor, size_t x, size_t y,
                         ShepardsIDW& weightTables, bool has_alpha);
 
-/*
- * Convert from Color to RGBA1010102.
- *
- * Alpha always set to 1.0.
- */
-uint32_t colorToRgba1010102(Color e_gamma);
+////////////////////////////////////////////////////////////////////////////////
+// function selectors
 
-/*
- * Convert from Color to F16.
- *
- * Alpha always set to 1.0.
- */
+ColorTransformFn getGamutConversionFn(uhdr_color_gamut_t dst_gamut, uhdr_color_gamut_t src_gamut);
+ColorTransformFn getYuvToRgbFn(uhdr_color_gamut_t gamut);
+LuminanceFn getLuminanceFn(uhdr_color_gamut_t gamut);
+ColorTransformFn getInverseOetfFn(uhdr_color_transfer_t transfer);
+SceneToDisplayLuminanceFn getOotfFn(uhdr_color_transfer_t transfer);
+GetPixelFn getPixelFn(uhdr_img_fmt_t format);
+SamplePixelFn getSamplePixelFn(uhdr_img_fmt_t format);
+PutPixelFn putPixelFn(uhdr_img_fmt_t format);
+
+////////////////////////////////////////////////////////////////////////////////
+// common utils
+
+// maximum limit of normalized pixel value in float representation
+static const float kMaxPixelFloat = 1.0f;
+
+static inline float clampPixelFloat(float value) {
+  return (value < 0.0f) ? 0.0f : (value > kMaxPixelFloat) ? kMaxPixelFloat : value;
+}
+
+static inline Color clampPixelFloat(Color e) {
+  return {{{clampPixelFloat(e.r), clampPixelFloat(e.g), clampPixelFloat(e.b)}}};
+}
+
+// maximum limit of pixel value for linear hdr intent raw resource
+static const float kMaxPixelFloatHdrLinear = 10000.0f / 203.0f;
+
+static inline float clampPixelFloatLinear(float value) {
+  return CLIP3(value, 0.0f, kMaxPixelFloatHdrLinear);
+}
+
+static inline Color clampPixelFloatLinear(Color e) {
+  return {{{clampPixelFloatLinear(e.r), clampPixelFloatLinear(e.g), clampPixelFloatLinear(e.b)}}};
+}
+
+static inline Color sanitizePixel(Color e) {
+  float r = std::isfinite(e.r) ? clampPixelFloatLinear(e.r) : 0.0f;
+  float g = std::isfinite(e.g) ? clampPixelFloatLinear(e.g) : 0.0f;
+  float b = std::isfinite(e.b) ? clampPixelFloatLinear(e.b) : 0.0f;
+  return {{{r, g, b}}};
+}
+
+bool isPixelFormatRgb(uhdr_img_fmt_t format);
+
+uint32_t colorToRgba1010102(Color e_gamma);
 uint64_t colorToRgbaF16(Color e_gamma);
 
-/*
- * Helper for copying raw image descriptor
- */
 std::unique_ptr<uhdr_raw_image_ext_t> copy_raw_image(uhdr_raw_image_t* src);
+
 uhdr_error_info_t copy_raw_image(uhdr_raw_image_t* src, uhdr_raw_image_t* dst);
 
-/*
- * Helper for preparing encoder raw inputs for encoding
- */
 std::unique_ptr<uhdr_raw_image_ext_t> convert_raw_input_to_ycbcr(
     uhdr_raw_image_t* src, bool chroma_sampling_enabled = false);
 
-/*
- * Helper for converting float to fraction
- */
 bool floatToSignedFraction(float v, int32_t* numerator, uint32_t* denominator);
 bool floatToUnsignedFraction(float v, uint32_t* numerator, uint32_t* denominator);
 
