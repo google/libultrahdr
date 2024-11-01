@@ -23,6 +23,8 @@
 #include <vector>
 
 namespace ultrahdr {
+constexpr uint8_t kIsMultiChannelMask = (1u << 7);
+constexpr uint8_t kUseBaseColorSpaceMask = (1u << 6);
 
 // Gain map metadata, for tone mapping between SDR and HDR.
 // This is the fraction version of {@code uhdr_gainmap_metadata_ext_t}.
