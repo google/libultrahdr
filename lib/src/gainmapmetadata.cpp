@@ -14,12 +14,20 @@
  * limitations under the License.
  */
 
+#include <algorithm>
+#include <cmath>
+
 #include "ultrahdr/gainmapmath.h"
 #include "ultrahdr/gainmapmetadata.h"
 
 namespace ultrahdr {
 
 void streamWriteU8(std::vector<uint8_t> &data, uint8_t value) { data.push_back(value); }
+
+void streamWriteU16(std::vector<uint8_t> &data, uint16_t value) {
+  data.push_back((value >> 8) & 0xff);
+  data.push_back(value & 0xff);
+}
 
 void streamWriteU32(std::vector<uint8_t> &data, uint32_t value) {
   data.push_back((value >> 24) & 0xff);
@@ -39,6 +47,21 @@ uhdr_error_info_t streamReadU8(const std::vector<uint8_t> &data, uint8_t &value,
     return status;
   }
   value = data[pos++];
+  return g_no_error;
+}
+
+uhdr_error_info_t streamReadU16(const std::vector<uint8_t> &data, uint16_t &value, size_t &pos) {
+  if (pos + 1 >= data.size()) {
+    uhdr_error_info_t status;
+    status.error_code = UHDR_CODEC_MEM_ERROR;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "attempting to read 2 bytes from position %d when the buffer size is %d", (int)pos,
+             (int)data.size());
+    return status;
+  }
+  value = (data[pos] << 8 | data[pos + 1]);
+  pos += 2;
   return g_no_error;
 }
 
@@ -68,8 +91,9 @@ uhdr_error_info_t uhdr_gainmap_metadata_frac::encodeGainmapMetadata(
     return status;
   }
 
-  const uint8_t version = 0;
-  streamWriteU8(out_data, version);
+  const uint16_t min_version = 0, writer_version = 0;
+  streamWriteU16(out_data, min_version);
+  streamWriteU16(out_data, writer_version);
 
   uint8_t flags = 0u;
   // Always write three channels for now for simplicity.
@@ -100,10 +124,10 @@ uhdr_error_info_t uhdr_gainmap_metadata_frac::encodeGainmapMetadata(
   const uint8_t channelCount = allChannelsIdentical ? 1u : 3u;
 
   if (channelCount == 3) {
-    flags |= 1;
+    flags |= kIsMultiChannelMask;
   }
   if (in_metadata->useBaseColorSpace) {
-    flags |= 2;
+    flags |= kUseBaseColorSpaceMask;
   }
   if (in_metadata->backwardDirection) {
     flags |= 4;
@@ -171,20 +195,22 @@ uhdr_error_info_t uhdr_gainmap_metadata_frac::decodeGainmapMetadata(
   }
 
   size_t pos = 0;
-  uint8_t version = 0xff;
-  UHDR_ERR_CHECK(streamReadU8(in_data, version, pos))
-  if (version != 0) {
+  uint16_t min_version = 0xffff;
+  uint16_t writer_version = 0xffff;
+  UHDR_ERR_CHECK(streamReadU16(in_data, min_version, pos))
+  if (min_version != 0) {
     uhdr_error_info_t status;
     status.error_code = UHDR_CODEC_UNSUPPORTED_FEATURE;
     status.has_detail = 1;
-    snprintf(status.detail, sizeof status.detail, "received unexpected version %d, expected 0",
-             version);
+    snprintf(status.detail, sizeof status.detail, "received unexpected minimum version %d, expected 0",
+             min_version);
     return status;
   }
+  UHDR_ERR_CHECK(streamReadU16(in_data, writer_version, pos))
 
   uint8_t flags = 0xff;
   UHDR_ERR_CHECK(streamReadU8(in_data, flags, pos))
-  uint8_t channelCount = (flags & 1) * 2 + 1;
+  uint8_t channelCount = (flags & kIsMultiChannelMask) * 2 + 1;
   if (!(channelCount == 1 || channelCount == 3)) {
     uhdr_error_info_t status;
     status.error_code = UHDR_CODEC_UNSUPPORTED_FEATURE;
@@ -193,7 +219,7 @@ uhdr_error_info_t uhdr_gainmap_metadata_frac::decodeGainmapMetadata(
              "received unexpected channel count %d, expects one of {1, 3}", channelCount);
     return status;
   }
-  out_metadata->useBaseColorSpace = (flags & 2) != 0;
+  out_metadata->useBaseColorSpace = (flags & kUseBaseColorSpaceMask) != 0;
   out_metadata->backwardDirection = (flags & 4) != 0;
   const bool useCommonDenominator = (flags & 8) != 0;
 
@@ -284,15 +310,15 @@ uhdr_error_info_t uhdr_gainmap_metadata_frac::gainmapMetadataFractionToFloat(
     UHDR_CHECK_NON_ZERO(from->alternateOffsetD[i], "alternateOffset denominator");
   }
   to->version = kGainMapVersion;
-  to->max_content_boost = (float)from->gainMapMaxN[0] / from->gainMapMaxD[0];
-  to->min_content_boost = (float)from->gainMapMinN[0] / from->gainMapMinD[0];
+  to->max_content_boost = exp2((float)from->gainMapMaxN[0] / from->gainMapMaxD[0]);
+  to->min_content_boost = exp2((float)from->gainMapMinN[0] / from->gainMapMinD[0]);
   to->gamma = (float)from->gainMapGammaN[0] / from->gainMapGammaD[0];
 
   // BaseRenditionIsHDR is false
   to->offset_sdr = (float)from->baseOffsetN[0] / from->baseOffsetD[0];
   to->offset_hdr = (float)from->alternateOffsetN[0] / from->alternateOffsetD[0];
-  to->hdr_capacity_max = (float)from->alternateHdrHeadroomN / from->alternateHdrHeadroomD;
-  to->hdr_capacity_min = (float)from->baseHdrHeadroomN / from->baseHdrHeadroomD;
+  to->hdr_capacity_max = exp2((float)from->alternateHdrHeadroomN / from->alternateHdrHeadroomD);
+  to->hdr_capacity_min = exp2((float)from->baseHdrHeadroomN / from->baseHdrHeadroomD);
 
   return g_no_error;
 }
@@ -311,11 +337,11 @@ uhdr_error_info_t uhdr_gainmap_metadata_frac::gainmapMetadataFloatToFraction(
   to->backwardDirection = false;
   to->useBaseColorSpace = true;
 
-  floatToUnsignedFraction(from->max_content_boost, &to->gainMapMaxN[0], &to->gainMapMaxD[0]);
+  floatToUnsignedFraction(log2(from->max_content_boost), &to->gainMapMaxN[0], &to->gainMapMaxD[0]);
   to->gainMapMaxN[2] = to->gainMapMaxN[1] = to->gainMapMaxN[0];
   to->gainMapMaxD[2] = to->gainMapMaxD[1] = to->gainMapMaxD[0];
 
-  floatToUnsignedFraction(from->min_content_boost, &to->gainMapMinN[0], &to->gainMapMinD[0]);
+  floatToUnsignedFraction(log2(from->min_content_boost), &to->gainMapMinN[0], &to->gainMapMinD[0]);
   to->gainMapMinN[2] = to->gainMapMinN[1] = to->gainMapMinN[0];
   to->gainMapMinD[2] = to->gainMapMinD[1] = to->gainMapMinD[0];
 
@@ -331,9 +357,9 @@ uhdr_error_info_t uhdr_gainmap_metadata_frac::gainmapMetadataFloatToFraction(
   to->alternateOffsetN[2] = to->alternateOffsetN[1] = to->alternateOffsetN[0];
   to->alternateOffsetD[2] = to->alternateOffsetD[1] = to->alternateOffsetD[0];
 
-  floatToUnsignedFraction(from->hdr_capacity_min, &to->baseHdrHeadroomN, &to->baseHdrHeadroomD);
+  floatToUnsignedFraction(log2(from->hdr_capacity_min), &to->baseHdrHeadroomN, &to->baseHdrHeadroomD);
 
-  floatToUnsignedFraction(from->hdr_capacity_max, &to->alternateHdrHeadroomN,
+  floatToUnsignedFraction(log2(from->hdr_capacity_max), &to->alternateHdrHeadroomN,
                           &to->alternateHdrHeadroomD);
 
   return g_no_error;
