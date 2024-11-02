@@ -262,13 +262,13 @@ uhdr_error_info_t JpegR::encodeJPEGR(uhdr_raw_image_t* hdr_intent, uhdr_raw_imag
   }
 
   // convert to bt601 YUV encoding for JPEG encode
-#if (defined(UHDR_ENABLE_INTRINSICS) && (defined(__ARM_NEON__) || defined(__ARM_NEON)))
-  UHDR_ERR_CHECK(
-      convertYuv_neon(sdr_intent_yuv, sdr_intent_yuv->cg, (uhdr_color_gamut_t)UHDR_CG_BT_601));
-#else
-  UHDR_ERR_CHECK(
-      convertYuv(sdr_intent_yuv, sdr_intent_yuv->cg, (uhdr_color_gamut_t)UHDR_CG_BT_601));
-#endif
+//#if (defined(UHDR_ENABLE_INTRINSICS) && (defined(__ARM_NEON__) || defined(__ARM_NEON)))
+//  UHDR_ERR_CHECK(
+//      convertYuv_neon(sdr_intent_yuv, sdr_intent_yuv->cg, (uhdr_color_gamut_t)UHDR_CG_BT_601));
+//#else
+//  UHDR_ERR_CHECK(
+//      convertYuv(sdr_intent_yuv, sdr_intent_yuv->cg, (uhdr_color_gamut_t)UHDR_CG_BT_601));
+//#endif
 
   // compress sdr image
   JpegEncoderHelper jpeg_enc_obj_sdr;
@@ -303,6 +303,33 @@ uhdr_error_info_t JpegR::encodeJPEGR(uhdr_raw_image_t* hdr_intent, uhdr_raw_imag
     return status;
   }
 
+  if (jpeg_dec_obj_sdr.getICCSize() > 0) {
+    uhdr_color_gamut_t cg =
+        IccHelper::readIccColorGamut(jpeg_dec_obj_sdr.getICCPtr(), jpeg_dec_obj_sdr.getICCSize());
+    if (cg == UHDR_CG_UNSPECIFIED ||
+        (sdr_intent_compressed->cg != UHDR_CG_UNSPECIFIED && sdr_intent_compressed->cg != cg) ||
+        sdr_intent->cg != cg) {
+      uhdr_error_info_t status;
+      status.error_code = UHDR_CODEC_INVALID_PARAM;
+      status.has_detail = 1;
+      snprintf(status.detail, sizeof status.detail,
+               "configured color gamut %d does not match with color gamut specified in icc box %d",
+               sdr_intent->cg, cg);
+      return status;
+    }
+  } else {
+    if (sdr_intent_compressed->cg != UHDR_CG_UNSPECIFIED &&
+        sdr_intent_compressed->cg != sdr_intent->cg) {
+      uhdr_error_info_t status;
+      status.error_code = UHDR_CODEC_INVALID_PARAM;
+      status.has_detail = 1;
+      snprintf(status.detail, sizeof status.detail, "Unrecognized sdr intent color gamut %d",
+               sdr_intent_compressed->cg);
+      return status;
+    }
+  }
+  sdr_intent_compressed->cg = sdr_intent->cg;
+
   // generate gain map
   uhdr_gainmap_metadata_ext_t metadata(kJpegrVersion);
   std::unique_ptr<uhdr_raw_image_ext_t> gainmap;
@@ -313,17 +340,27 @@ uhdr_error_info_t JpegR::encodeJPEGR(uhdr_raw_image_t* hdr_intent, uhdr_raw_imag
   UHDR_ERR_CHECK(compressGainMap(gainmap.get(), &jpeg_enc_obj_gm));
   uhdr_compressed_image_t gainmap_compressed = jpeg_enc_obj_gm.getCompressedImage();
 
-  return encodeJPEGR(sdr_intent_compressed, &gainmap_compressed, &metadata, dest);
+  // Add ICC if not already present.
+  if (jpeg_dec_obj_sdr.getICCSize() > 0) {
+    UHDR_ERR_CHECK(appendGainMap(sdr_intent_compressed, &gainmap_compressed, /* exif */ nullptr,
+                                 /* icc */ nullptr, /* icc size */ 0, &metadata, dest));
+  } else {
+    std::shared_ptr<DataStruct> newIcc =
+        IccHelper::writeIccProfile(UHDR_CT_SRGB, sdr_intent_compressed->cg);
+    UHDR_ERR_CHECK(appendGainMap(sdr_intent_compressed, &gainmap_compressed, /* exif */ nullptr,
+                                 newIcc->getData(), newIcc->getLength(), &metadata, dest));
+  }
+
+  return g_no_error;
 }
 
 /* Encode API-3 */
 uhdr_error_info_t JpegR::encodeJPEGR(uhdr_raw_image_t* hdr_intent,
                                      uhdr_compressed_image_t* sdr_intent_compressed,
                                      uhdr_compressed_image_t* dest) {
-  // decode input jpeg, gamut is going to be bt601.
   JpegDecoderHelper jpeg_dec_obj_sdr;
-  UHDR_ERR_CHECK(jpeg_dec_obj_sdr.decompressImage(sdr_intent_compressed->data,
-                                                  sdr_intent_compressed->data_sz));
+  UHDR_ERR_CHECK(jpeg_dec_obj_sdr.decompressImage(
+      sdr_intent_compressed->data, sdr_intent_compressed->data_sz, DECODE_TO_YCBCR_CS));
 
   uhdr_raw_image_t sdr_intent = jpeg_dec_obj_sdr.getDecompressedImage();
   if (jpeg_dec_obj_sdr.getICCSize() > 0) {
@@ -346,7 +383,7 @@ uhdr_error_info_t JpegR::encodeJPEGR(uhdr_raw_image_t* hdr_intent,
       uhdr_error_info_t status;
       status.error_code = UHDR_CODEC_INVALID_PARAM;
       status.has_detail = 1;
-      snprintf(status.detail, sizeof status.detail, "Unrecognized 420 color gamut %d",
+      snprintf(status.detail, sizeof status.detail, "Unrecognized sdr intent color gamut %d",
                sdr_intent_compressed->cg);
       return status;
     }
@@ -366,15 +403,25 @@ uhdr_error_info_t JpegR::encodeJPEGR(uhdr_raw_image_t* hdr_intent,
   // generate gain map
   uhdr_gainmap_metadata_ext_t metadata(kJpegrVersion);
   std::unique_ptr<uhdr_raw_image_ext_t> gainmap;
-  UHDR_ERR_CHECK(
-      generateGainMap(&sdr_intent, hdr_intent, &metadata, gainmap, true /* sdr_is_601 */));
+  UHDR_ERR_CHECK(generateGainMap(&sdr_intent, hdr_intent, &metadata, gainmap));
 
   // compress gain map
   JpegEncoderHelper jpeg_enc_obj_gm;
   UHDR_ERR_CHECK(compressGainMap(gainmap.get(), &jpeg_enc_obj_gm));
   uhdr_compressed_image_t gainmap_compressed = jpeg_enc_obj_gm.getCompressedImage();
 
-  return encodeJPEGR(sdr_intent_compressed, &gainmap_compressed, &metadata, dest);
+  // Add ICC if not already present.
+  if (jpeg_dec_obj_sdr.getICCSize() > 0) {
+    UHDR_ERR_CHECK(appendGainMap(sdr_intent_compressed, &gainmap_compressed, /* exif */ nullptr,
+                                 /* icc */ nullptr, /* icc size */ 0, &metadata, dest));
+  } else {
+    std::shared_ptr<DataStruct> newIcc =
+        IccHelper::writeIccProfile(UHDR_CT_SRGB, sdr_intent_compressed->cg);
+    UHDR_ERR_CHECK(appendGainMap(sdr_intent_compressed, &gainmap_compressed, /* exif */ nullptr,
+                                 newIcc->getData(), newIcc->getLength(), &metadata, dest));
+  }
+
+  return g_no_error;
 }
 
 /* Encode API-4 */
@@ -397,7 +444,7 @@ uhdr_error_info_t JpegR::encodeJPEGR(uhdr_compressed_image_t* base_img_compresse
       uhdr_error_info_t status;
       status.error_code = UHDR_CODEC_INVALID_PARAM;
       status.has_detail = 1;
-      snprintf(status.detail, sizeof status.detail, "Unrecognized 420 color gamut %d",
+      snprintf(status.detail, sizeof status.detail, "Unrecognized sdr intent color gamut %d",
                base_img_compressed->cg);
       return status;
     }
@@ -1321,9 +1368,8 @@ uhdr_error_info_t JpegR::decodeJPEGR(uhdr_compressed_image_t* uhdr_compressed_im
       extractPrimaryImageAndGainMap(uhdr_compressed_img, &primary_jpeg_image, &gainmap_jpeg_image))
 
   JpegDecoderHelper jpeg_dec_obj_sdr;
-  UHDR_ERR_CHECK(jpeg_dec_obj_sdr.decompressImage(
-      primary_jpeg_image.data, primary_jpeg_image.data_sz,
-      (output_ct == UHDR_CT_SRGB) ? DECODE_TO_RGB_CS : DECODE_TO_YCBCR_CS));
+  UHDR_ERR_CHECK(jpeg_dec_obj_sdr.decompressImage(primary_jpeg_image.data,
+                                                  primary_jpeg_image.data_sz, DECODE_TO_YCBCR_CS));
 
   JpegDecoderHelper jpeg_dec_obj_gm;
   uhdr_raw_image_t gainmap;
@@ -1357,7 +1403,7 @@ uhdr_error_info_t JpegR::decodeJPEGR(uhdr_compressed_image_t* uhdr_compressed_im
   sdr_intent.cg =
       IccHelper::readIccColorGamut(jpeg_dec_obj_sdr.getICCPtr(), jpeg_dec_obj_sdr.getICCSize());
   if (output_ct == UHDR_CT_SRGB) {
-    UHDR_ERR_CHECK(copy_raw_image(&sdr_intent, dest));
+    UHDR_ERR_CHECK(convert_ycbcr_input_to_rgb(&sdr_intent, dest));
     return g_no_error;
   }
 
@@ -1452,7 +1498,7 @@ uhdr_error_info_t JpegR::applyGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_ima
   float map_scale_factor = (float)sdr_intent->w / gainmap_img->w;
   int map_scale_factor_rnd = (std::max)(1, (int)std::roundf(map_scale_factor));
 
-  dest->cg = sdr_intent->cg;
+  dest->cg = sdr_intent->cg == UHDR_CG_UNSPECIFIED ? UHDR_CG_BT_709 : sdr_intent->cg;
   // Table will only be used when map scale factor is integer.
   ShepardsIDW idwTable(map_scale_factor_rnd);
   float display_boost = (std::min)(max_display_boost, gainmap_metadata->hdr_capacity_max);
@@ -1479,13 +1525,19 @@ uhdr_error_info_t JpegR::applyGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_ima
     return status;
   }
 
+  ColorTransformFn sdrYuvToRgbFn = getYuvToRgbFn(sdr_intent->cg);
+  // If failed to read color space, default to srgb color space as per iso 21496-1 sec C.4.4
+  if (sdrYuvToRgbFn == nullptr) {
+    sdrYuvToRgbFn = srgbYuvToRgb;
+  }
+
   JobQueue jobQueue;
   std::function<void()> applyRecMap = [sdr_intent, gainmap_img, dest, &jobQueue, &idwTable,
                                        output_ct, &gainLUT, gainmap_metadata,
 #if !USE_APPLY_GAIN_LUT
                                        gainmap_weight,
 #endif
-                                       map_scale_factor, get_pixel_fn]() -> void {
+                                       map_scale_factor, get_pixel_fn, sdrYuvToRgbFn]() -> void {
     unsigned int width = sdr_intent->w;
     unsigned int rowStart, rowEnd;
 
@@ -1493,8 +1545,7 @@ uhdr_error_info_t JpegR::applyGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_ima
       for (size_t y = rowStart; y < rowEnd; ++y) {
         for (size_t x = 0; x < width; ++x) {
           Color yuv_gamma_sdr = get_pixel_fn(sdr_intent, x, y);
-          // Assuming the sdr image is a decoded JPEG, we should always use Rec.601 YUV coefficients
-          Color rgb_gamma_sdr = p3YuvToRgb(yuv_gamma_sdr);
+          Color rgb_gamma_sdr = sdrYuvToRgbFn(yuv_gamma_sdr);
           // We are assuming the SDR base image is always sRGB transfer.
 #if USE_SRGB_INVOETF_LUT
           Color rgb_sdr = srgbInvOetfLUT(rgb_gamma_sdr);

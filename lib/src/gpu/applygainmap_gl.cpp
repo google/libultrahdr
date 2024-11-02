@@ -98,13 +98,46 @@ static const std::string getYuv420PixelShader = R"__SHADER__(
   }
 )__SHADER__";
 
-static const std::string p3YUVToRGBShader = R"__SHADER__(
-  vec3 p3YuvToRgb(const vec3 color) {
+static const std::string Bt601YUVToRGBShader = R"__SHADER__(
+  vec3 yuvToRgb(const vec3 color) {
     const vec3 offset = vec3(0.0, 128.0f / 255.0f, 128.0f / 255.0f);
     const mat3 transform = mat3(
         1.0,  1.0, 1.0,
-        0.0, -0.344136286, 1.772,
-        1.402, -0.714136286, 0.0);
+        0.0, -0.34414, 1.772,
+        1.402, -0.71414, 0.0);
+    return clamp(transform * (color - offset), 0.0, 1.0);
+  }
+)__SHADER__";
+
+static const std::string Bt709YUVToRGBShader = R"__SHADER__(
+  vec3 yuvToRgb(const vec3 color) {
+    const vec3 offset = vec3(0.0, 128.0f / 255.0f, 128.0f / 255.0f);
+    const mat3 transform = mat3(
+        1.0,  1.0, 1.0,
+        0.0, -0.18732, 1.8556,
+        1.5748, -0.46812, 0.0);
+    return clamp(transform * (color - offset), 0.0, 1.0);
+  }
+)__SHADER__";
+
+static const std::string p3YUVToRGBShader = R"__SHADER__(
+  vec3 yuvToRgb(const vec3 color) {
+    const vec3 offset = vec3(0.0, 128.0f / 255.0f, 128.0f / 255.0f);
+    const mat3 transform = mat3(
+        1.0,  1.0, 1.0,
+        0.0, -0.21106, 1.841426,
+        1.542051, -0.51044, 0.0);
+    return clamp(transform * (color - offset), 0.0, 1.0);
+  }
+)__SHADER__";
+
+static const std::string Bt2100YUVToRGBShader = R"__SHADER__(
+  vec3 yuvToRgb(const vec3 color) {
+    const vec3 offset = vec3(0.0, 128.0f / 255.0f, 128.0f / 255.0f);
+    const mat3 transform = mat3(
+        1.0,  1.0, 1.0,
+        0.0, -0.16455, 1.8814,
+        1.4746, -0.57135, 0.0);
     return clamp(transform * (color - offset), 0.0, 1.0);
   }
 )__SHADER__";
@@ -200,7 +233,8 @@ static const std::string IdentityInverseOOTFShader = R"__SHADER__(
 )__SHADER__";
 
 std::string getApplyGainMapFragmentShader(uhdr_img_fmt sdr_fmt, uhdr_img_fmt gm_fmt,
-                                          uhdr_color_transfer output_ct) {
+                                          uhdr_color_transfer output_ct,
+                                          uhdr_color_gamut_t sdr_cg) {
   std::string shader_code = R"__SHADER__(#version 300 es
     precision highp float;
     precision highp int;
@@ -216,7 +250,15 @@ std::string getApplyGainMapFragmentShader(uhdr_img_fmt sdr_fmt, uhdr_img_fmt gm_
   } else if (sdr_fmt == UHDR_IMG_FMT_12bppYCbCr420) {
     shader_code.append(getYuv420PixelShader);
   }
-  shader_code.append(p3YUVToRGBShader);
+  if (sdr_cg == UHDR_CG_BT_709) {
+    shader_code.append(Bt709YUVToRGBShader);
+  } else if (sdr_cg == UHDR_CG_DISPLAY_P3) {
+    shader_code.append(p3YUVToRGBShader);
+  } else if (sdr_cg == UHDR_CG_BT_2100) {
+    shader_code.append(Bt2100YUVToRGBShader);
+  } else {
+    shader_code.append(Bt709YUVToRGBShader);
+  }
   shader_code.append(sRGBEOTFShader);
   shader_code.append(gm_fmt == UHDR_IMG_FMT_8bppYCbCr400 ? getGainMapSampleSingleChannel
                                                          : getGainMapSampleMultiChannel);
@@ -235,7 +277,7 @@ std::string getApplyGainMapFragmentShader(uhdr_img_fmt sdr_fmt, uhdr_img_fmt gm_
   shader_code.append(R"__SHADER__(
     void main() {
       vec3 yuv_gamma_sdr = getYUVPixel();
-      vec3 rgb_gamma_sdr = p3YuvToRgb(yuv_gamma_sdr);
+      vec3 rgb_gamma_sdr = yuvToRgb(yuv_gamma_sdr);
       vec3 rgb_sdr = sRGBEOTF(rgb_gamma_sdr);
       vec3 gain = sampleMap(gainMapTexture);
       vec3 rgb_hdr = applyGain(rgb_sdr, gain);
@@ -294,7 +336,8 @@ uhdr_error_info_t applyGainMapGLES(uhdr_raw_image_t* sdr_intent, uhdr_raw_image_
 
   shaderProgram = opengl_ctxt->create_shader_program(
       vertex_shader.c_str(),
-      getApplyGainMapFragmentShader(sdr_intent->fmt, gainmap_img->fmt, output_ct).c_str());
+      getApplyGainMapFragmentShader(sdr_intent->fmt, gainmap_img->fmt, output_ct, sdr_intent->cg)
+          .c_str());
   RET_IF_ERR()
 
   yuvTexture = opengl_ctxt->create_texture(sdr_intent->fmt, sdr_intent->w, sdr_intent->h,
@@ -364,7 +407,7 @@ uhdr_error_info_t applyGainMapGLES(uhdr_raw_image_t* sdr_intent, uhdr_raw_image_
   opengl_ctxt->check_gl_errors("reading gles output");
   RET_IF_ERR()
 
-  dest->cg = sdr_intent->cg;
+  dest->cg = sdr_intent->cg == UHDR_CG_UNSPECIFIED ? UHDR_CG_BT_709 : sdr_intent->cg;
 
   if (frameBuffer) glDeleteFramebuffers(1, &frameBuffer);
   if (yuvTexture) glDeleteTextures(1, &yuvTexture);

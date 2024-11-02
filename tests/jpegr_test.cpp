@@ -96,6 +96,7 @@ class UhdrCompressedStructWrapper {
   ~UhdrCompressedStructWrapper() = default;
 
   bool allocateMemory();
+  bool setImageColorGamut(ultrahdr_color_gamut colorGamut);
   jr_compressed_ptr getImageHandle();
 
  private:
@@ -272,6 +273,11 @@ bool UhdrCompressedStructWrapper::allocateMemory() {
   mImg.data = mData.get();
   mImg.length = 0;
   mImg.maxLength = maxLength;
+  return true;
+}
+
+bool UhdrCompressedStructWrapper::setImageColorGamut(ultrahdr_color_gamut colorGamut) {
+  mImg.colorGamut = colorGamut;
   return true;
 }
 
@@ -1852,6 +1858,7 @@ TEST_P(JpegRAPIEncodeAndDecodeTest, EncodeAPI2AndDecodeTest) {
   ASSERT_TRUE(jpgImg.allocateMemory());
   UhdrCompressedStructWrapper jpgSdr(kImageWidth, kImageHeight);
   ASSERT_TRUE(jpgSdr.allocateMemory());
+  ASSERT_TRUE(jpgSdr.setImageColorGamut(mYuv420ColorGamut));
   auto sdr = jpgSdr.getImageHandle();
   ASSERT_TRUE(readFile(kSdrJpgFileName, sdr->data, sdr->maxLength, sdr->length));
   JpegR uHdrLib;
@@ -2054,6 +2061,7 @@ TEST_P(JpegRAPIEncodeAndDecodeTest, EncodeAPI3AndDecodeTest) {
   ASSERT_TRUE(jpgImg.allocateMemory());
   UhdrCompressedStructWrapper jpgSdr(kImageWidth, kImageHeight);
   ASSERT_TRUE(jpgSdr.allocateMemory());
+  ASSERT_TRUE(jpgSdr.setImageColorGamut(mYuv420ColorGamut));
   auto sdr = jpgSdr.getImageHandle();
   ASSERT_TRUE(readFile(kSdrJpgFileName, sdr->data, sdr->maxLength, sdr->length));
   JpegR uHdrLib;

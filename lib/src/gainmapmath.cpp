@@ -1585,6 +1585,72 @@ std::unique_ptr<uhdr_raw_image_ext_t> convert_raw_input_to_ycbcr(uhdr_raw_image_
   return dst;
 }
 
+uhdr_error_info_t convert_ycbcr_input_to_rgb(uhdr_raw_image_t* src, uhdr_raw_image_t* dst) {
+  if (dst->w != src->w || dst->h != src->h) {
+    uhdr_error_info_t status;
+    status.error_code = UHDR_CODEC_MEM_ERROR;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "destination image dimensions %dx%d and source image dimensions %dx%d are not "
+             "identical for copy_raw_image",
+             dst->w, dst->h, src->w, src->h);
+    return status;
+  }
+
+  if (isPixelFormatRgb(src->fmt) || !isPixelFormatRgb(dst->fmt)) {
+    uhdr_error_info_t status;
+    status.error_code = UHDR_CODEC_UNSUPPORTED_FEATURE;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "Unexpected source or destination color format, src fmt %d, dst fmt %d", src->fmt,
+             dst->fmt);
+    return status;
+  }
+
+  GetPixelFn get_pixel_fn = getPixelFn(src->fmt);
+  if (get_pixel_fn == nullptr) {
+    uhdr_error_info_t status;
+    status.error_code = UHDR_CODEC_UNSUPPORTED_FEATURE;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "No implementation available for reading pixels for color format %d", src->fmt);
+    return status;
+  }
+
+  PutPixelFn put_pixel_fn = putPixelFn(dst->fmt);
+  if (put_pixel_fn == nullptr) {
+    uhdr_error_info_t status;
+    status.error_code = UHDR_CODEC_UNSUPPORTED_FEATURE;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "No implementation available for writing pixels for color format %d", dst->fmt);
+    return status;
+  }
+
+  Color (*yuvToRgb)(Color) = nullptr;
+  if (src->cg == UHDR_CG_BT_709) {
+    yuvToRgb = srgbYuvToRgb;
+  } else if (src->cg == UHDR_CG_BT_2100) {
+    yuvToRgb = bt2100YuvToRgb;
+  } else if (src->cg == UHDR_CG_DISPLAY_P3) {
+    yuvToRgb = p3YuvToRgb;
+  } else {
+    yuvToRgb = Bt601YuvToRgb;
+  }
+
+  dst->cg = src->cg;
+  dst->ct = src->ct;
+  dst->range = UHDR_CR_FULL_RANGE;
+  for (unsigned int i = 0; i < src->h; i++) {
+    for (unsigned int j = 0; j < src->w; j++) {
+      Color yuv = get_pixel_fn(src, j, i);
+      Color rgb = yuvToRgb(yuv);
+      put_pixel_fn(dst, j, i, rgb);
+    }
+  }
+  return g_no_error;
+}
+
 std::unique_ptr<uhdr_raw_image_ext_t> copy_raw_image(uhdr_raw_image_t* src) {
   std::unique_ptr<uhdr_raw_image_ext_t> dst = std::make_unique<ultrahdr::uhdr_raw_image_ext_t>(
       src->fmt, src->cg, src->ct, src->range, src->w, src->h, 64);
