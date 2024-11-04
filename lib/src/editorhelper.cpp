@@ -19,6 +19,7 @@
 #include <cmath>
 
 #include "ultrahdr/editorhelper.h"
+#include "ultrahdr/gainmapmath.h"
 
 namespace ultrahdr {
 
@@ -102,42 +103,52 @@ double bicubic_interpolate(double p0, double p1, double p2, double p3, double x)
   return w0 * p0 + w1 * p1 + w2 * p2 + w3 * p3;
 }
 
-template <typename T>
-void resize_buffer(T* src_buffer, T* dst_buffer, int src_w, int src_h, int dst_w, int dst_h,
-                   int src_stride, int dst_stride, uhdr_img_fmt_t img_fmt, size_t plane) {
+std::unique_ptr<uhdr_raw_image_ext_t> resize_image(uhdr_raw_image_t* src, int dst_w, int dst_h) {
+  GetPixelFn get_pixel_fn = getPixelFn(src->fmt);
+  if (get_pixel_fn == nullptr) {
+    return nullptr;
+  }
+
+  PutPixelFn put_pixel_fn = putPixelFn(src->fmt);
+  if (put_pixel_fn == nullptr) {
+    return nullptr;
+  }
+
+  std::unique_ptr<uhdr_raw_image_ext_t> dst = std::make_unique<uhdr_raw_image_ext_t>(
+      src->fmt, src->cg, src->ct, src->range, dst_w, dst_h, 64);
+
+  int src_w = src->w;
+  int src_h = src->h;
   double scale_x = (double)src_w / dst_w;
   double scale_y = (double)src_h / dst_h;
   for (int y = 0; y < dst_h; y++) {
     for (int x = 0; x < dst_w; x++) {
       double ori_x = x * scale_x;
       double ori_y = y * scale_y;
-      int p0_x = (int)floor(ori_x);
-      int p0_y = (int)floor(ori_y);
-      int p1_x = p0_x + 1;
+      int p0_x = CLIP3((int)floor(ori_x), 0, src_w - 1);
+      int p0_y = CLIP3((int)floor(ori_y), 0, src_h - 1);
+      int p1_x = CLIP3((p0_x + 1), 0, src_w - 1);
       int p1_y = p0_y;
       int p2_x = p0_x;
-      int p2_y = p0_y + 1;
-      int p3_x = p0_x + 1;
-      int p3_y = p0_y + 1;
+      int p2_y = CLIP3((p0_y + 1), 0, src_h - 1);
+      int p3_x = CLIP3((p0_x + 1), 0, src_w - 1);
+      int p3_y = CLIP3((p0_y + 1), 0, src_h - 1);
 
-      if ((img_fmt == UHDR_IMG_FMT_8bppYCbCr400) ||
-          (img_fmt == UHDR_IMG_FMT_12bppYCbCr420 && plane == UHDR_PLANE_Y) ||
-          (img_fmt == UHDR_IMG_FMT_12bppYCbCr420 && plane == UHDR_PLANE_U) ||
-          (img_fmt == UHDR_IMG_FMT_12bppYCbCr420 && plane == UHDR_PLANE_V)) {
-        double p0 = (double)src_buffer[p0_y * src_stride + p0_x];
-        double p1 = (double)src_buffer[p1_y * src_stride + p1_x];
-        double p2 = (double)src_buffer[p2_y * src_stride + p2_x];
-        double p3 = (double)src_buffer[p3_y * src_stride + p3_x];
+      Color p0 = get_pixel_fn(src, p0_x, p0_y);
+      Color p1 = get_pixel_fn(src, p1_x, p1_y);
+      Color p2 = get_pixel_fn(src, p2_x, p2_y);
+      Color p3 = get_pixel_fn(src, p3_x, p3_y);
 
-        double new_pix_val = bicubic_interpolate(p0, p1, p2, p3, ori_x - p0_x);
-
-        dst_buffer[y * dst_stride + x] = (uint8_t)floor(new_pix_val + 0.5);
-      } else {
-        // Unsupported feature.
-        return;
+      Color interp;
+      interp.r = (float)bicubic_interpolate(p0.r, p1.r, p2.r, p3.r, ori_x - p0_x);
+      if (src->fmt != UHDR_IMG_FMT_8bppYCbCr400) {
+        interp.g = (float)bicubic_interpolate(p0.g, p1.g, p2.g, p3.g, ori_x - p0_x);
+        interp.b = (float)bicubic_interpolate(p0.b, p1.b, p2.b, p3.b, ori_x - p0_x);
       }
+      put_pixel_fn(dst.get(), x, y, interp);
     }
   }
+  return dst;
 }
 
 template void mirror_buffer<uint8_t>(uint8_t*, uint8_t*, int, int, int, int,

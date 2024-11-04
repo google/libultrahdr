@@ -113,6 +113,8 @@ template <typename T>
 extern void resize_buffer(T* src_buffer, T* dst_buffer, int src_w, int src_h, int dst_w, int dst_h,
                           int src_stride, int dst_stride);
 
+std::unique_ptr<uhdr_raw_image_ext_t> resize_image(uhdr_raw_image_t* src, int dst_w, int dst_h);
+
 #if (defined(UHDR_ENABLE_INTRINSICS) && (defined(__ARM_NEON__) || defined(__ARM_NEON)))
 template <typename T>
 extern void mirror_buffer_neon(T* src_buffer, T* dst_buffer, int src_w, int src_h, int src_stride,
