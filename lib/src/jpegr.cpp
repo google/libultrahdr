@@ -27,6 +27,7 @@
 #include <mutex>
 #include <thread>
 
+#include "ultrahdr/editorhelper.h"
 #include "ultrahdr/gainmapmetadata.h"
 #include "ultrahdr/ultrahdrcommon.h"
 #include "ultrahdr/jpegr.h"
@@ -1426,6 +1427,7 @@ uhdr_error_info_t JpegR::applyGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_ima
   }
 #endif
 
+  std::unique_ptr<uhdr_raw_image_ext_t> resized_gainmap = nullptr;
   {
     float primary_aspect_ratio = (float)sdr_intent->w / sdr_intent->h;
     float gainmap_aspect_ratio = (float)gainmap_img->w / gainmap_img->h;
@@ -1433,15 +1435,17 @@ uhdr_error_info_t JpegR::applyGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_ima
     // Allow 1% delta
     const float delta_tolerance = 0.01;
     if (delta_aspect_ratio / primary_aspect_ratio > delta_tolerance) {
-      uhdr_error_info_t status;
-      status.error_code = UHDR_CODEC_UNSUPPORTED_FEATURE;
-      status.has_detail = 1;
-      snprintf(
-          status.detail, sizeof status.detail,
-          "gain map dimensions scale factor values for height and width are different, \n primary "
-          "image resolution is %ux%u, received gain map resolution is %ux%u",
-          sdr_intent->w, sdr_intent->h, gainmap_img->w, gainmap_img->h);
-      return status;
+      resized_gainmap = resize_image(gainmap_img, sdr_intent->w, sdr_intent->h);
+      if (resized_gainmap == nullptr) {
+        uhdr_error_info_t status;
+        status.error_code = UHDR_CODEC_UNSUPPORTED_FEATURE;
+        status.has_detail = 1;
+        snprintf(status.detail, sizeof status.detail,
+                 "encountered error while resizing the gainmap image from %ux%u to %ux%u",
+                 gainmap_img->w, gainmap_img->h, sdr_intent->w, sdr_intent->h);
+        return status;
+      }
+      gainmap_img = resized_gainmap.get();
     }
   }
 

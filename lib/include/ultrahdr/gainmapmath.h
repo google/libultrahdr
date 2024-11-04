@@ -369,8 +369,10 @@ class LookUpTable {
 Color getYuv444Pixel(uhdr_raw_image_t* image, size_t x, size_t y);
 Color getYuv422Pixel(uhdr_raw_image_t* image, size_t x, size_t y);
 Color getYuv420Pixel(uhdr_raw_image_t* image, size_t x, size_t y);
+Color getYuv400Pixel(uhdr_raw_image_t* image, size_t x, size_t y);
 Color getP010Pixel(uhdr_raw_image_t* image, size_t x, size_t y);
 Color getYuv444Pixel10bit(uhdr_raw_image_t* image, size_t x, size_t y);
+Color getRgb888Pixel(uhdr_raw_image_t* image, size_t x, size_t y);
 Color getRgba8888Pixel(uhdr_raw_image_t* image, size_t x, size_t y);
 Color getRgba1010102Pixel(uhdr_raw_image_t* image, size_t x, size_t y);
 Color getRgbaF16Pixel(uhdr_raw_image_t* image, size_t x, size_t y);
@@ -388,6 +390,8 @@ Color sampleRgbaF16(uhdr_raw_image_t* image, size_t map_scale_factor, size_t x, 
 
 // Put pixel in the image at the provided location.
 void putRgba8888Pixel(uhdr_raw_image_t* image, size_t x, size_t y, Color& pixel);
+void putRgb888Pixel(uhdr_raw_image_t* image, size_t x, size_t y, Color& pixel);
+void putYuv400Pixel(uhdr_raw_image_t* image, size_t x, size_t y, Color& pixel);
 void putYuv444Pixel(uhdr_raw_image_t* image, size_t x, size_t y, Color& pixel);
 
 ////////////////////////////////////////////////////////////////////////////////

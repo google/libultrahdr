@@ -389,6 +389,15 @@ Color getYuv420Pixel(uhdr_raw_image_t* image, size_t x, size_t y) {
   return getYuv4abPixel(image, x, y, 2, 2);
 }
 
+Color getYuv400Pixel(uhdr_raw_image_t* image, size_t x, size_t y) {
+  uint8_t* luma_data = reinterpret_cast<uint8_t*>(image->planes[UHDR_PLANE_Y]);
+  size_t luma_stride = image->stride[UHDR_PLANE_Y];
+  size_t pixel_y_idx = x + y * luma_stride;
+  uint8_t y_uint = luma_data[pixel_y_idx];
+
+  return {{{static_cast<float>(y_uint) * (1 / 255.0f), 0.f, 0.f}}};
+}
+
 Color getYuv444Pixel10bit(uhdr_raw_image_t* image, size_t x, size_t y) {
   uint16_t* luma_data = reinterpret_cast<uint16_t*>(image->planes[UHDR_PLANE_Y]);
   size_t luma_stride = image->stride[UHDR_PLANE_Y];
@@ -439,6 +448,17 @@ Color getP010Pixel(uhdr_raw_image_t* image, size_t x, size_t y) {
   return {{{static_cast<float>(y_uint - 64) * (1 / 876.0f),
             static_cast<float>(u_uint - 64) * (1 / 896.0f) - 0.5f,
             static_cast<float>(v_uint - 64) * (1 / 896.0f) - 0.5f}}};
+}
+
+Color getRgb888Pixel(uhdr_raw_image_t* image, size_t x, size_t y) {
+  uint8_t* rgbData = static_cast<uint8_t*>(image->planes[UHDR_PLANE_PACKED]);
+  unsigned int srcStride = image->stride[UHDR_PLANE_PACKED];
+  size_t offset = x * 3 + y * srcStride * 3;
+  Color pixel;
+  pixel.r = float(rgbData[offset]);
+  pixel.g = float(rgbData[offset + 1]);
+  pixel.b = float(rgbData[offset + 2]);
+  return pixel / 255.0f;
 }
 
 Color getRgba8888Pixel(uhdr_raw_image_t* image, size_t x, size_t y) {
@@ -532,6 +552,31 @@ void putRgba8888Pixel(uhdr_raw_image_t* image, size_t x, size_t y, Color& pixel)
   int32_t g0 = int32_t(pixel.g);
   int32_t b0 = int32_t(pixel.b);
   rgbData[x + y * srcStride] = r0 | (g0 << 8) | (b0 << 16) | (255 << 24);  // Set alpha to 1.0
+}
+
+void putRgb888Pixel(uhdr_raw_image_t* image, size_t x, size_t y, Color& pixel) {
+  uint8_t* rgbData = static_cast<uint8_t*>(image->planes[UHDR_PLANE_PACKED]);
+  unsigned int srcStride = image->stride[UHDR_PLANE_PACKED];
+  size_t offset = x * 3 + y * srcStride * 3;
+  pixel *= 255.0f;
+  pixel += 0.5f;
+  pixel.r = CLIP3(pixel.r, 0.0f, 255.0f);
+  pixel.g = CLIP3(pixel.g, 0.0f, 255.0f);
+  pixel.b = CLIP3(pixel.b, 0.0f, 255.0f);
+  rgbData[offset] = uint8_t(pixel.r);
+  rgbData[offset + 1] = uint8_t(pixel.r);
+  rgbData[offset + 2] = uint8_t(pixel.b);
+}
+
+void putYuv400Pixel(uhdr_raw_image_t* image, size_t x, size_t y, Color& pixel) {
+  uint8_t* luma_data = reinterpret_cast<uint8_t*>(image->planes[UHDR_PLANE_Y]);
+  size_t luma_stride = image->stride[UHDR_PLANE_Y];
+
+  pixel *= 255.0f;
+  pixel += 0.5f;
+  pixel.y = CLIP3(pixel.y, 0.0f, 255.0f);
+
+  luma_data[x + y * luma_stride] = uint8_t(pixel.y);
 }
 
 void putYuv444Pixel(uhdr_raw_image_t* image, size_t x, size_t y, Color& pixel) {
@@ -1180,6 +1225,10 @@ GetPixelFn getPixelFn(uhdr_img_fmt_t format) {
       return getRgba1010102Pixel;
     case UHDR_IMG_FMT_64bppRGBAHalfFloat:
       return getRgbaF16Pixel;
+    case UHDR_IMG_FMT_8bppYCbCr400:
+      return getYuv400Pixel;
+    case UHDR_IMG_FMT_24bppRGB888:
+      return getRgb888Pixel;
     default:
       return nullptr;
   }
@@ -1192,6 +1241,10 @@ PutPixelFn putPixelFn(uhdr_img_fmt_t format) {
       return putYuv444Pixel;
     case UHDR_IMG_FMT_32bppRGBA8888:
       return putRgba8888Pixel;
+    case UHDR_IMG_FMT_8bppYCbCr400:
+      return putYuv400Pixel;
+    case UHDR_IMG_FMT_24bppRGB888:
+      return putRgb888Pixel;
     default:
       return nullptr;
   }
