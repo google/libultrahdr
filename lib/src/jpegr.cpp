@@ -1363,24 +1363,6 @@ uhdr_error_info_t JpegR::applyGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_ima
     return status;
   }
   UHDR_ERR_CHECK(uhdr_validate_gainmap_metadata_descriptor(gainmap_metadata));
-  if (gainmap_metadata->offset_sdr != 0.0f) {
-    uhdr_error_info_t status;
-    status.error_code = UHDR_CODEC_UNSUPPORTED_FEATURE;
-    status.has_detail = 1;
-    snprintf(status.detail, sizeof status.detail,
-             "Current implementation does not handle non zero offset_sdr. Expected %f, Got %f",
-             0.0f, gainmap_metadata->offset_sdr);
-    return status;
-  }
-  if (gainmap_metadata->offset_hdr != 0.0f) {
-    uhdr_error_info_t status;
-    status.error_code = UHDR_CODEC_UNSUPPORTED_FEATURE;
-    status.has_detail = 1;
-    snprintf(status.detail, sizeof status.detail,
-             "Current implementation does not handle non zero offset_hdr. Expected %f, Got %f",
-             0.0f, gainmap_metadata->offset_hdr);
-    return status;
-  }
   if (sdr_intent->fmt != UHDR_IMG_FMT_24bppYCbCr444 &&
       sdr_intent->fmt != UHDR_IMG_FMT_16bppYCbCr422 &&
       sdr_intent->fmt != UHDR_IMG_FMT_12bppYCbCr420) {
@@ -1477,9 +1459,9 @@ uhdr_error_info_t JpegR::applyGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_ima
 
   JobQueue jobQueue;
   std::function<void()> applyRecMap = [sdr_intent, gainmap_img, dest, &jobQueue, &idwTable,
-                                       output_ct, &gainLUT,
+                                       output_ct, &gainLUT, gainmap_metadata,
 #if !USE_APPLY_GAIN_LUT
-                                       gainmap_metadata, gainmap_weight,
+                                       gainmap_weight,
 #endif
                                        map_scale_factor, get_pixel_fn]() -> void {
     size_t width = sdr_intent->w;
@@ -1508,7 +1490,7 @@ uhdr_error_info_t JpegR::applyGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_ima
             }
 
 #if USE_APPLY_GAIN_LUT
-            rgb_hdr = applyGainLUT(rgb_sdr, gain, gainLUT);
+            rgb_hdr = applyGainLUT(rgb_sdr, gain, gainLUT, gainmap_metadata);
 #else
             rgb_hdr = applyGain(rgb_sdr, gain, gainmap_metadata, gainmap_weight);
 #endif
@@ -1524,7 +1506,7 @@ uhdr_error_info_t JpegR::applyGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_ima
             }
 
 #if USE_APPLY_GAIN_LUT
-            rgb_hdr = applyGainLUT(rgb_sdr, gain, gainLUT);
+            rgb_hdr = applyGainLUT(rgb_sdr, gain, gainLUT, gainmap_metadata);
 #else
             rgb_hdr = applyGain(rgb_sdr, gain, gainmap_metadata, gainmap_weight);
 #endif

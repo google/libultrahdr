@@ -496,7 +496,7 @@ uint8_t affineMapGain(float gainlog2, float mingainlog2, float maxgainlog2, floa
  */
 Color applyGain(Color e, float gain, uhdr_gainmap_metadata_ext_t* metadata);
 Color applyGain(Color e, float gain, uhdr_gainmap_metadata_ext_t* metadata, float gainmapWeight);
-Color applyGainLUT(Color e, float gain, GainLUT& gainLUT);
+Color applyGainLUT(Color e, float gain, GainLUT& gainLUT, uhdr_gainmap_metadata_ext_t* metadata);
 
 /*
  * Apply gain in R, G and B channels, with the given hdr ratio, to the given sdr input
@@ -504,7 +504,7 @@ Color applyGainLUT(Color e, float gain, GainLUT& gainLUT);
  */
 Color applyGain(Color e, Color gain, uhdr_gainmap_metadata_ext_t* metadata);
 Color applyGain(Color e, Color gain, uhdr_gainmap_metadata_ext_t* metadata, float gainmapWeight);
-Color applyGainLUT(Color e, Color gain, GainLUT& gainLUT);
+Color applyGainLUT(Color e, Color gain, GainLUT& gainLUT, uhdr_gainmap_metadata_ext_t* metadata);
 
 /*
  * Sample the gain value for the map from a given x,y coordinate on a scale
