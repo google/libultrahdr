@@ -23,7 +23,7 @@
 #include "ultrahdr_api.h"
 
 #ifdef __ANDROID__
-std::string kTestImagesPath = "/sdcard/test/UltrahdrBenchmarkTestRes-1.1/";
+std::string kTestImagesPath = "/sdcard/test/UltrahdrBenchmarkTestRes-1.2/";
 
 #ifdef LOG_NDEBUG
 #include "android/log.h"
@@ -41,7 +41,7 @@ std::string kTestImagesPath = "/sdcard/test/UltrahdrBenchmarkTestRes-1.1/";
 #endif
 
 #else
-std::string kTestImagesPath = "./data/UltrahdrBenchmarkTestRes-1.1/";
+std::string kTestImagesPath = "./data/UltrahdrBenchmarkTestRes-1.2/";
 
 #ifdef LOG_NDEBUG
 #include <cstdio>
@@ -67,11 +67,13 @@ std::vector<std::string> kDecodeAPITestImages = {
 
 std::vector<std::string> kEncodeApi0TestImages12MpName = {
     "mountains_rgba1010102.raw",
+    "mountains_rgba16F.raw",
     "mountains_p010.p010",
 };
 
 std::vector<std::pair<std::string, std::string>> kEncodeApi1TestImages12MpName = {
     {"mountains_rgba1010102.raw", "mountains_rgba8888.raw"},
+    {"mountains_rgba16F.raw", "mountains_rgba8888.raw"},
     {"mountains_p010.p010", "mountains_yuv420.yuv"},
 };
 
@@ -143,8 +145,9 @@ static bool loadFile(const char* filename, uhdr_raw_image_t* handle) {
       READ_BYTES(ifd, handle->planes[UHDR_PLANE_UV], (handle->w / 2) * (handle->h / 2) * bpp * 2)
       return true;
     } else if (handle->fmt == UHDR_IMG_FMT_32bppRGBA1010102 ||
-               handle->fmt == UHDR_IMG_FMT_32bppRGBA8888) {
-      const int bpp = 4;
+               handle->fmt == UHDR_IMG_FMT_32bppRGBA8888 ||
+               handle->fmt == UHDR_IMG_FMT_64bppRGBAHalfFloat) {
+      const int bpp = handle->fmt == UHDR_IMG_FMT_64bppRGBAHalfFloat ? 8 : 4;
       READ_BYTES(ifd, handle->planes[UHDR_PLANE_PACKED], handle->w * handle->h * bpp)
       return true;
     } else if (handle->fmt == UHDR_IMG_FMT_12bppYCbCr420) {
@@ -295,8 +298,9 @@ bool EncBenchmark::fillRawImageHandle(uhdr_raw_image_t* rawImg, int width, int h
     rawImg->stride[UHDR_PLANE_UV] = width;
     rawImg->stride[UHDR_PLANE_V] = 0;
     return loadFile(file.c_str(), rawImg);
-  } else if (cf == UHDR_IMG_FMT_32bppRGBA1010102 || cf == UHDR_IMG_FMT_32bppRGBA8888) {
-    const int bpp = 4;
+  } else if (cf == UHDR_IMG_FMT_32bppRGBA1010102 || cf == UHDR_IMG_FMT_32bppRGBA8888 ||
+             cf == UHDR_IMG_FMT_64bppRGBAHalfFloat) {
+    const int bpp = cf == UHDR_IMG_FMT_64bppRGBAHalfFloat ? 8 : 4;
     rawImg->range = UHDR_CR_FULL_RANGE;
     rawImg->planes[UHDR_PLANE_PACKED] = malloc(width * height * bpp);
     rawImg->planes[UHDR_PLANE_UV] = nullptr;
@@ -371,7 +375,9 @@ static void BM_UHDREncode_Api0(benchmark::State& s, TestParamsEncoderAPI0 testVe
   s.SetLabel(
       benchmark.mHdrFile + ", " + std::to_string(benchmark.mWidth) + "x" +
       std::to_string(benchmark.mHeight) + ", " + colorGamutToString(benchmark.mHdrCg) + ", " +
-      tfToString(benchmark.mHdrCt) + ", " +
+      (benchmark.mHdrFile.find("rgba16F") != std::string::npos ? "linear"
+                                                               : tfToString(benchmark.mHdrCt)) +
+      ", " +
       (benchmark.mUseMultiChannelGainMap == 0 ? "singlechannelgainmap" : "multichannelgainmap") +
       ", gamma: " + std::to_string(benchmark.mGamma));
 
@@ -381,6 +387,10 @@ static void BM_UHDREncode_Api0(benchmark::State& s, TestParamsEncoderAPI0 testVe
   } else if (benchmark.mHdrFile.find("rgba1010102") != std::string::npos) {
     benchmark.mHdrFile = kTestImagesPath + "rgba1010102/" + benchmark.mHdrFile;
     benchmark.mHdrCf = UHDR_IMG_FMT_32bppRGBA1010102;
+  } else if (benchmark.mHdrFile.find("rgba16F") != std::string::npos) {
+    benchmark.mHdrFile = kTestImagesPath + "rgba16F/" + benchmark.mHdrFile;
+    benchmark.mHdrCf = UHDR_IMG_FMT_64bppRGBAHalfFloat;
+    benchmark.mHdrCt = UHDR_CT_LINEAR;
   } else {
     s.SkipWithError("Invalid file format : " + benchmark.mHdrFile);
     return;
@@ -412,7 +422,9 @@ static void BM_UHDREncode_Api1(benchmark::State& s, TestParamsEncoderAPI1 testVe
   s.SetLabel(
       benchmark.mHdrFile + ", " + benchmark.mSdrFile + ", " + std::to_string(benchmark.mWidth) +
       "x" + std::to_string(benchmark.mHeight) + ", hdrCg: " + colorGamutToString(benchmark.mHdrCg) +
-      ", hdrCt: " + tfToString(benchmark.mHdrCt) +
+      ", hdrCt: " +
+      (benchmark.mHdrFile.find("rgba16F") != std::string::npos ? "linear"
+                                                               : tfToString(benchmark.mHdrCt)) +
       ", sdrCg: " + colorGamutToString(benchmark.mSdrCg) + ", " +
       (benchmark.mUseMultiChannelGainMap == 0 ? "singlechannelgainmap" : "multichannelgainmap") +
       ", gamma: " + std::to_string(benchmark.mGamma) + ", " +
@@ -424,6 +436,10 @@ static void BM_UHDREncode_Api1(benchmark::State& s, TestParamsEncoderAPI1 testVe
   } else if (benchmark.mHdrFile.find("rgba1010102") != std::string::npos) {
     benchmark.mHdrFile = kTestImagesPath + "rgba1010102/" + benchmark.mHdrFile;
     benchmark.mHdrCf = UHDR_IMG_FMT_32bppRGBA1010102;
+  } else if (benchmark.mHdrFile.find("rgba16F") != std::string::npos) {
+    benchmark.mHdrFile = kTestImagesPath + "rgba16F/" + benchmark.mHdrFile;
+    benchmark.mHdrCf = UHDR_IMG_FMT_64bppRGBAHalfFloat;
+    benchmark.mHdrCt = UHDR_CT_LINEAR;
   } else {
     s.SkipWithError("Invalid hdr file format : " + benchmark.mHdrFile);
     return;

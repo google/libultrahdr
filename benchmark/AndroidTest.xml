@@ -22,11 +22,11 @@
     <target_preparer class="com.android.compatibility.common.tradefed.targetprep.DynamicConfigPusher">
         <option name="target" value="host" />
         <option name="config-filename" value="ultrahdr_benchmark" />
-        <option name="version" value="1.1"/>
+        <option name="version" value="1.2"/>
     </target_preparer>
     <target_preparer class="com.android.compatibility.common.tradefed.targetprep.MediaPreparer">
         <option name="push-all" value="true" />
-        <option name="media-folder-name" value="UltrahdrBenchmarkTestRes-1.1"/>
+        <option name="media-folder-name" value="UltrahdrBenchmarkTestRes-1.2"/>
         <option name="dynamic-config-module" value="ultrahdr_benchmark" />
     </target_preparer>
     <test class="com.android.tradefed.testtype.GoogleBenchmarkTest" >
