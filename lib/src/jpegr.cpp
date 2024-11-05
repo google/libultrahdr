@@ -214,7 +214,11 @@ uhdr_error_info_t JpegR::encodeJPEGR(uhdr_raw_image_t* hdr_intent, uhdr_compress
   std::unique_ptr<uhdr_raw_image_ext_t> sdr_intent_yuv_ext;
   uhdr_raw_image_t* sdr_intent_yuv = sdr_intent.get();
   if (isPixelFormatRgb(sdr_intent->fmt)) {
+#if (defined(UHDR_ENABLE_INTRINSICS) && (defined(__ARM_NEON__) || defined(__ARM_NEON)))
+    sdr_intent_yuv_ext = convert_raw_input_to_ycbcr_neon(sdr_intent.get());
+#else
     sdr_intent_yuv_ext = convert_raw_input_to_ycbcr(sdr_intent.get());
+#endif
     sdr_intent_yuv = sdr_intent_yuv_ext.get();
   }
 
@@ -249,7 +253,11 @@ uhdr_error_info_t JpegR::encodeJPEGR(uhdr_raw_image_t* hdr_intent, uhdr_raw_imag
   std::unique_ptr<uhdr_raw_image_ext_t> sdr_intent_yuv_ext;
   uhdr_raw_image_t* sdr_intent_yuv = sdr_intent;
   if (isPixelFormatRgb(sdr_intent->fmt)) {
+#if (defined(UHDR_ENABLE_INTRINSICS) && (defined(__ARM_NEON__) || defined(__ARM_NEON)))
+    sdr_intent_yuv_ext = convert_raw_input_to_ycbcr_neon(sdr_intent);
+#else
     sdr_intent_yuv_ext = convert_raw_input_to_ycbcr(sdr_intent);
+#endif
     sdr_intent_yuv = sdr_intent_yuv_ext.get();
   }
 
