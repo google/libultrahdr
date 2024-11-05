@@ -15,6 +15,6 @@
 
 <dynamicConfig>
     <entry key="media_files_url">
-          <value>https://storage.googleapis.com/android_media/external/libultrahdr/benchmark/UltrahdrBenchmarkTestRes-1.1.zip</value>
+          <value>https://storage.googleapis.com/android_media/external/libultrahdr/benchmark/UltrahdrBenchmarkTestRes-1.2.zip</value>
     </entry>
 </dynamicConfig>
