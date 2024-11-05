@@ -578,6 +578,10 @@ uhdr_error_info_t copy_raw_image(uhdr_raw_image_t* src, uhdr_raw_image_t* dst);
 std::unique_ptr<uhdr_raw_image_ext_t> convert_raw_input_to_ycbcr(
     uhdr_raw_image_t* src, bool chroma_sampling_enabled = false);
 
+#if (defined(UHDR_ENABLE_INTRINSICS) && (defined(__ARM_NEON__) || defined(__ARM_NEON)))
+std::unique_ptr<uhdr_raw_image_ext_t> convert_raw_input_to_ycbcr_neon(uhdr_raw_image_t* src);
+#endif
+
 bool floatToSignedFraction(float v, int32_t* numerator, uint32_t* denominator);
 bool floatToUnsignedFraction(float v, uint32_t* numerator, uint32_t* denominator);
 
