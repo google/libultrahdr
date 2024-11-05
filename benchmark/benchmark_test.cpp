@@ -329,6 +329,7 @@ static void BM_UHDRDecode(benchmark::State& s, TestParamsDecodeAPI testVectors) 
 
   if (!benchmark.fillJpegImageHandle(&benchmark.mUhdrImg, benchmark.mUhdrFile)) {
     s.SkipWithError("unable to load file : " + benchmark.mUhdrFile);
+    return;
   }
 
 #define RET_IF_ERR(x)                                                       \
@@ -337,6 +338,7 @@ static void BM_UHDRDecode(benchmark::State& s, TestParamsDecodeAPI testVectors) 
     if (status.error_code != UHDR_CODEC_OK) {                               \
       uhdr_release_decoder(decHandle);                                      \
       s.SkipWithError(status.has_detail ? status.detail : "Unknown error"); \
+      return;                                                               \
     }                                                                       \
   }
 
@@ -359,6 +361,7 @@ static void BM_UHDRDecode(benchmark::State& s, TestParamsDecodeAPI testVectors) 
     if (status.error_code != UHDR_CODEC_OK) {                               \
       uhdr_release_encoder(encHandle);                                      \
       s.SkipWithError(status.has_detail ? status.detail : "Unknown error"); \
+      return;                                                               \
     }                                                                       \
   }
 
@@ -380,12 +383,14 @@ static void BM_UHDREncode_Api0(benchmark::State& s, TestParamsEncoderAPI0 testVe
     benchmark.mHdrCf = UHDR_IMG_FMT_32bppRGBA1010102;
   } else {
     s.SkipWithError("Invalid file format : " + benchmark.mHdrFile);
+    return;
   }
 
   if (!benchmark.fillRawImageHandle(&benchmark.mHdrImg, benchmark.mWidth, benchmark.mHeight,
                                     benchmark.mHdrFile, benchmark.mHdrCf, benchmark.mHdrCg,
                                     benchmark.mHdrCt)) {
     s.SkipWithError("unable to load file : " + benchmark.mHdrFile);
+    return;
   }
 
   uhdr_codec_private_t* encHandle = uhdr_create_encoder();
@@ -421,6 +426,7 @@ static void BM_UHDREncode_Api1(benchmark::State& s, TestParamsEncoderAPI1 testVe
     benchmark.mHdrCf = UHDR_IMG_FMT_32bppRGBA1010102;
   } else {
     s.SkipWithError("Invalid hdr file format : " + benchmark.mHdrFile);
+    return;
   }
 
   if (benchmark.mSdrFile.find("yuv420") != std::string::npos) {
@@ -431,17 +437,20 @@ static void BM_UHDREncode_Api1(benchmark::State& s, TestParamsEncoderAPI1 testVe
     benchmark.mSdrCf = UHDR_IMG_FMT_32bppRGBA8888;
   } else {
     s.SkipWithError("Invalid sdr file format : " + benchmark.mSdrFile);
+    return;
   }
 
   if (!benchmark.fillRawImageHandle(&benchmark.mHdrImg, benchmark.mWidth, benchmark.mHeight,
                                     benchmark.mHdrFile, benchmark.mHdrCf, benchmark.mHdrCg,
                                     benchmark.mHdrCt)) {
     s.SkipWithError("unable to load file : " + benchmark.mHdrFile);
+    return;
   }
   if (!benchmark.fillRawImageHandle(&benchmark.mSdrImg, benchmark.mWidth, benchmark.mHeight,
                                     benchmark.mSdrFile, benchmark.mSdrCf, benchmark.mSdrCg,
                                     benchmark.mSdrCt)) {
     s.SkipWithError("unable to load sdr file : " + benchmark.mSdrFile);
+    return;
   }
 
   uhdr_codec_private_t* encHandle = uhdr_create_encoder();
