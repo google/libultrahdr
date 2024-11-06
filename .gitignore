@@ -1,0 +1,9 @@
+# build output directories
+build
+build*
+
+# downloaded dependencies
+third_party/googletest
+third_party/turbojpeg
+third_party/benchmark
+tests/data
