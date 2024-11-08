@@ -271,6 +271,31 @@ This will generate the following files under `build_directory`:
 **ultrahdr_app** - sample application <br>
 **ultrahdr_unit_test** - unit tests <br>
 
+#### Target - Linux Platform - RISC-V Arch (32 bit)
+
+Install the prerequisite packages before building:
+
+```sh
+# Download from https://github.com/riscv-collab/riscv-gnu-toolchain/releases
+sudo ln -s {your_dir}/riscv/bin/riscv32-unknown-linux-gnu-g++ /usr/bin/riscv32-linux-gnu-g++
+sudo ln -s {your_dir}/riscv/bin/riscv32-unknown-linux-gnu-gcc /usr/bin/riscv32-linux-gnu-gcc
+```
+
+Compile:
+
+```sh
+cmake -G Ninja -DCMAKE_TOOLCHAIN_FILE=../cmake/toolchains/riscv32-linux-gnu.cmake -DUHDR_BUILD_DEPS=1 ../
+ninja
+```
+
+This will generate the following files under `build_directory`:
+
+**libuhdr.so.{version}** - Shared library for the libuhdr API <br>
+**libuhdr.so** - Symlink to shared library <br>
+**libuhdr.a** - Static link library for the libuhdr API <br>
+**ultrahdr_app** - sample application <br>
+**ultrahdr_unit_test** - unit tests <br>
+
 #### Target - Linux Platform - LOONG Arch (64 bit)
 
 Install the prerequisite packages before building:
