@@ -697,6 +697,9 @@ uhdr_error_info_t JpegR::generateGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_
       const bool isSdrIntentRgb = isPixelFormatRgb(sdr_intent->fmt);
       const float hdrSampleToNitsFactor =
           hdr_intent->ct == UHDR_CT_LINEAR ? kSdrWhiteNits : hdr_white_nits;
+      ColorTransformFn clampPixel = hdr_intent->ct == UHDR_CT_LINEAR
+                                        ? static_cast<ColorTransformFn>(clampPixelFloatLinear)
+                                        : static_cast<ColorTransformFn>(clampPixelFloat);
       while (jobQueue.dequeueJob(rowStart, rowEnd)) {
         for (size_t y = rowStart; y < rowEnd; ++y) {
           for (size_t x = 0; x < dest->w; ++x) {
@@ -727,6 +730,7 @@ uhdr_error_info_t JpegR::generateGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_
             Color hdr_rgb = hdrInvOetf(hdr_rgb_gamma);
             hdr_rgb = hdrOotfFn(hdr_rgb, hdrLuminanceFn);
             hdr_rgb = hdrGamutConversionFn(hdr_rgb);
+            hdr_rgb = clampPixel(hdr_rgb);
 
             if (mUseMultiChannelGainMap) {
               Color sdr_rgb_nits = sdr_rgb * kSdrWhiteNits;
@@ -803,6 +807,9 @@ uhdr_error_info_t JpegR::generateGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_
       const bool isSdrIntentRgb = isPixelFormatRgb(sdr_intent->fmt);
       const float hdrSampleToNitsFactor =
           hdr_intent->ct == UHDR_CT_LINEAR ? kSdrWhiteNits : hdr_white_nits;
+      ColorTransformFn clampPixel = hdr_intent->ct == UHDR_CT_LINEAR
+                                        ? static_cast<ColorTransformFn>(clampPixelFloatLinear)
+                                        : static_cast<ColorTransformFn>(clampPixelFloat);
       float gainmap_min_th[3] = {127.0f, 127.0f, 127.0f};
       float gainmap_max_th[3] = {-128.0f, -128.0f, -128.0f};
 
@@ -836,6 +843,7 @@ uhdr_error_info_t JpegR::generateGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_
             Color hdr_rgb = hdrInvOetf(hdr_rgb_gamma);
             hdr_rgb = hdrOotfFn(hdr_rgb, hdrLuminanceFn);
             hdr_rgb = hdrGamutConversionFn(hdr_rgb);
+            hdr_rgb = clampPixel(hdr_rgb);
 
             if (mUseMultiChannelGainMap) {
               Color sdr_rgb_nits = sdr_rgb * kSdrWhiteNits;

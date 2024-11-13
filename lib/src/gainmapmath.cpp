@@ -602,39 +602,39 @@ void putYuv444Pixel(uhdr_raw_image_t* image, size_t x, size_t y, Color& pixel) {
 // Color space conversions
 
 Color bt709ToP3(Color e) {
-  return {{{clampPixelFloat(0.82254f * e.r + 0.17755f * e.g + 0.00006f * e.b),
-            clampPixelFloat(0.03312f * e.r + 0.96684f * e.g + -0.00001f * e.b),
-            clampPixelFloat(0.01706f * e.r + 0.07240f * e.g + 0.91049f * e.b)}}};
+  return {{{0.82254f * e.r + 0.17755f * e.g + 0.00006f * e.b,
+            0.03312f * e.r + 0.96684f * e.g + -0.00001f * e.b,
+            0.01706f * e.r + 0.07240f * e.g + 0.91049f * e.b}}};
 }
 
 Color bt709ToBt2100(Color e) {
-  return {{{clampPixelFloat(0.62740f * e.r + 0.32930f * e.g + 0.04332f * e.b),
-            clampPixelFloat(0.06904f * e.r + 0.91958f * e.g + 0.01138f * e.b),
-            clampPixelFloat(0.01636f * e.r + 0.08799f * e.g + 0.89555f * e.b)}}};
+  return {{{0.62740f * e.r + 0.32930f * e.g + 0.04332f * e.b,
+            0.06904f * e.r + 0.91958f * e.g + 0.01138f * e.b,
+            0.01636f * e.r + 0.08799f * e.g + 0.89555f * e.b}}};
 }
 
 Color p3ToBt709(Color e) {
-  return {{{clampPixelFloat(1.22482f * e.r + -0.22490f * e.g + -0.00007f * e.b),
-            clampPixelFloat(-0.04196f * e.r + 1.04199f * e.g + 0.00001f * e.b),
-            clampPixelFloat(-0.01961f * e.r + -0.07865f * e.g + 1.09831f * e.b)}}};
+  return {{{1.22482f * e.r + -0.22490f * e.g + -0.00007f * e.b,
+            -0.04196f * e.r + 1.04199f * e.g + 0.00001f * e.b,
+            -0.01961f * e.r + -0.07865f * e.g + 1.09831f * e.b}}};
 }
 
 Color p3ToBt2100(Color e) {
-  return {{{clampPixelFloat(0.75378f * e.r + 0.19862f * e.g + 0.04754f * e.b),
-            clampPixelFloat(0.04576f * e.r + 0.94177f * e.g + 0.01250f * e.b),
-            clampPixelFloat(-0.00121f * e.r + 0.01757f * e.g + 0.98359f * e.b)}}};
+  return {{{0.75378f * e.r + 0.19862f * e.g + 0.04754f * e.b,
+            0.04576f * e.r + 0.94177f * e.g + 0.01250f * e.b,
+            -0.00121f * e.r + 0.01757f * e.g + 0.98359f * e.b}}};
 }
 
 Color bt2100ToBt709(Color e) {
-  return {{{clampPixelFloat(1.66045f * e.r + -0.58764f * e.g + -0.07286f * e.b),
-            clampPixelFloat(-0.12445f * e.r + 1.13282f * e.g + -0.00837f * e.b),
-            clampPixelFloat(-0.01811f * e.r + -0.10057f * e.g + 1.11878f * e.b)}}};
+  return {{{1.66045f * e.r + -0.58764f * e.g + -0.07286f * e.b,
+            -0.12445f * e.r + 1.13282f * e.g + -0.00837f * e.b,
+            -0.01811f * e.r + -0.10057f * e.g + 1.11878f * e.b}}};
 }
 
 Color bt2100ToP3(Color e) {
-  return {{{clampPixelFloat(1.34369f * e.r + -0.28223f * e.g + -0.06135f * e.b),
-            clampPixelFloat(-0.06533f * e.r + 1.07580f * e.g + -0.01051f * e.b),
-            clampPixelFloat(0.00283f * e.r + -0.01957f * e.g + 1.01679f * e.b)}}};
+  return {{{1.34369f * e.r + -0.28223f * e.g + -0.06135f * e.b,
+            -0.06533f * e.r + 1.07580f * e.g + -0.01051f * e.b,
+            0.00283f * e.r + -0.01957f * e.g + 1.01679f * e.b}}};
 }
 
 // All of these conversions are derived from the respective input YUV->RGB conversion followed by
