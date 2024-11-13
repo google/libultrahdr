@@ -61,6 +61,8 @@ struct uhdr_gainmap_metadata_frac {
   static uhdr_error_info_t gainmapMetadataFloatToFraction(const uhdr_gainmap_metadata_ext_t* from,
                                                           uhdr_gainmap_metadata_frac* to);
 
+  bool allChannelsIdentical() const;
+
   void dump() const {
     ALOGD("GAIN MAP METADATA: \n");
     ALOGD("min numerator:                       %d, %d, %d\n", gainMapMinN[0], gainMapMinN[1],
