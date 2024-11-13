@@ -210,7 +210,7 @@ uhdr_error_info_t uhdr_gainmap_metadata_frac::decodeGainmapMetadata(
 
   uint8_t flags = 0xff;
   UHDR_ERR_CHECK(streamReadU8(in_data, flags, pos))
-  uint8_t channelCount = (flags & kIsMultiChannelMask) * 2 + 1;
+  uint8_t channelCount = ((flags & kIsMultiChannelMask) != 0) * 2 + 1;
   if (!(channelCount == 1 || channelCount == 3)) {
     uhdr_error_info_t status;
     status.error_code = UHDR_CODEC_UNSUPPORTED_FEATURE;
