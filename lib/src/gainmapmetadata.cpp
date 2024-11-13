@@ -36,6 +36,13 @@ void streamWriteU32(std::vector<uint8_t> &data, uint32_t value) {
   data.push_back(value & 0xff);
 }
 
+void streamWriteS32(std::vector<uint8_t> &data, int32_t value) {
+  data.push_back((value >> 24) & 0xff);
+  data.push_back((value >> 16) & 0xff);
+  data.push_back((value >> 8) & 0xff);
+  data.push_back(value & 0xff);
+}
+
 uhdr_error_info_t streamReadU8(const std::vector<uint8_t> &data, uint8_t &value, size_t &pos) {
   if (pos >= data.size()) {
     uhdr_error_info_t status;
@@ -66,6 +73,21 @@ uhdr_error_info_t streamReadU16(const std::vector<uint8_t> &data, uint16_t &valu
 }
 
 uhdr_error_info_t streamReadU32(const std::vector<uint8_t> &data, uint32_t &value, size_t &pos) {
+  if (pos + 3 >= data.size()) {
+    uhdr_error_info_t status;
+    status.error_code = UHDR_CODEC_MEM_ERROR;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "attempting to read 4 bytes from position %d when the buffer size is %d", (int)pos,
+             (int)data.size());
+    return status;
+  }
+  value = (data[pos] << 24 | data[pos + 1] << 16 | data[pos + 2] << 8 | data[pos + 3]);
+  pos += 4;
+  return g_no_error;
+}
+
+uhdr_error_info_t streamReadS32(const std::vector<uint8_t> &data, int32_t &value, size_t &pos) {
   if (pos + 3 >= data.size()) {
     uhdr_error_info_t status;
     status.error_code = UHDR_CODEC_MEM_ERROR;
@@ -155,11 +177,11 @@ uhdr_error_info_t uhdr_gainmap_metadata_frac::encodeGainmapMetadata(
     streamWriteU32(out_data, in_metadata->baseHdrHeadroomN);
     streamWriteU32(out_data, in_metadata->alternateHdrHeadroomN);
     for (int c = 0; c < channelCount; ++c) {
-      streamWriteU32(out_data, (uint32_t)in_metadata->gainMapMinN[c]);
-      streamWriteU32(out_data, (uint32_t)in_metadata->gainMapMaxN[c]);
+      streamWriteS32(out_data, in_metadata->gainMapMinN[c]);
+      streamWriteS32(out_data, in_metadata->gainMapMaxN[c]);
       streamWriteU32(out_data, in_metadata->gainMapGammaN[c]);
-      streamWriteU32(out_data, (uint32_t)in_metadata->baseOffsetN[c]);
-      streamWriteU32(out_data, (uint32_t)in_metadata->alternateOffsetN[c]);
+      streamWriteS32(out_data, in_metadata->baseOffsetN[c]);
+      streamWriteS32(out_data, in_metadata->alternateOffsetN[c]);
     }
   } else {
     streamWriteU32(out_data, in_metadata->baseHdrHeadroomN);
@@ -167,15 +189,15 @@ uhdr_error_info_t uhdr_gainmap_metadata_frac::encodeGainmapMetadata(
     streamWriteU32(out_data, in_metadata->alternateHdrHeadroomN);
     streamWriteU32(out_data, in_metadata->alternateHdrHeadroomD);
     for (int c = 0; c < channelCount; ++c) {
-      streamWriteU32(out_data, (uint32_t)in_metadata->gainMapMinN[c]);
+      streamWriteS32(out_data, in_metadata->gainMapMinN[c]);
       streamWriteU32(out_data, in_metadata->gainMapMinD[c]);
-      streamWriteU32(out_data, (uint32_t)in_metadata->gainMapMaxN[c]);
+      streamWriteS32(out_data, in_metadata->gainMapMaxN[c]);
       streamWriteU32(out_data, in_metadata->gainMapMaxD[c]);
       streamWriteU32(out_data, in_metadata->gainMapGammaN[c]);
       streamWriteU32(out_data, in_metadata->gainMapGammaD[c]);
-      streamWriteU32(out_data, (uint32_t)in_metadata->baseOffsetN[c]);
+      streamWriteS32(out_data, in_metadata->baseOffsetN[c]);
       streamWriteU32(out_data, in_metadata->baseOffsetD[c]);
-      streamWriteU32(out_data, (uint32_t)in_metadata->alternateOffsetN[c]);
+      streamWriteS32(out_data, in_metadata->alternateOffsetN[c]);
       streamWriteU32(out_data, in_metadata->alternateOffsetD[c]);
     }
   }
@@ -233,15 +255,15 @@ uhdr_error_info_t uhdr_gainmap_metadata_frac::decodeGainmapMetadata(
     out_metadata->alternateHdrHeadroomD = commonDenominator;
 
     for (int c = 0; c < channelCount; ++c) {
-      UHDR_ERR_CHECK(streamReadU32(in_data, out_metadata->gainMapMinN[c], pos))
+      UHDR_ERR_CHECK(streamReadS32(in_data, out_metadata->gainMapMinN[c], pos))
       out_metadata->gainMapMinD[c] = commonDenominator;
-      UHDR_ERR_CHECK(streamReadU32(in_data, out_metadata->gainMapMaxN[c], pos))
+      UHDR_ERR_CHECK(streamReadS32(in_data, out_metadata->gainMapMaxN[c], pos))
       out_metadata->gainMapMaxD[c] = commonDenominator;
       UHDR_ERR_CHECK(streamReadU32(in_data, out_metadata->gainMapGammaN[c], pos))
       out_metadata->gainMapGammaD[c] = commonDenominator;
-      UHDR_ERR_CHECK(streamReadU32(in_data, out_metadata->baseOffsetN[c], pos))
+      UHDR_ERR_CHECK(streamReadS32(in_data, out_metadata->baseOffsetN[c], pos))
       out_metadata->baseOffsetD[c] = commonDenominator;
-      UHDR_ERR_CHECK(streamReadU32(in_data, out_metadata->alternateOffsetN[c], pos))
+      UHDR_ERR_CHECK(streamReadS32(in_data, out_metadata->alternateOffsetN[c], pos))
       out_metadata->alternateOffsetD[c] = commonDenominator;
     }
   } else {
@@ -250,15 +272,15 @@ uhdr_error_info_t uhdr_gainmap_metadata_frac::decodeGainmapMetadata(
     UHDR_ERR_CHECK(streamReadU32(in_data, out_metadata->alternateHdrHeadroomN, pos))
     UHDR_ERR_CHECK(streamReadU32(in_data, out_metadata->alternateHdrHeadroomD, pos))
     for (int c = 0; c < channelCount; ++c) {
-      UHDR_ERR_CHECK(streamReadU32(in_data, out_metadata->gainMapMinN[c], pos))
+      UHDR_ERR_CHECK(streamReadS32(in_data, out_metadata->gainMapMinN[c], pos))
       UHDR_ERR_CHECK(streamReadU32(in_data, out_metadata->gainMapMinD[c], pos))
-      UHDR_ERR_CHECK(streamReadU32(in_data, out_metadata->gainMapMaxN[c], pos))
+      UHDR_ERR_CHECK(streamReadS32(in_data, out_metadata->gainMapMaxN[c], pos))
       UHDR_ERR_CHECK(streamReadU32(in_data, out_metadata->gainMapMaxD[c], pos))
       UHDR_ERR_CHECK(streamReadU32(in_data, out_metadata->gainMapGammaN[c], pos))
       UHDR_ERR_CHECK(streamReadU32(in_data, out_metadata->gainMapGammaD[c], pos))
-      UHDR_ERR_CHECK(streamReadU32(in_data, out_metadata->baseOffsetN[c], pos))
+      UHDR_ERR_CHECK(streamReadS32(in_data, out_metadata->baseOffsetN[c], pos))
       UHDR_ERR_CHECK(streamReadU32(in_data, out_metadata->baseOffsetD[c], pos))
-      UHDR_ERR_CHECK(streamReadU32(in_data, out_metadata->alternateOffsetN[c], pos))
+      UHDR_ERR_CHECK(streamReadS32(in_data, out_metadata->alternateOffsetN[c], pos))
       UHDR_ERR_CHECK(streamReadU32(in_data, out_metadata->alternateOffsetD[c], pos))
     }
   }
@@ -350,13 +372,24 @@ uhdr_error_info_t uhdr_gainmap_metadata_frac::gainmapMetadataFloatToFraction(
     return status;                                                                             \
   }
 
-  CONVERT_FLT_TO_UNSIGNED_FRACTION(log2(from->max_content_boost), &to->gainMapMaxN[0],
-                                   &to->gainMapMaxD[0])
+#define CONVERT_FLT_TO_SIGNED_FRACTION(flt, numerator, denominator)                            \
+  if (!floatToSignedFraction(flt, numerator, denominator)) {                                   \
+    uhdr_error_info_t status;                                                                  \
+    status.error_code = UHDR_CODEC_INVALID_PARAM;                                              \
+    status.has_detail = 1;                                                                     \
+    snprintf(status.detail, sizeof status.detail,                                              \
+             "encountered error while representing float %f as a rational number (p/q form) ", \
+             flt);                                                                             \
+    return status;                                                                             \
+  }
+
+  CONVERT_FLT_TO_SIGNED_FRACTION(log2(from->max_content_boost), &to->gainMapMaxN[0],
+                                 &to->gainMapMaxD[0])
   to->gainMapMaxN[2] = to->gainMapMaxN[1] = to->gainMapMaxN[0];
   to->gainMapMaxD[2] = to->gainMapMaxD[1] = to->gainMapMaxD[0];
 
-  CONVERT_FLT_TO_UNSIGNED_FRACTION(log2(from->min_content_boost), &to->gainMapMinN[0],
-                                   &to->gainMapMinD[0]);
+  CONVERT_FLT_TO_SIGNED_FRACTION(log2(from->min_content_boost), &to->gainMapMinN[0],
+                                 &to->gainMapMinD[0]);
   to->gainMapMinN[2] = to->gainMapMinN[1] = to->gainMapMinN[0];
   to->gainMapMinD[2] = to->gainMapMinD[1] = to->gainMapMinD[0];
 
@@ -364,12 +397,12 @@ uhdr_error_info_t uhdr_gainmap_metadata_frac::gainmapMetadataFloatToFraction(
   to->gainMapGammaN[2] = to->gainMapGammaN[1] = to->gainMapGammaN[0];
   to->gainMapGammaD[2] = to->gainMapGammaD[1] = to->gainMapGammaD[0];
 
-  CONVERT_FLT_TO_UNSIGNED_FRACTION(from->offset_sdr, &to->baseOffsetN[0], &to->baseOffsetD[0]);
+  CONVERT_FLT_TO_SIGNED_FRACTION(from->offset_sdr, &to->baseOffsetN[0], &to->baseOffsetD[0]);
   to->baseOffsetN[2] = to->baseOffsetN[1] = to->baseOffsetN[0];
   to->baseOffsetD[2] = to->baseOffsetD[1] = to->baseOffsetD[0];
 
-  CONVERT_FLT_TO_UNSIGNED_FRACTION(from->offset_hdr, &to->alternateOffsetN[0],
-                                   &to->alternateOffsetD[0]);
+  CONVERT_FLT_TO_SIGNED_FRACTION(from->offset_hdr, &to->alternateOffsetN[0],
+                                 &to->alternateOffsetD[0]);
   to->alternateOffsetN[2] = to->alternateOffsetN[1] = to->alternateOffsetN[0];
   to->alternateOffsetD[2] = to->alternateOffsetD[1] = to->alternateOffsetD[0];
 
