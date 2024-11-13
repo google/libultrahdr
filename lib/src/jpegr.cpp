@@ -1045,25 +1045,33 @@ uhdr_error_info_t JpegR::appendGainMap(uhdr_compressed_image_t* sdr_intent_compr
   // calculate secondary image length first, because the length will be written into the primary //
   // image xmp                                                                                   //
   /////////////////////////////////////////////////////////////////////////////////////////////////
+
   // XMP
-  const string xmp_secondary = generateXmpForSecondaryImage(*metadata);
-  // xmp_secondary_length = 2 bytes representing the length of the package +
-  //  + xmpNameSpaceLength = 29 bytes length
-  //  + length of xmp packet = xmp_secondary.size()
-  const size_t xmp_secondary_length = 2 + xmpNameSpaceLength + xmp_secondary.size();
+  string xmp_secondary;
+  size_t xmp_secondary_length;
+  if (kWriteXmpMetadata) {
+    xmp_secondary = generateXmpForSecondaryImage(*metadata);
+    // xmp_secondary_length = 2 bytes representing the length of the package +
+    //  + xmpNameSpaceLength = 29 bytes length
+    //  + length of xmp packet = xmp_secondary.size()
+    xmp_secondary_length = 2 + xmpNameSpaceLength + xmp_secondary.size();
+  }
+
   // ISO
   uhdr_gainmap_metadata_frac iso_secondary_metadata;
   std::vector<uint8_t> iso_secondary_data;
-  UHDR_ERR_CHECK(uhdr_gainmap_metadata_frac::gainmapMetadataFloatToFraction(
-      metadata, &iso_secondary_metadata));
+  size_t iso_secondary_length;
+  if (kWriteIso21496_1Metadata) {
+    UHDR_ERR_CHECK(uhdr_gainmap_metadata_frac::gainmapMetadataFloatToFraction(
+        metadata, &iso_secondary_metadata));
 
-  UHDR_ERR_CHECK(uhdr_gainmap_metadata_frac::encodeGainmapMetadata(&iso_secondary_metadata,
-                                                                   iso_secondary_data));
-
-  // iso_secondary_length = 2 bytes representing the length of the package +
-  //  + isoNameSpaceLength = 28 bytes length
-  //  + length of iso metadata packet = iso_secondary_data.size()
-  const size_t iso_secondary_length = 2 + isoNameSpaceLength + iso_secondary_data.size();
+    UHDR_ERR_CHECK(uhdr_gainmap_metadata_frac::encodeGainmapMetadata(&iso_secondary_metadata,
+                                                                     iso_secondary_data));
+    // iso_secondary_length = 2 bytes representing the length of the package +
+    //  + isoNameSpaceLength = 28 bytes length
+    //  + length of iso metadata packet = iso_secondary_data.size()
+    iso_secondary_length = 2 + isoNameSpaceLength + iso_secondary_data.size();
+  }
 
   size_t secondary_image_size = 2 /* 2 bytes length of APP1 sign */ + gainmap_compressed->data_sz;
   if (kWriteXmpMetadata) {
