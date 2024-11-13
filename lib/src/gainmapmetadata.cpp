@@ -102,6 +102,19 @@ uhdr_error_info_t streamReadS32(const std::vector<uint8_t> &data, int32_t &value
   return g_no_error;
 }
 
+bool uhdr_gainmap_metadata_frac::allChannelsIdentical() const {
+  return gainMapMinN[0] == gainMapMinN[1] && gainMapMinN[0] == gainMapMinN[2] &&
+         gainMapMinD[0] == gainMapMinD[1] && gainMapMinD[0] == gainMapMinD[2] &&
+         gainMapMaxN[0] == gainMapMaxN[1] && gainMapMaxN[0] == gainMapMaxN[2] &&
+         gainMapMaxD[0] == gainMapMaxD[1] && gainMapMaxD[0] == gainMapMaxD[2] &&
+         gainMapGammaN[0] == gainMapGammaN[1] && gainMapGammaN[0] == gainMapGammaN[2] &&
+         gainMapGammaD[0] == gainMapGammaD[1] && gainMapGammaD[0] == gainMapGammaD[2] &&
+         baseOffsetN[0] == baseOffsetN[1] && baseOffsetN[0] == baseOffsetN[2] &&
+         baseOffsetD[0] == baseOffsetD[1] && baseOffsetD[0] == baseOffsetD[2] &&
+         alternateOffsetN[0] == alternateOffsetN[1] && alternateOffsetN[0] == alternateOffsetN[2] &&
+         alternateOffsetD[0] == alternateOffsetD[1] && alternateOffsetD[0] == alternateOffsetD[2];
+}
+
 uhdr_error_info_t uhdr_gainmap_metadata_frac::encodeGainmapMetadata(
     const uhdr_gainmap_metadata_frac *in_metadata, std::vector<uint8_t> &out_data) {
   if (in_metadata == nullptr) {
@@ -122,28 +135,7 @@ uhdr_error_info_t uhdr_gainmap_metadata_frac::encodeGainmapMetadata(
   // TODO(maryla): the draft says that this specifies the count of channels of the
   // gain map. But tone mapping is done in RGB space so there are always three
   // channels, even if the gain map is grayscale. Should this be revised?
-  const bool allChannelsIdentical =
-      in_metadata->gainMapMinN[0] == in_metadata->gainMapMinN[1] &&
-      in_metadata->gainMapMinN[0] == in_metadata->gainMapMinN[2] &&
-      in_metadata->gainMapMinD[0] == in_metadata->gainMapMinD[1] &&
-      in_metadata->gainMapMinD[0] == in_metadata->gainMapMinD[2] &&
-      in_metadata->gainMapMaxN[0] == in_metadata->gainMapMaxN[1] &&
-      in_metadata->gainMapMaxN[0] == in_metadata->gainMapMaxN[2] &&
-      in_metadata->gainMapMaxD[0] == in_metadata->gainMapMaxD[1] &&
-      in_metadata->gainMapMaxD[0] == in_metadata->gainMapMaxD[2] &&
-      in_metadata->gainMapGammaN[0] == in_metadata->gainMapGammaN[1] &&
-      in_metadata->gainMapGammaN[0] == in_metadata->gainMapGammaN[2] &&
-      in_metadata->gainMapGammaD[0] == in_metadata->gainMapGammaD[1] &&
-      in_metadata->gainMapGammaD[0] == in_metadata->gainMapGammaD[2] &&
-      in_metadata->baseOffsetN[0] == in_metadata->baseOffsetN[1] &&
-      in_metadata->baseOffsetN[0] == in_metadata->baseOffsetN[2] &&
-      in_metadata->baseOffsetD[0] == in_metadata->baseOffsetD[1] &&
-      in_metadata->baseOffsetD[0] == in_metadata->baseOffsetD[2] &&
-      in_metadata->alternateOffsetN[0] == in_metadata->alternateOffsetN[1] &&
-      in_metadata->alternateOffsetN[0] == in_metadata->alternateOffsetN[2] &&
-      in_metadata->alternateOffsetD[0] == in_metadata->alternateOffsetD[1] &&
-      in_metadata->alternateOffsetD[0] == in_metadata->alternateOffsetD[2];
-  const uint8_t channelCount = allChannelsIdentical ? 1u : 3u;
+  const uint8_t channelCount = in_metadata->allChannelsIdentical() ? 1u : 3u;
 
   if (channelCount == 3) {
     flags |= kIsMultiChannelMask;
@@ -224,8 +216,8 @@ uhdr_error_info_t uhdr_gainmap_metadata_frac::decodeGainmapMetadata(
     uhdr_error_info_t status;
     status.error_code = UHDR_CODEC_UNSUPPORTED_FEATURE;
     status.has_detail = 1;
-    snprintf(status.detail, sizeof status.detail, "received unexpected minimum version %d, expected 0",
-             min_version);
+    snprintf(status.detail, sizeof status.detail,
+             "received unexpected minimum version %d, expected 0", min_version);
     return status;
   }
   UHDR_ERR_CHECK(streamReadU16(in_data, writer_version, pos))
@@ -330,6 +322,36 @@ uhdr_error_info_t uhdr_gainmap_metadata_frac::gainmapMetadataFractionToFloat(
     UHDR_CHECK_NON_ZERO(from->gainMapMinD[i], "gainMapMin denominator");
     UHDR_CHECK_NON_ZERO(from->baseOffsetD[i], "baseOffset denominator");
     UHDR_CHECK_NON_ZERO(from->alternateOffsetD[i], "alternateOffset denominator");
+  }
+
+  // TODO: extend uhdr_gainmap_metadata_ext_t to cover multi-channel
+  if (!from->allChannelsIdentical()) {
+    uhdr_error_info_t status;
+    status.error_code = UHDR_CODEC_UNSUPPORTED_FEATURE;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "current implementation does not handle images with gainmap metadata different "
+             "across r/g/b channels");
+    return status;
+  }
+
+  // jpeg supports only 8 bits per component, applying gainmap in inverse direction is unexpected
+  if (from->backwardDirection) {
+    uhdr_error_info_t status;
+    status.error_code = UHDR_CODEC_UNSUPPORTED_FEATURE;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail, "hdr intent as base rendition is not supported");
+    return status;
+  }
+
+  // TODO: parse gainmap image icc and use it for color conversion during applygainmap
+  if (!from->useBaseColorSpace) {
+    uhdr_error_info_t status;
+    status.error_code = UHDR_CODEC_UNSUPPORTED_FEATURE;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "current implementation requires gainmap application space to match base color space");
+    return status;
   }
 
   to->version = kJpegrVersion;
