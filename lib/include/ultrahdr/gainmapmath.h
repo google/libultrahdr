@@ -559,10 +559,18 @@ static inline Color clampPixelFloatLinear(Color e) {
   return {{{clampPixelFloatLinear(e.r), clampPixelFloatLinear(e.g), clampPixelFloatLinear(e.b)}}};
 }
 
+static float mapNonFiniteFloats(float val) {
+  if (std::isinf(val)) {
+    return val > 0 ? kMaxPixelFloatHdrLinear : 0.0f;
+  }
+  // nan
+  return 0.0f;
+}
+
 static inline Color sanitizePixel(Color e) {
-  float r = std::isfinite(e.r) ? clampPixelFloatLinear(e.r) : 0.0f;
-  float g = std::isfinite(e.g) ? clampPixelFloatLinear(e.g) : 0.0f;
-  float b = std::isfinite(e.b) ? clampPixelFloatLinear(e.b) : 0.0f;
+  float r = std::isfinite(e.r) ? clampPixelFloatLinear(e.r) : mapNonFiniteFloats(e.r);
+  float g = std::isfinite(e.g) ? clampPixelFloatLinear(e.g) : mapNonFiniteFloats(e.g);
+  float b = std::isfinite(e.b) ? clampPixelFloatLinear(e.b) : mapNonFiniteFloats(e.b);
   return {{{r, g, b}}};
 }
 
