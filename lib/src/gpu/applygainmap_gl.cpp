@@ -187,6 +187,82 @@ static const std::string applyGainMapShader = R"__SHADER__(
   }
 )__SHADER__";
 
+static const std::string IdentityGamutConversionShader = R"__SHADER__(
+  vec3 GamutConversion(const vec3 color) { return color; }
+)__SHADER__";
+
+static const std::string Bt709ToP3Shader = R"__SHADER__(
+  vec3 GamutConversion(const vec3 color) {
+    const mat3 transform = mat3(
+        0.822462,  0.033194, 0.017083,
+        0.177537,  0.966807, 0.072398,
+        0.000001, -0.000001, 0.91052);
+    return transform * color;
+  }
+)__SHADER__";
+
+static const std::string Bt709ToBt2100Shader = R"__SHADER__(
+  vec3 GamutConversion(const vec3 color) {
+    const mat3 transform = mat3(
+        0.627404,  0.069097,  0.016392,
+        0.329282,  0.919541,  0.088013,
+        0.043314,  0.011362,  0.895595);
+    return transform * color;
+  }
+)__SHADER__";
+
+static const std::string P3ToBt709Shader = R"__SHADER__(
+  vec3 GamutConversion(const vec3 color) {
+    const mat3 transform = mat3(
+        1.22494, -0.042057,  -0.019638,
+       -0.22494,  1.042057,  -0.078636,
+        0.0,      0.0,        1.098274);
+    return transform * color;
+  }
+)__SHADER__";
+
+static const std::string P3ToBt2100Shader = R"__SHADER__(
+  vec3 GamutConversion(const vec3 color) {
+    const mat3 transform = mat3(
+       0.753833,  0.045744,  -0.00121,
+       0.198597,  0.941777,   0.017601,
+       0.04757,   0.012479,   0.983608);
+    return transform * color;
+  }
+)__SHADER__";
+
+static const std::string Bt2100ToBt709Shader = R"__SHADER__(
+  vec3 GamutConversion(const vec3 color) {
+    const mat3 transform = mat3(
+        1.660491,  -0.124551,  -0.018151,
+       -0.587641,   1.1329,    -0.100579,
+       -0.07285,   -0.008349,   1.11873);
+    return transform * color;
+  }
+)__SHADER__";
+
+static const std::string Bt2100ToP3Shader = R"__SHADER__(
+  vec3 GamutConversion(const vec3 color) {
+    const mat3 transform = mat3(
+       1.343578,  -0.065298,   0.002822,
+      -0.282179,   1.075788,  -0.019598,
+      -0.061399,  -0.01049,    1.016777);
+    return transform * color;
+  }
+)__SHADER__";
+
+static const std::string clampPixelFloatLinearShader = R"__SHADER__(
+  vec3 clampPixel(const vec3 pixel) {
+    return clamp(pixel, 0.0f, 10000.0f / 203.0f);
+  }
+)__SHADER__";
+
+static const std::string clampPixelFloatShader = R"__SHADER__(
+  vec3 clampPixel(const vec3 pixel) {
+    return clamp(pixel, 0.0f, 1.0f);
+  }
+)__SHADER__";
+
 static const std::string linearOETFShader = R"__SHADER__(
   vec3 OETF(const vec3 linear) { return linear; }
 )__SHADER__";
@@ -233,8 +309,8 @@ static const std::string IdentityInverseOOTFShader = R"__SHADER__(
 )__SHADER__";
 
 std::string getApplyGainMapFragmentShader(uhdr_img_fmt sdr_fmt, uhdr_img_fmt gm_fmt,
-                                          uhdr_color_transfer output_ct,
-                                          uhdr_color_gamut_t sdr_cg) {
+                                          uhdr_color_transfer output_ct, uhdr_color_gamut_t sdr_cg,
+                                          uhdr_color_gamut_t hdr_cg) {
   std::string shader_code = R"__SHADER__(#version 300 es
     precision highp float;
     precision highp int;
@@ -263,13 +339,37 @@ std::string getApplyGainMapFragmentShader(uhdr_img_fmt sdr_fmt, uhdr_img_fmt gm_
   shader_code.append(gm_fmt == UHDR_IMG_FMT_8bppYCbCr400 ? getGainMapSampleSingleChannel
                                                          : getGainMapSampleMultiChannel);
   shader_code.append(applyGainMapShader);
+  if (hdr_cg == sdr_cg) shader_code.append(IdentityGamutConversionShader);
+  if (hdr_cg == UHDR_CG_BT_709) {
+    if (sdr_cg == UHDR_CG_DISPLAY_P3) {
+      shader_code.append(P3ToBt709Shader);
+    } else if (sdr_cg == UHDR_CG_BT_2100) {
+      shader_code.append(Bt2100ToBt709Shader);
+    }
+  } else if (hdr_cg == UHDR_CG_DISPLAY_P3) {
+    if (sdr_cg == UHDR_CG_BT_709) {
+      shader_code.append(Bt709ToP3Shader);
+    }
+    if (sdr_cg == UHDR_CG_BT_2100) {
+      shader_code.append(Bt2100ToP3Shader);
+    }
+  } else if (hdr_cg == UHDR_CG_BT_2100) {
+    if (sdr_cg == UHDR_CG_BT_709) {
+      shader_code.append(Bt709ToBt2100Shader);
+    } else if (sdr_cg == UHDR_CG_DISPLAY_P3) {
+      shader_code.append(P3ToBt2100Shader);
+    }
+  }
   if (output_ct == UHDR_CT_LINEAR) {
+    shader_code.append(clampPixelFloatLinearShader);
     shader_code.append(IdentityInverseOOTFShader);
     shader_code.append(linearOETFShader);
   } else if (output_ct == UHDR_CT_HLG) {
+    shader_code.append(clampPixelFloatShader);
     shader_code.append(hlgInverseOOTFShader);
     shader_code.append(hlgOETFShader);
   } else if (output_ct == UHDR_CT_PQ) {
+    shader_code.append(clampPixelFloatShader);
     shader_code.append(IdentityInverseOOTFShader);
     shader_code.append(pqOETFShader);
   }
@@ -281,6 +381,8 @@ std::string getApplyGainMapFragmentShader(uhdr_img_fmt sdr_fmt, uhdr_img_fmt gm_
       vec3 rgb_sdr = sRGBEOTF(rgb_gamma_sdr);
       vec3 gain = sampleMap(gainMapTexture);
       vec3 rgb_hdr = applyGain(rgb_sdr, gain);
+      rgb_hdr = GamutConversion(rgb_hdr);
+      rgb_hdr = clampPixel(rgb_hdr);
       rgb_hdr = InverseOOTF(rgb_hdr);
       vec3 rgb_gamma_hdr = OETF(rgb_hdr);
       FragColor = vec4(rgb_gamma_hdr, 1.0);
@@ -321,7 +423,7 @@ bool isBufferDataContiguous(uhdr_raw_image_t* img) {
 uhdr_error_info_t applyGainMapGLES(uhdr_raw_image_t* sdr_intent, uhdr_raw_image_t* gainmap_img,
                                    uhdr_gainmap_metadata_ext_t* gainmap_metadata,
                                    uhdr_color_transfer_t output_ct, float display_boost,
-                                   uhdr_raw_image_t* dest, uhdr_opengl_ctxt_t* opengl_ctxt) {
+                                   uhdr_opengl_ctxt_t* opengl_ctxt) {
   GLuint shaderProgram = 0;   // shader program
   GLuint yuvTexture = 0;      // sdr intent texture
   GLuint frameBuffer = 0;
@@ -336,7 +438,10 @@ uhdr_error_info_t applyGainMapGLES(uhdr_raw_image_t* sdr_intent, uhdr_raw_image_
 
   shaderProgram = opengl_ctxt->create_shader_program(
       vertex_shader.c_str(),
-      getApplyGainMapFragmentShader(sdr_intent->fmt, gainmap_img->fmt, output_ct, sdr_intent->cg)
+      getApplyGainMapFragmentShader(
+          sdr_intent->fmt, gainmap_img->fmt, output_ct,
+          sdr_intent->cg == UHDR_CG_UNSPECIFIED ? UHDR_CG_BT_709 : sdr_intent->cg,
+          gainmap_img->cg == UHDR_CG_UNSPECIFIED ? UHDR_CG_BT_709 : gainmap_img->cg)
           .c_str());
   RET_IF_ERR()
 
@@ -406,8 +511,6 @@ uhdr_error_info_t applyGainMapGLES(uhdr_raw_image_t* sdr_intent, uhdr_raw_image_
 
   opengl_ctxt->check_gl_errors("reading gles output");
   RET_IF_ERR()
-
-  dest->cg = sdr_intent->cg == UHDR_CG_UNSPECIFIED ? UHDR_CG_BT_709 : sdr_intent->cg;
 
   if (frameBuffer) glDeleteFramebuffers(1, &frameBuffer);
   if (yuvTexture) glDeleteTextures(1, &yuvTexture);

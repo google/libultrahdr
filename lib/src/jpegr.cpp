@@ -49,7 +49,7 @@ namespace ultrahdr {
 uhdr_error_info_t applyGainMapGLES(uhdr_raw_image_t* sdr_intent, uhdr_raw_image_t* gainmap_img,
                                    uhdr_gainmap_metadata_ext_t* gainmap_metadata,
                                    uhdr_color_transfer_t output_ct, float display_boost,
-                                   uhdr_raw_image_t* dest, uhdr_opengl_ctxt_t* opengl_ctxt);
+                                   uhdr_opengl_ctxt_t* opengl_ctxt);
 #endif
 
 // Gain map metadata
@@ -552,7 +552,9 @@ uhdr_error_info_t JpegR::convertYuv(uhdr_raw_image_t* image, uhdr_color_gamut_t 
 
 uhdr_error_info_t JpegR::compressGainMap(uhdr_raw_image_t* gainmap_img,
                                          JpegEncoderHelper* jpeg_enc_obj) {
-  return jpeg_enc_obj->compressImage(gainmap_img, mMapCompressQuality, nullptr, 0);
+  std::shared_ptr<DataStruct> icc = IccHelper::writeIccProfile(gainmap_img->ct, gainmap_img->cg);
+  return jpeg_enc_obj->compressImage(gainmap_img, mMapCompressQuality, icc->getData(),
+                                     icc->getLength());
 }
 
 uhdr_error_info_t JpegR::generateGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_image_t* hdr_intent,
@@ -719,7 +721,7 @@ uhdr_error_info_t JpegR::generateGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_
 
   gainmap_img = std::make_unique<uhdr_raw_image_ext_t>(
       mUseMultiChannelGainMap ? UHDR_IMG_FMT_24bppRGB888 : UHDR_IMG_FMT_8bppYCbCr400,
-      UHDR_CG_UNSPECIFIED, UHDR_CT_UNSPECIFIED, UHDR_CR_UNSPECIFIED, map_width, map_height, 64);
+      hdr_intent->cg, hdr_intent->ct, hdr_intent->range, map_width, map_height, 64);
   uhdr_raw_image_ext_t* dest = gainmap_img.get();
 
   auto generateGainMapOnePass = [this, sdr_intent, hdr_intent, gainmap_metadata, dest, map_height,
@@ -1380,6 +1382,8 @@ uhdr_error_info_t JpegR::decodeJPEGR(uhdr_compressed_image_t* uhdr_compressed_im
     if (gainmap_img != nullptr) {
       UHDR_ERR_CHECK(copy_raw_image(&gainmap, gainmap_img));
     }
+    gainmap.cg =
+        IccHelper::readIccColorGamut(jpeg_dec_obj_gm.getICCPtr(), jpeg_dec_obj_gm.getICCSize());
   }
 
   uhdr_gainmap_metadata_ext_t uhdr_metadata;
@@ -1455,6 +1459,13 @@ uhdr_error_info_t JpegR::applyGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_ima
     return status;
   }
 
+  uhdr_color_gamut_t base_cg =
+      sdr_intent->cg == UHDR_CG_UNSPECIFIED ? UHDR_CG_BT_709 : sdr_intent->cg;
+  uhdr_color_gamut_t gainmap_cg =
+      gainmap_img->cg == UHDR_CG_UNSPECIFIED ? base_cg : gainmap_img->cg;
+  ColorTransformFn hdrGamutConversionFn = getGamutConversionFn(gainmap_cg, base_cg);
+  dest->cg = gainmap_cg;
+
 #ifdef UHDR_ENABLE_GLES
   if (mUhdrGLESCtxt != nullptr) {
     if (((sdr_intent->fmt == UHDR_IMG_FMT_12bppYCbCr420 && sdr_intent->w % 2 == 0 &&
@@ -1468,7 +1479,7 @@ uhdr_error_info_t JpegR::applyGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_ima
       float display_boost = (std::min)(max_display_boost, gainmap_metadata->hdr_capacity_max);
 
       return applyGainMapGLES(sdr_intent, gainmap_img, gainmap_metadata, output_ct, display_boost,
-                              dest, static_cast<uhdr_opengl_ctxt_t*>(mUhdrGLESCtxt));
+                              static_cast<uhdr_opengl_ctxt_t*>(mUhdrGLESCtxt));
     }
   }
 #endif
@@ -1498,7 +1509,6 @@ uhdr_error_info_t JpegR::applyGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_ima
   float map_scale_factor = (float)sdr_intent->w / gainmap_img->w;
   int map_scale_factor_rnd = (std::max)(1, (int)std::roundf(map_scale_factor));
 
-  dest->cg = sdr_intent->cg == UHDR_CG_UNSPECIFIED ? UHDR_CG_BT_709 : sdr_intent->cg;
   // Table will only be used when map scale factor is integer.
   ShepardsIDW idwTable(map_scale_factor_rnd);
   float display_boost = (std::min)(max_display_boost, gainmap_metadata->hdr_capacity_max);
@@ -1533,7 +1543,7 @@ uhdr_error_info_t JpegR::applyGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_ima
 
   JobQueue jobQueue;
   std::function<void()> applyRecMap = [sdr_intent, gainmap_img, dest, &jobQueue, &idwTable,
-                                       output_ct, &gainLUT, gainmap_metadata,
+                                       output_ct, &gainLUT, gainmap_metadata, hdrGamutConversionFn,
 #if !USE_APPLY_GAIN_LUT
                                        gainmap_weight,
 #endif
@@ -1589,6 +1599,8 @@ uhdr_error_info_t JpegR::applyGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_ima
 
           switch (output_ct) {
             case UHDR_CT_LINEAR: {
+              rgb_hdr = hdrGamutConversionFn(rgb_hdr);
+              rgb_hdr = clampPixelFloatLinear(rgb_hdr);
               uint64_t rgba_f16 = colorToRgbaF16(rgb_hdr);
               reinterpret_cast<uint64_t*>(dest->planes[UHDR_PLANE_PACKED])[pixel_idx] = rgba_f16;
               break;
@@ -1600,6 +1612,8 @@ uhdr_error_info_t JpegR::applyGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_ima
               ColorTransformFn hdrOetf = hlgOetf;
 #endif
               rgb_hdr = rgb_hdr * kSdrWhiteNits / kHlgMaxNits;
+              rgb_hdr = hdrGamutConversionFn(rgb_hdr);
+              rgb_hdr = clampPixelFloat(rgb_hdr);
               rgb_hdr = hlgInverseOotfApprox(rgb_hdr);
               Color rgb_gamma_hdr = hdrOetf(rgb_hdr);
               uint32_t rgba_1010102 = colorToRgba1010102(rgb_gamma_hdr);
@@ -1614,6 +1628,8 @@ uhdr_error_info_t JpegR::applyGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_ima
               ColorTransformFn hdrOetf = pqOetf;
 #endif
               rgb_hdr = rgb_hdr * kSdrWhiteNits / kPqMaxNits;
+              rgb_hdr = hdrGamutConversionFn(rgb_hdr);
+              rgb_hdr = clampPixelFloat(rgb_hdr);
               Color rgb_gamma_hdr = hdrOetf(rgb_hdr);
               uint32_t rgba_1010102 = colorToRgba1010102(rgb_gamma_hdr);
               reinterpret_cast<uint32_t*>(dest->planes[UHDR_PLANE_PACKED])[pixel_idx] =

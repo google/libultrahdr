@@ -103,6 +103,10 @@ static constexpr size_t kICCTagTableEntrySize = 12;
 // bytes for a single XYZ number type (4 bytes per coordinate).
 static constexpr size_t kColorantTagSize = 20;
 
+// size should be 12; 4 bytes for type descriptor, 4 bytes reserved, one
+// byte each for primaries, transfer, matrix, range.
+static constexpr size_t kCicpTagSize = 12;
+
 static constexpr uint32_t kDisplay_Profile = SetFourByteTag('m', 'n', 't', 'r');
 static constexpr uint32_t kRGB_ColorSpace = SetFourByteTag('R', 'G', 'B', ' ');
 static constexpr uint32_t kXYZ_PCSSpace = SetFourByteTag('X', 'Y', 'Z', ' ');
@@ -149,10 +153,12 @@ static constexpr Matrix3x3 kRec2020 = {{
     {-0.00193139f, 0.0299794f, 0.797162f},
 }};
 
+static constexpr uint32_t kCICPPrimariesUnSpecified = 2;
 static constexpr uint32_t kCICPPrimariesSRGB = 1;
 static constexpr uint32_t kCICPPrimariesP3 = 12;
 static constexpr uint32_t kCICPPrimariesRec2020 = 9;
 
+static constexpr uint32_t kCICPTrfnUnSpecified = 2;
 static constexpr uint32_t kCICPTrfnSRGB = 1;
 static constexpr uint32_t kCICPTrfnLinear = 8;
 static constexpr uint32_t kCICPTrfnPQ = 16;
@@ -238,7 +244,7 @@ struct ICCHeader {
 class IccHelper {
  private:
   static constexpr uint32_t kTrcTableSize = 65;
-  static constexpr uint32_t kGridSize = 17;
+  static constexpr uint32_t kGridSize = 11;
   static constexpr size_t kNumChannels = 3;
 
   static std::shared_ptr<DataStruct> write_text_tag(const char* text);
