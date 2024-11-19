@@ -27,6 +27,7 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.util.Arrays;
 
 import com.google.media.codecs.ultrahdr.UltraHDRDecoder;
 import com.google.media.codecs.ultrahdr.UltraHDREncoder;
@@ -278,33 +279,44 @@ public class UltraHdrApp {
             String line;
             while ((line = reader.readLine()) != null) {
                 String[] parts = line.split("\\s+");
-                if (parts.length == 2 && parts[0].startsWith("--")) {
+                if (parts.length >= 2 && parts[0].startsWith("--")) {
                     String option = parts[0].substring(2); // remove the "--" prefix
-                    float value = Float.parseFloat(parts[1]);
+                    float[] values = new float[3];
+                    int count = Math.min(parts.length - 1, 3);
+                    if (count != 1 && count != 3) {
+                        System.err.println("ignoring line: " + line);
+                        continue;
+                    }
+                    for (int i = 0; i < count; i++) {
+                        values[i] = Float.parseFloat(parts[i + 1]);
+                    }
+                    if (count == 1) {
+                        values[1] = values[2] = values[0];
+                    }
                     switch (option) {
                         case "maxContentBoost":
-                            mMetadata.maxContentBoost = value;
+                            System.arraycopy(values, 0, mMetadata.maxContentBoost, 0, 3);
                             break;
                         case "minContentBoost":
-                            mMetadata.minContentBoost = value;
+                            System.arraycopy(values, 0, mMetadata.minContentBoost, 0, 3);
                             break;
                         case "gamma":
-                            mMetadata.gamma = value;
+                            System.arraycopy(values, 0, mMetadata.gamma, 0, 3);
                             break;
                         case "offsetSdr":
-                            mMetadata.offsetSdr = value;
+                            System.arraycopy(values, 0, mMetadata.offsetSdr, 0, 3);
                             break;
                         case "offsetHdr":
-                            mMetadata.offsetHdr = value;
+                            System.arraycopy(values, 0, mMetadata.offsetHdr, 0, 3);
                             break;
                         case "hdrCapacityMin":
-                            mMetadata.hdrCapacityMin = value;
+                            mMetadata.hdrCapacityMin = values[0];
                             break;
                         case "hdrCapacityMax":
-                            mMetadata.hdrCapacityMax = value;
+                            mMetadata.hdrCapacityMax = values[0];
                             break;
                         case "useBaseColorSpace":
-                            mMetadata.useBaseColorSpace = value != 0.0f;
+                            mMetadata.useBaseColorSpace = values[0] != 0.0f;
                             break;
                         default:
                             System.err.println("ignoring option: " + option);
@@ -319,11 +331,37 @@ public class UltraHdrApp {
 
     public void writeGainMapMetadataToFile(GainMapMetadata metadata) throws IOException {
         try (BufferedWriter writer = new BufferedWriter(new FileWriter(mGainMapMetadaCfgFile))) {
-            writer.write("--maxContentBoost " + metadata.maxContentBoost + "\n");
-            writer.write("--minContentBoost " + metadata.minContentBoost + "\n");
-            writer.write("--gamma " + metadata.gamma + "\n");
-            writer.write("--offsetSdr " + metadata.offsetSdr + "\n");
-            writer.write("--offsetHdr " + metadata.offsetHdr + "\n");
+            boolean allChannelsIdentical =
+                    metadata.maxContentBoost[0] == metadata.maxContentBoost[1]
+                            && metadata.maxContentBoost[0] == metadata.maxContentBoost[2]
+                            && metadata.minContentBoost[0] == metadata.minContentBoost[1]
+                            && metadata.minContentBoost[0] == metadata.minContentBoost[2]
+                            && metadata.gamma[0] == metadata.gamma[1]
+                            && metadata.gamma[0] == metadata.gamma[2]
+                            && metadata.offsetSdr[0] == metadata.offsetSdr[1]
+                            && metadata.offsetSdr[0] == metadata.offsetSdr[2]
+                            && metadata.offsetHdr[0] == metadata.offsetHdr[1]
+                            && metadata.offsetHdr[0] == metadata.offsetHdr[2];
+            if (allChannelsIdentical) {
+                writer.write("--maxContentBoost " + metadata.maxContentBoost[0] + "\n");
+                writer.write("--minContentBoost " + metadata.minContentBoost[0] + "\n");
+                writer.write("--gamma " + metadata.gamma[0] + "\n");
+                writer.write("--offsetSdr " + metadata.offsetSdr[0] + "\n");
+                writer.write("--offsetHdr " + metadata.offsetHdr[0] + "\n");
+            } else {
+                writer.write("--maxContentBoost " + metadata.maxContentBoost[0] + " "
+                        + metadata.maxContentBoost[1] + " " + metadata.maxContentBoost[2] + "\n");
+                writer.write("--minContentBoost " + metadata.minContentBoost[0] + " "
+                        + metadata.minContentBoost[1] + " " + metadata.minContentBoost[2] + "\n");
+                writer.write("--gamma " + metadata.gamma[0] + " " + metadata.gamma[1] + " "
+                        + metadata.gamma[2] + "\n");
+                writer.write(
+                        "--offsetSdr " + metadata.offsetSdr[0] + " " + metadata.offsetSdr[1] + " "
+                                + metadata.offsetSdr[2] + "\n");
+                writer.write(
+                        "--offsetHdr " + metadata.offsetHdr[0] + " " + metadata.offsetHdr[1] + " "
+                                + metadata.offsetHdr[2] + "\n");
+            }
             writer.write("--hdrCapacityMin " + metadata.hdrCapacityMin + "\n");
             writer.write("--hdrCapacityMax " + metadata.hdrCapacityMax + "\n");
             writer.write("--useBaseColorSpace " + (metadata.useBaseColorSpace ? "1" : "0") + "\n");

@@ -563,15 +563,15 @@ bool UltraHdrAppInput::fillGainMapCompressedImageHandle() {
 
 void parse_argument(uhdr_gainmap_metadata* metadata, char* argument, float* value) {
   if (!strcmp(argument, "maxContentBoost"))
-    metadata->max_content_boost = *value;
+    std::copy(value, value + 3, metadata->max_content_boost);
   else if (!strcmp(argument, "minContentBoost"))
-    metadata->min_content_boost = *value;
+    std::copy(value, value + 3, metadata->min_content_boost);
   else if (!strcmp(argument, "gamma"))
-    metadata->gamma = *value;
+    std::copy(value, value + 3, metadata->gamma);
   else if (!strcmp(argument, "offsetSdr"))
-    metadata->offset_sdr = *value;
+    std::copy(value, value + 3, metadata->offset_sdr);
   else if (!strcmp(argument, "offsetHdr"))
-    metadata->offset_hdr = *value;
+    std::copy(value, value + 3, metadata->offset_hdr);
   else if (!strcmp(argument, "hdrCapacityMin"))
     metadata->hdr_capacity_min = *value;
   else if (!strcmp(argument, "hdrCapacityMax"))
@@ -589,11 +589,14 @@ bool UltraHdrAppInput::fillGainMapMetadataDescriptor() {
   }
   std::string line;
   char argument[128];
-  float value;
+  float value[3];
   while (std::getline(file, line)) {
-    if (sscanf(line.c_str(), "--%s %f", argument, &value) == 2) {
-      parse_argument(&mGainMapMetadata, argument, &value);
-    }
+    int count = sscanf(line.c_str(), "--%s %f %f %f", argument, &value[0], &value[1], &value[2]);
+    if (count == 2) value[1] = value[2] = value[0];
+    if (count == 2 || count == 4)
+      parse_argument(&mGainMapMetadata, argument, value);
+    else
+      std::cout << " Ignoring line " << line << std::endl;
   }
   file.close();
   return true;
@@ -614,11 +617,34 @@ bool UltraHdrAppInput::writeGainMapMetadataToFile(uhdr_gainmap_metadata_t* metad
   if (!file.is_open()) {
     return false;
   }
-  file << "--maxContentBoost " << metadata->max_content_boost << std::endl;
-  file << "--minContentBoost " << metadata->min_content_boost << std::endl;
-  file << "--gamma " << metadata->gamma << std::endl;
-  file << "--offsetSdr " << metadata->offset_sdr << std::endl;
-  file << "--offsetHdr " << metadata->offset_hdr << std::endl;
+  bool allChannelsIdentical = metadata->max_content_boost[0] == metadata->max_content_boost[1] &&
+                              metadata->max_content_boost[0] == metadata->max_content_boost[2] &&
+                              metadata->min_content_boost[0] == metadata->min_content_boost[1] &&
+                              metadata->min_content_boost[0] == metadata->min_content_boost[2] &&
+                              metadata->gamma[0] == metadata->gamma[1] &&
+                              metadata->gamma[0] == metadata->gamma[2] &&
+                              metadata->offset_sdr[0] == metadata->offset_sdr[1] &&
+                              metadata->offset_sdr[0] == metadata->offset_sdr[2] &&
+                              metadata->offset_hdr[0] == metadata->offset_hdr[1] &&
+                              metadata->offset_hdr[0] == metadata->offset_hdr[2];
+  if (allChannelsIdentical) {
+    file << "--maxContentBoost " << metadata->max_content_boost[0] << std::endl;
+    file << "--minContentBoost " << metadata->min_content_boost[0] << std::endl;
+    file << "--gamma " << metadata->gamma[0] << std::endl;
+    file << "--offsetSdr " << metadata->offset_sdr[0] << std::endl;
+    file << "--offsetHdr " << metadata->offset_hdr[0] << std::endl;
+  } else {
+    file << "--maxContentBoost " << metadata->max_content_boost[0] << " "
+         << metadata->max_content_boost[1] << " " << metadata->max_content_boost[2] << std::endl;
+    file << "--minContentBoost " << metadata->min_content_boost[0] << " "
+         << metadata->min_content_boost[1] << " " << metadata->min_content_boost[2] << std::endl;
+    file << "--gamma " << metadata->gamma[0] << " " << metadata->gamma[1] << " "
+         << metadata->gamma[2] << std::endl;
+    file << "--offsetSdr " << metadata->offset_sdr[0] << " " << metadata->offset_sdr[1] << " "
+         << metadata->offset_sdr[2] << std::endl;
+    file << "--offsetHdr " << metadata->offset_hdr[0] << " " << metadata->offset_hdr[1] << " "
+         << metadata->offset_hdr[2] << std::endl;
+  }
   file << "--hdrCapacityMin " << metadata->hdr_capacity_min << std::endl;
   file << "--hdrCapacityMax " << metadata->hdr_capacity_max << std::endl;
   file << "--useBaseColorSpace " << metadata->use_base_cg << std::endl;

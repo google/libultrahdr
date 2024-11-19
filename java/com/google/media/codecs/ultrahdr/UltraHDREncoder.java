@@ -315,8 +315,8 @@ public class UltraHDREncoder implements AutoCloseable {
      *                     or current encoder instance is not suitable for configuration
      *                     exception is thrown
      */
-    public void setGainMapImageInfo(byte[] data, int size, float maxContentBoost,
-            float minContentBoost, float gainmapGamma, float offsetSdr, float offsetHdr,
+    public void setGainMapImageInfo(byte[] data, int size, float[] maxContentBoost,
+            float[] minContentBoost, float[] gainmapGamma, float[] offsetSdr, float[] offsetHdr,
             float hdrCapacityMin, float hdrCapacityMax, boolean useBaseColorSpace)
             throws IOException {
         if (data == null) {
@@ -531,8 +531,8 @@ public class UltraHDREncoder implements AutoCloseable {
     private native void setCompressedImageNative(byte[] data, int size, int colorGamut,
             int colorTransfer, int range, int intent) throws IOException;
 
-    private native void setGainMapImageInfoNative(byte[] data, int size, float maxContentBoost,
-            float minContentBoost, float gainmapGamma, float offsetSdr, float offsetHdr,
+    private native void setGainMapImageInfoNative(byte[] data, int size, float[] maxContentBoost,
+            float[] minContentBoost, float[] gainmapGamma, float[] offsetSdr, float[] offsetHdr,
             float hdrCapacityMin, float hdrCapacityMax, boolean useBaseColorSpace)
             throws IOException;
 

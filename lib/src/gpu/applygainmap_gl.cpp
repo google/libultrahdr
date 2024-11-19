@@ -132,25 +132,25 @@ static const std::string getGainMapSampleMultiChannel = R"__SHADER__(
 )__SHADER__";
 
 static const std::string applyGainMapShader = R"__SHADER__(
-  uniform float gamma;
-  uniform float logMinBoost;
-  uniform float logMaxBoost;
+  uniform float gamma[3];
+  uniform float logMinBoost[3];
+  uniform float logMaxBoost[3];
   uniform float weight;
-  uniform float offsetSdr;
-  uniform float offsetHdr;
+  uniform float offsetSdr[3];
+  uniform float offsetHdr[3];
   uniform float normalize;
 
-  float applyGainMapSample(const float channel, float gain) {
-    gain = pow(gain, 1.0f / gamma);
-    float logBoost = logMinBoost * (1.0f - gain) + logMaxBoost * gain;
+  float applyGainMapSample(const float channel, float gain, int idx) {
+    gain = pow(gain, 1.0f / gamma[idx]);
+    float logBoost = logMinBoost[idx] * (1.0f - gain) + logMaxBoost[idx] * gain;
     logBoost = exp2(logBoost * weight);
-    return ((channel + offsetSdr) * logBoost - offsetHdr) / normalize;
+    return ((channel + offsetSdr[idx]) * logBoost - offsetHdr[idx]) / normalize;
   }
 
   vec3 applyGain(const vec3 color, const vec3 gain) {
-    return vec3(applyGainMapSample(color.r, gain.r),
-            applyGainMapSample(color.g, gain.g),
-            applyGainMapSample(color.b, gain.b));
+    return vec3(applyGainMapSample(color.r, gain.r, 0),
+            applyGainMapSample(color.g, gain.g, 1),
+            applyGainMapSample(color.b, gain.b, 2));
   }
 )__SHADER__";
 
@@ -394,11 +394,17 @@ uhdr_error_info_t applyGainMapGLES(uhdr_raw_image_t* sdr_intent, uhdr_raw_image_
 
   glUniform1i(pWidthLocation, sdr_intent->w);
   glUniform1i(pHeightLocation, sdr_intent->h);
-  glUniform1f(gammaLocation, gainmap_metadata->gamma);
-  glUniform1f(logMinBoostLocation, log2(gainmap_metadata->min_content_boost));
-  glUniform1f(logMaxBoostLocation, log2(gainmap_metadata->max_content_boost));
-  glUniform1f(offsetSdrLocation, gainmap_metadata->offset_sdr);
-  glUniform1f(offsetHdrLocation, gainmap_metadata->offset_hdr);
+  glUniform1fv(gammaLocation, 3, gainmap_metadata->gamma);
+  float logMinBoostValues[3] = {static_cast<float>(log2(gainmap_metadata->min_content_boost[0])),
+                                static_cast<float>(log2(gainmap_metadata->min_content_boost[1])),
+                                static_cast<float>(log2(gainmap_metadata->min_content_boost[2]))};
+  float logMaxBoostValues[3] = {static_cast<float>(log2(gainmap_metadata->max_content_boost[0])),
+                                static_cast<float>(log2(gainmap_metadata->max_content_boost[1])),
+                                static_cast<float>(log2(gainmap_metadata->max_content_boost[2]))};
+  glUniform1fv(logMinBoostLocation, 3, logMinBoostValues);
+  glUniform1fv(logMaxBoostLocation, 3, logMaxBoostValues);
+  glUniform1fv(offsetSdrLocation, 3, gainmap_metadata->offset_sdr);
+  glUniform1fv(offsetHdrLocation, 3, gainmap_metadata->offset_hdr);
   float gainmap_weight;
   if (display_boost != gainmap_metadata->hdr_capacity_max) {
     gainmap_weight =

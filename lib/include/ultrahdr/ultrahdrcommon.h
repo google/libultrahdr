@@ -208,14 +208,24 @@ typedef struct uhdr_gainmap_metadata_ext : uhdr_gainmap_metadata {
 
   uhdr_gainmap_metadata_ext(uhdr_gainmap_metadata& metadata, std::string ver)
       : uhdr_gainmap_metadata_ext(ver) {
-    max_content_boost = metadata.max_content_boost;
-    min_content_boost = metadata.min_content_boost;
-    gamma = metadata.gamma;
-    offset_sdr = metadata.offset_sdr;
-    offset_hdr = metadata.offset_hdr;
+    std::copy(metadata.max_content_boost, metadata.max_content_boost + 3, max_content_boost);
+    std::copy(metadata.min_content_boost, metadata.min_content_boost + 3, min_content_boost);
+    std::copy(metadata.gamma, metadata.gamma + 3, gamma);
+    std::copy(metadata.offset_sdr, metadata.offset_sdr + 3, offset_sdr);
+    std::copy(metadata.offset_hdr, metadata.offset_hdr + 3, offset_hdr);
     hdr_capacity_min = metadata.hdr_capacity_min;
     hdr_capacity_max = metadata.hdr_capacity_max;
     use_base_cg = metadata.use_base_cg;
+  }
+
+  bool are_all_channels_identical() const {
+    return max_content_boost[0] == max_content_boost[1] &&
+           max_content_boost[0] == max_content_boost[2] &&
+           min_content_boost[0] == min_content_boost[1] &&
+           min_content_boost[0] == min_content_boost[2] && gamma[0] == gamma[1] &&
+           gamma[0] == gamma[2] && offset_sdr[0] == offset_sdr[1] &&
+           offset_sdr[0] == offset_sdr[2] && offset_hdr[0] == offset_hdr[1] &&
+           offset_hdr[0] == offset_hdr[2];
   }
 
   std::string version;         /**< Ultra HDR format version */
