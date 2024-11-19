@@ -77,11 +77,9 @@ void UltraHdrEncFuzzer::process() {
     int muxSwitch = mFdp.ConsumeIntegralInRange<int8_t>(0, 4);
 
     // hdr_img_fmt
-    int hdr_fmt_select = mFdp.ConsumeIntegralInRange<int8_t>(0, 2);
-    uhdr_img_fmt_t hdr_img_fmt;
-    if (hdr_fmt_select == 0) hdr_img_fmt = UHDR_IMG_FMT_24bppYCbCrP010;
-    else if (hdr_fmt_select == 1) hdr_img_fmt = UHDR_IMG_FMT_32bppRGBA1010102;
-    else if (hdr_fmt_select == 2) hdr_img_fmt = UHDR_IMG_FMT_64bppRGBAHalfFloat;
+    uhdr_img_fmt_t hdr_img_fmt =
+        mFdp.PickValueInArray({UHDR_IMG_FMT_24bppYCbCrP010, UHDR_IMG_FMT_32bppRGBA1010102,
+                               UHDR_IMG_FMT_64bppRGBAHalfFloat});
 
     // sdr_img_fmt
     uhdr_img_fmt_t sdr_img_fmt =
