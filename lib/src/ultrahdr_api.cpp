@@ -428,58 +428,68 @@ uhdr_error_info_t uhdr_validate_gainmap_metadata_descriptor(uhdr_gainmap_metadat
     status.has_detail = 1;
     snprintf(status.detail, sizeof status.detail,
              "received nullptr for gainmap metadata descriptor");
-  } else if (!std::isfinite(metadata->min_content_boost) ||
-             !std::isfinite(metadata->max_content_boost) || !std::isfinite(metadata->offset_sdr) ||
-             !std::isfinite(metadata->offset_hdr) || !std::isfinite(metadata->hdr_capacity_min) ||
-             !std::isfinite(metadata->hdr_capacity_max) || !std::isfinite(metadata->gamma)) {
-    status.error_code = UHDR_CODEC_INVALID_PARAM;
-    status.has_detail = 1;
-    snprintf(status.detail, sizeof status.detail,
-             "Field(s) of gainmap metadata descriptor are either NaN or infinite. min content "
-             "boost %f, max content boost %f, offset sdr %f, offset hdr %f, hdr capacity min %f, "
-             "hdr capacity max %f, gamma %f",
-             metadata->min_content_boost, metadata->max_content_boost, metadata->offset_sdr,
-             metadata->offset_hdr, metadata->hdr_capacity_min, metadata->hdr_capacity_max,
-             metadata->gamma);
-  } else if (metadata->max_content_boost < metadata->min_content_boost) {
-    status.error_code = UHDR_CODEC_INVALID_PARAM;
-    status.has_detail = 1;
-    snprintf(status.detail, sizeof status.detail,
-             "received bad value for content boost max %f, expects to be >= content boost min %f",
-             metadata->max_content_boost, metadata->min_content_boost);
-  } else if (metadata->min_content_boost <= 0.0f) {
-    status.error_code = UHDR_CODEC_INVALID_PARAM;
-    status.has_detail = 1;
-    snprintf(status.detail, sizeof status.detail,
-             "received bad value for min boost %f, expects > 0.0f", metadata->min_content_boost);
-    return status;
-  } else if (metadata->gamma <= 0.0f) {
-    status.error_code = UHDR_CODEC_INVALID_PARAM;
-    status.has_detail = 1;
-    snprintf(status.detail, sizeof status.detail, "received bad value for gamma %f, expects > 0.0f",
-             metadata->gamma);
-  } else if (metadata->offset_sdr < 0.0f) {
-    status.error_code = UHDR_CODEC_INVALID_PARAM;
-    status.has_detail = 1;
-    snprintf(status.detail, sizeof status.detail,
-             "received bad value for offset sdr %f, expects to be >= 0.0f", metadata->offset_sdr);
-  } else if (metadata->offset_hdr < 0.0f) {
-    status.error_code = UHDR_CODEC_INVALID_PARAM;
-    status.has_detail = 1;
-    snprintf(status.detail, sizeof status.detail,
-             "received bad value for offset hdr %f, expects to be >= 0.0f", metadata->offset_hdr);
-  } else if (metadata->hdr_capacity_max <= metadata->hdr_capacity_min) {
-    status.error_code = UHDR_CODEC_INVALID_PARAM;
-    status.has_detail = 1;
-    snprintf(status.detail, sizeof status.detail,
-             "received bad value for hdr capacity max %f, expects to be > hdr capacity min %f",
-             metadata->hdr_capacity_max, metadata->hdr_capacity_min);
-  } else if (metadata->hdr_capacity_min < 1.0f) {
-    status.error_code = UHDR_CODEC_INVALID_PARAM;
-    status.has_detail = 1;
-    snprintf(status.detail, sizeof status.detail,
-             "received bad value for hdr capacity min %f, expects to be >= 1.0f",
-             metadata->hdr_capacity_min);
+  } else {
+    for (int i = 0; i < 3; i++) {
+      if (!std::isfinite(metadata->min_content_boost[i]) ||
+          !std::isfinite(metadata->max_content_boost[i]) ||
+          !std::isfinite(metadata->offset_sdr[i]) || !std::isfinite(metadata->offset_hdr[i]) ||
+          !std::isfinite(metadata->hdr_capacity_min) ||
+          !std::isfinite(metadata->hdr_capacity_max) || !std::isfinite(metadata->gamma[i])) {
+        status.error_code = UHDR_CODEC_INVALID_PARAM;
+        status.has_detail = 1;
+        snprintf(
+            status.detail, sizeof status.detail,
+            "Field(s) of gainmap metadata descriptor are either NaN or infinite. min content "
+            "boost %f, max content boost %f, offset sdr %f, offset hdr %f, hdr capacity min %f, "
+            "hdr capacity max %f, gamma %f",
+            metadata->min_content_boost[i], metadata->max_content_boost[i], metadata->offset_sdr[i],
+            metadata->offset_hdr[i], metadata->hdr_capacity_min, metadata->hdr_capacity_max,
+            metadata->gamma[i]);
+      } else if (metadata->max_content_boost[i] < metadata->min_content_boost[i]) {
+        status.error_code = UHDR_CODEC_INVALID_PARAM;
+        status.has_detail = 1;
+        snprintf(
+            status.detail, sizeof status.detail,
+            "received bad value for content boost max %f, expects to be >= content boost min %f",
+            metadata->max_content_boost[i], metadata->min_content_boost[i]);
+      } else if (metadata->min_content_boost[i] <= 0.0f) {
+        status.error_code = UHDR_CODEC_INVALID_PARAM;
+        status.has_detail = 1;
+        snprintf(status.detail, sizeof status.detail,
+                 "received bad value for min boost %f, expects > 0.0f",
+                 metadata->min_content_boost[i]);
+        return status;
+      } else if (metadata->gamma[i] <= 0.0f) {
+        status.error_code = UHDR_CODEC_INVALID_PARAM;
+        status.has_detail = 1;
+        snprintf(status.detail, sizeof status.detail,
+                 "received bad value for gamma %f, expects > 0.0f", metadata->gamma[i]);
+      } else if (metadata->offset_sdr[i] < 0.0f) {
+        status.error_code = UHDR_CODEC_INVALID_PARAM;
+        status.has_detail = 1;
+        snprintf(status.detail, sizeof status.detail,
+                 "received bad value for offset sdr %f, expects to be >= 0.0f",
+                 metadata->offset_sdr[i]);
+      } else if (metadata->offset_hdr[i] < 0.0f) {
+        status.error_code = UHDR_CODEC_INVALID_PARAM;
+        status.has_detail = 1;
+        snprintf(status.detail, sizeof status.detail,
+                 "received bad value for offset hdr %f, expects to be >= 0.0f",
+                 metadata->offset_hdr[i]);
+      } else if (metadata->hdr_capacity_max <= metadata->hdr_capacity_min) {
+        status.error_code = UHDR_CODEC_INVALID_PARAM;
+        status.has_detail = 1;
+        snprintf(status.detail, sizeof status.detail,
+                 "received bad value for hdr capacity max %f, expects to be > hdr capacity min %f",
+                 metadata->hdr_capacity_max, metadata->hdr_capacity_min);
+      } else if (metadata->hdr_capacity_min < 1.0f) {
+        status.error_code = UHDR_CODEC_INVALID_PARAM;
+        status.has_detail = 1;
+        snprintf(status.detail, sizeof status.detail,
+                 "received bad value for hdr capacity min %f, expects to be >= 1.0f",
+                 metadata->hdr_capacity_min);
+      }
+    }
   }
   return status;
 }
@@ -1572,11 +1582,13 @@ uhdr_error_info_t uhdr_dec_probe(uhdr_codec_private_t* dec) {
                                         gainmap_image.xmpData.data(), gainmap_image.xmpData.size(),
                                         &metadata);
     if (status.error_code != UHDR_CODEC_OK) return status;
-    handle->m_metadata.max_content_boost = metadata.max_content_boost;
-    handle->m_metadata.min_content_boost = metadata.min_content_boost;
-    handle->m_metadata.gamma = metadata.gamma;
-    handle->m_metadata.offset_sdr = metadata.offset_sdr;
-    handle->m_metadata.offset_hdr = metadata.offset_hdr;
+    std::copy(metadata.max_content_boost, metadata.max_content_boost + 3,
+              handle->m_metadata.max_content_boost);
+    std::copy(metadata.min_content_boost, metadata.min_content_boost + 3,
+              handle->m_metadata.min_content_boost);
+    std::copy(metadata.gamma, metadata.gamma + 3, handle->m_metadata.gamma);
+    std::copy(metadata.offset_sdr, metadata.offset_sdr + 3, handle->m_metadata.offset_sdr);
+    std::copy(metadata.offset_hdr, metadata.offset_hdr + 3, handle->m_metadata.offset_hdr);
     handle->m_metadata.hdr_capacity_min = metadata.hdr_capacity_min;
     handle->m_metadata.hdr_capacity_max = metadata.hdr_capacity_max;
     handle->m_metadata.use_base_cg = metadata.use_base_cg;

@@ -233,9 +233,10 @@ Java_com_google_media_codecs_ultrahdr_UltraHDREncoder_setCompressedImageNative(
 
 extern "C" JNIEXPORT void JNICALL
 Java_com_google_media_codecs_ultrahdr_UltraHDREncoder_setGainMapImageInfoNative(
-    JNIEnv *env, jobject thiz, jbyteArray data, jint size, jfloat max_content_boost,
-    jfloat min_content_boost, jfloat gainmap_gamma, jfloat offset_sdr, jfloat offset_hdr,
-    jfloat hdr_capacity_min, jfloat hdr_capacity_max, jboolean use_base_color_space) {
+    JNIEnv *env, jobject thiz, jbyteArray data, jint size, jfloatArray max_content_boost,
+    jfloatArray min_content_boost, jfloatArray gainmap_gamma, jfloatArray offset_sdr,
+    jfloatArray offset_hdr, jfloat hdr_capacity_min, jfloat hdr_capacity_max,
+    jboolean use_base_color_space) {
   GET_HANDLE()
   RET_IF_TRUE(handle == 0, "java/io/IOException", "invalid encoder instance")
   jsize length = env->GetArrayLength(data);
@@ -248,9 +249,23 @@ Java_com_google_media_codecs_ultrahdr_UltraHDREncoder_setGainMapImageInfoNative(
                               UHDR_CG_UNSPECIFIED,
                               UHDR_CT_UNSPECIFIED,
                               UHDR_CR_UNSPECIFIED};
-  uhdr_gainmap_metadata_t metadata{max_content_boost, min_content_boost, gainmap_gamma,
-                                   offset_sdr,        offset_hdr,        hdr_capacity_min,
-                                   hdr_capacity_max, use_base_color_space};
+
+#define GET_FLOAT_ARRAY(env, srcArray, dstArray)                                   \
+  {                                                                                \
+    RET_IF_TRUE(srcArray == nullptr, "java/io/IOException", "received nullptr");   \
+    jsize length = env->GetArrayLength(srcArray);                                  \
+    RET_IF_TRUE(length != 3, "java/io/IOException", "array must have 3 elements"); \
+    env->GetFloatArrayRegion(srcArray, 0, 3, dstArray);                            \
+  }
+  uhdr_gainmap_metadata_t metadata{};
+  GET_FLOAT_ARRAY(env, max_content_boost, metadata.max_content_boost)
+  GET_FLOAT_ARRAY(env, min_content_boost, metadata.min_content_boost)
+  GET_FLOAT_ARRAY(env, gainmap_gamma, metadata.gamma)
+  GET_FLOAT_ARRAY(env, offset_sdr, metadata.offset_sdr)
+  GET_FLOAT_ARRAY(env, offset_hdr, metadata.offset_hdr)
+  metadata.hdr_capacity_min = hdr_capacity_min;
+  metadata.hdr_capacity_max = hdr_capacity_max;
+  metadata.use_base_cg = use_base_color_space;
   auto status = uhdr_enc_set_gainmap_image((uhdr_codec_private_t *)handle, &img, &metadata);
   env->ReleaseByteArrayElements(data, body, 0);
   RET_IF_TRUE(
@@ -624,6 +639,19 @@ Java_com_google_media_codecs_ultrahdr_UltraHDRDecoder_getGainmapMetadataNative(J
       uhdr_dec_get_gainmap_metadata((uhdr_codec_private_t *)handle);
   RET_IF_TRUE(gainmap_metadata == nullptr, "java/io/IOException",
               "uhdr_dec_probe() is not yet called or it has returned with error")
+#define SET_FLOAT_ARRAY_FIELD(name, valArray)                         \
+  {                                                                   \
+    jfieldID fID = env->GetFieldID(clazz, name, "[F");                \
+    RET_IF_TRUE(fID == nullptr, "java/io/IOException",                \
+                "GetFieldID for field " #name " returned with error") \
+    jfloatArray array = env->NewFloatArray(3);                        \
+    RET_IF_TRUE(array == nullptr, "java/io/IOException",              \
+                "Failed to allocate float array for field " #name)    \
+    env->SetFloatArrayRegion(array, 0, 3, (const jfloat *)valArray);  \
+    env->SetObjectField(thiz, fID, array);                            \
+    env->DeleteLocalRef(array);                                       \
+  }
+
 #define SET_FLOAT_FIELD(name, val)                                    \
   {                                                                   \
     jfieldID fID = env->GetFieldID(clazz, name, "F");                 \
@@ -631,11 +659,11 @@ Java_com_google_media_codecs_ultrahdr_UltraHDRDecoder_getGainmapMetadataNative(J
                 "GetFieldID for field " #name " returned with error") \
     env->SetFloatField(thiz, fID, (jfloat)val);                       \
   }
-  SET_FLOAT_FIELD("maxContentBoost", gainmap_metadata->max_content_boost)
-  SET_FLOAT_FIELD("minContentBoost", gainmap_metadata->min_content_boost)
-  SET_FLOAT_FIELD("gamma", gainmap_metadata->gamma)
-  SET_FLOAT_FIELD("offsetSdr", gainmap_metadata->offset_sdr)
-  SET_FLOAT_FIELD("offsetHdr", gainmap_metadata->offset_hdr)
+  SET_FLOAT_ARRAY_FIELD("maxContentBoost", gainmap_metadata->max_content_boost)
+  SET_FLOAT_ARRAY_FIELD("minContentBoost", gainmap_metadata->min_content_boost)
+  SET_FLOAT_ARRAY_FIELD("gamma", gainmap_metadata->gamma)
+  SET_FLOAT_ARRAY_FIELD("offsetSdr", gainmap_metadata->offset_sdr)
+  SET_FLOAT_ARRAY_FIELD("offsetHdr", gainmap_metadata->offset_hdr)
   SET_FLOAT_FIELD("hdrCapacityMin", gainmap_metadata->hdr_capacity_min)
   SET_FLOAT_FIELD("hdrCapacityMax", gainmap_metadata->hdr_capacity_max)
 #define SET_BOOLEAN_FIELD(name, val)                                  \

@@ -76,10 +76,10 @@ JNIEXPORT void JNICALL Java_com_google_media_codecs_ultrahdr_UltraHDREncoder_set
 /*
  * Class:     com_google_media_codecs_ultrahdr_UltraHDREncoder
  * Method:    setGainMapImageInfoNative
- * Signature: ([BIFFFFFFFZ)V
+ * Signature: ([BI[F[F[F[F[FFFZ)V
  */
 JNIEXPORT void JNICALL Java_com_google_media_codecs_ultrahdr_UltraHDREncoder_setGainMapImageInfoNative
-  (JNIEnv *, jobject, jbyteArray, jint, jfloat, jfloat, jfloat, jfloat, jfloat, jfloat, jfloat, jboolean);
+  (JNIEnv *, jobject, jbyteArray, jint, jfloatArray, jfloatArray, jfloatArray, jfloatArray, jfloatArray, jfloat, jfloat, jboolean);
 
 /*
  * Class:     com_google_media_codecs_ultrahdr_UltraHDREncoder

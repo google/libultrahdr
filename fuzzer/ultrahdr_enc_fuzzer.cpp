@@ -39,7 +39,7 @@ constexpr int kTfMax = UHDR_CT_SRGB;
 
 class UltraHdrEncFuzzer {
  public:
-  UltraHdrEncFuzzer(const uint8_t* data, size_t size) : mFdp(data, size) {};
+  UltraHdrEncFuzzer(const uint8_t* data, size_t size) : mFdp(data, size){};
   void process();
   template <typename T>
   void fillBuffer(T* data, int width, int height, int stride);
@@ -69,9 +69,11 @@ void UltraHdrEncFuzzer::fillBuffer(T* data, int width, int height, int stride) {
 
 void UltraHdrEncFuzzer::process() {
   if (mFdp.remaining_bytes()) {
-    struct uhdr_raw_image hdrImg{};
-    struct uhdr_raw_image sdrImg{};
-    struct uhdr_raw_image gainmapImg{};
+    struct uhdr_raw_image hdrImg {};
+    struct uhdr_raw_image sdrImg {};
+    struct uhdr_raw_image gainmapImg {};
+
+    float maxBoost[3], minBoost[3], gamma[3], offsetSdr[3], offsetHdr[3];
 
     // which encode api to select
     int muxSwitch = mFdp.ConsumeIntegralInRange<int8_t>(0, 4);
@@ -129,12 +131,28 @@ void UltraHdrEncFuzzer::process() {
     // encoding speed preset
     auto enc_preset = mFdp.ConsumeBool() ? UHDR_USAGE_REALTIME : UHDR_USAGE_BEST_QUALITY;
 
+    bool are_all_channels_identical = mFdp.ConsumeBool();
+
     // gainmap metadata
-    auto minBoost = mFdp.ConsumeFloatingPointInRange<float>(-4.0f, 64.0f);
-    auto maxBoost = mFdp.ConsumeFloatingPointInRange<float>(-4.0f, 64.0f);
-    auto gamma = mFdp.ConsumeFloatingPointInRange<float>(-1.0f, 5);
-    auto offsetSdr = mFdp.ConsumeFloatingPointInRange<float>(-1.0f, 1.0f);
-    auto offsetHdr = mFdp.ConsumeFloatingPointInRange<float>(-1.0f, 1.0f);
+    if (are_all_channels_identical) {
+      minBoost[0] = minBoost[1] = minBoost[2] =
+          mFdp.ConsumeFloatingPointInRange<float>(-4.0f, 64.0f);
+      maxBoost[0] = maxBoost[1] = maxBoost[2] =
+          mFdp.ConsumeFloatingPointInRange<float>(-4.0f, 64.0f);
+      gamma[0] = gamma[1] = gamma[2] = mFdp.ConsumeFloatingPointInRange<float>(-1.0f, 5);
+      offsetSdr[0] = offsetSdr[1] = offsetSdr[2] =
+          mFdp.ConsumeFloatingPointInRange<float>(-1.0f, 1.0f);
+      offsetHdr[0] = offsetHdr[1] = offsetHdr[2] =
+          mFdp.ConsumeFloatingPointInRange<float>(-1.0f, 1.0f);
+    } else {
+      for (int i = 0; i < 3; i++) {
+        minBoost[i] = mFdp.ConsumeFloatingPointInRange<float>(-4.0f, 64.0f);
+        maxBoost[i] = mFdp.ConsumeFloatingPointInRange<float>(-4.0f, 64.0f);
+        gamma[i] = mFdp.ConsumeFloatingPointInRange<float>(-1.0f, 5);
+        offsetSdr[i] = mFdp.ConsumeFloatingPointInRange<float>(-1.0f, 1.0f);
+        offsetHdr[i] = mFdp.ConsumeFloatingPointInRange<float>(-1.0f, 1.0f);
+      }
+    }
     auto minCapacity = mFdp.ConsumeFloatingPointInRange<float>(-4.0f, 48.0f);
     auto maxCapacity = mFdp.ConsumeFloatingPointInRange<float>(-4.0f, 48.0f);
     auto useBaseCg = mFdp.ConsumeBool();
@@ -194,10 +212,14 @@ void UltraHdrEncFuzzer::process() {
     ALOGV("base image quality %d ", (int)base_quality);
     ALOGV("encoding preset %d ", (int)enc_preset);
     ALOGV(
-        "gainmap metadata: min content boost %f, max content boost %f, gamma %f, offset sdr %f, "
-        "offset hdr %f, hdr min capacity %f, hdr max capacity %f, useBaseCg %d",
-        (float)minBoost, (float)maxBoost, (float)gamma, (float)offsetSdr, (float)offsetHdr,
-        (float)minCapacity, (float)maxCapacity, (int)useBaseCg);
+        "gainmap metadata: min content boost %f %f %f, max content boost %f %f %f, gamma %f %f %f, "
+        "offset sdr %f %f %f, offset hdr %f %f %f, hdr min capacity %f, hdr max capacity %f, "
+        "useBaseCg %d",
+        (float)minBoost[0], (float)minBoost[1], (float)minBoost[2], (float)maxBoost[0],
+        (float)maxBoost[1], (float)maxBoost[2], (float)gamma[0], (float)gamma[1], (float)gamma[2],
+        (float)offsetSdr[0], (float)offsetSdr[1], offsetSdr[2], (float)offsetHdr[0],
+        (float)offsetHdr[1], (float)offsetHdr[2], (float)minCapacity, (float)maxCapacity,
+        (int)useBaseCg);
     ALOGV("hdr intent luma stride %d, chroma stride %d", yHdrStride, uvHdrStride);
     ALOGV("sdr intent luma stride %d, chroma stride %d", ySdrStride, uvSdrStride);
     if (applyMirror) ALOGV("added mirror effect, direction %d", (int)direction);
@@ -362,8 +384,8 @@ void UltraHdrEncFuzzer::process() {
     ON_ERR(uhdr_enc_set_exif_data(enc_handle, &exif))
     ON_ERR(uhdr_enc_set_using_multi_channel_gainmap(enc_handle, multi_channel_gainmap))
     ON_ERR(uhdr_enc_set_gainmap_scale_factor(enc_handle, gm_scale_factor))
-    ON_ERR(uhdr_enc_set_gainmap_gamma(enc_handle, gamma))
-    ON_ERR(uhdr_enc_set_min_max_content_boost(enc_handle, minBoost, maxBoost))
+    ON_ERR(uhdr_enc_set_gainmap_gamma(enc_handle, gamma[0]))
+    ON_ERR(uhdr_enc_set_min_max_content_boost(enc_handle, minBoost[0], maxBoost[0]))
     ON_ERR(uhdr_enc_set_target_display_peak_brightness(enc_handle, targetDispPeakBrightness))
     ON_ERR(uhdr_enc_set_preset(enc_handle, enc_preset))
     ON_ERR(uhdr_enable_gpu_acceleration(enc_handle, 1))
@@ -393,11 +415,11 @@ void UltraHdrEncFuzzer::process() {
               UHDR_CODEC_OK) {
             struct uhdr_compressed_image jpegGainMap = gainMapEncoder.getCompressedImage();
             uhdr_gainmap_metadata metadata;
-            metadata.max_content_boost = maxBoost;
-            metadata.min_content_boost = minBoost;
-            metadata.gamma = gamma;
-            metadata.offset_sdr = offsetSdr;
-            metadata.offset_hdr = offsetHdr;
+            std::copy(maxBoost, maxBoost + 3, metadata.max_content_boost);
+            std::copy(minBoost, minBoost + 3, metadata.min_content_boost);
+            std::copy(gamma, gamma + 3, metadata.gamma);
+            std::copy(offsetSdr, offsetSdr + 3, metadata.offset_sdr);
+            std::copy(offsetHdr, offsetHdr + 3, metadata.offset_hdr);
             metadata.hdr_capacity_min = minCapacity;
             metadata.hdr_capacity_max = maxCapacity;
             metadata.use_base_cg = useBaseCg;

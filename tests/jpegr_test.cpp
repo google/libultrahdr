@@ -1401,16 +1401,16 @@ TEST(JpegRTest, DecodeAPIWithInvalidArgs) {
 }
 
 TEST(JpegRTest, writeXmpThenRead) {
-  uhdr_gainmap_metadata_ext_t metadata_expected;
-  metadata_expected.version = "1.0";
-  metadata_expected.max_content_boost = 1.25f;
-  metadata_expected.min_content_boost = 0.75f;
-  metadata_expected.gamma = 1.0f;
-  metadata_expected.offset_sdr = 0.0f;
-  metadata_expected.offset_hdr = 0.0f;
+  uhdr_gainmap_metadata_ext_t metadata_expected("1.0");
+  std::fill_n(metadata_expected.max_content_boost, 3, 1.25f);
+  std::fill_n(metadata_expected.min_content_boost, 3, 0.75f);
+  std::fill_n(metadata_expected.gamma, 3, 1.0f);
+  std::fill_n(metadata_expected.offset_sdr, 3, 0.0f);
+  std::fill_n(metadata_expected.offset_hdr, 3, 0.0f);
   metadata_expected.hdr_capacity_min = 1.0f;
-  metadata_expected.hdr_capacity_max = metadata_expected.max_content_boost;
+  metadata_expected.hdr_capacity_max = metadata_expected.max_content_boost[0];
   metadata_expected.use_base_cg = true;
+
   const std::string nameSpace = "http://ns.adobe.com/xap/1.0/\0";
   const size_t nameSpaceLength = nameSpace.size() + 1;  // need to count the null terminator
 
@@ -1426,11 +1426,11 @@ TEST(JpegRTest, writeXmpThenRead) {
   uhdr_gainmap_metadata_ext_t metadata_read;
   EXPECT_EQ(getMetadataFromXMP(xmpData.data(), xmpData.size(), &metadata_read).error_code,
             UHDR_CODEC_OK);
-  EXPECT_FLOAT_EQ(metadata_expected.max_content_boost, metadata_read.max_content_boost);
-  EXPECT_FLOAT_EQ(metadata_expected.min_content_boost, metadata_read.min_content_boost);
-  EXPECT_FLOAT_EQ(metadata_expected.gamma, metadata_read.gamma);
-  EXPECT_FLOAT_EQ(metadata_expected.offset_sdr, metadata_read.offset_sdr);
-  EXPECT_FLOAT_EQ(metadata_expected.offset_hdr, metadata_read.offset_hdr);
+  EXPECT_FLOAT_EQ(metadata_expected.max_content_boost[0], metadata_read.max_content_boost[0]);
+  EXPECT_FLOAT_EQ(metadata_expected.min_content_boost[0], metadata_read.min_content_boost[0]);
+  EXPECT_FLOAT_EQ(metadata_expected.gamma[0], metadata_read.gamma[0]);
+  EXPECT_FLOAT_EQ(metadata_expected.offset_sdr[0], metadata_read.offset_sdr[0]);
+  EXPECT_FLOAT_EQ(metadata_expected.offset_hdr[0], metadata_read.offset_hdr[0]);
   EXPECT_FLOAT_EQ(metadata_expected.hdr_capacity_min, metadata_read.hdr_capacity_min);
   EXPECT_FLOAT_EQ(metadata_expected.hdr_capacity_max, metadata_read.hdr_capacity_max);
   EXPECT_TRUE(metadata_read.use_base_cg);

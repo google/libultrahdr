@@ -324,17 +324,6 @@ uhdr_error_info_t uhdr_gainmap_metadata_frac::gainmapMetadataFractionToFloat(
     UHDR_CHECK_NON_ZERO(from->alternateOffsetD[i], "alternateOffset denominator");
   }
 
-  // TODO: extend uhdr_gainmap_metadata_ext_t to cover multi-channel
-  if (!from->allChannelsIdentical()) {
-    uhdr_error_info_t status;
-    status.error_code = UHDR_CODEC_UNSUPPORTED_FEATURE;
-    status.has_detail = 1;
-    snprintf(status.detail, sizeof status.detail,
-             "current implementation does not handle images with gainmap metadata different "
-             "across r/g/b channels");
-    return status;
-  }
-
   // jpeg supports only 8 bits per component, applying gainmap in inverse direction is unexpected
   if (from->backwardDirection) {
     uhdr_error_info_t status;
@@ -345,14 +334,16 @@ uhdr_error_info_t uhdr_gainmap_metadata_frac::gainmapMetadataFractionToFloat(
   }
 
   to->version = kJpegrVersion;
-  to->max_content_boost = exp2((float)from->gainMapMaxN[0] / from->gainMapMaxD[0]);
-  to->min_content_boost = exp2((float)from->gainMapMinN[0] / from->gainMapMinD[0]);
+  for (int i = 0; i < 3; i++) {
+    to->max_content_boost[i] = exp2((float)from->gainMapMaxN[i] / from->gainMapMaxD[i]);
+    to->min_content_boost[i] = exp2((float)from->gainMapMinN[i] / from->gainMapMinD[i]);
 
-  to->gamma = (float)from->gainMapGammaN[0] / from->gainMapGammaD[0];
+    to->gamma[i] = (float)from->gainMapGammaN[i] / from->gainMapGammaD[i];
 
-  // BaseRenditionIsHDR is false
-  to->offset_sdr = (float)from->baseOffsetN[0] / from->baseOffsetD[0];
-  to->offset_hdr = (float)from->alternateOffsetN[0] / from->alternateOffsetD[0];
+    // BaseRenditionIsHDR is false
+    to->offset_sdr[i] = (float)from->baseOffsetN[i] / from->baseOffsetD[i];
+    to->offset_hdr[i] = (float)from->alternateOffsetN[i] / from->alternateOffsetD[i];
+  }
   to->hdr_capacity_max = exp2((float)from->alternateHdrHeadroomN / from->alternateHdrHeadroomD);
   to->hdr_capacity_min = exp2((float)from->baseHdrHeadroomN / from->baseHdrHeadroomD);
   to->use_base_cg = from->useBaseColorSpace;
@@ -396,28 +387,38 @@ uhdr_error_info_t uhdr_gainmap_metadata_frac::gainmapMetadataFloatToFraction(
     return status;                                                                             \
   }
 
-  CONVERT_FLT_TO_SIGNED_FRACTION(log2(from->max_content_boost), &to->gainMapMaxN[0],
-                                 &to->gainMapMaxD[0])
-  to->gainMapMaxN[2] = to->gainMapMaxN[1] = to->gainMapMaxN[0];
-  to->gainMapMaxD[2] = to->gainMapMaxD[1] = to->gainMapMaxD[0];
+  bool isSingleChannel = from->are_all_channels_identical();
+  for (int i = 0; i < (isSingleChannel ? 1 : 3); i++) {
+    CONVERT_FLT_TO_SIGNED_FRACTION(log2(from->max_content_boost[i]), &to->gainMapMaxN[i],
+                                   &to->gainMapMaxD[i])
 
-  CONVERT_FLT_TO_SIGNED_FRACTION(log2(from->min_content_boost), &to->gainMapMinN[0],
-                                 &to->gainMapMinD[0]);
-  to->gainMapMinN[2] = to->gainMapMinN[1] = to->gainMapMinN[0];
-  to->gainMapMinD[2] = to->gainMapMinD[1] = to->gainMapMinD[0];
+    CONVERT_FLT_TO_SIGNED_FRACTION(log2(from->min_content_boost[i]), &to->gainMapMinN[i],
+                                   &to->gainMapMinD[i]);
 
-  CONVERT_FLT_TO_UNSIGNED_FRACTION(from->gamma, &to->gainMapGammaN[0], &to->gainMapGammaD[0]);
-  to->gainMapGammaN[2] = to->gainMapGammaN[1] = to->gainMapGammaN[0];
-  to->gainMapGammaD[2] = to->gainMapGammaD[1] = to->gainMapGammaD[0];
+    CONVERT_FLT_TO_UNSIGNED_FRACTION(from->gamma[i], &to->gainMapGammaN[i], &to->gainMapGammaD[i]);
 
-  CONVERT_FLT_TO_SIGNED_FRACTION(from->offset_sdr, &to->baseOffsetN[0], &to->baseOffsetD[0]);
-  to->baseOffsetN[2] = to->baseOffsetN[1] = to->baseOffsetN[0];
-  to->baseOffsetD[2] = to->baseOffsetD[1] = to->baseOffsetD[0];
+    CONVERT_FLT_TO_SIGNED_FRACTION(from->offset_sdr[i], &to->baseOffsetN[i], &to->baseOffsetD[i]);
 
-  CONVERT_FLT_TO_SIGNED_FRACTION(from->offset_hdr, &to->alternateOffsetN[0],
-                                 &to->alternateOffsetD[0]);
-  to->alternateOffsetN[2] = to->alternateOffsetN[1] = to->alternateOffsetN[0];
-  to->alternateOffsetD[2] = to->alternateOffsetD[1] = to->alternateOffsetD[0];
+    CONVERT_FLT_TO_SIGNED_FRACTION(from->offset_hdr[i], &to->alternateOffsetN[i],
+                                   &to->alternateOffsetD[i]);
+  }
+
+  if (isSingleChannel) {
+    to->gainMapMaxN[2] = to->gainMapMaxN[1] = to->gainMapMaxN[0];
+    to->gainMapMaxD[2] = to->gainMapMaxD[1] = to->gainMapMaxD[0];
+
+    to->gainMapMinN[2] = to->gainMapMinN[1] = to->gainMapMinN[0];
+    to->gainMapMinD[2] = to->gainMapMinD[1] = to->gainMapMinD[0];
+
+    to->gainMapGammaN[2] = to->gainMapGammaN[1] = to->gainMapGammaN[0];
+    to->gainMapGammaD[2] = to->gainMapGammaD[1] = to->gainMapGammaD[0];
+
+    to->baseOffsetN[2] = to->baseOffsetN[1] = to->baseOffsetN[0];
+    to->baseOffsetD[2] = to->baseOffsetD[1] = to->baseOffsetD[0];
+
+    to->alternateOffsetN[2] = to->alternateOffsetN[1] = to->alternateOffsetN[0];
+    to->alternateOffsetD[2] = to->alternateOffsetD[1] = to->alternateOffsetD[0];
+  }
 
   CONVERT_FLT_TO_UNSIGNED_FRACTION(log2(from->hdr_capacity_min), &to->baseHdrHeadroomN,
                                    &to->baseHdrHeadroomD);

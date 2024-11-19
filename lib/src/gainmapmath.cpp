@@ -756,23 +756,23 @@ void transformYuv444(uhdr_raw_image_t* image, const std::array<float, 9>& coeffs
 ////////////////////////////////////////////////////////////////////////////////
 // Gain map calculations
 
-uint8_t encodeGain(float y_sdr, float y_hdr, uhdr_gainmap_metadata_ext_t* metadata) {
-  return encodeGain(y_sdr, y_hdr, metadata, log2(metadata->min_content_boost),
-                    log2(metadata->max_content_boost));
+uint8_t encodeGain(float y_sdr, float y_hdr, uhdr_gainmap_metadata_ext_t* metadata, int index) {
+  return encodeGain(y_sdr, y_hdr, metadata, log2(metadata->min_content_boost[index]),
+                    log2(metadata->max_content_boost[index]), index);
 }
 
 uint8_t encodeGain(float y_sdr, float y_hdr, uhdr_gainmap_metadata_ext_t* metadata,
-                   float log2MinContentBoost, float log2MaxContentBoost) {
+                   float log2MinContentBoost, float log2MaxContentBoost, int index) {
   float gain = 1.0f;
   if (y_sdr > 0.0f) {
     gain = y_hdr / y_sdr;
   }
 
-  if (gain < metadata->min_content_boost) gain = metadata->min_content_boost;
-  if (gain > metadata->max_content_boost) gain = metadata->max_content_boost;
+  if (gain < metadata->min_content_boost[index]) gain = metadata->min_content_boost[index];
+  if (gain > metadata->max_content_boost[index]) gain = metadata->max_content_boost[index];
   float gain_normalized =
       (log2(gain) - log2MinContentBoost) / (log2MaxContentBoost - log2MinContentBoost);
-  float gain_normalized_gamma = powf(gain_normalized, metadata->gamma);
+  float gain_normalized_gamma = powf(gain_normalized, metadata->gamma[index]);
   return static_cast<uint8_t>(gain_normalized_gamma * 255.0f);
 }
 
@@ -795,73 +795,69 @@ uint8_t affineMapGain(float gainlog2, float mingainlog2, float maxgainlog2, floa
 }
 
 Color applyGain(Color e, float gain, uhdr_gainmap_metadata_ext_t* metadata) {
-  if (metadata->gamma != 1.0f) gain = pow(gain, 1.0f / metadata->gamma);
-  float logBoost =
-      log2(metadata->min_content_boost) * (1.0f - gain) + log2(metadata->max_content_boost) * gain;
+  if (metadata->gamma[0] != 1.0f) gain = pow(gain, 1.0f / metadata->gamma[0]);
+  float logBoost = log2(metadata->min_content_boost[0]) * (1.0f - gain) +
+                   log2(metadata->max_content_boost[0]) * gain;
   float gainFactor = exp2(logBoost);
-  return ((e + metadata->offset_sdr) * gainFactor) - metadata->offset_hdr;
+  return ((e + metadata->offset_sdr[0]) * gainFactor) - metadata->offset_hdr[0];
 }
 
 Color applyGain(Color e, float gain, uhdr_gainmap_metadata_ext_t* metadata, float gainmapWeight) {
-  if (metadata->gamma != 1.0f) gain = pow(gain, 1.0f / metadata->gamma);
-  float logBoost =
-      log2(metadata->min_content_boost) * (1.0f - gain) + log2(metadata->max_content_boost) * gain;
+  if (metadata->gamma[0] != 1.0f) gain = pow(gain, 1.0f / metadata->gamma[0]);
+  float logBoost = log2(metadata->min_content_boost[0]) * (1.0f - gain) +
+                   log2(metadata->max_content_boost[0]) * gain;
   float gainFactor = exp2(logBoost * gainmapWeight);
-  return ((e + metadata->offset_sdr) * gainFactor) - metadata->offset_hdr;
+  return ((e + metadata->offset_sdr[0]) * gainFactor) - metadata->offset_hdr[0];
 }
 
 Color applyGainLUT(Color e, float gain, GainLUT& gainLUT, uhdr_gainmap_metadata_ext_t* metadata) {
-  float gainFactor = gainLUT.getGainFactor(gain);
-  return ((e + metadata->offset_sdr) * gainFactor) - metadata->offset_hdr;
+  float gainFactor = gainLUT.getGainFactor(gain, 0);
+  return ((e + metadata->offset_sdr[0]) * gainFactor) - metadata->offset_hdr[0];
 }
 
 Color applyGain(Color e, Color gain, uhdr_gainmap_metadata_ext_t* metadata) {
-  if (metadata->gamma != 1.0f) {
-    gain.r = pow(gain.r, 1.0f / metadata->gamma);
-    gain.g = pow(gain.g, 1.0f / metadata->gamma);
-    gain.b = pow(gain.b, 1.0f / metadata->gamma);
-  }
-  float logBoostR = log2(metadata->min_content_boost) * (1.0f - gain.r) +
-                    log2(metadata->max_content_boost) * gain.r;
-  float logBoostG = log2(metadata->min_content_boost) * (1.0f - gain.g) +
-                    log2(metadata->max_content_boost) * gain.g;
-  float logBoostB = log2(metadata->min_content_boost) * (1.0f - gain.b) +
-                    log2(metadata->max_content_boost) * gain.b;
+  if (metadata->gamma[0] != 1.0f) gain.r = pow(gain.r, 1.0f / metadata->gamma[0]);
+  if (metadata->gamma[1] != 1.0f) gain.g = pow(gain.g, 1.0f / metadata->gamma[1]);
+  if (metadata->gamma[2] != 1.0f) gain.b = pow(gain.b, 1.0f / metadata->gamma[2]);
+  float logBoostR = log2(metadata->min_content_boost[0]) * (1.0f - gain.r) +
+                    log2(metadata->max_content_boost[0]) * gain.r;
+  float logBoostG = log2(metadata->min_content_boost[1]) * (1.0f - gain.g) +
+                    log2(metadata->max_content_boost[1]) * gain.g;
+  float logBoostB = log2(metadata->min_content_boost[2]) * (1.0f - gain.b) +
+                    log2(metadata->max_content_boost[2]) * gain.b;
   float gainFactorR = exp2(logBoostR);
   float gainFactorG = exp2(logBoostG);
   float gainFactorB = exp2(logBoostB);
-  return {{{((e.r + metadata->offset_sdr) * gainFactorR) - metadata->offset_hdr,
-            ((e.g + metadata->offset_sdr) * gainFactorG) - metadata->offset_hdr,
-            ((e.b + metadata->offset_sdr) * gainFactorB) - metadata->offset_hdr}}};
+  return {{{((e.r + metadata->offset_sdr[0]) * gainFactorR) - metadata->offset_hdr[0],
+            ((e.g + metadata->offset_sdr[1]) * gainFactorG) - metadata->offset_hdr[1],
+            ((e.b + metadata->offset_sdr[2]) * gainFactorB) - metadata->offset_hdr[2]}}};
 }
 
 Color applyGain(Color e, Color gain, uhdr_gainmap_metadata_ext_t* metadata, float gainmapWeight) {
-  if (metadata->gamma != 1.0f) {
-    gain.r = pow(gain.r, 1.0f / metadata->gamma);
-    gain.g = pow(gain.g, 1.0f / metadata->gamma);
-    gain.b = pow(gain.b, 1.0f / metadata->gamma);
-  }
-  float logBoostR = log2(metadata->min_content_boost) * (1.0f - gain.r) +
-                    log2(metadata->max_content_boost) * gain.r;
-  float logBoostG = log2(metadata->min_content_boost) * (1.0f - gain.g) +
-                    log2(metadata->max_content_boost) * gain.g;
-  float logBoostB = log2(metadata->min_content_boost) * (1.0f - gain.b) +
-                    log2(metadata->max_content_boost) * gain.b;
+  if (metadata->gamma[0] != 1.0f) gain.r = pow(gain.r, 1.0f / metadata->gamma[0]);
+  if (metadata->gamma[1] != 1.0f) gain.g = pow(gain.g, 1.0f / metadata->gamma[1]);
+  if (metadata->gamma[2] != 1.0f) gain.b = pow(gain.b, 1.0f / metadata->gamma[2]);
+  float logBoostR = log2(metadata->min_content_boost[0]) * (1.0f - gain.r) +
+                    log2(metadata->max_content_boost[0]) * gain.r;
+  float logBoostG = log2(metadata->min_content_boost[1]) * (1.0f - gain.g) +
+                    log2(metadata->max_content_boost[1]) * gain.g;
+  float logBoostB = log2(metadata->min_content_boost[2]) * (1.0f - gain.b) +
+                    log2(metadata->max_content_boost[2]) * gain.b;
   float gainFactorR = exp2(logBoostR * gainmapWeight);
   float gainFactorG = exp2(logBoostG * gainmapWeight);
   float gainFactorB = exp2(logBoostB * gainmapWeight);
-  return {{{((e.r + metadata->offset_sdr) * gainFactorR) - metadata->offset_hdr,
-            ((e.g + metadata->offset_sdr) * gainFactorG) - metadata->offset_hdr,
-            ((e.b + metadata->offset_sdr) * gainFactorB) - metadata->offset_hdr}}};
+  return {{{((e.r + metadata->offset_sdr[0]) * gainFactorR) - metadata->offset_hdr[0],
+            ((e.g + metadata->offset_sdr[1]) * gainFactorG) - metadata->offset_hdr[1],
+            ((e.b + metadata->offset_sdr[2]) * gainFactorB) - metadata->offset_hdr[2]}}};
 }
 
 Color applyGainLUT(Color e, Color gain, GainLUT& gainLUT, uhdr_gainmap_metadata_ext_t* metadata) {
-  float gainFactorR = gainLUT.getGainFactor(gain.r);
-  float gainFactorG = gainLUT.getGainFactor(gain.g);
-  float gainFactorB = gainLUT.getGainFactor(gain.b);
-  return {{{((e.r + metadata->offset_sdr) * gainFactorR) - metadata->offset_hdr,
-            ((e.g + metadata->offset_sdr) * gainFactorG) - metadata->offset_hdr,
-            ((e.b + metadata->offset_sdr) * gainFactorB) - metadata->offset_hdr}}};
+  float gainFactorR = gainLUT.getGainFactor(gain.r, 0);
+  float gainFactorG = gainLUT.getGainFactor(gain.g, 1);
+  float gainFactorB = gainLUT.getGainFactor(gain.b, 2);
+  return {{{((e.r + metadata->offset_sdr[0]) * gainFactorR) - metadata->offset_hdr[0],
+            ((e.g + metadata->offset_sdr[1]) * gainFactorG) - metadata->offset_hdr[1],
+            ((e.b + metadata->offset_sdr[2]) * gainFactorB) - metadata->offset_hdr[2]}}};
 }
 
 // TODO: do we need something more clever for filtering either the map or images

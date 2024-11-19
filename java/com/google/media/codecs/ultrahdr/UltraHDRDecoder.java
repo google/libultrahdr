@@ -28,6 +28,7 @@ import static com.google.media.codecs.ultrahdr.UltraHDRCommon.UHDR_IMG_FMT_UNSPE
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.util.Arrays;
 
 /**
  * Ultra HDR decoding utility class.
@@ -38,34 +39,34 @@ public class UltraHDRDecoder implements AutoCloseable {
      * GainMap Metadata Descriptor
      */
     public static class GainMapMetadata {
-        public float maxContentBoost;
-        public float minContentBoost;
-        public float gamma;
-        public float offsetSdr;
-        public float offsetHdr;
+        public float[] maxContentBoost = new float[3];
+        public float[] minContentBoost = new float[3];
+        public float[] gamma = new float[3];
+        public float[] offsetSdr = new float[3];
+        public float[] offsetHdr = new float[3];
         public float hdrCapacityMin;
         public float hdrCapacityMax;
         public boolean useBaseColorSpace;
 
         public GainMapMetadata() {
-            this.maxContentBoost = 1.0f;
-            this.minContentBoost = 1.0f;
-            this.gamma = 1.0f;
-            this.offsetSdr = 0.0f;
-            this.offsetHdr = 0.0f;
+            Arrays.fill(this.maxContentBoost, 1.0f);
+            Arrays.fill(this.minContentBoost, 1.0f);
+            Arrays.fill(this.gamma, 1.0f);
+            Arrays.fill(this.offsetSdr, 0.0f);
+            Arrays.fill(this.offsetHdr, 0.0f);
             this.hdrCapacityMin = 1.0f;
             this.hdrCapacityMax = 1.0f;
             this.useBaseColorSpace = true;
         }
 
-        public GainMapMetadata(float maxContentBoost, float minContentBoost, float gamma,
-                float offsetSdr, float offsetHdr, float hdrCapacityMin, float hdrCapacityMax,
+        public GainMapMetadata(float[] maxContentBoost, float[] minContentBoost, float[] gamma,
+                float[] offsetSdr, float[] offsetHdr, float hdrCapacityMin, float hdrCapacityMax,
                 boolean useBaseColorSpace) {
-            this.maxContentBoost = maxContentBoost;
-            this.minContentBoost = minContentBoost;
-            this.gamma = gamma;
-            this.offsetSdr = offsetSdr;
-            this.offsetHdr = offsetHdr;
+            System.arraycopy(maxContentBoost, 0, this.maxContentBoost, 0, 3);
+            System.arraycopy(minContentBoost, 0, this.minContentBoost, 0, 3);
+            System.arraycopy(gamma, 0, this.gamma, 0, 3);
+            System.arraycopy(offsetSdr, 0, this.offsetSdr, 0, 3);
+            System.arraycopy(offsetHdr, 0, this.offsetHdr, 0, 3);
             this.hdrCapacityMin = hdrCapacityMin;
             this.hdrCapacityMax = hdrCapacityMax;
             this.useBaseColorSpace = useBaseColorSpace;
@@ -478,11 +479,11 @@ public class UltraHDRDecoder implements AutoCloseable {
     }
 
     private void resetState() {
-        maxContentBoost = 1.0f;
-        minContentBoost = 1.0f;
-        gamma = 1.0f;
-        offsetSdr = 0.0f;
-        offsetHdr = 0.0f;
+        Arrays.fill(maxContentBoost, 1.0f);
+        Arrays.fill(minContentBoost, 1.0f);
+        Arrays.fill(gamma, 1.0f);
+        Arrays.fill(offsetSdr, 0.0f);
+        Arrays.fill(offsetHdr, 0.0f);
         hdrCapacityMin = 1.0f;
         hdrCapacityMax = 1.0f;
         useBaseColorSpace = true;
@@ -559,11 +560,11 @@ public class UltraHDRDecoder implements AutoCloseable {
     /**
      * gainmap metadata fields. Filled by {@link UltraHDRDecoder#getGainmapMetadataNative()}
      */
-    private float maxContentBoost;
-    private float minContentBoost;
-    private float gamma;
-    private float offsetSdr;
-    private float offsetHdr;
+    private float[] maxContentBoost = new float[3];
+    private float[] minContentBoost = new float[3];
+    private float[] gamma = new float[3];
+    private float[] offsetSdr = new float[3];
+    private float[] offsetHdr = new float[3];
     private float hdrCapacityMin;
     private float hdrCapacityMax;
     private boolean useBaseColorSpace;
