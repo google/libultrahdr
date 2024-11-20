@@ -344,16 +344,6 @@ uhdr_error_info_t uhdr_gainmap_metadata_frac::gainmapMetadataFractionToFloat(
     return status;
   }
 
-  // TODO: parse gainmap image icc and use it for color conversion during applygainmap
-  if (!from->useBaseColorSpace) {
-    uhdr_error_info_t status;
-    status.error_code = UHDR_CODEC_UNSUPPORTED_FEATURE;
-    status.has_detail = 1;
-    snprintf(status.detail, sizeof status.detail,
-             "current implementation requires gainmap application space to match base color space");
-    return status;
-  }
-
   to->version = kJpegrVersion;
   to->max_content_boost = exp2((float)from->gainMapMaxN[0] / from->gainMapMaxD[0]);
   to->min_content_boost = exp2((float)from->gainMapMinN[0] / from->gainMapMinD[0]);
@@ -365,6 +355,7 @@ uhdr_error_info_t uhdr_gainmap_metadata_frac::gainmapMetadataFractionToFloat(
   to->offset_hdr = (float)from->alternateOffsetN[0] / from->alternateOffsetD[0];
   to->hdr_capacity_max = exp2((float)from->alternateHdrHeadroomN / from->alternateHdrHeadroomD);
   to->hdr_capacity_min = exp2((float)from->baseHdrHeadroomN / from->baseHdrHeadroomD);
+  to->use_base_cg = from->useBaseColorSpace;
 
   return g_no_error;
 }
@@ -381,7 +372,7 @@ uhdr_error_info_t uhdr_gainmap_metadata_frac::gainmapMetadataFloatToFraction(
   }
 
   to->backwardDirection = false;
-  to->useBaseColorSpace = true;
+  to->useBaseColorSpace = from->use_base_cg;
 
 #define CONVERT_FLT_TO_UNSIGNED_FRACTION(flt, numerator, denominator)                          \
   if (!floatToUnsignedFraction(flt, numerator, denominator)) {                                 \

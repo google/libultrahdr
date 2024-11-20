@@ -623,6 +623,7 @@ uhdr_error_info_t getMetadataFromXMP(uint8_t* xmp_data, size_t xmp_size,
     snprintf(status.detail, sizeof status.detail, "hdr intent as base rendition is not supported");
     return status;
   }
+  metadata->use_base_cg = true;
 
   return g_no_error;
 }

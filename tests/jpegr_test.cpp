@@ -1403,6 +1403,7 @@ TEST(JpegRTest, DecodeAPIWithInvalidArgs) {
 TEST(JpegRTest, writeXmpThenRead) {
   uhdr_gainmap_metadata_ext_t metadata_expected;
   metadata_expected.version = "1.0";
+  metadata_expected.use_base_cg = true;
   metadata_expected.max_content_boost = 1.25f;
   metadata_expected.min_content_boost = 0.75f;
   metadata_expected.gamma = 1.0f;
@@ -1432,6 +1433,7 @@ TEST(JpegRTest, writeXmpThenRead) {
   EXPECT_FLOAT_EQ(metadata_expected.offset_hdr, metadata_read.offset_hdr);
   EXPECT_FLOAT_EQ(metadata_expected.hdr_capacity_min, metadata_read.hdr_capacity_min);
   EXPECT_FLOAT_EQ(metadata_expected.hdr_capacity_max, metadata_read.hdr_capacity_max);
+  EXPECT_TRUE(metadata_read.use_base_cg);
 }
 
 class JpegRAPIEncodeAndDecodeTest
