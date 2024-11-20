@@ -255,6 +255,8 @@ uhdr_error_info_t JpegR::encodeJPEGR(uhdr_raw_image_t* hdr_intent, uhdr_raw_imag
   if (isPixelFormatRgb(sdr_intent->fmt)) {
 #if (defined(UHDR_ENABLE_INTRINSICS) && (defined(__ARM_NEON__) || defined(__ARM_NEON)))
     sdr_intent_yuv_ext = convert_raw_input_to_ycbcr_neon(sdr_intent);
+#elif (defined(UHDR_ENABLE_INTRINSICS) && defined(__riscv_v_intrinsic))
+    sdr_intent_yuv_ext = convert_raw_input_to_ycbcr_rvv(sdr_intent);
 #else
     sdr_intent_yuv_ext = convert_raw_input_to_ycbcr(sdr_intent);
 #endif

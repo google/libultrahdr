@@ -582,6 +582,10 @@ std::unique_ptr<uhdr_raw_image_ext_t> convert_raw_input_to_ycbcr(
 std::unique_ptr<uhdr_raw_image_ext_t> convert_raw_input_to_ycbcr_neon(uhdr_raw_image_t* src);
 #endif
 
+#if (defined(UHDR_ENABLE_INTRINSICS) && defined(__riscv_v_intrinsic))
+std::unique_ptr<uhdr_raw_image_ext_t> convert_raw_input_to_ycbcr_rvv(uhdr_raw_image_t* src);
+#endif
+
 bool floatToSignedFraction(float v, int32_t* numerator, uint32_t* denominator);
 bool floatToUnsignedFraction(float v, uint32_t* numerator, uint32_t* denominator);
 
