@@ -244,7 +244,7 @@ std::string getGamutConversionShader(uhdr_color_gamut_t src_cg, uhdr_color_gamut
 
 std::string getApplyGainMapFragmentShader(uhdr_img_fmt sdr_fmt, uhdr_img_fmt gm_fmt,
                                           uhdr_color_transfer output_ct, uhdr_color_gamut_t sdr_cg,
-                                          uhdr_color_gamut_t hdr_cg) {
+                                          uhdr_color_gamut_t hdr_cg, bool use_base_cg) {
   std::string shader_code = R"__SHADER__(#version 300 es
     precision highp float;
     precision highp int;
@@ -278,10 +278,17 @@ std::string getApplyGainMapFragmentShader(uhdr_img_fmt sdr_fmt, uhdr_img_fmt gm_
       vec3 yuv_gamma_sdr = getYUVPixel();
       vec3 rgb_gamma_sdr = p3YuvToRgb(yuv_gamma_sdr);
       vec3 rgb_sdr = sRGBEOTF(rgb_gamma_sdr);
+  )__SHADER__");
+  if (sdr_cg != hdr_cg && !use_base_cg) {
+    shader_code.append(R"__SHADER__(
+      rgb_sdr = gamutConversion(rgb_sdr);
+    )__SHADER__");
+  }
+  shader_code.append(R"__SHADER__(
       vec3 gain = sampleMap(gainMapTexture);
       vec3 rgb_hdr = applyGain(rgb_sdr, gain);
   )__SHADER__");
-  if (sdr_cg != hdr_cg) {
+  if (sdr_cg != hdr_cg && use_base_cg) {
     shader_code.append(R"__SHADER__(
       rgb_hdr = gamutConversion(rgb_hdr);
     )__SHADER__");
@@ -354,7 +361,8 @@ uhdr_error_info_t applyGainMapGLES(uhdr_raw_image_t* sdr_intent, uhdr_raw_image_
 
   shaderProgram = opengl_ctxt->create_shader_program(
       vertex_shader.c_str(),
-      getApplyGainMapFragmentShader(sdr_intent->fmt, gainmap_img->fmt, output_ct, sdr_cg, hdr_cg)
+      getApplyGainMapFragmentShader(sdr_intent->fmt, gainmap_img->fmt, output_ct, sdr_cg, hdr_cg,
+                                    gainmap_metadata->use_base_cg)
           .c_str());
   RET_IF_ERR()
 

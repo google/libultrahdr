@@ -587,15 +587,40 @@ uhdr_error_info_t JpegR::generateGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_
     return status;
   }
 
-  ColorTransformFn hdrGamutConversionFn = getGamutConversionFn(sdr_intent->cg, hdr_intent->cg);
-  if (hdrGamutConversionFn == nullptr) {
-    status.error_code = UHDR_CODEC_UNSUPPORTED_FEATURE;
-    status.has_detail = 1;
-    snprintf(status.detail, sizeof status.detail,
-             "No implementation available for gamut conversion from %d to %d", hdr_intent->cg,
-             sdr_intent->cg);
-    return status;
+  ColorTransformFn hdrGamutConversionFn;
+  ColorTransformFn sdrGamutConversionFn;
+  bool use_sdr_cg = true;
+  if (sdr_intent->cg != hdr_intent->cg) {
+    use_sdr_cg = kWriteXmpMetadata ||
+                 !(hdr_intent->cg == UHDR_CG_BT_2100 ||
+                   (hdr_intent->cg == UHDR_CG_DISPLAY_P3 && sdr_intent->cg != UHDR_CG_BT_2100));
+    if (use_sdr_cg) {
+      hdrGamutConversionFn = getGamutConversionFn(sdr_intent->cg, hdr_intent->cg);
+      if (hdrGamutConversionFn == nullptr) {
+        status.error_code = UHDR_CODEC_UNSUPPORTED_FEATURE;
+        status.has_detail = 1;
+        snprintf(status.detail, sizeof status.detail,
+                 "No implementation available for gamut conversion from %d to %d", hdr_intent->cg,
+                 sdr_intent->cg);
+        return status;
+      }
+      sdrGamutConversionFn = identityConversion;
+    } else {
+      hdrGamutConversionFn = identityConversion;
+      sdrGamutConversionFn = getGamutConversionFn(hdr_intent->cg, sdr_intent->cg);
+      if (sdrGamutConversionFn == nullptr) {
+        status.error_code = UHDR_CODEC_UNSUPPORTED_FEATURE;
+        status.has_detail = 1;
+        snprintf(status.detail, sizeof status.detail,
+                 "No implementation available for gamut conversion from %d to %d", sdr_intent->cg,
+                 hdr_intent->cg);
+        return status;
+      }
+    }
+  } else {
+    hdrGamutConversionFn = sdrGamutConversionFn = identityConversion;
   }
+  gainmap_metadata->use_base_cg = use_sdr_cg;
 
   ColorTransformFn sdrYuvToRgbFn = getYuvToRgbFn(sdr_intent->cg);
   if (sdrYuvToRgbFn == nullptr) {
@@ -678,8 +703,9 @@ uhdr_error_info_t JpegR::generateGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_
 
   auto generateGainMapOnePass = [this, sdr_intent, hdr_intent, gainmap_metadata, dest, map_height,
                                  hdrInvOetf, hdrLuminanceFn, hdrOotfFn, hdrGamutConversionFn,
-                                 luminanceFn, sdrYuvToRgbFn, hdrYuvToRgbFn, sdr_sample_pixel_fn,
-                                 hdr_sample_pixel_fn, hdr_white_nits, use_luminance]() -> void {
+                                 sdrGamutConversionFn, luminanceFn, sdrYuvToRgbFn, hdrYuvToRgbFn,
+                                 sdr_sample_pixel_fn, hdr_sample_pixel_fn, hdr_white_nits,
+                                 use_luminance]() -> void {
     gainmap_metadata->max_content_boost = hdr_white_nits / kSdrWhiteNits;
     gainmap_metadata->min_content_boost = 1.0f;
     gainmap_metadata->gamma = mGamma;
@@ -701,9 +727,9 @@ uhdr_error_info_t JpegR::generateGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_
     JobQueue jobQueue;
     std::function<void()> generateMap =
         [this, sdr_intent, hdr_intent, gainmap_metadata, dest, hdrInvOetf, hdrLuminanceFn,
-         hdrOotfFn, hdrGamutConversionFn, luminanceFn, sdrYuvToRgbFn, hdrYuvToRgbFn,
-         sdr_sample_pixel_fn, hdr_sample_pixel_fn, hdr_white_nits, log2MinBoost, log2MaxBoost,
-         use_luminance, &jobQueue]() -> void {
+         hdrOotfFn, hdrGamutConversionFn, sdrGamutConversionFn, luminanceFn, sdrYuvToRgbFn,
+         hdrYuvToRgbFn, sdr_sample_pixel_fn, hdr_sample_pixel_fn, hdr_white_nits, log2MinBoost,
+         log2MaxBoost, use_luminance, &jobQueue]() -> void {
       unsigned int rowStart, rowEnd;
       const bool isHdrIntentRgb = isPixelFormatRgb(hdr_intent->fmt);
       const bool isSdrIntentRgb = isPixelFormatRgb(sdr_intent->fmt);
@@ -727,6 +753,8 @@ uhdr_error_info_t JpegR::generateGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_
 #else
             Color sdr_rgb = srgbInvOetf(sdr_rgb_gamma);
 #endif
+            sdr_rgb = sdrGamutConversionFn(sdr_rgb);
+            sdr_rgb = clipNegatives(sdr_rgb);
 
             Color hdr_rgb_gamma;
 
@@ -791,10 +819,11 @@ uhdr_error_info_t JpegR::generateGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_
     std::for_each(workers.begin(), workers.end(), [](std::thread& t) { t.join(); });
   };
 
-  auto generateGainMapTwoPass =
-      [this, sdr_intent, hdr_intent, gainmap_metadata, dest, map_width, map_height, hdrInvOetf,
-       hdrLuminanceFn, hdrOotfFn, hdrGamutConversionFn, luminanceFn, sdrYuvToRgbFn, hdrYuvToRgbFn,
-       sdr_sample_pixel_fn, hdr_sample_pixel_fn, hdr_white_nits, use_luminance]() -> void {
+  auto generateGainMapTwoPass = [this, sdr_intent, hdr_intent, gainmap_metadata, dest, map_width,
+                                 map_height, hdrInvOetf, hdrLuminanceFn, hdrOotfFn,
+                                 hdrGamutConversionFn, sdrGamutConversionFn, luminanceFn,
+                                 sdrYuvToRgbFn, hdrYuvToRgbFn, sdr_sample_pixel_fn,
+                                 hdr_sample_pixel_fn, hdr_white_nits, use_luminance]() -> void {
     uhdr_memory_block_t gainmap_mem((size_t)map_width * map_height * sizeof(float) *
                                     (mUseMultiChannelGainMap ? 3 : 1));
     float* gainmap_data = reinterpret_cast<float*>(gainmap_mem.m_buffer.get());
@@ -808,9 +837,9 @@ uhdr_error_info_t JpegR::generateGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_
     JobQueue jobQueue;
     std::function<void()> generateMap =
         [this, sdr_intent, hdr_intent, gainmap_data, map_width, hdrInvOetf, hdrLuminanceFn,
-         hdrOotfFn, hdrGamutConversionFn, luminanceFn, sdrYuvToRgbFn, hdrYuvToRgbFn,
-         sdr_sample_pixel_fn, hdr_sample_pixel_fn, hdr_white_nits, use_luminance, &gainmap_min,
-         &gainmap_max, &gainmap_minmax, &jobQueue]() -> void {
+         hdrOotfFn, hdrGamutConversionFn, sdrGamutConversionFn, luminanceFn, sdrYuvToRgbFn,
+         hdrYuvToRgbFn, sdr_sample_pixel_fn, hdr_sample_pixel_fn, hdr_white_nits, use_luminance,
+         &gainmap_min, &gainmap_max, &gainmap_minmax, &jobQueue]() -> void {
       unsigned int rowStart, rowEnd;
       const bool isHdrIntentRgb = isPixelFormatRgb(hdr_intent->fmt);
       const bool isSdrIntentRgb = isPixelFormatRgb(sdr_intent->fmt);
@@ -837,6 +866,8 @@ uhdr_error_info_t JpegR::generateGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_
 #else
             Color sdr_rgb = srgbInvOetf(sdr_rgb_gamma);
 #endif
+            sdr_rgb = sdrGamutConversionFn(sdr_rgb);
+            sdr_rgb = clipNegatives(sdr_rgb);
 
             Color hdr_rgb_gamma;
 
@@ -1410,8 +1441,19 @@ uhdr_error_info_t JpegR::applyGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_ima
   uhdr_color_gamut_t sdr_cg =
       sdr_intent->cg == UHDR_CG_UNSPECIFIED ? UHDR_CG_BT_709 : sdr_intent->cg;
   uhdr_color_gamut_t hdr_cg = gainmap_img->cg == UHDR_CG_UNSPECIFIED ? sdr_cg : gainmap_img->cg;
-  ColorTransformFn hdrGamutConversionFn = getGamutConversionFn(hdr_cg, sdr_cg);
   dest->cg = hdr_cg;
+  ColorTransformFn hdrGamutConversionFn =
+      gainmap_metadata->use_base_cg ? getGamutConversionFn(hdr_cg, sdr_cg) : identityConversion;
+  ColorTransformFn sdrGamutConversionFn =
+      gainmap_metadata->use_base_cg ? identityConversion : getGamutConversionFn(hdr_cg, sdr_cg);
+  if (hdrGamutConversionFn == nullptr || sdrGamutConversionFn == nullptr) {
+    uhdr_error_info_t status;
+    status.error_code = UHDR_CODEC_ERROR;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "No implementation available for converting from gamut %d to %d", sdr_cg, hdr_cg);
+    return status;
+  }
 
 #ifdef UHDR_ENABLE_GLES
   if (mUhdrGLESCtxt != nullptr) {
@@ -1485,6 +1527,7 @@ uhdr_error_info_t JpegR::applyGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_ima
   JobQueue jobQueue;
   std::function<void()> applyRecMap = [sdr_intent, gainmap_img, dest, &jobQueue, &idwTable,
                                        output_ct, &gainLUT, gainmap_metadata, hdrGamutConversionFn,
+                                       sdrGamutConversionFn,
 #if !USE_APPLY_GAIN_LUT
                                        gainmap_weight,
 #endif
@@ -1504,6 +1547,7 @@ uhdr_error_info_t JpegR::applyGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_ima
 #else
           Color rgb_sdr = srgbInvOetf(rgb_gamma_sdr);
 #endif
+          rgb_sdr = sdrGamutConversionFn(rgb_sdr);
           Color rgb_hdr;
           if (gainmap_img->fmt == UHDR_IMG_FMT_8bppYCbCr400) {
             float gain;
@@ -2488,6 +2532,7 @@ status_t JpegR::encodeJPEGR(jr_compressed_ptr yuv420jpg_image_ptr,
 
   uhdr_gainmap_metadata_ext_t meta;
   meta.version = metadata->version;
+  meta.use_base_cg = true;
   meta.hdr_capacity_max = metadata->hdrCapacityMax;
   meta.hdr_capacity_min = metadata->hdrCapacityMin;
   meta.gamma = metadata->gamma;

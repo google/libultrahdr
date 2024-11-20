@@ -50,6 +50,7 @@ TEST_F(GainMapMetadataTest, encodeMetadataThenDecode) {
   expected.offset_hdr = 0.0625f;
   expected.hdr_capacity_min = 1.0f;
   expected.hdr_capacity_max = 10000.0f / 203.0f;
+  expected.use_base_cg = false;
 
   uhdr_gainmap_metadata_frac metadata;
   EXPECT_EQ(
@@ -78,12 +79,14 @@ TEST_F(GainMapMetadataTest, encodeMetadataThenDecode) {
   EXPECT_FLOAT_EQ(expected.offset_hdr, decodedUHdrMetadata.offset_hdr);
   EXPECT_FLOAT_EQ(expected.hdr_capacity_min, decodedUHdrMetadata.hdr_capacity_min);
   EXPECT_FLOAT_EQ(expected.hdr_capacity_max, decodedUHdrMetadata.hdr_capacity_max);
+  EXPECT_EQ(expected.use_base_cg, decodedUHdrMetadata.use_base_cg);
 
   data.clear();
   expected.min_content_boost = 0.000578369f;
   expected.offset_sdr = -0.0625f;
   expected.offset_hdr = -0.0625f;
   expected.hdr_capacity_max = 1000.0f / 203.0f;
+  expected.use_base_cg = true;
 
   EXPECT_EQ(
       uhdr_gainmap_metadata_frac::gainmapMetadataFloatToFraction(&expected, &metadata).error_code,
@@ -104,6 +107,7 @@ TEST_F(GainMapMetadataTest, encodeMetadataThenDecode) {
   EXPECT_FLOAT_EQ(expected.offset_hdr, decodedUHdrMetadata.offset_hdr);
   EXPECT_FLOAT_EQ(expected.hdr_capacity_min, decodedUHdrMetadata.hdr_capacity_min);
   EXPECT_FLOAT_EQ(expected.hdr_capacity_max, decodedUHdrMetadata.hdr_capacity_max);
+  EXPECT_EQ(expected.use_base_cg, decodedUHdrMetadata.use_base_cg);
 }
 
 }  // namespace ultrahdr
