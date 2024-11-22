@@ -915,7 +915,7 @@ uhdr_error_info_t JpegR::generateGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_
       min_content_boost_log2 = (std::max)(min_content_boost_log2, suggestion);
     }
     if (fabs(max_content_boost_log2 - min_content_boost_log2) < FLT_EPSILON) {
-      max_content_boost_log2 += 0.1;  // to avoid div by zero during affine transform
+      max_content_boost_log2 += 0.1f;  // to avoid div by zero during affine transform
     }
 
     std::function<void()> encodeMap = [this, gainmap_data, map_width, dest, min_content_boost_log2,
@@ -1417,7 +1417,7 @@ uhdr_error_info_t JpegR::applyGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_ima
     float gainmap_aspect_ratio = (float)gainmap_img->w / gainmap_img->h;
     float delta_aspect_ratio = fabs(primary_aspect_ratio - gainmap_aspect_ratio);
     // Allow 1% delta
-    const float delta_tolerance = 0.01;
+    const float delta_tolerance = 0.01f;
     if (delta_aspect_ratio / primary_aspect_ratio > delta_tolerance) {
       resized_gainmap = resize_image(gainmap_img, sdr_intent->w, sdr_intent->h);
       if (resized_gainmap == nullptr) {
@@ -1692,8 +1692,8 @@ uhdr_error_info_t JpegR::parseJpegInfo(uhdr_compressed_image_t* jpeg_image, j_in
 }
 
 static float ReinhardMap(float y_hdr, float headroom) {
-  float out = 1.0 + y_hdr / (headroom * headroom);
-  out /= 1.0 + y_hdr;
+  float out = 1.0f + y_hdr / (headroom * headroom);
+  out /= 1.0f + y_hdr;
   return out * y_hdr;
 }
 
