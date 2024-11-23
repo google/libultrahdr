@@ -103,6 +103,10 @@ static constexpr size_t kICCTagTableEntrySize = 12;
 // bytes for a single XYZ number type (4 bytes per coordinate).
 static constexpr size_t kColorantTagSize = 20;
 
+// size should be 12; 4 bytes for type descriptor, 4 bytes reserved, one
+// byte each for primaries, transfer, matrix, range.
+static constexpr size_t kCicpTagSize = 12;
+
 static constexpr uint32_t kDisplay_Profile = SetFourByteTag('m', 'n', 't', 'r');
 static constexpr uint32_t kRGB_ColorSpace = SetFourByteTag('R', 'G', 'B', ' ');
 static constexpr uint32_t kXYZ_PCSSpace = SetFourByteTag('X', 'Y', 'Z', ' ');

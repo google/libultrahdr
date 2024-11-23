@@ -273,8 +273,7 @@ float IccHelper::compute_tone_map_gain(const uhdr_color_transfer_t tf, float L) 
 
 std::shared_ptr<DataStruct> IccHelper::write_cicp_tag(uint32_t color_primaries,
                                                       uint32_t transfer_characteristics) {
-  int total_length = 12;  // 4 + 4 + 1 + 1 + 1 + 1
-  std::shared_ptr<DataStruct> dataStruct = std::make_shared<DataStruct>(total_length);
+  std::shared_ptr<DataStruct> dataStruct = std::make_shared<DataStruct>(kCicpTagSize);
   dataStruct->write32(Endian_SwapBE32(kTAG_cicp));  // Type signature
   dataStruct->write32(0);                           // Reserved
   dataStruct->write8(color_primaries);              // Color primaries
@@ -670,6 +669,7 @@ uhdr_color_gamut_t IccHelper::readIccColorGamut(void* icc_data, size_t icc_size)
   // of ICC data and therefore a tag offset of zero would never be valid.
   size_t red_primary_offset = 0, green_primary_offset = 0, blue_primary_offset = 0;
   size_t red_primary_size = 0, green_primary_size = 0, blue_primary_size = 0;
+  size_t cicp_size = 0, cicp_offset = 0;
   for (size_t tag_idx = 0; tag_idx < Endian_SwapBE32(header->tag_count); ++tag_idx) {
     if (icc_size < kICCIdentifierSize + sizeof(ICCHeader) + ((tag_idx + 1) * kTagTableEntrySize)) {
       ALOGE(
@@ -692,6 +692,27 @@ uhdr_color_gamut_t IccHelper::readIccColorGamut(void* icc_data, size_t icc_size)
     } else if (blue_primary_offset == 0 && *tag_entry_start == Endian_SwapBE32(kTAG_bXYZ)) {
       blue_primary_offset = Endian_SwapBE32(*(tag_entry_start + 1));
       blue_primary_size = Endian_SwapBE32(*(tag_entry_start + 2));
+    } else if (cicp_offset == 0 && *tag_entry_start == Endian_SwapBE32(kTAG_cicp)) {
+      cicp_offset = Endian_SwapBE32(*(tag_entry_start + 1));
+      cicp_size = Endian_SwapBE32(*(tag_entry_start + 2));
+    }
+  }
+
+  if (cicp_offset != 0 && cicp_size == kCicpTagSize &&
+      kICCIdentifierSize + cicp_offset + cicp_size <= icc_size) {
+    uint8_t* cicp = icc_bytes + cicp_offset;
+    uint8_t primaries = cicp[8];
+    uhdr_color_gamut_t gamut = UHDR_CG_UNSPECIFIED;
+    if (primaries == kCICPPrimariesSRGB) {
+      gamut = UHDR_CG_BT_709;
+    } else if (primaries == kCICPPrimariesP3) {
+      gamut = UHDR_CG_DISPLAY_P3;
+    } else if (primaries == kCICPPrimariesRec2020) {
+      gamut = UHDR_CG_BT_2100;
+    }
+    if (gamut != UHDR_CG_UNSPECIFIED) {
+      if (aligned_block) ::operator delete[](aligned_block, std::align_val_t(alignment_needs));
+      return gamut;
     }
   }
 
