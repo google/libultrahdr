@@ -536,6 +536,14 @@ PutPixelFn putPixelFn(uhdr_img_fmt_t format);
 
 ////////////////////////////////////////////////////////////////////////////////
 // common utils
+static const float kHdrOffset = 1e-7f;
+static const float kSdrOffset = 1e-7f;
+
+static inline float clipNegatives(float value) { return (value < 0.0f) ? 0.0f : value; }
+
+static inline Color clipNegatives(Color e) {
+  return {{{clipNegatives(e.r), clipNegatives(e.g), clipNegatives(e.b)}}};
+}
 
 // maximum limit of normalized pixel value in float representation
 static const float kMaxPixelFloat = 1.0f;
