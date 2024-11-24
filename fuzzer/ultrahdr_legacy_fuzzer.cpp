@@ -233,7 +233,7 @@ void UltraHdrEncFuzzer::process() {
 
     // dest
     // 2 * p010 size as input data is random, DCT compression might not behave as expected
-    jpegImgR.maxLength = std::max(8 * 1024 /* min size 8kb */, width * height * 3 * 2);
+    jpegImgR.maxLength = std::max(64 * 1024 /* min size 8kb */, width * height * 3 * 2);
     auto jpegImgRaw = std::make_unique<uint8_t[]>(jpegImgR.maxLength);
     jpegImgR.data = jpegImgRaw.get();
 // #define DUMP_PARAM

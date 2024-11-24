@@ -606,41 +606,31 @@ void putYuv444Pixel(uhdr_raw_image_t* image, size_t x, size_t y, Color& pixel) {
 // Sample, See,
 // https://registry.khronos.org/DataFormat/specs/1.3/dataformat.1.3.html#_bt_709_bt_2020_primary_conversion_example
 
-Color bt709ToP3(Color e) {
-  return {{{0.822462f * e.r + 0.177537f * e.g + 0.000001f * e.b,
-            0.033194f * e.r + 0.966807f * e.g + -0.000001f * e.b,
-            0.017083f * e.r + 0.072398f * e.g + 0.91052f * e.b}}};
-}
+const std::array<float, 9> kBt709ToP3 = {0.822462f,  0.177537f, 0.000001f, 0.033194f, 0.966807f,
+                                         -0.000001f, 0.017083f, 0.072398f, 0.91052f};
+const std::array<float, 9> kBt709ToBt2100 = {0.627404f, 0.329282f, 0.043314f, 0.069097f, 0.919541f,
+                                             0.011362f, 0.016392f, 0.088013f, 0.895595f};
+const std::array<float, 9> kP3ToBt709 = {1.22494f, -0.22494f,  0.0f,       -0.042057f, 1.042057f,
+                                         0.0f,     -0.019638f, -0.078636f, 1.098274f};
+const std::array<float, 9> kP3ToBt2100 = {0.753833f, 0.198597f, 0.04757f,  0.045744f, 0.941777f,
+                                          0.012479f, -0.00121f, 0.017601f, 0.983608f};
+const std::array<float, 9> kBt2100ToBt709 = {1.660491f,  -0.587641f, -0.07285f,
+                                             -0.124551f, 1.1329f,    -0.008349f,
+                                             -0.018151f, -0.100579f, 1.11873f};
+const std::array<float, 9> kBt2100ToP3 = {1.343578f, -0.282179f, -0.061399f, -0.065298f, 1.075788f,
+                                          -0.01049f, 0.002822f,  -0.019598f, 1.016777f};
 
-Color bt709ToBt2100(Color e) {
-  return {{{0.627404f * e.r + 0.329282f * e.g + 0.043314f * e.b,
-            0.069097f * e.r + 0.919541f * e.g + 0.011362f * e.b,
-            0.016392f * e.r + 0.088013f * e.g + 0.895595f * e.b}}};
+Color ConvertGamut(Color e, const std::array<float, 9>& coeffs) {
+  return {{{coeffs[0] * e.r + coeffs[1] * e.g + coeffs[2] * e.b,
+            coeffs[3] * e.r + coeffs[4] * e.g + coeffs[5] * e.b,
+            coeffs[6] * e.r + coeffs[7] * e.g + coeffs[8] * e.b}}};
 }
-
-Color p3ToBt709(Color e) {
-  return {{{1.22494f * e.r + -0.22494f * e.g + 0.0f * e.b,
-            -0.042057f * e.r + 1.042057f * e.g + 0.0f * e.b,
-            -0.019638f * e.r + -0.078636f * e.g + 1.098274f * e.b}}};
-}
-
-Color p3ToBt2100(Color e) {
-  return {{{0.753833f * e.r + 0.198597f * e.g + 0.04757f * e.b,
-            0.045744f * e.r + 0.941777f * e.g + 0.012479f * e.b,
-            -0.00121f * e.r + 0.017601f * e.g + 0.983608f * e.b}}};
-}
-
-Color bt2100ToBt709(Color e) {
-  return {{{1.660491f * e.r + -0.587641f * e.g + -0.07285f * e.b,
-            -0.124551f * e.r + 1.1329f * e.g + -0.008349f * e.b,
-            -0.018151f * e.r + -0.100579f * e.g + 1.11873f * e.b}}};
-}
-
-Color bt2100ToP3(Color e) {
-  return {{{1.343578f * e.r + -0.282179f * e.g + -0.061399f * e.b,
-            -0.065298f * e.r + 1.075788f * e.g + -0.01049f * e.b,
-            0.002822f * e.r + -0.019598f * e.g + 1.016777f * e.b}}};
-}
+Color bt709ToP3(Color e) { return ConvertGamut(e, kBt709ToP3); }
+Color bt709ToBt2100(Color e) { return ConvertGamut(e, kBt709ToBt2100); }
+Color p3ToBt709(Color e) { return ConvertGamut(e, kP3ToBt709); }
+Color p3ToBt2100(Color e) { return ConvertGamut(e, kP3ToBt2100); }
+Color bt2100ToBt709(Color e) { return ConvertGamut(e, kBt2100ToBt709); }
+Color bt2100ToP3(Color e) { return ConvertGamut(e, kBt2100ToP3); }
 
 // All of these conversions are derived from the respective input YUV->RGB conversion followed by
 // the RGB->YUV for the receiving encoding. They are consistent with the RGB<->YUV functions in

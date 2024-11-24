@@ -154,10 +154,6 @@ static const std::string applyGainMapShader = R"__SHADER__(
   }
 )__SHADER__";
 
-static const std::string linearOETFShader = R"__SHADER__(
-  vec3 OETF(const vec3 linear) { return linear; }
-)__SHADER__";
-
 static const std::string hlgOETFShader = R"__SHADER__(
   float OETF(const float linear) {
     const float kHlgA = 0.17883277;
@@ -195,12 +191,60 @@ static const std::string hlgInverseOOTFShader = R"__SHADER__(
   }
 )__SHADER__";
 
-static const std::string IdentityInverseOOTFShader = R"__SHADER__(
-  vec3 InverseOOTF(const vec3 linear) { return linear; }
-)__SHADER__";
+template <typename... Args>
+std::string StringFormat(const std::string& format, Args... args) {
+  auto size = std::snprintf(nullptr, 0, format.c_str(), args...);
+  if (size < 0) return std::string();
+  std::vector<char> buffer(size + 1);  // Add 1 for terminating null byte
+  std::snprintf(buffer.data(), buffer.size(), format.c_str(), args...);
+  return std::string(buffer.data(), size);  // Exclude the terminating null byte
+}
+
+std::string getClampPixelFloatShader(uhdr_color_transfer_t output_ct) {
+  return StringFormat(
+      "  vec3 clampPixelFloat(const vec3 color) {\n"
+      "    return clamp(color, 0.0, %f);\n"
+      "  }\n",
+      output_ct == UHDR_CT_LINEAR ? kMaxPixelFloatHdrLinear : kMaxPixelFloat);
+}
+
+std::string getGamutConversionShader(uhdr_color_gamut_t src_cg, uhdr_color_gamut_t dst_cg) {
+  const float* coeffs = nullptr;
+  if (dst_cg == UHDR_CG_BT_709) {
+    if (src_cg == UHDR_CG_DISPLAY_P3) {
+      coeffs = kP3ToBt709.data();
+    } else if (src_cg == UHDR_CG_BT_2100) {
+      coeffs = kBt2100ToBt709.data();
+    }
+  } else if (dst_cg == UHDR_CG_DISPLAY_P3) {
+    if (src_cg == UHDR_CG_BT_709) {
+      coeffs = kBt709ToP3.data();
+    }
+    if (src_cg == UHDR_CG_BT_2100) {
+      coeffs = kBt2100ToP3.data();
+    }
+  } else if (dst_cg == UHDR_CG_BT_2100) {
+    if (src_cg == UHDR_CG_BT_709) {
+      coeffs = kBt709ToBt2100.data();
+    } else if (src_cg == UHDR_CG_DISPLAY_P3) {
+      coeffs = kP3ToBt2100.data();
+    }
+  }
+  return StringFormat(
+      "  vec3 gamutConversion(const vec3 color) {\n"
+      "    const mat3 transform = mat3(\n"
+      "      %f, %f, %f,\n"
+      "      %f, %f, %f,\n"
+      "      %f, %f, %f);\n"
+      "    return transform * color;\n"
+      "  }\n",
+      coeffs[0], coeffs[3], coeffs[6], coeffs[1], coeffs[4], coeffs[7], coeffs[2], coeffs[5],
+      coeffs[8]);
+}
 
 std::string getApplyGainMapFragmentShader(uhdr_img_fmt sdr_fmt, uhdr_img_fmt gm_fmt,
-                                          uhdr_color_transfer output_ct) {
+                                          uhdr_color_transfer output_ct, uhdr_color_gamut_t sdr_cg,
+                                          uhdr_color_gamut_t hdr_cg) {
   std::string shader_code = R"__SHADER__(#version 300 es
     precision highp float;
     precision highp int;
@@ -221,17 +265,14 @@ std::string getApplyGainMapFragmentShader(uhdr_img_fmt sdr_fmt, uhdr_img_fmt gm_
   shader_code.append(gm_fmt == UHDR_IMG_FMT_8bppYCbCr400 ? getGainMapSampleSingleChannel
                                                          : getGainMapSampleMultiChannel);
   shader_code.append(applyGainMapShader);
-  if (output_ct == UHDR_CT_LINEAR) {
-    shader_code.append(IdentityInverseOOTFShader);
-    shader_code.append(linearOETFShader);
-  } else if (output_ct == UHDR_CT_HLG) {
+  if (sdr_cg != hdr_cg) shader_code.append(getGamutConversionShader(sdr_cg, hdr_cg));
+  shader_code.append(getClampPixelFloatShader(output_ct));
+  if (output_ct == UHDR_CT_HLG) {
     shader_code.append(hlgInverseOOTFShader);
     shader_code.append(hlgOETFShader);
   } else if (output_ct == UHDR_CT_PQ) {
-    shader_code.append(IdentityInverseOOTFShader);
     shader_code.append(pqOETFShader);
   }
-
   shader_code.append(R"__SHADER__(
     void main() {
       vec3 yuv_gamma_sdr = getYUVPixel();
@@ -239,9 +280,27 @@ std::string getApplyGainMapFragmentShader(uhdr_img_fmt sdr_fmt, uhdr_img_fmt gm_
       vec3 rgb_sdr = sRGBEOTF(rgb_gamma_sdr);
       vec3 gain = sampleMap(gainMapTexture);
       vec3 rgb_hdr = applyGain(rgb_sdr, gain);
+  )__SHADER__");
+  if (sdr_cg != hdr_cg) {
+    shader_code.append(R"__SHADER__(
+      rgb_hdr = gamutConversion(rgb_hdr);
+    )__SHADER__");
+  }
+  shader_code.append(R"__SHADER__(
+      rgb_hdr = clampPixelFloat(rgb_hdr);
+  )__SHADER__");
+  if (output_ct == UHDR_CT_HLG) {
+    shader_code.append(R"__SHADER__(
       rgb_hdr = InverseOOTF(rgb_hdr);
-      vec3 rgb_gamma_hdr = OETF(rgb_hdr);
-      FragColor = vec4(rgb_gamma_hdr, 1.0);
+      rgb_hdr = OETF(rgb_hdr);
+    )__SHADER__");
+  } else if (output_ct == UHDR_CT_PQ) {
+    shader_code.append(R"__SHADER__(
+      rgb_hdr = OETF(rgb_hdr);
+    )__SHADER__");
+  }
+  shader_code.append(R"__SHADER__(
+      FragColor = vec4(rgb_hdr, 1.0);
     }
   )__SHADER__");
   return shader_code;
@@ -279,9 +338,10 @@ bool isBufferDataContiguous(uhdr_raw_image_t* img) {
 uhdr_error_info_t applyGainMapGLES(uhdr_raw_image_t* sdr_intent, uhdr_raw_image_t* gainmap_img,
                                    uhdr_gainmap_metadata_ext_t* gainmap_metadata,
                                    uhdr_color_transfer_t output_ct, float display_boost,
-                                   uhdr_raw_image_t* dest, uhdr_opengl_ctxt_t* opengl_ctxt) {
-  GLuint shaderProgram = 0;   // shader program
-  GLuint yuvTexture = 0;      // sdr intent texture
+                                   uhdr_color_gamut_t sdr_cg, uhdr_color_gamut_t hdr_cg,
+                                   uhdr_opengl_ctxt_t* opengl_ctxt) {
+  GLuint shaderProgram = 0;  // shader program
+  GLuint yuvTexture = 0;     // sdr intent texture
   GLuint frameBuffer = 0;
 
 #define RET_IF_ERR()                                           \
@@ -294,7 +354,8 @@ uhdr_error_info_t applyGainMapGLES(uhdr_raw_image_t* sdr_intent, uhdr_raw_image_
 
   shaderProgram = opengl_ctxt->create_shader_program(
       vertex_shader.c_str(),
-      getApplyGainMapFragmentShader(sdr_intent->fmt, gainmap_img->fmt, output_ct).c_str());
+      getApplyGainMapFragmentShader(sdr_intent->fmt, gainmap_img->fmt, output_ct, sdr_cg, hdr_cg)
+          .c_str());
   RET_IF_ERR()
 
   yuvTexture = opengl_ctxt->create_texture(sdr_intent->fmt, sdr_intent->w, sdr_intent->h,
@@ -342,8 +403,10 @@ uhdr_error_info_t applyGainMapGLES(uhdr_raw_image_t* sdr_intent, uhdr_raw_image_
   }
   glUniform1f(weightLocation, gainmap_weight);
   float normalize = 1.0f;
-  if (output_ct == UHDR_CT_HLG) normalize = kHlgMaxNits / kSdrWhiteNits;
-  else if (output_ct == UHDR_CT_PQ) normalize = kPqMaxNits / kSdrWhiteNits;
+  if (output_ct == UHDR_CT_HLG)
+    normalize = kHlgMaxNits / kSdrWhiteNits;
+  else if (output_ct == UHDR_CT_PQ)
+    normalize = kPqMaxNits / kSdrWhiteNits;
   glUniform1f(normalizeLocation, normalize);
 
   glActiveTexture(GL_TEXTURE0);
@@ -363,8 +426,6 @@ uhdr_error_info_t applyGainMapGLES(uhdr_raw_image_t* sdr_intent, uhdr_raw_image_
 
   opengl_ctxt->check_gl_errors("reading gles output");
   RET_IF_ERR()
-
-  dest->cg = sdr_intent->cg;
 
   if (frameBuffer) glDeleteFramebuffers(1, &frameBuffer);
   if (yuvTexture) glDeleteTextures(1, &yuvTexture);
