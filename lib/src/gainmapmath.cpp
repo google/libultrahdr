@@ -782,12 +782,14 @@ uint8_t encodeGain(float y_sdr, float y_hdr, uhdr_gainmap_metadata_ext_t* metada
 }
 
 float computeGain(float sdr, float hdr) {
-  if (sdr == 0.0f) return 0.0f;  // for sdr black return no gain
-  if (hdr == 0.0f) {  // for hdr black, return a gain large enough to attenuate the sdr pel
-    float offset = (1.0f / 64);
-    return log2(offset / (offset + sdr));
+  float gain = log2((hdr + kHdrOffset) / (sdr + kSdrOffset));
+  if (sdr < 2.f / 255.0f) {
+    // If sdr is zero and hdr is non zero, it can result in very large gain values. In compression -
+    // decompression process, if the same sdr pixel increases to 1, the hdr recovered pixel will
+    // blow out. Dont allow dark pixels to signal large gains.
+    gain = (std::min)(gain, 2.3f);
   }
-  return log2(hdr / sdr);
+  return gain;
 }
 
 uint8_t affineMapGain(float gainlog2, float mingainlog2, float maxgainlog2, float gamma) {

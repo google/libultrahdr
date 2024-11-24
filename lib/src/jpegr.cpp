@@ -697,9 +697,6 @@ uhdr_error_info_t JpegR::generateGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_
       const bool isSdrIntentRgb = isPixelFormatRgb(sdr_intent->fmt);
       const float hdrSampleToNitsFactor =
           hdr_intent->ct == UHDR_CT_LINEAR ? kSdrWhiteNits : hdr_white_nits;
-      ColorTransformFn clampPixel = hdr_intent->ct == UHDR_CT_LINEAR
-                                        ? static_cast<ColorTransformFn>(clampPixelFloatLinear)
-                                        : static_cast<ColorTransformFn>(clampPixelFloat);
       while (jobQueue.dequeueJob(rowStart, rowEnd)) {
         for (size_t y = rowStart; y < rowEnd; ++y) {
           for (size_t x = 0; x < dest->w; ++x) {
@@ -730,7 +727,7 @@ uhdr_error_info_t JpegR::generateGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_
             Color hdr_rgb = hdrInvOetf(hdr_rgb_gamma);
             hdr_rgb = hdrOotfFn(hdr_rgb, hdrLuminanceFn);
             hdr_rgb = hdrGamutConversionFn(hdr_rgb);
-            hdr_rgb = clampPixel(hdr_rgb);
+            hdr_rgb = clipNegatives(hdr_rgb);
 
             if (mUseMultiChannelGainMap) {
               Color sdr_rgb_nits = sdr_rgb * kSdrWhiteNits;
@@ -807,9 +804,6 @@ uhdr_error_info_t JpegR::generateGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_
       const bool isSdrIntentRgb = isPixelFormatRgb(sdr_intent->fmt);
       const float hdrSampleToNitsFactor =
           hdr_intent->ct == UHDR_CT_LINEAR ? kSdrWhiteNits : hdr_white_nits;
-      ColorTransformFn clampPixel = hdr_intent->ct == UHDR_CT_LINEAR
-                                        ? static_cast<ColorTransformFn>(clampPixelFloatLinear)
-                                        : static_cast<ColorTransformFn>(clampPixelFloat);
       float gainmap_min_th[3] = {127.0f, 127.0f, 127.0f};
       float gainmap_max_th[3] = {-128.0f, -128.0f, -128.0f};
 
@@ -843,7 +837,7 @@ uhdr_error_info_t JpegR::generateGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_
             Color hdr_rgb = hdrInvOetf(hdr_rgb_gamma);
             hdr_rgb = hdrOotfFn(hdr_rgb, hdrLuminanceFn);
             hdr_rgb = hdrGamutConversionFn(hdr_rgb);
-            hdr_rgb = clampPixel(hdr_rgb);
+            hdr_rgb = clipNegatives(hdr_rgb);
 
             if (mUseMultiChannelGainMap) {
               Color sdr_rgb_nits = sdr_rgb * kSdrWhiteNits;
@@ -907,10 +901,11 @@ uhdr_error_info_t JpegR::generateGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_
       min_content_boost_log2 = (std::min)(gainmap_min[index], min_content_boost_log2);
       max_content_boost_log2 = (std::max)(gainmap_max[index], max_content_boost_log2);
     }
-    // -13.0 emphirically is a small enough gain factor that is capable of representing hdr
-    // black from any sdr luminance. Allowing further excursion might not offer any benefit and on
-    // the downside can cause bigger error during affine map and inverse map.
-    min_content_boost_log2 = (std::max)(-13.0f, min_content_boost_log2);
+    // gain coefficient range [-14.3, 15.6] is capable of representing hdr pels from sdr pels.
+    // Allowing further excursion might not offer any benefit and on the downside can cause bigger
+    // error during affine map and inverse affine map.
+    min_content_boost_log2 = (std::clamp)(min_content_boost_log2, -14.3f, 15.6f);
+    max_content_boost_log2 = (std::clamp)(max_content_boost_log2, -14.3f, 15.6f);
     if (this->mMaxContentBoost != FLT_MAX) {
       float suggestion = log2(this->mMaxContentBoost);
       max_content_boost_log2 = (std::min)(max_content_boost_log2, suggestion);
@@ -969,8 +964,8 @@ uhdr_error_info_t JpegR::generateGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_
     gainmap_metadata->max_content_boost = exp2(max_content_boost_log2);
     gainmap_metadata->min_content_boost = exp2(min_content_boost_log2);
     gainmap_metadata->gamma = this->mGamma;
-    gainmap_metadata->offset_sdr = 0.0f;
-    gainmap_metadata->offset_hdr = 0.0f;
+    gainmap_metadata->offset_sdr = kSdrOffset;
+    gainmap_metadata->offset_hdr = kHdrOffset;
     gainmap_metadata->hdr_capacity_min = 1.0f;
     if (this->mTargetDispPeakBrightness != -1.0f) {
       gainmap_metadata->hdr_capacity_max = this->mTargetDispPeakBrightness / kSdrWhiteNits;
