@@ -415,7 +415,6 @@ std::shared_ptr<DataStruct> IccHelper::writeIccProfile(uhdr_color_transfer_t tf,
 
   // Compute profile description tag
   std::string desc = get_desc_string(tf, gamut);
-
   tags.emplace_back(kTAG_desc, write_text_tag(desc.c_str()));
 
   Matrix3x3 toXYZD50;
@@ -465,26 +464,32 @@ std::shared_ptr<DataStruct> IccHelper::writeIccProfile(uhdr_color_transfer_t tf,
                         write_trc_tag(kTrcTableSize, reinterpret_cast<uint8_t*>(trc_table.data())));
       tags.emplace_back(kTAG_bTRC,
                         write_trc_tag(kTrcTableSize, reinterpret_cast<uint8_t*>(trc_table.data())));
-    } else {
+    } else if (tf == UHDR_CT_SRGB) {
       tags.emplace_back(kTAG_rTRC, write_trc_tag(kSRGB_TransFun));
       tags.emplace_back(kTAG_gTRC, write_trc_tag(kSRGB_TransFun));
       tags.emplace_back(kTAG_bTRC, write_trc_tag(kSRGB_TransFun));
+    } else if (tf == UHDR_CT_LINEAR) {
+      tags.emplace_back(kTAG_rTRC, write_trc_tag(kLinear_TransFun));
+      tags.emplace_back(kTAG_gTRC, write_trc_tag(kLinear_TransFun));
+      tags.emplace_back(kTAG_bTRC, write_trc_tag(kLinear_TransFun));
     }
   }
 
-  // Compute CICP.
-  if (tf == UHDR_CT_HLG || tf == UHDR_CT_PQ) {
+  // Compute CICP - for hdr images icc profile shall contain cicp.
+  if (tf == UHDR_CT_HLG || tf == UHDR_CT_PQ || tf == UHDR_CT_LINEAR) {
     // The CICP tag is present in ICC 4.4, so update the header's version.
     header.version = Endian_SwapBE32(0x04400000);
 
-    uint32_t color_primaries = 0;
+    uint32_t color_primaries = kCICPPrimariesUnSpecified;
     if (gamut == UHDR_CG_BT_709) {
       color_primaries = kCICPPrimariesSRGB;
     } else if (gamut == UHDR_CG_DISPLAY_P3) {
       color_primaries = kCICPPrimariesP3;
+    } else if (gamut == UHDR_CG_BT_2100) {
+      color_primaries = kCICPPrimariesRec2020;
     }
 
-    uint32_t transfer_characteristics = 0;
+    uint32_t transfer_characteristics = kCICPTrfnUnSpecified;
     if (tf == UHDR_CT_SRGB) {
       transfer_characteristics = kCICPTrfnSRGB;
     } else if (tf == UHDR_CT_LINEAR) {

@@ -398,6 +398,13 @@ void putYuv444Pixel(uhdr_raw_image_t* image, size_t x, size_t y, Color& pixel);
 // Color space conversions
 
 // color gamut conversion (rgb) functions
+extern const std::array<float, 9> kBt709ToP3;
+extern const std::array<float, 9> kBt709ToBt2100;
+extern const std::array<float, 9> kP3ToBt709;
+extern const std::array<float, 9> kP3ToBt2100;
+extern const std::array<float, 9> kBt2100ToBt709;
+extern const std::array<float, 9> kBt2100ToP3;
+
 inline Color identityConversion(Color e) { return e; }
 Color bt709ToP3(Color e);
 Color bt709ToBt2100(Color e);

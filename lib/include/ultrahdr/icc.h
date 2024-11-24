@@ -153,10 +153,12 @@ static constexpr Matrix3x3 kRec2020 = {{
     {-0.00193139f, 0.0299794f, 0.797162f},
 }};
 
+static constexpr uint32_t kCICPPrimariesUnSpecified = 2;
 static constexpr uint32_t kCICPPrimariesSRGB = 1;
 static constexpr uint32_t kCICPPrimariesP3 = 12;
 static constexpr uint32_t kCICPPrimariesRec2020 = 9;
 
+static constexpr uint32_t kCICPTrfnUnSpecified = 2;
 static constexpr uint32_t kCICPTrfnSRGB = 1;
 static constexpr uint32_t kCICPTrfnLinear = 8;
 static constexpr uint32_t kCICPTrfnPQ = 16;
