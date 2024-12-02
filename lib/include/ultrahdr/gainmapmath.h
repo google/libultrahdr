@@ -437,6 +437,21 @@ uhdr_error_info_t convertYuv_neon(uhdr_raw_image_t* image, uhdr_color_gamut_t sr
                                   uhdr_color_gamut_t dst_encoding);
 #endif
 
+#if (defined(UHDR_ENABLE_INTRINSICS) && defined(__riscv_v_intrinsic))
+
+extern const int16_t kYuv709To601_coeffs_rvv[8];
+extern const int16_t kYuv709To2100_coeffs_rvv[8];
+extern const int16_t kYuv601To709_coeffs_rvv[8];
+extern const int16_t kYuv601To2100_coeffs_rvv[8];
+extern const int16_t kYuv2100To709_coeffs_rvv[8];
+extern const int16_t kYuv2100To601_coeffs_rvv[8];
+
+void transformYuv420_rvv(uhdr_raw_image_t* image, const int16_t* coeffs_ptr);
+
+uhdr_error_info_t convertYuv_rvv(uhdr_raw_image_t* image, uhdr_color_gamut_t src_encoding,
+                                  uhdr_color_gamut_t dst_encoding);
+#endif
+
 // Performs a color gamut transformation on an yuv image.
 Color yuvColorGamutConversion(Color e_gamma, const std::array<float, 9>& coeffs);
 void transformYuv420(uhdr_raw_image_t* image, const std::array<float, 9>& coeffs);
