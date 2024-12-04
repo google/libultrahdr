@@ -20,55 +20,6 @@
 
 namespace ultrahdr {
 
-// Scale all coefficients by 2^14 to avoid needing floating-point arithmetic. This can cause an off
-// by one error compared to the scalar floating-point implementation.
-
-// Removing conversion coefficients 1 and 0 from the group for each standard leaves 6 coefficients.
-// Pack them into a single 128-bit vector as follows, zeroing the remaining elements:
-// {Y1, Y2, U1, U2, V1, V2, 0, 0}
-
-// Yuv Bt709 -> Yuv Bt601
-// Y' = (1.0f * Y) + ( 0.101579f * U) + ( 0.196076f * V)
-// U' = (0.0f * Y) + ( 0.989854f * U) + (-0.110653f * V)
-// V' = (0.0f * Y) + (-0.072453f * U) + ( 0.983398f * V)
-__attribute__((aligned(16)))
-const int16_t kYuv709To601_coeffs_rvv[8] = {1664, 3213, 16218, -1813, -1187, 16112, 0, 0};
-
-// Yuv Bt709 -> Yuv Bt2100
-// Y' = (1.0f * Y) + (-0.016969f * U) + ( 0.096312f * V)
-// U' = (0.0f * Y) + ( 0.995306f * U) + (-0.051192f * V)
-// V' = (0.0f * Y) + ( 0.011507f * U) + ( 1.002637f * V)
-__attribute__((aligned(16)))
-const int16_t kYuv709To2100_coeffs_rvv[8] = {-278, 1578, 16307, -839, 189, 16427, 0, 0};
-
-// Yuv Bt601 -> Yuv Bt709
-// Y' = (1.0f * Y) + (-0.118188f * U) + (-0.212685f * V),
-// U' = (0.0f * Y) + ( 1.018640f * U) + ( 0.114618f * V),
-// V' = (0.0f * Y) + ( 0.075049f * U) + ( 1.025327f * V);
-__attribute__((aligned(16)))
-const int16_t kYuv601To709_coeffs_rvv[8] = {-1936, -3485, 16689, 1878, 1230, 16799, 0, 0};
-
-// Yuv Bt601 -> Yuv Bt2100
-// Y' = (1.0f * Y) + (-0.128245f * U) + (-0.115879f * V)
-// U' = (0.0f * Y) + ( 1.010016f * U) + ( 0.061592f * V)
-// V' = (0.0f * Y) + ( 0.086969f * U) + ( 1.029350f * V)
-__attribute__((aligned(16)))
-const int16_t kYuv601To2100_coeffs_rvv[8] = {-2101, -1899, 16548, 1009, 1425, 16865, 0, 0};
-
-// Yuv Bt2100 -> Yuv Bt709
-// Y' = (1.0f * Y) + ( 0.018149f * U) + (-0.095132f * V)
-// U' = (0.0f * Y) + ( 1.004123f * U) + ( 0.051267f * V)
-// V' = (0.0f * Y) + (-0.011524f * U) + ( 0.996782f * V)
-__attribute__((aligned(16)))
-const int16_t kYuv2100To709_coeffs_rvv[8] = {297, -1559, 16452, 840, -189, 16331, 0, 0};
-
-// Yuv Bt2100 -> Yuv Bt601
-// Y' = (1.0f * Y) + ( 0.117887f * U) + ( 0.105521f * V)
-// U' = (0.0f * Y) + ( 0.995211f * U) + (-0.059549f * V)
-// V' = (0.0f * Y) + (-0.084085f * U) + ( 0.976518f * V)
-__attribute__((aligned(16)))
-const int16_t kYuv2100To601_coeffs_rvv[8] = {1931, 1729, 16306, -976, -1378, 15999, 0, 0};
-
 static inline vuint16m8_t zip_self(vuint16m4_t a, size_t vl) {
   vuint32m8_t a_wide = __riscv_vzext_vf2_u32m8(a, vl / 2);
   vuint16m8_t a_zero = __riscv_vreinterpret_v_u32m8_u16m8(a_wide);
@@ -249,10 +200,10 @@ uhdr_error_info_t convertYuv_rvv(uhdr_raw_image_t* image, uhdr_color_gamut_t src
         case UHDR_CG_BT_709:
           return status;
         case UHDR_CG_DISPLAY_P3:
-          coeffs = kYuv709To601_coeffs_rvv;
+          coeffs = kYuv709To601_coeffs_simd;
           break;
         case UHDR_CG_BT_2100:
-          coeffs = kYuv709To2100_coeffs_rvv;
+          coeffs = kYuv709To2100_coeffs_simd;
           break;
         default:
           status.error_code = UHDR_CODEC_INVALID_PARAM;
@@ -265,12 +216,12 @@ uhdr_error_info_t convertYuv_rvv(uhdr_raw_image_t* image, uhdr_color_gamut_t src
     case UHDR_CG_DISPLAY_P3:
       switch (dst_encoding) {
         case UHDR_CG_BT_709:
-          coeffs = kYuv601To709_coeffs_rvv;
+          coeffs = kYuv601To709_coeffs_simd;
           break;
         case UHDR_CG_DISPLAY_P3:
           return status;
         case UHDR_CG_BT_2100:
-          coeffs = kYuv601To2100_coeffs_rvv;
+          coeffs = kYuv601To2100_coeffs_simd;
           break;
         default:
           status.error_code = UHDR_CODEC_INVALID_PARAM;
@@ -283,10 +234,10 @@ uhdr_error_info_t convertYuv_rvv(uhdr_raw_image_t* image, uhdr_color_gamut_t src
     case UHDR_CG_BT_2100:
       switch (dst_encoding) {
         case UHDR_CG_BT_709:
-          coeffs = kYuv2100To709_coeffs_rvv;
+          coeffs = kYuv2100To709_coeffs_simd;
           break;
         case UHDR_CG_DISPLAY_P3:
-          coeffs = kYuv2100To601_coeffs_rvv;
+          coeffs = kYuv2100To601_coeffs_simd;
           break;
         case UHDR_CG_BT_2100:
           return status;
