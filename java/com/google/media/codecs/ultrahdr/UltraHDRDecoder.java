@@ -45,6 +45,7 @@ public class UltraHDRDecoder implements AutoCloseable {
         public float offsetHdr;
         public float hdrCapacityMin;
         public float hdrCapacityMax;
+        public boolean useBaseColorSpace;
 
         public GainMapMetadata() {
             this.maxContentBoost = 1.0f;
@@ -54,10 +55,12 @@ public class UltraHDRDecoder implements AutoCloseable {
             this.offsetHdr = 0.0f;
             this.hdrCapacityMin = 1.0f;
             this.hdrCapacityMax = 1.0f;
+            this.useBaseColorSpace = true;
         }
 
         public GainMapMetadata(float maxContentBoost, float minContentBoost, float gamma,
-                float offsetSdr, float offsetHdr, float hdrCapacityMin, float hdrCapacityMax) {
+                float offsetSdr, float offsetHdr, float hdrCapacityMin, float hdrCapacityMax,
+                boolean useBaseColorSpace) {
             this.maxContentBoost = maxContentBoost;
             this.minContentBoost = minContentBoost;
             this.gamma = gamma;
@@ -65,6 +68,7 @@ public class UltraHDRDecoder implements AutoCloseable {
             this.offsetHdr = offsetHdr;
             this.hdrCapacityMin = hdrCapacityMin;
             this.hdrCapacityMax = hdrCapacityMax;
+            this.useBaseColorSpace = useBaseColorSpace;
         }
     }
 
@@ -383,7 +387,7 @@ public class UltraHDRDecoder implements AutoCloseable {
     public GainMapMetadata getGainmapMetadata() throws IOException {
         getGainmapMetadataNative();
         return new GainMapMetadata(maxContentBoost, minContentBoost, gamma, offsetSdr,
-                offsetHdr, hdrCapacityMin, hdrCapacityMax);
+                offsetHdr, hdrCapacityMin, hdrCapacityMax, useBaseColorSpace);
     }
 
     /**
@@ -481,6 +485,7 @@ public class UltraHDRDecoder implements AutoCloseable {
         offsetHdr = 0.0f;
         hdrCapacityMin = 1.0f;
         hdrCapacityMax = 1.0f;
+        useBaseColorSpace = true;
 
         decodedDataNativeOrder = null;
         decodedDataInt32 = null;
@@ -561,6 +566,7 @@ public class UltraHDRDecoder implements AutoCloseable {
     private float offsetHdr;
     private float hdrCapacityMin;
     private float hdrCapacityMax;
+    private boolean useBaseColorSpace;
 
     /**
      * decoded image fields. Filled by {@link UltraHDRDecoder#getDecodedImageNative()}

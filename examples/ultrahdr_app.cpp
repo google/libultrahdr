@@ -576,6 +576,8 @@ void parse_argument(uhdr_gainmap_metadata* metadata, char* argument, float* valu
     metadata->hdr_capacity_min = *value;
   else if (!strcmp(argument, "hdrCapacityMax"))
     metadata->hdr_capacity_max = *value;
+  else if (!strcmp(argument, "useBaseColorSpace"))
+    metadata->use_base_cg = *value;
   else
     std::cout << " Ignoring argument " << argument << std::endl;
 }
@@ -619,6 +621,7 @@ bool UltraHdrAppInput::writeGainMapMetadataToFile(uhdr_gainmap_metadata_t* metad
   file << "--offsetHdr " << metadata->offset_hdr << std::endl;
   file << "--hdrCapacityMin " << metadata->hdr_capacity_min << std::endl;
   file << "--hdrCapacityMax " << metadata->hdr_capacity_max << std::endl;
+  file << "--useBaseColorSpace " << metadata->use_base_cg << std::endl;
   file.close();
   return true;
 }

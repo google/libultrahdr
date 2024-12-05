@@ -303,6 +303,9 @@ public class UltraHdrApp {
                         case "hdrCapacityMax":
                             mMetadata.hdrCapacityMax = value;
                             break;
+                        case "useBaseColorSpace":
+                            mMetadata.useBaseColorSpace = value != 0.0f;
+                            break;
                         default:
                             System.err.println("ignoring option: " + option);
                             break;
@@ -323,6 +326,7 @@ public class UltraHdrApp {
             writer.write("--offsetHdr " + metadata.offsetHdr + "\n");
             writer.write("--hdrCapacityMin " + metadata.hdrCapacityMin + "\n");
             writer.write("--hdrCapacityMax " + metadata.hdrCapacityMax + "\n");
+            writer.write("--useBaseColorSpace " + (metadata.useBaseColorSpace ? "1" : "0") + "\n");
         }
     }
 
@@ -396,7 +400,8 @@ public class UltraHdrApp {
                 handle.setGainMapImageInfo(mGainMapCompressedImageData,
                         mGainMapCompressedImageData.length, mMetadata.maxContentBoost,
                         mMetadata.minContentBoost, mMetadata.gamma, mMetadata.offsetSdr,
-                        mMetadata.offsetHdr, mMetadata.hdrCapacityMin, mMetadata.hdrCapacityMax);
+                        mMetadata.offsetHdr, mMetadata.hdrCapacityMin, mMetadata.hdrCapacityMax,
+                        mMetadata.useBaseColorSpace);
             }
             if (mExifFile != null) {
                 fillExifMemoryBlock();

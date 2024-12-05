@@ -317,7 +317,8 @@ public class UltraHDREncoder implements AutoCloseable {
      */
     public void setGainMapImageInfo(byte[] data, int size, float maxContentBoost,
             float minContentBoost, float gainmapGamma, float offsetSdr, float offsetHdr,
-            float hdrCapacityMin, float hdrCapacityMax) throws IOException {
+            float hdrCapacityMin, float hdrCapacityMax, boolean useBaseColorSpace)
+            throws IOException {
         if (data == null) {
             throw new IOException("received null for image data handle");
         }
@@ -325,7 +326,7 @@ public class UltraHDREncoder implements AutoCloseable {
             throw new IOException("received invalid compressed image size, size is <= 0");
         }
         setGainMapImageInfoNative(data, size, maxContentBoost, minContentBoost, gainmapGamma,
-                offsetSdr, offsetHdr, hdrCapacityMin, hdrCapacityMax);
+                offsetSdr, offsetHdr, hdrCapacityMin, hdrCapacityMax, useBaseColorSpace);
     }
 
     /**
@@ -532,7 +533,8 @@ public class UltraHDREncoder implements AutoCloseable {
 
     private native void setGainMapImageInfoNative(byte[] data, int size, float maxContentBoost,
             float minContentBoost, float gainmapGamma, float offsetSdr, float offsetHdr,
-            float hdrCapacityMin, float hdrCapacityMax) throws IOException;
+            float hdrCapacityMin, float hdrCapacityMax, boolean useBaseColorSpace)
+            throws IOException;
 
     private native void setExifDataNative(byte[] data, int size) throws IOException;
 

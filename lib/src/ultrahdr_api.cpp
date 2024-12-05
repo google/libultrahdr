@@ -1579,6 +1579,7 @@ uhdr_error_info_t uhdr_dec_probe(uhdr_codec_private_t* dec) {
     handle->m_metadata.offset_hdr = metadata.offset_hdr;
     handle->m_metadata.hdr_capacity_min = metadata.hdr_capacity_min;
     handle->m_metadata.hdr_capacity_max = metadata.hdr_capacity_max;
+    handle->m_metadata.use_base_cg = metadata.use_base_cg;
 
     handle->m_img_wd = primary_image.width;
     handle->m_img_ht = primary_image.height;

@@ -1403,7 +1403,6 @@ TEST(JpegRTest, DecodeAPIWithInvalidArgs) {
 TEST(JpegRTest, writeXmpThenRead) {
   uhdr_gainmap_metadata_ext_t metadata_expected;
   metadata_expected.version = "1.0";
-  metadata_expected.use_base_cg = true;
   metadata_expected.max_content_boost = 1.25f;
   metadata_expected.min_content_boost = 0.75f;
   metadata_expected.gamma = 1.0f;
@@ -1411,6 +1410,7 @@ TEST(JpegRTest, writeXmpThenRead) {
   metadata_expected.offset_hdr = 0.0f;
   metadata_expected.hdr_capacity_min = 1.0f;
   metadata_expected.hdr_capacity_max = metadata_expected.max_content_boost;
+  metadata_expected.use_base_cg = true;
   const std::string nameSpace = "http://ns.adobe.com/xap/1.0/\0";
   const size_t nameSpaceLength = nameSpace.size() + 1;  // need to count the null terminator
 

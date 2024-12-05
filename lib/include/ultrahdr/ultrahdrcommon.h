@@ -204,7 +204,7 @@ typedef struct uhdr_effect_desc uhdr_effect_desc_t;
 typedef struct uhdr_gainmap_metadata_ext : uhdr_gainmap_metadata {
   uhdr_gainmap_metadata_ext() {}
 
-  uhdr_gainmap_metadata_ext(std::string ver) : version(ver), use_base_cg(true) {}
+  uhdr_gainmap_metadata_ext(std::string ver) : version(ver) {}
 
   uhdr_gainmap_metadata_ext(uhdr_gainmap_metadata& metadata, std::string ver)
       : uhdr_gainmap_metadata_ext(ver) {
@@ -215,10 +215,10 @@ typedef struct uhdr_gainmap_metadata_ext : uhdr_gainmap_metadata {
     offset_hdr = metadata.offset_hdr;
     hdr_capacity_min = metadata.hdr_capacity_min;
     hdr_capacity_max = metadata.hdr_capacity_max;
+    use_base_cg = metadata.use_base_cg;
   }
 
   std::string version;         /**< Ultra HDR format version */
-  bool use_base_cg;            /**< Is gainmap application space base color space */
 } uhdr_gainmap_metadata_ext_t; /**< alias for struct uhdr_gainmap_metadata */
 
 #ifdef UHDR_ENABLE_GLES

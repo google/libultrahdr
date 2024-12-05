@@ -268,6 +268,7 @@ typedef struct uhdr_gainmap_metadata {
                               Value MUST be in linear scale. */
   float hdr_capacity_max;  /**< Maximum display boost value for which the map is applied completely.
                               Value MUST be in linear scale. */
+  int use_base_cg;         /**< Is gainmap application space same as base image color space */
 } uhdr_gainmap_metadata_t; /**< alias for struct uhdr_gainmap_metadata */
 
 /**\brief ultrahdr codec context opaque descriptor */
