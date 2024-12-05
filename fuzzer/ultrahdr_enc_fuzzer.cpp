@@ -137,6 +137,7 @@ void UltraHdrEncFuzzer::process() {
     auto offsetHdr = mFdp.ConsumeFloatingPointInRange<float>(-1.0f, 1.0f);
     auto minCapacity = mFdp.ConsumeFloatingPointInRange<float>(-4.0f, 48.0f);
     auto maxCapacity = mFdp.ConsumeFloatingPointInRange<float>(-4.0f, 48.0f);
+    auto useBaseCg = mFdp.ConsumeBool();
 
     // target display peak brightness
     auto targetDispPeakBrightness = mFdp.ConsumeFloatingPointInRange<float>(100.0f, 10500.0f);
@@ -194,9 +195,9 @@ void UltraHdrEncFuzzer::process() {
     ALOGV("encoding preset %d ", (int)enc_preset);
     ALOGV(
         "gainmap metadata: min content boost %f, max content boost %f, gamma %f, offset sdr %f, "
-        "offset hdr %f, hdr min capacity %f, hdr max capacity %f",
+        "offset hdr %f, hdr min capacity %f, hdr max capacity %f, useBaseCg %d",
         (float)minBoost, (float)maxBoost, (float)gamma, (float)offsetSdr, (float)offsetHdr,
-        (float)minCapacity, (float)maxCapacity);
+        (float)minCapacity, (float)maxCapacity, (int)useBaseCg);
     ALOGV("hdr intent luma stride %d, chroma stride %d", yHdrStride, uvHdrStride);
     ALOGV("sdr intent luma stride %d, chroma stride %d", ySdrStride, uvSdrStride);
     if (applyMirror) ALOGV("added mirror effect, direction %d", (int)direction);
@@ -399,6 +400,7 @@ void UltraHdrEncFuzzer::process() {
             metadata.offset_hdr = offsetHdr;
             metadata.hdr_capacity_min = minCapacity;
             metadata.hdr_capacity_max = maxCapacity;
+            metadata.use_base_cg = useBaseCg;
             ON_ERR(uhdr_enc_set_compressed_image(enc_handle, &jpegImg, UHDR_BASE_IMG))
             ON_ERR(uhdr_enc_set_gainmap_image(enc_handle, &jpegGainMap, &metadata))
             status = uhdr_encode(enc_handle);

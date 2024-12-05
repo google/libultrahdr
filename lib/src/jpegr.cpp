@@ -386,6 +386,22 @@ uhdr_error_info_t JpegR::encodeJPEGR(uhdr_compressed_image_t* base_img_compresse
   JpegDecoderHelper decoder;
   UHDR_ERR_CHECK(decoder.parseImage(base_img_compressed->data, base_img_compressed->data_sz));
 
+  if (!metadata->use_base_cg) {
+    JpegDecoderHelper gainmap_decoder;
+    UHDR_ERR_CHECK(
+        gainmap_decoder.parseImage(gainmap_img_compressed->data, gainmap_img_compressed->data_sz));
+    if (!(gainmap_decoder.getICCSize() > 0)) {
+      uhdr_error_info_t status;
+      status.error_code = UHDR_CODEC_UNSUPPORTED_FEATURE;
+      status.has_detail = 1;
+      snprintf(status.detail, sizeof status.detail,
+               "For gainmap application space to be alternate image space, gainmap image is "
+               "expected to contain alternate image color space in the form of ICC. The ICC marker "
+               "in gainmap jpeg is missing.");
+      return status;
+    }
+  }
+
   // Add ICC if not already present.
   if (decoder.getICCSize() > 0) {
     UHDR_ERR_CHECK(appendGainMap(base_img_compressed, gainmap_img_compressed, /* exif */ nullptr,
@@ -1076,6 +1092,16 @@ uhdr_error_info_t JpegR::appendGainMap(uhdr_compressed_image_t* sdr_intent_compr
                                        uhdr_mem_block_t* pExif, void* pIcc, size_t icc_size,
                                        uhdr_gainmap_metadata_ext_t* metadata,
                                        uhdr_compressed_image_t* dest) {
+  if (kWriteXmpMetadata && !metadata->use_base_cg) {
+    uhdr_error_info_t status;
+    status.error_code = UHDR_CODEC_UNSUPPORTED_FEATURE;
+    status.has_detail = 1;
+    snprintf(
+        status.detail, sizeof status.detail,
+        "setting gainmap application space as alternate image space in xmp mode is not supported");
+    return status;
+  }
+
   const size_t xmpNameSpaceLength = kXmpNameSpace.size() + 1;  // need to count the null terminator
   const size_t isoNameSpaceLength = kIsoNameSpace.size() + 1;  // need to count the null terminator
 
@@ -1379,6 +1405,7 @@ uhdr_error_info_t JpegR::decodeJPEGR(uhdr_compressed_image_t* uhdr_compressed_im
       gainmap_metadata->offset_hdr = uhdr_metadata.offset_hdr;
       gainmap_metadata->hdr_capacity_min = uhdr_metadata.hdr_capacity_min;
       gainmap_metadata->hdr_capacity_max = uhdr_metadata.hdr_capacity_max;
+      gainmap_metadata->use_base_cg = uhdr_metadata.use_base_cg;
     }
   }
 
@@ -2530,9 +2557,7 @@ status_t JpegR::encodeJPEGR(jr_compressed_ptr yuv420jpg_image_ptr,
   output.ct = UHDR_CT_UNSPECIFIED;
   output.range = UHDR_CR_UNSPECIFIED;
 
-  uhdr_gainmap_metadata_ext_t meta;
-  meta.version = metadata->version;
-  meta.use_base_cg = true;
+  uhdr_gainmap_metadata_ext_t meta(metadata->version);
   meta.hdr_capacity_max = metadata->hdrCapacityMax;
   meta.hdr_capacity_min = metadata->hdrCapacityMin;
   meta.gamma = metadata->gamma;
@@ -2540,6 +2565,7 @@ status_t JpegR::encodeJPEGR(jr_compressed_ptr yuv420jpg_image_ptr,
   meta.offset_hdr = metadata->offsetHdr;
   meta.max_content_boost = metadata->maxContentBoost;
   meta.min_content_boost = metadata->minContentBoost;
+  meta.use_base_cg = true;
 
   auto result = encodeJPEGR(&input, &gainmap, &meta, &output);
   if (result.error_code == UHDR_CODEC_OK) {

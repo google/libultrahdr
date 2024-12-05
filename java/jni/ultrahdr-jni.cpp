@@ -235,7 +235,7 @@ extern "C" JNIEXPORT void JNICALL
 Java_com_google_media_codecs_ultrahdr_UltraHDREncoder_setGainMapImageInfoNative(
     JNIEnv *env, jobject thiz, jbyteArray data, jint size, jfloat max_content_boost,
     jfloat min_content_boost, jfloat gainmap_gamma, jfloat offset_sdr, jfloat offset_hdr,
-    jfloat hdr_capacity_min, jfloat hdr_capacity_max) {
+    jfloat hdr_capacity_min, jfloat hdr_capacity_max, jboolean use_base_color_space) {
   GET_HANDLE()
   RET_IF_TRUE(handle == 0, "java/io/IOException", "invalid encoder instance")
   jsize length = env->GetArrayLength(data);
@@ -250,7 +250,7 @@ Java_com_google_media_codecs_ultrahdr_UltraHDREncoder_setGainMapImageInfoNative(
                               UHDR_CR_UNSPECIFIED};
   uhdr_gainmap_metadata_t metadata{max_content_boost, min_content_boost, gainmap_gamma,
                                    offset_sdr,        offset_hdr,        hdr_capacity_min,
-                                   hdr_capacity_max};
+                                   hdr_capacity_max, use_base_color_space};
   auto status = uhdr_enc_set_gainmap_image((uhdr_codec_private_t *)handle, &img, &metadata);
   env->ReleaseByteArrayElements(data, body, 0);
   RET_IF_TRUE(
@@ -638,6 +638,14 @@ Java_com_google_media_codecs_ultrahdr_UltraHDRDecoder_getGainmapMetadataNative(J
   SET_FLOAT_FIELD("offsetHdr", gainmap_metadata->offset_hdr)
   SET_FLOAT_FIELD("hdrCapacityMin", gainmap_metadata->hdr_capacity_min)
   SET_FLOAT_FIELD("hdrCapacityMax", gainmap_metadata->hdr_capacity_max)
+#define SET_BOOLEAN_FIELD(name, val)                                  \
+  {                                                                   \
+    jfieldID fID = env->GetFieldID(clazz, name, "Z");                 \
+    RET_IF_TRUE(fID == nullptr, "java/io/IOException",                \
+                "GetFieldID for field " #name " returned with error") \
+    env->SetBooleanField(thiz, fID, (jboolean)val);                   \
+  }
+  SET_BOOLEAN_FIELD("useBaseColorSpace", gainmap_metadata->use_base_cg)
 }
 
 extern "C" JNIEXPORT void JNICALL
