@@ -532,7 +532,7 @@ uhdr_error_info_t getMetadataFromXMP(uint8_t* xmp_data, size_t xmp_size,
              kMapVersion.c_str());
     return status;
   }
-  if (!handler.getMaxContentBoost(&metadata->max_content_boost, &present) || !present) {
+  if (!handler.getMaxContentBoost(&metadata->max_content_boost[0], &present) || !present) {
     uhdr_error_info_t status;
     status.error_code = UHDR_CODEC_ERROR;
     status.has_detail = 1;
@@ -548,7 +548,7 @@ uhdr_error_info_t getMetadataFromXMP(uint8_t* xmp_data, size_t xmp_size,
              kMapHDRCapacityMax.c_str());
     return status;
   }
-  if (!handler.getMinContentBoost(&metadata->min_content_boost, &present)) {
+  if (!handler.getMinContentBoost(&metadata->min_content_boost[0], &present)) {
     if (present) {
       uhdr_error_info_t status;
       status.error_code = UHDR_CODEC_ERROR;
@@ -557,9 +557,9 @@ uhdr_error_info_t getMetadataFromXMP(uint8_t* xmp_data, size_t xmp_size,
                kMapGainMapMin.c_str());
       return status;
     }
-    metadata->min_content_boost = 1.0f;
+    metadata->min_content_boost[0] = 1.0f;
   }
-  if (!handler.getGamma(&metadata->gamma, &present)) {
+  if (!handler.getGamma(&metadata->gamma[0], &present)) {
     if (present) {
       uhdr_error_info_t status;
       status.error_code = UHDR_CODEC_ERROR;
@@ -568,9 +568,9 @@ uhdr_error_info_t getMetadataFromXMP(uint8_t* xmp_data, size_t xmp_size,
                kMapGamma.c_str());
       return status;
     }
-    metadata->gamma = 1.0f;
+    metadata->gamma[0] = 1.0f;
   }
-  if (!handler.getOffsetSdr(&metadata->offset_sdr, &present)) {
+  if (!handler.getOffsetSdr(&metadata->offset_sdr[0], &present)) {
     if (present) {
       uhdr_error_info_t status;
       status.error_code = UHDR_CODEC_ERROR;
@@ -579,9 +579,9 @@ uhdr_error_info_t getMetadataFromXMP(uint8_t* xmp_data, size_t xmp_size,
                kMapOffsetSdr.c_str());
       return status;
     }
-    metadata->offset_sdr = 1.0f / 64.0f;
+    metadata->offset_sdr[0] = 1.0f / 64.0f;
   }
-  if (!handler.getOffsetHdr(&metadata->offset_hdr, &present)) {
+  if (!handler.getOffsetHdr(&metadata->offset_hdr[0], &present)) {
     if (present) {
       uhdr_error_info_t status;
       status.error_code = UHDR_CODEC_ERROR;
@@ -590,7 +590,7 @@ uhdr_error_info_t getMetadataFromXMP(uint8_t* xmp_data, size_t xmp_size,
                kMapOffsetHdr.c_str());
       return status;
     }
-    metadata->offset_hdr = 1.0f / 64.0f;
+    metadata->offset_hdr[0] = 1.0f / 64.0f;
   }
   if (!handler.getHdrCapacityMin(&metadata->hdr_capacity_min, &present)) {
     if (present) {
@@ -624,6 +624,11 @@ uhdr_error_info_t getMetadataFromXMP(uint8_t* xmp_data, size_t xmp_size,
     return status;
   }
   metadata->use_base_cg = true;
+  std::fill_n(metadata->min_content_boost + 1, 2, metadata->min_content_boost[0]);
+  std::fill_n(metadata->max_content_boost + 1, 2, metadata->max_content_boost[0]);
+  std::fill_n(metadata->gamma + 1, 2, metadata->gamma[0]);
+  std::fill_n(metadata->offset_hdr + 1, 2, metadata->offset_hdr[0]);
+  std::fill_n(metadata->offset_sdr + 1, 2, metadata->offset_sdr[0]);
 
   return g_no_error;
 }
@@ -680,11 +685,11 @@ string generateXmpForSecondaryImage(uhdr_gainmap_metadata_ext_t& metadata) {
   writer.StartWritingElement("rdf:Description");
   writer.WriteXmlns(kGainMapPrefix, kGainMapUri);
   writer.WriteAttributeNameAndValue(kMapVersion, metadata.version);
-  writer.WriteAttributeNameAndValue(kMapGainMapMin, log2(metadata.min_content_boost));
-  writer.WriteAttributeNameAndValue(kMapGainMapMax, log2(metadata.max_content_boost));
-  writer.WriteAttributeNameAndValue(kMapGamma, metadata.gamma);
-  writer.WriteAttributeNameAndValue(kMapOffsetSdr, metadata.offset_sdr);
-  writer.WriteAttributeNameAndValue(kMapOffsetHdr, metadata.offset_hdr);
+  writer.WriteAttributeNameAndValue(kMapGainMapMin, log2(metadata.min_content_boost[0]));
+  writer.WriteAttributeNameAndValue(kMapGainMapMax, log2(metadata.max_content_boost[0]));
+  writer.WriteAttributeNameAndValue(kMapGamma, metadata.gamma[0]);
+  writer.WriteAttributeNameAndValue(kMapOffsetSdr, metadata.offset_sdr[0]);
+  writer.WriteAttributeNameAndValue(kMapOffsetHdr, metadata.offset_hdr[0]);
   writer.WriteAttributeNameAndValue(kMapHDRCapacityMin, log2(metadata.hdr_capacity_min));
   writer.WriteAttributeNameAndValue(kMapHDRCapacityMax, log2(metadata.hdr_capacity_max));
   writer.WriteAttributeNameAndValue(kMapBaseRenditionIsHDR, "False");

@@ -456,48 +456,57 @@ constexpr int32_t kGainFactorPrecision = 10;
 constexpr int32_t kGainFactorNumEntries = 1 << kGainFactorPrecision;
 
 struct GainLUT {
-  GainLUT(uhdr_gainmap_metadata_ext_t* metadata) {
-    this->mGammaInv = 1.0f / metadata->gamma;
-    for (int32_t idx = 0; idx < kGainFactorNumEntries; idx++) {
-      float value = static_cast<float>(idx) / static_cast<float>(kGainFactorNumEntries - 1);
-      float logBoost = log2(metadata->min_content_boost) * (1.0f - value) +
-                       log2(metadata->max_content_boost) * value;
-      mGainTable[idx] = exp2(logBoost);
-    }
-  }
-
   GainLUT(uhdr_gainmap_metadata_ext_t* metadata, float gainmapWeight) {
-    this->mGammaInv = 1.0f / metadata->gamma;
-    for (int32_t idx = 0; idx < kGainFactorNumEntries; idx++) {
-      float value = static_cast<float>(idx) / static_cast<float>(kGainFactorNumEntries - 1);
-      float logBoost = log2(metadata->min_content_boost) * (1.0f - value) +
-                       log2(metadata->max_content_boost) * value;
-      mGainTable[idx] = exp2(logBoost * gainmapWeight);
+    bool isSingleChannel = metadata->are_all_channels_identical();
+    for (int i = 0; i < (isSingleChannel ? 1 : 3); i++) {
+      mGainTable[i] = memory[i] = new float[kGainFactorNumEntries];
+      this->mGammaInv[i] = 1.0f / metadata->gamma[i];
+      for (int32_t idx = 0; idx < kGainFactorNumEntries; idx++) {
+        float value = static_cast<float>(idx) / static_cast<float>(kGainFactorNumEntries - 1);
+        float logBoost = log2(metadata->min_content_boost[i]) * (1.0f - value) +
+                         log2(metadata->max_content_boost[i]) * value;
+        mGainTable[i][idx] = exp2(logBoost * gainmapWeight);
+      }
+    }
+    if (isSingleChannel) {
+      memory[1] = memory[2] = nullptr;
+      mGammaInv[1] = mGammaInv[2] = mGammaInv[0];
+      mGainTable[1] = mGainTable[2] = mGainTable[0];
     }
   }
 
-  ~GainLUT() {}
+  GainLUT(uhdr_gainmap_metadata_ext_t* metadata) : GainLUT(metadata, 1.0f) {}
 
-  float getGainFactor(float gain) {
-    if (mGammaInv != 1.0f) gain = pow(gain, mGammaInv);
+  ~GainLUT() {
+    for (int i = 0; i < 3; i++) {
+      if (memory[i]) {
+        delete[] memory[i];
+        memory[i] = nullptr;
+      }
+    }
+  }
+
+  float getGainFactor(float gain, int index) {
+    if (mGammaInv[index] != 1.0f) gain = pow(gain, mGammaInv[index]);
     int32_t idx = static_cast<int32_t>(gain * (kGainFactorNumEntries - 1) + 0.5);
     // TODO() : Remove once conversion modules have appropriate clamping in place
     idx = CLIP3(idx, 0, kGainFactorNumEntries - 1);
-    return mGainTable[idx];
+    return mGainTable[index][idx];
   }
 
  private:
-  float mGainTable[kGainFactorNumEntries];
-  float mGammaInv;
+  float* memory[3]{};
+  float* mGainTable[3]{};
+  float mGammaInv[3]{};
 };
 
 /*
  * Calculate the 8-bit unsigned integer gain value for the given SDR and HDR
  * luminances in linear space and gainmap metadata fields.
  */
-uint8_t encodeGain(float y_sdr, float y_hdr, uhdr_gainmap_metadata_ext_t* metadata);
+uint8_t encodeGain(float y_sdr, float y_hdr, uhdr_gainmap_metadata_ext_t* metadata, int index);
 uint8_t encodeGain(float y_sdr, float y_hdr, uhdr_gainmap_metadata_ext_t* metadata,
-                   float log2MinContentBoost, float log2MaxContentBoost);
+                   float log2MinContentBoost, float log2MaxContentBoost, int index);
 float computeGain(float sdr, float hdr);
 uint8_t affineMapGain(float gainlog2, float mingainlog2, float maxgainlog2, float gamma);
 
