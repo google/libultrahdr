@@ -189,6 +189,66 @@ void transformYuv420_rvv(uhdr_raw_image_t* image, const int16_t* coeffs_ptr) {
   } while (++h < image->h / 2);
 }
 
+void transformYuv444_rvv(uhdr_raw_image_t* image, const int16_t* coeffs_ptr) {
+  // Implementation assumes image buffer is multiple of 16.
+  assert(image->w % 16 == 0);
+  uint8_t* y_ptr = static_cast<uint8_t*>(image->planes[UHDR_PLANE_Y]);
+  uint8_t* u_ptr = static_cast<uint8_t*>(image->planes[UHDR_PLANE_U]);
+  uint8_t* v_ptr = static_cast<uint8_t*>(image->planes[UHDR_PLANE_V]);
+
+  size_t vl;
+  size_t h = 0;
+  do {
+    size_t w = 0;
+    do {
+      vl = __riscv_vsetvl_e8m8((image->w) - w);
+
+      vuint8m8_t y = __riscv_vle8_v_u8m8(y_ptr + w, vl);
+      vuint8m8_t u = __riscv_vle8_v_u8m8(u_ptr + w, vl);
+      vuint8m8_t v = __riscv_vle8_v_u8m8(v_ptr + w, vl);
+
+      vuint16m8_t u16_wide_low = __riscv_vwsubu_vx_u16m8(vget_low_u8(u), 128, vl / 2);
+      vuint16m8_t v16_wide_low = __riscv_vwsubu_vx_u16m8(vget_low_u8(v), 128, vl / 2);
+      vuint16m8_t u16_wide_high = __riscv_vwsubu_vx_u16m8(vget_high_u8(u, vl), 128, vl / 2);
+      vuint16m8_t v16_wide_high = __riscv_vwsubu_vx_u16m8(vget_high_u8(v, vl), 128, vl / 2);
+
+      vint16m8_t u_wide_low_s16 = __riscv_vreinterpret_v_u16m8_i16m8(u16_wide_low);
+      vint16m8_t v_wide_low_s16 = __riscv_vreinterpret_v_u16m8_i16m8(v16_wide_low);
+      vint16m8_t u_wide_high_s16 = __riscv_vreinterpret_v_u16m8_i16m8(u16_wide_high);
+      vint16m8_t v_wide_high_s16 = __riscv_vreinterpret_v_u16m8_i16m8(v16_wide_high);
+
+      vint16m8_t y_lo =
+          yConversion_rvv(vget_low_u8(y), u_wide_low_s16, v_wide_low_s16, coeffs_ptr, vl / 2);
+      vint16m8_t y_hi = yConversion_rvv(vget_high_u8(y, vl / 2), u_wide_high_s16, v_wide_high_s16,
+                                        coeffs_ptr, vl / 2);
+
+      vint16m8_t new_u_lo = uConversion_rvv(u_wide_low_s16, v_wide_low_s16, coeffs_ptr, vl / 2);
+      vint16m8_t new_v_lo = vConversion_rvv(u_wide_low_s16, v_wide_low_s16, coeffs_ptr, vl / 2);
+      vint16m8_t new_u_hi = uConversion_rvv(u_wide_high_s16, v_wide_high_s16, coeffs_ptr, vl / 2);
+      vint16m8_t new_v_hi = vConversion_rvv(u_wide_high_s16, v_wide_high_s16, coeffs_ptr, vl / 2);
+
+      // Narrow from 16-bit to 8-bit with saturation.
+      vuint8m8_t y_output = vcombine_u8(vqmovun_s16(y_lo, vl / 2), vqmovun_s16(y_hi, vl / 2), vl);
+      vuint8m4_t u_output_hi = vqmovun_s16(__riscv_vadd_vx_i16m8(new_u_hi, 128, vl / 2), vl / 2);
+      vuint8m4_t u_output_lo = vqmovun_s16(__riscv_vadd_vx_i16m8(new_u_lo, 128, vl / 2), vl / 2);
+      vuint8m4_t v_output_hi = vqmovun_s16(__riscv_vadd_vx_i16m8(new_v_hi, 128, vl / 2), vl / 2);
+      vuint8m4_t v_output_lo = vqmovun_s16(__riscv_vadd_vx_i16m8(new_v_lo, 128, vl / 2), vl / 2);
+
+      vuint8m8_t u_output = vcombine_u8(u_output_lo, u_output_hi, vl);
+      vuint8m8_t v_output = vcombine_u8(v_output_lo, v_output_hi, vl);
+
+      __riscv_vse8_v_u8m8(y_ptr + w, y_output, vl);
+      __riscv_vse8_v_u8m8(u_ptr + w, u_output, vl);
+      __riscv_vse8_v_u8m8(v_ptr + w, v_output, vl);
+
+      w += vl;
+    } while (w < image->w);
+    y_ptr += image->stride[UHDR_PLANE_Y];
+    u_ptr += image->stride[UHDR_PLANE_U];
+    v_ptr += image->stride[UHDR_PLANE_V];
+  } while (++h < image->h);
+}
+
 uhdr_error_info_t convertYuv_rvv(uhdr_raw_image_t* image, uhdr_color_gamut_t src_encoding,
                                  uhdr_color_gamut_t dst_encoding) {
   uhdr_error_info_t status = g_no_error;
@@ -259,6 +319,8 @@ uhdr_error_info_t convertYuv_rvv(uhdr_raw_image_t* image, uhdr_color_gamut_t src
 
   if (image->fmt == UHDR_IMG_FMT_12bppYCbCr420) {
     transformYuv420_rvv(image, coeffs);
+  } else if (image->fmt == UHDR_IMG_FMT_24bppYCbCr444) {
+    transformYuv444_rvv(image, coeffs);
   } else {
     status.error_code = UHDR_CODEC_UNSUPPORTED_FEATURE;
     status.has_detail = 1;
