@@ -124,6 +124,12 @@ option_if_not_defined(UHDR_ENABLE_INTRINSICS "Build with SIMD acceleration " TRU
 option_if_not_defined(UHDR_ENABLE_GLES "Build with GPU acceleration " FALSE)
 option_if_not_defined(UHDR_ENABLE_WERROR "Build with -Werror" FALSE)
 
+# These options effect only encoding process.
+# Decoding continues to support both iso and xmp irrespective of this configuration.
+# Also, if both packets are present iso is prioritized over xmp.
+option_if_not_defined(UHDR_WRITE_XMP "Write gainmap metadata in XMP packet" FALSE)
+option_if_not_defined(UHDR_WRITE_ISO "Write gainmap metadata in ISO 21496_1 packet" TRUE)
+
 # pre-requisites
 if(UHDR_BUILD_TESTS AND EMSCRIPTEN)
   message(FATAL_ERROR "Building tests not supported for wasm targets")
@@ -198,6 +204,12 @@ if(UHDR_ENABLE_LOGS)
 endif()
 if(UHDR_ENABLE_INTRINSICS)
   add_compile_options(-DUHDR_ENABLE_INTRINSICS)
+endif()
+if(UHDR_WRITE_XMP)
+  add_compile_options(-DUHDR_WRITE_XMP)
+endif()
+if(UHDR_WRITE_ISO)
+  add_compile_options(-DUHDR_WRITE_ISO)
 endif()
 
 include(CheckCXXCompilerFlag)
