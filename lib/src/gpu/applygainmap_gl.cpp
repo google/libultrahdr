@@ -98,7 +98,7 @@ static const std::string getYuv420PixelShader = R"__SHADER__(
   }
 )__SHADER__";
 
-static const std::string p3YUVToRGBShader = R"__SHADER__(
+static const std::string bt601YUVToRGBShader = R"__SHADER__(
   vec3 p3YuvToRgb(const vec3 color) {
     const vec3 offset = vec3(0.0, 128.0f / 255.0f, 128.0f / 255.0f);
     const mat3 transform = mat3(
@@ -260,7 +260,7 @@ std::string getApplyGainMapFragmentShader(uhdr_img_fmt sdr_fmt, uhdr_img_fmt gm_
   } else if (sdr_fmt == UHDR_IMG_FMT_12bppYCbCr420) {
     shader_code.append(getYuv420PixelShader);
   }
-  shader_code.append(p3YUVToRGBShader);
+  shader_code.append(bt601YUVToRGBShader);
   shader_code.append(sRGBEOTFShader);
   shader_code.append(gm_fmt == UHDR_IMG_FMT_8bppYCbCr400 ? getGainMapSampleSingleChannel
                                                          : getGainMapSampleMultiChannel);

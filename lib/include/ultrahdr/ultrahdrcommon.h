@@ -160,6 +160,8 @@
 
 static const uhdr_error_info_t g_no_error = {UHDR_CODEC_OK, 0, ""};
 
+static const int UHDR_CG_BT_601 = 3; /**< BT.601 */
+
 namespace ultrahdr {
 
 // ===============================================================================================
