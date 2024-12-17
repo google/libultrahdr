@@ -268,33 +268,6 @@ uhdr_error_info_t convertYuv_neon(uhdr_raw_image_t* image, uhdr_color_gamut_t sr
   return status;
 }
 
-// Scale all coefficients by 2^14 to avoid needing floating-point arithmetic. This can cause an off
-// by one error compared to the scalar floating-point implementation.
-
-// In the 3x3 conversion matrix, 0.5 is duplicated. But represented as only one entry in lut leaving
-// with an array size of 8 elements.
-
-// RGB Bt709 -> Yuv Bt709
-// Y = 0.212639 * R + 0.715169 * G + 0.072192 * B
-// U = -0.114592135 * R + -0.385407865 * G + 0.5 * B
-// V = 0.5 * R + -0.454155718 * G + -0.045844282 * B
-ALIGNED(16)
-const uint16_t kRgb709ToYuv_coeffs_simd[8] = {3484, 11717, 1183, 1877, 6315, 8192, 7441, 751};
-
-// RGB Display P3 -> Yuv Display P3
-// Y = 0.2289746 * R + 0.6917385 * G + 0.0792869 * B
-// U = -0.124346335 * R + -0.375653665 * G + 0.5 * B
-// V = 0.5 * R + -0.448583471 * G + -0.051416529 * B
-ALIGNED(16)
-const uint16_t kRgbDispP3ToYuv_coeffs_simd[8] = {3752, 11333, 1299, 2037, 6155, 8192, 7350, 842};
-
-// RGB Bt2100 -> Yuv Bt2100
-// Y = 0.2627 * R + 0.677998 * G + 0.059302 * B
-// U = -0.13963036 * R + -0.36036964 * G + 0.5 * B
-// V = 0.5 * R + -0.459784348 * G + -0.040215652 * B
-ALIGNED(16)
-const uint16_t kRgb2100ToYuv_coeffs_simd[8] = {4304, 11108, 972, 2288, 5904, 8192, 7533, 659};
-
 // The core logic is taken from jsimd_rgb_ycc_convert_neon implementation in jccolext-neon.c of
 // libjpeg-turbo
 static void ConvertRgba8888ToYuv444_neon(uhdr_raw_image_t* src, uhdr_raw_image_t* dst,

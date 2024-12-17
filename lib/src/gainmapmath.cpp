@@ -739,6 +739,33 @@ const int16_t kYuv2100To709_coeffs_simd[8] = {297, -1559, 16452, 840, -189, 1633
 // V' = (0.0f * Y) + (-0.084085f * U) + ( 0.976518f * V)
 ALIGNED(16)
 const int16_t kYuv2100To601_coeffs_simd[8] = {1931, 1729, 16306, -976, -1378, 15999, 0, 0};
+
+// RGB -> Yuv
+
+// In the 3x3 conversion matrix, 0.5 is duplicated. But represented as only one entry in lut leaving
+// with an array size of 8 elements.
+
+// RGB Bt709 -> Yuv Bt709
+// Y = 0.212639 * R + 0.715169 * G + 0.072192 * B
+// U = -0.114592135 * R + -0.385407865 * G + 0.5 * B
+// V = 0.5 * R + -0.454155718 * G + -0.045844282 * B
+ALIGNED(16)
+const uint16_t kRgb709ToYuv_coeffs_simd[8] = {3484, 11717, 1183, 1877, 6315, 8192, 7441, 751};
+
+// RGB Display P3 -> Yuv Display P3
+// Y = 0.2289746 * R + 0.6917385 * G + 0.0792869 * B
+// U = -0.124346335 * R + -0.375653665 * G + 0.5 * B
+// V = 0.5 * R + -0.448583471 * G + -0.051416529 * B
+ALIGNED(16)
+const uint16_t kRgbDispP3ToYuv_coeffs_simd[8] = {3752, 11333, 1299, 2037, 6155, 8192, 7350, 842};
+
+// RGB Bt2100 -> Yuv Bt2100
+// Y = 0.2627 * R + 0.677998 * G + 0.059302 * B
+// U = -0.13963036 * R + -0.36036964 * G + 0.5 * B
+// V = 0.5 * R + -0.459784348 * G + -0.040215652 * B
+ALIGNED(16)
+const uint16_t kRgb2100ToYuv_coeffs_simd[8] = {4304, 11108, 972, 2288, 5904, 8192, 7533, 659};
+
 #endif
 
 Color yuvColorGamutConversion(Color e_gamma, const std::array<float, 9>& coeffs) {

@@ -423,6 +423,10 @@ extern const int16_t kYuv601To2100_coeffs_simd[8];
 extern const int16_t kYuv2100To709_coeffs_simd[8];
 extern const int16_t kYuv2100To601_coeffs_simd[8];
 
+extern const uint16_t kRgb709ToYuv_coeffs_simd[8];
+extern const uint16_t kRgbDispP3ToYuv_coeffs_simd[8];
+extern const uint16_t kRgb2100ToYuv_coeffs_simd[8];
+
 #if (defined(__ARM_NEON__) || defined(__ARM_NEON))
 
 /*

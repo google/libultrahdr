@@ -46,8 +46,14 @@ static inline vint16m4_t vget_high_s16(vint16m8_t u, size_t vl) {
 
 static inline vuint16m4_t vget_low_u16(vuint16m8_t u) { return __riscv_vget_v_u16m8_u16m4(u, 0); }
 
+static inline vuint16m2_t vget_low_u16m4(vuint16m4_t u) { return __riscv_vget_v_u16m4_u16m2(u, 0); }
+
 static inline vuint16m4_t vget_high_u16(vuint16m8_t u, size_t vl) {
   return __riscv_vget_v_u16m8_u16m4(__riscv_vslidedown_vx_u16m8(u, vl / 2, vl), 0);
+}
+
+static inline vuint16m2_t vget_high_u16m4(vuint16m4_t u, size_t vl) {
+  return __riscv_vget_v_u16m4_u16m2(__riscv_vslidedown_vx_u16m4(u, vl / 2, vl), 0);
 }
 
 static inline vint16m8_t vcombine_s16(vint16m4_t a, vint16m4_t b, size_t vl) {
@@ -65,6 +71,11 @@ static inline vuint8m8_t vcombine_u8(vuint8m4_t a, vuint8m4_t b, size_t vl) {
 static inline vuint8m4_t vqmovun_s16(vint16m8_t a, size_t vl) {
   vuint16m8_t a_non_neg = __riscv_vreinterpret_v_i16m8_u16m8(__riscv_vmax_vx_i16m8(a, 0, vl));
   return __riscv_vnclipu_wx_u8m4(a_non_neg, 0, vl);
+}
+
+static inline vuint16m4_t vmovl_u8(vuint8m4_t a, size_t vl) {
+  vuint16m8_t a_16 = __riscv_vzext_vf2_u16m8(a, vl);
+  return __riscv_vlmul_trunc_v_u16m8_u16m4(a_16);
 }
 
 static inline vint16m8_t yConversion_rvv(vuint8m4_t y, vint16m8_t u, vint16m8_t v,
@@ -332,4 +343,151 @@ uhdr_error_info_t convertYuv_rvv(uhdr_raw_image_t* image, uhdr_color_gamut_t src
 
   return status;
 }
+
+static void ConvertRgba8888ToYuv444_rvv(uhdr_raw_image_t* src, uhdr_raw_image_t* dst,
+                                        const uint16_t* coeffs_ptr) {
+  assert(src->stride[UHDR_PLANE_PACKED] % 16 == 0);
+  uint8_t* rgba_base_ptr = static_cast<uint8_t*>(src->planes[UHDR_PLANE_PACKED]);
+
+  uint8_t* y_base_ptr = static_cast<uint8_t*>(dst->planes[UHDR_PLANE_Y]);
+  uint8_t* u_base_ptr = static_cast<uint8_t*>(dst->planes[UHDR_PLANE_U]);
+  uint8_t* v_base_ptr = static_cast<uint8_t*>(dst->planes[UHDR_PLANE_V]);
+
+  uint32_t bias = (128 << 14) + 8191;
+
+  size_t vl;
+  size_t h = 0;
+  do {
+    size_t w = 0;
+    uint8_t* rgba_ptr = rgba_base_ptr + (size_t)src->stride[UHDR_PLANE_PACKED] * 4 * h;
+    do {
+      vl = __riscv_vsetvl_e8m8((src->w) - w);
+
+      vuint8m8_t r = __riscv_vlse8_v_u8m8(rgba_ptr, 4, vl);
+      vuint8m8_t g = __riscv_vlse8_v_u8m8(rgba_ptr, 4, vl);
+      vuint8m8_t b = __riscv_vlse8_v_u8m8(rgba_ptr, 4, vl);
+
+      vuint16m4_t r_l = vmovl_u8(vget_low_u8(r), vl / 2);
+      vuint16m4_t r_h = vmovl_u8(vget_high_u8(r, vl / 2), vl / 2);
+      vuint16m4_t g_l = vmovl_u8(vget_low_u8(g), vl / 2);
+      vuint16m4_t g_h = vmovl_u8(vget_high_u8(g, vl / 2), vl / 2);
+      vuint16m4_t b_l = vmovl_u8(vget_low_u8(b), vl / 2);
+      vuint16m4_t b_h = vmovl_u8(vget_high_u8(b, vl / 2), vl / 2);
+
+      vuint32m4_t y_ll = __riscv_vwmulu_vx_u32m4(vget_low_u16m4(r_l), coeffs_ptr[0], vl / 4);
+      y_ll = __riscv_vwmaccu_vx_u32m4(y_ll, coeffs_ptr[1], vget_low_u16m4(g_l), vl / 4);
+      y_ll = __riscv_vwmaccu_vx_u32m4(y_ll, coeffs_ptr[2], vget_low_u16m4(b_l), vl / 4);
+      vuint32m4_t y_lh =
+          __riscv_vwmulu_vx_u32m4(vget_high_u16m4(r_l, vl / 2), coeffs_ptr[0], vl / 4);
+      y_lh = __riscv_vwmaccu_vx_u32m4(y_lh, coeffs_ptr[1], vget_high_u16m4(g_l, vl / 2), vl / 4);
+      y_lh = __riscv_vwmaccu_vx_u32m4(y_lh, coeffs_ptr[2], vget_high_u16m4(b_l, vl / 2), vl / 4);
+      vuint32m4_t y_hl = __riscv_vwmulu_vx_u32m4(vget_low_u16m4(r_h), coeffs_ptr[0], vl / 4);
+      y_hl = __riscv_vwmaccu_vx_u32m4(y_hl, coeffs_ptr[1], vget_low_u16m4(g_h), vl / 4);
+      y_hl = __riscv_vwmaccu_vx_u32m4(y_hl, coeffs_ptr[2], vget_low_u16m4(b_h), vl / 4);
+      vuint32m4_t y_hh =
+          __riscv_vwmulu_vx_u32m4(vget_high_u16m4(r_h, vl / 2), coeffs_ptr[0], vl / 4);
+      y_hh = __riscv_vwmaccu_vx_u32m4(y_hh, coeffs_ptr[1], vget_high_u16m4(g_h, vl / 2), vl / 4);
+      y_hh = __riscv_vwmaccu_vx_u32m4(y_hh, coeffs_ptr[2], vget_high_u16m4(b_h, vl / 2), vl / 4);
+
+      // B - R - G + bias
+      vuint32m4_t cb_ll = __riscv_vwmulu_vx_u32m4(vget_low_u16m4(b_l), coeffs_ptr[5], vl / 4);
+      vuint32m4_t cb_r_ll = __riscv_vwmulu_vx_u32m4(vget_low_u16m4(r_l), coeffs_ptr[3], vl / 4);
+      cb_ll = __riscv_vsub_vv_u32m4(cb_ll, cb_r_ll, vl / 4);
+      vuint32m4_t cb_g_ll = __riscv_vwmulu_vx_u32m4(vget_low_u16m4(g_l), coeffs_ptr[4], vl / 4);
+      cb_ll = __riscv_vsub_vv_u32m4(cb_ll, cb_g_ll, vl / 4);
+      cb_ll = __riscv_vadd_vx_u32m4(cb_ll, bias, vl / 4);
+
+      vuint32m4_t cb_lh =
+          __riscv_vwmulu_vx_u32m4(vget_high_u16m4(b_l, vl / 2), coeffs_ptr[5], vl / 4);
+      vuint32m4_t cb_r_lh =
+          __riscv_vwmulu_vx_u32m4(vget_high_u16m4(r_l, vl / 2), coeffs_ptr[3], vl / 4);
+      cb_lh = __riscv_vsub_vv_u32m4(cb_lh, cb_r_lh, vl / 4);
+      vuint32m4_t cb_g_lh =
+          __riscv_vwmulu_vx_u32m4(vget_high_u16m4(g_l, vl / 2), coeffs_ptr[4], vl / 4);
+      cb_lh = __riscv_vsub_vv_u32m4(cb_lh, cb_g_lh, vl / 4);
+      cb_lh = __riscv_vadd_vx_u32m4(cb_lh, bias, vl / 4);
+
+      vuint32m4_t cb_hl = __riscv_vwmulu_vx_u32m4(vget_low_u16m4(b_h), coeffs_ptr[5], vl / 4);
+      vuint32m4_t cb_r_hl = __riscv_vwmulu_vx_u32m4(vget_low_u16m4(r_h), coeffs_ptr[3], vl / 4);
+      cb_hl = __riscv_vsub_vv_u32m4(cb_hl, cb_r_hl, vl / 4);
+      vuint32m4_t cb_g_hl = __riscv_vwmulu_vx_u32m4(vget_low_u16m4(g_h), coeffs_ptr[4], vl / 4);
+      cb_hl = __riscv_vsub_vv_u32m4(cb_hl, cb_g_hl, vl / 4);
+      cb_hl = __riscv_vadd_vx_u32m4(cb_hl, bias, vl / 4);
+
+      vuint32m4_t cb_hh =
+          __riscv_vwmulu_vx_u32m4(vget_high_u16m4(b_h, vl / 2), coeffs_ptr[5], vl / 4);
+      vuint32m4_t cb_r_hh =
+          __riscv_vwmulu_vx_u32m4(vget_high_u16m4(r_h, vl / 2), coeffs_ptr[3], vl / 4);
+      cb_hh = __riscv_vsub_vv_u32m4(cb_hh, cb_r_hh, vl / 4);
+      vuint32m4_t cb_g_hh =
+          __riscv_vwmulu_vx_u32m4(vget_high_u16m4(g_h, vl / 2), coeffs_ptr[4], vl / 4);
+      cb_hh = __riscv_vsub_vv_u32m4(cb_hh, cb_g_hh, vl / 4);
+      cb_hh = __riscv_vadd_vx_u32m4(cb_hh, bias, vl / 4);
+
+      // R - G - B + bias
+      vuint32m4_t cr_ll = __riscv_vwmulu_vx_u32m4(vget_low_u16m4(r_l), coeffs_ptr[5], vl / 4);
+      vuint32m4_t cr_g_ll = __riscv_vwmulu_vx_u32m4(vget_low_u16m4(g_l), coeffs_ptr[6], vl / 4);
+      cr_ll = __riscv_vsub_vv_u32m4(cr_ll, cr_g_ll, vl / 4);
+      vuint32m4_t cr_b_ll = __riscv_vwmulu_vx_u32m4(vget_low_u16m4(b_l), coeffs_ptr[7], vl / 4);
+      cr_ll = __riscv_vsub_vv_u32m4(cr_ll, cr_b_ll, vl / 4);
+      cr_ll = __riscv_vadd_vx_u32m4(cr_ll, bias, vl / 4);
+
+      vuint32m4_t cr_lh =
+          __riscv_vwmulu_vx_u32m4(vget_high_u16m4(r_l, vl / 2), coeffs_ptr[5], vl / 4);
+      vuint32m4_t cr_g_lh =
+          __riscv_vwmulu_vx_u32m4(vget_high_u16m4(g_l, vl / 2), coeffs_ptr[6], vl / 4);
+      cr_lh = __riscv_vsub_vv_u32m4(cr_lh, cr_g_lh, vl / 4);
+      vuint32m4_t cr_b_lh =
+          __riscv_vwmulu_vx_u32m4(vget_high_u16m4(b_l, vl / 2), coeffs_ptr[7], vl / 4);
+      cr_lh = __riscv_vsub_vv_u32m4(cr_lh, cr_b_lh, vl / 4);
+      cr_lh = __riscv_vadd_vx_u32m4(cr_lh, bias, vl / 4);
+
+      vuint32m4_t cr_hl = __riscv_vwmulu_vx_u32m4(vget_low_u16m4(r_h), coeffs_ptr[5], vl / 4);
+      vuint32m4_t cr_g_hl = __riscv_vwmulu_vx_u32m4(vget_low_u16m4(g_h), coeffs_ptr[6], vl / 4);
+      cr_hl = __riscv_vsub_vv_u32m4(cr_hl, cr_g_hl, vl / 4);
+      vuint32m4_t cr_b_hl = __riscv_vwmulu_vx_u32m4(vget_low_u16m4(b_h), coeffs_ptr[7], vl / 4);
+      cr_hl = __riscv_vsub_vv_u32m4(cr_hl, cr_b_hl, vl / 4);
+      cr_hl = __riscv_vadd_vx_u32m4(cr_hl, bias, vl / 4);
+
+      vuint32m4_t cr_hh =
+          __riscv_vwmulu_vx_u32m4(vget_high_u16m4(r_h, vl / 2), coeffs_ptr[5], vl / 4);
+      vuint32m4_t cr_g_hh =
+          __riscv_vwmulu_vx_u32m4(vget_high_u16m4(g_h, vl / 2), coeffs_ptr[6], vl / 4);
+      cr_hh = __riscv_vsub_vv_u32m4(cr_hh, cr_g_hh, vl / 4);
+      vuint32m4_t cr_b_hh =
+          __riscv_vwmulu_vx_u32m4(vget_high_u16m4(b_h, vl / 2), coeffs_ptr[7], vl / 4);
+      cr_hh = __riscv_vsub_vv_u32m4(cr_hh, cr_b_hh, vl / 4);
+      cr_hh = __riscv_vadd_vx_u32m4(cr_hh, bias, vl / 4);
+
+      w += vl;
+    } while (w < src->w);
+    rgba_base_ptr += src->stride[UHDR_PLANE_PACKED];
+    y_base_ptr += dst->stride[UHDR_PLANE_Y];
+    u_base_ptr += dst->stride[UHDR_PLANE_U];
+    v_base_ptr += dst->stride[UHDR_PLANE_V];
+  } while (++h < src->h);
+}
+
+std::unique_ptr<uhdr_raw_image_ext_t> convert_raw_input_to_ycbcr_rvv(uhdr_raw_image_t* src) {
+  if (src->fmt == UHDR_IMG_FMT_32bppRGBA8888) {
+    std::unique_ptr<uhdr_raw_image_ext_t> dst = nullptr;
+    const uint16_t* coeffs_ptr = nullptr;
+
+    if (src->cg == UHDR_CG_BT_709) {
+      coeffs_ptr = kRgb709ToYuv_coeffs_simd;
+    } else if (src->cg == UHDR_CG_BT_2100) {
+      coeffs_ptr = kRgbDispP3ToYuv_coeffs_simd;
+    } else if (src->cg == UHDR_CG_DISPLAY_P3) {
+      coeffs_ptr = kRgb2100ToYuv_coeffs_simd;
+    } else {
+      return dst;
+    }
+    dst = std::make_unique<uhdr_raw_image_ext_t>(UHDR_IMG_FMT_24bppYCbCr444, src->cg, src->ct,
+                                                 UHDR_CR_FULL_RANGE, src->w, src->h, 64);
+    ConvertRgba8888ToYuv444_rvv(src, dst.get(), coeffs_ptr);
+    return dst;
+  }
+  return nullptr;
+}
+
 }  // namespace ultrahdr
