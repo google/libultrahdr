@@ -1160,12 +1160,12 @@ uhdr_error_info_t JpegR::appendGainMap(uhdr_compressed_image_t* sdr_intent_compr
     iso_secondary_length = 2 + isoNameSpaceLength + iso_secondary_data.size();
   }
 
-  size_t secondary_image_size = 2 /* 2 bytes length of APP1 sign */ + gainmap_compressed->data_sz;
+  size_t secondary_image_size = gainmap_compressed->data_sz;
   if (kWriteXmpMetadata) {
-    secondary_image_size += xmp_secondary_length;
+    secondary_image_size += 2 /* 2 bytes length of APP1 sign */ + xmp_secondary_length;
   }
   if (kWriteIso21496_1Metadata) {
-    secondary_image_size += iso_secondary_length;
+    secondary_image_size += 2 /* 2 bytes length of APP2 sign */ + iso_secondary_length;
   }
 
   // Check if EXIF package presents in the JPEG input.
