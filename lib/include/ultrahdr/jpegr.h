@@ -486,10 +486,12 @@ class JpegR {
    *
    * \param[in]       gainmap_img              gainmap image descriptor
    * \param[in]       jpeg_enc_obj             jpeg encoder object handle
+   * \param[in]       write_tonemap_icc        write tonemap details in icc header
    *
    * \return uhdr_error_info_t #UHDR_CODEC_OK if operation succeeds, uhdr_codec_err_t otherwise.
    */
-  uhdr_error_info_t compressGainMap(uhdr_raw_image_t* gainmap_img, JpegEncoderHelper* jpeg_enc_obj);
+  uhdr_error_info_t compressGainMap(uhdr_raw_image_t* gainmap_img, JpegEncoderHelper* jpeg_enc_obj,
+                                    bool write_tonemap_icc = false);
 
   /*!\brief This method is called to separate base image and gain map image from compressed
    * ultrahdr image
