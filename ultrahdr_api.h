@@ -72,13 +72,14 @@
  *                                               existing API which warrants a major version update.
  *                                               But indicated as a minor update.
  *   1.3.0           1.3.0                       Some bug fixes, introduced new API.
- *   1.3.1           1.3.1                       quality improvements, bug fixes, added new features
+ *   1.4.0           1.4.0                       quality improvements, bug fixes, added new features
+ *                                               and api update.
  */
 
 // This needs to be kept in sync with version in CMakeLists.txt
 #define UHDR_LIB_VER_MAJOR 1
-#define UHDR_LIB_VER_MINOR 3
-#define UHDR_LIB_VER_PATCH 1
+#define UHDR_LIB_VER_MINOR 4
+#define UHDR_LIB_VER_PATCH 0
 
 #define UHDR_LIB_VERSION \
   ((UHDR_LIB_VER_MAJOR * 10000) + (UHDR_LIB_VER_MINOR * 100) + UHDR_LIB_VER_PATCH)
