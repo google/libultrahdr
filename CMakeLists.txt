@@ -777,6 +777,7 @@ endif()
 target_link_libraries(${UHDR_TARGET_NAME} PRIVATE ${PRIVATE_LINK_LIBS})
 set_target_properties(${UHDR_TARGET_NAME}
                       PROPERTIES PUBLIC_HEADER ultrahdr_api.h)
+target_include_directories(${UHDR_TARGET_NAME} PUBLIC ${EXPORT_INCLUDE_DIR})
 if(BUILD_SHARED_LIBS)
   # If target is STATIC no need to set VERSION and SOVERSION
   set_target_properties(${UHDR_TARGET_NAME}
@@ -795,6 +796,7 @@ if(BUILD_SHARED_LIBS)
     target_link_libraries(${UHDR_TARGET_NAME_STATIC} PRIVATE ${log-lib})
   endif()
   target_link_libraries(${UHDR_TARGET_NAME_STATIC} PRIVATE ${PRIVATE_LINK_LIBS})
+  target_include_directories(${UHDR_TARGET_NAME_STATIC} PUBLIC ${EXPORT_INCLUDE_DIR})
   combine_static_libs(${UHDR_CORE_LIB_NAME} ${UHDR_TARGET_NAME_STATIC})
   if(NOT MSVC)
     set_target_properties(${UHDR_TARGET_NAME_STATIC}
