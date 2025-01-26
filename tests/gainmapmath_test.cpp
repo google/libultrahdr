@@ -788,12 +788,12 @@ TEST_F(GainMapMathTest, YuvConversionNeon) {
   const std::array<
       std::tuple<const int16_t*, const std::array<Pixel, 5>, const std::array<Pixel, 5>>, 6>
       coeffs_setup_correct{{
-          {kYuv709To601_coeffs_neon, SrgbYuvColors, P3YuvColors},
-          {kYuv709To2100_coeffs_neon, SrgbYuvColors, Bt2100YuvColors},
-          {kYuv601To709_coeffs_neon, P3YuvColors, SrgbYuvColors},
-          {kYuv601To2100_coeffs_neon, P3YuvColors, Bt2100YuvColors},
-          {kYuv2100To709_coeffs_neon, Bt2100YuvColors, SrgbYuvColors},
-          {kYuv2100To601_coeffs_neon, Bt2100YuvColors, P3YuvColors},
+          {kYuv709To601_coeffs_simd, SrgbYuvColors, P3YuvColors},
+          {kYuv709To2100_coeffs_simd, SrgbYuvColors, Bt2100YuvColors},
+          {kYuv601To709_coeffs_simd, P3YuvColors, SrgbYuvColors},
+          {kYuv601To2100_coeffs_simd, P3YuvColors, Bt2100YuvColors},
+          {kYuv2100To709_coeffs_simd, Bt2100YuvColors, SrgbYuvColors},
+          {kYuv2100To601_coeffs_simd, Bt2100YuvColors, P3YuvColors},
       }};
 
   for (const auto& [coeff_ptr, input, expected] : coeffs_setup_correct) {
@@ -954,16 +954,15 @@ TEST_F(GainMapMathTest, TransformYuv420) {
     }
   }
 }
-
-#if (defined(UHDR_ENABLE_INTRINSICS) && (defined(__ARM_NEON__) || defined(__ARM_NEON)))
-TEST_F(GainMapMathTest, TransformYuv420Neon) {
+#ifdef UHDR_ENABLE_INTRINSICS
+TEST_F(GainMapMathTest, TransformYuv420SIMD) {
   const std::array<std::pair<const int16_t*, const std::array<float, 9>>, 6> fixed_floating_coeffs{
-      {{kYuv709To601_coeffs_neon, kYuvBt709ToBt601},
-       {kYuv709To2100_coeffs_neon, kYuvBt709ToBt2100},
-       {kYuv601To709_coeffs_neon, kYuvBt601ToBt709},
-       {kYuv601To2100_coeffs_neon, kYuvBt601ToBt2100},
-       {kYuv2100To709_coeffs_neon, kYuvBt2100ToBt709},
-       {kYuv2100To601_coeffs_neon, kYuvBt2100ToBt601}}};
+      {{kYuv709To601_coeffs_simd, kYuvBt709ToBt601},
+       {kYuv709To2100_coeffs_simd, kYuvBt709ToBt2100},
+       {kYuv601To709_coeffs_simd, kYuvBt601ToBt709},
+       {kYuv601To2100_coeffs_simd, kYuvBt601ToBt2100},
+       {kYuv2100To709_coeffs_simd, kYuvBt2100ToBt709},
+       {kYuv2100To601_coeffs_simd, kYuvBt2100ToBt601}}};
 
   for (const auto& [neon_coeffs_ptr, floating_point_coeffs] : fixed_floating_coeffs) {
     uhdr_raw_image_t input = Yuv420Image32x4();
@@ -980,8 +979,14 @@ TEST_F(GainMapMathTest, TransformYuv420Neon) {
     output.planes[UHDR_PLANE_Y] = luma;
     output.planes[UHDR_PLANE_U] = cb;
     output.planes[UHDR_PLANE_V] = cr;
-
+    
+#if (defined(__ARM_NEON__) || defined(__ARM_NEON))
     transformYuv420_neon(&output, neon_coeffs_ptr);
+#elif defined(__riscv_v_intrinsic)
+    transformYuv420_rvv(&output, neon_coeffs_ptr);
+#else
+    return;
+#endif
 
     for (size_t y = 0; y < input.h / 2; ++y) {
       for (size_t x = 0; x < input.w / 2; ++x) {
@@ -1014,11 +1019,17 @@ TEST_F(GainMapMathTest, TransformYuv420Neon) {
 
         // Due to the Neon version using a fixed-point approximation, this can result in an off by
         // one error compared with the standard floating-point version.
+#if defined(__riscv_v_intrinsic)
+        EXPECT_NEAR(expect_y1, out1.y, 2);
+        EXPECT_NEAR(expect_y2, out2.y, 2);
+        EXPECT_NEAR(expect_y3, out3.y, 2);
+        EXPECT_NEAR(expect_y4, out4.y, 2);
+#else
         EXPECT_NEAR(expect_y1, out1.y, 1);
         EXPECT_NEAR(expect_y2, out2.y, 1);
         EXPECT_NEAR(expect_y3, out3.y, 1);
         EXPECT_NEAR(expect_y4, out4.y, 1);
-
+#endif
         EXPECT_NEAR(expect_u, out1.u, 1);
         EXPECT_NEAR(expect_u, out2.u, 1);
         EXPECT_NEAR(expect_u, out3.u, 1);
@@ -1688,5 +1699,4 @@ TEST_F(GainMapMathTest, ApplyMap) {
   EXPECT_RGB_EQ(Recover(YuvWhite(), 0.25f, &metadata), RgbWhite());
   EXPECT_RGB_EQ(Recover(YuvWhite(), 0.0f, &metadata), RgbWhite() / 2.0f);
 }
-
 }  // namespace ultrahdr
