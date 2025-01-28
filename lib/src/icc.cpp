@@ -22,106 +22,6 @@
 
 namespace ultrahdr {
 
-static void Matrix3x3_apply(const Matrix3x3* m, float* x) {
-  float y0 = x[0] * m->vals[0][0] + x[1] * m->vals[0][1] + x[2] * m->vals[0][2];
-  float y1 = x[0] * m->vals[1][0] + x[1] * m->vals[1][1] + x[2] * m->vals[1][2];
-  float y2 = x[0] * m->vals[2][0] + x[1] * m->vals[2][1] + x[2] * m->vals[2][2];
-  x[0] = y0;
-  x[1] = y1;
-  x[2] = y2;
-}
-
-bool Matrix3x3_invert(const Matrix3x3* src, Matrix3x3* dst) {
-  double a00 = src->vals[0][0];
-  double a01 = src->vals[1][0];
-  double a02 = src->vals[2][0];
-  double a10 = src->vals[0][1];
-  double a11 = src->vals[1][1];
-  double a12 = src->vals[2][1];
-  double a20 = src->vals[0][2];
-  double a21 = src->vals[1][2];
-  double a22 = src->vals[2][2];
-
-  double b0 = a00 * a11 - a01 * a10;
-  double b1 = a00 * a12 - a02 * a10;
-  double b2 = a01 * a12 - a02 * a11;
-  double b3 = a20;
-  double b4 = a21;
-  double b5 = a22;
-
-  double determinant = b0 * b5 - b1 * b4 + b2 * b3;
-
-  if (determinant == 0) {
-    return false;
-  }
-
-  double invdet = 1.0 / determinant;
-  if (invdet > +FLT_MAX || invdet < -FLT_MAX || !isfinitef_((float)invdet)) {
-    return false;
-  }
-
-  b0 *= invdet;
-  b1 *= invdet;
-  b2 *= invdet;
-  b3 *= invdet;
-  b4 *= invdet;
-  b5 *= invdet;
-
-  dst->vals[0][0] = (float)(a11 * b5 - a12 * b4);
-  dst->vals[1][0] = (float)(a02 * b4 - a01 * b5);
-  dst->vals[2][0] = (float)(+b2);
-  dst->vals[0][1] = (float)(a12 * b3 - a10 * b5);
-  dst->vals[1][1] = (float)(a00 * b5 - a02 * b3);
-  dst->vals[2][1] = (float)(-b1);
-  dst->vals[0][2] = (float)(a10 * b4 - a11 * b3);
-  dst->vals[1][2] = (float)(a01 * b3 - a00 * b4);
-  dst->vals[2][2] = (float)(+b0);
-
-  for (int r = 0; r < 3; ++r)
-    for (int c = 0; c < 3; ++c) {
-      if (!isfinitef_(dst->vals[r][c])) {
-        return false;
-      }
-    }
-  return true;
-}
-
-static Matrix3x3 Matrix3x3_concat(const Matrix3x3* A, const Matrix3x3* B) {
-  Matrix3x3 m = {{{0, 0, 0}, {0, 0, 0}, {0, 0, 0}}};
-  for (int r = 0; r < 3; r++)
-    for (int c = 0; c < 3; c++) {
-      m.vals[r][c] = A->vals[r][0] * B->vals[0][c] + A->vals[r][1] * B->vals[1][c] +
-                     A->vals[r][2] * B->vals[2][c];
-    }
-  return m;
-}
-
-static void float_XYZD50_to_grid16_lab(const float* xyz_float, uint8_t* grid16_lab) {
-  float v[3] = {
-      xyz_float[0] / kD50_x,
-      xyz_float[1] / kD50_y,
-      xyz_float[2] / kD50_z,
-  };
-  for (size_t i = 0; i < 3; ++i) {
-    v[i] = v[i] > 0.008856f ? cbrtf(v[i]) : v[i] * 7.787f + (16 / 116.0f);
-  }
-  const float L = v[1] * 116.0f - 16.0f;
-  const float a = (v[0] - v[1]) * 500.0f;
-  const float b = (v[1] - v[2]) * 200.0f;
-  const float Lab_unorm[3] = {
-      L * (1 / 100.f),
-      (a + 128.0f) * (1 / 255.0f),
-      (b + 128.0f) * (1 / 255.0f),
-  };
-  // This will encode L=1 as 0xFFFF. This matches how skcms will interpret the
-  // table, but the spec appears to indicate that the value should be 0xFF00.
-  // https://crbug.com/skia/13807
-  for (size_t i = 0; i < 3; ++i) {
-    reinterpret_cast<uint16_t*>(grid16_lab)[i] =
-        Endian_SwapBE16(float_round_to_unorm16(Lab_unorm[i]));
-  }
-}
-
 std::string IccHelper::get_desc_string(const uhdr_color_transfer_t tf,
                                        const uhdr_color_gamut_t gamut) {
   std::string result;
@@ -245,32 +145,6 @@ std::shared_ptr<DataStruct> IccHelper::write_trc_tag(const TransferFunction& fn)
   return dataStruct;
 }
 
-float IccHelper::compute_tone_map_gain(const uhdr_color_transfer_t tf, float L) {
-  if (L <= 0.f) {
-    return 1.f;
-  }
-  if (tf == UHDR_CT_PQ) {
-    // The PQ transfer function will map to the range [0, 1]. Linearly scale
-    // it up to the range [0, 10,000/203]. We will then tone map that back
-    // down to [0, 1].
-    constexpr float kInputMaxLuminance = 10000 / 203.f;
-    constexpr float kOutputMaxLuminance = 1.0;
-    L *= kInputMaxLuminance;
-
-    // Compute the tone map gain which will tone map from 10,000/203 to 1.0.
-    constexpr float kToneMapA = kOutputMaxLuminance / (kInputMaxLuminance * kInputMaxLuminance);
-    constexpr float kToneMapB = 1.f / kOutputMaxLuminance;
-    return kInputMaxLuminance * (1.f + kToneMapA * L) / (1.f + kToneMapB * L);
-  }
-  if (tf == UHDR_CT_HLG) {
-    // Let Lw be the brightness of the display in nits.
-    constexpr float Lw = 203.f;
-    const float gamma = 1.2f + 0.42f * std::log(Lw / 1000.f) / std::log(10.f);
-    return std::pow(L, gamma - 1.f);
-  }
-  return 1.f;
-}
-
 std::shared_ptr<DataStruct> IccHelper::write_cicp_tag(uint32_t color_primaries,
                                                       uint32_t transfer_characteristics) {
   std::shared_ptr<DataStruct> dataStruct = std::make_shared<DataStruct>(kCicpTagSize);
@@ -283,37 +157,35 @@ std::shared_ptr<DataStruct> IccHelper::write_cicp_tag(uint32_t color_primaries,
   return dataStruct;
 }
 
-void IccHelper::compute_lut_entry(const Matrix3x3& src_to_XYZD50, float rgb[3]) {
-  // Compute the matrices to convert from source to Rec2020, and from Rec2020 to XYZD50.
-  Matrix3x3 src_to_rec2020;
-  const Matrix3x3 rec2020_to_XYZD50 = kRec2020;
-  {
-    Matrix3x3 XYZD50_to_rec2020;
-    Matrix3x3_invert(&rec2020_to_XYZD50, &XYZD50_to_rec2020);
-    src_to_rec2020 = Matrix3x3_concat(&XYZD50_to_rec2020, &src_to_XYZD50);
+std::shared_ptr<DataStruct> IccHelper::write_chad_tag() {
+  std::shared_ptr<DataStruct> dataStruct = std::make_shared<DataStruct>(44);
+  dataStruct->write32(Endian_SwapBE32(kTAG_s15Fixed16ArrayType));  // Type signature
+  dataStruct->write32(0);                                          // Reserved
+  for (int i = 0; i < 3; ++i) {
+    for (int j = 0; j < 3; ++j) {
+      dataStruct->write32(Endian_SwapBE32(float_round_to_fixed(adaptation_matrix.vals[i][j])));
+    }
   }
+  return dataStruct;
+}
 
-  // Convert the source signal to linear.
-  for (size_t i = 0; i < kNumChannels; ++i) {
-    rgb[i] = pqOetf(rgb[i]);
+void IccHelper::compute_lut_entry(uhdr_color_transfer_t tf, uhdr_color_gamut_t cg, float rgb[3]) {
+  Color hdr_rgb = {{{rgb[0], rgb[1], rgb[2]}}};
+  float headroom = 1.0f;
+  if (tf == UHDR_CT_HLG) {
+    hdr_rgb = hlgInvOetf(hdr_rgb);
+    LuminanceFn hdrLuminanceFn = getLuminanceFn(cg);
+    hdr_rgb = hlgOotf(hdr_rgb, hdrLuminanceFn);
+    headroom = kHlgMaxNits / kSdrWhiteNits;
+  } else if (tf == UHDR_CT_PQ) {
+    hdr_rgb = pqInvOetf(hdr_rgb);
+    headroom = kPqMaxNits / kSdrWhiteNits;
   }
-
-  // Convert source gamut to Rec2020.
-  Matrix3x3_apply(&src_to_rec2020, rgb);
-
-  // Compute the luminance of the signal.
-  float L = bt2100Luminance({{{rgb[0], rgb[1], rgb[2]}}});
-
-  // Compute the tone map gain based on the luminance.
-  float tone_map_gain = compute_tone_map_gain(UHDR_CT_PQ, L);
-
-  // Apply the tone map gain.
-  for (size_t i = 0; i < kNumChannels; ++i) {
-    rgb[i] *= tone_map_gain;
-  }
-
-  // Convert from Rec2020-linear to XYZD50.
-  Matrix3x3_apply(&rec2020_to_XYZD50, rgb);
+  GlobalTonemapOutputs tonemapped =
+      globalTonemap({hdr_rgb.r, hdr_rgb.g, hdr_rgb.b}, headroom, false);
+  rgb[0] = tonemapped.rgb_out[0];
+  rgb[1] = tonemapped.rgb_out[1];
+  rgb[2] = tonemapped.rgb_out[2];
 }
 
 std::shared_ptr<DataStruct> IccHelper::write_clut(const uint8_t* grid_points,
@@ -343,72 +215,111 @@ std::shared_ptr<DataStruct> IccHelper::write_clut(const uint8_t* grid_points,
   return dataStruct;
 }
 
+std::shared_ptr<DataStruct> IccHelper::write_matrix(const Matrix3x3* matrix) {
+  std::shared_ptr<DataStruct> dataStruct = std::make_shared<DataStruct>(12 * 4);
+  // See layout details in section "10.12.5 Matrix".
+  for (int i = 0; i < 3; ++i) {
+    for (int j = 0; j < 3; ++j) {
+      dataStruct->write32(Endian_SwapBE32(float_round_to_fixed(matrix->vals[i][j])));
+    }
+  }
+  for (int i = 0; i < 3; ++i) {
+    dataStruct->write32(Endian_SwapBE32(float_round_to_fixed(0.f)));
+  }
+  return dataStruct;
+}
+
 std::shared_ptr<DataStruct> IccHelper::write_mAB_or_mBA_tag(uint32_t type, bool has_a_curves,
                                                             const uint8_t* grid_points,
-                                                            const uint8_t* grid_16) {
-  const size_t b_curves_offset = 32;
-  std::shared_ptr<DataStruct> b_curves_data[kNumChannels];
-  std::shared_ptr<DataStruct> a_curves_data[kNumChannels];
-  size_t clut_offset = 0;
-  std::shared_ptr<DataStruct> clut;
-  size_t a_curves_offset = 0;
+                                                            const uint8_t* grid_16,
+                                                            bool has_m_curves,
+                                                            Matrix3x3* toXYZD50) {
+  size_t offset = 32;
 
   // The "B" curve is required.
+  size_t b_curves_offset = offset;
+  std::shared_ptr<DataStruct> b_curves_data[kNumChannels];
   for (size_t i = 0; i < kNumChannels; ++i) {
     b_curves_data[i] = write_trc_tag(kLinear_TransFun);
+    offset += b_curves_data[i]->getLength();
   }
 
-  // The "A" curve and CLUT are optional.
-  if (has_a_curves) {
-    clut_offset = b_curves_offset;
-    for (size_t i = 0; i < kNumChannels; ++i) {
-      clut_offset += b_curves_data[i]->getLength();
-    }
+  // The CLUT.
+  size_t clut_offset = 0;
+  std::shared_ptr<DataStruct> clut;
+  if (grid_points) {
+    clut_offset = offset;
     clut = write_clut(grid_points, grid_16);
+    offset += clut->getLength();
+  }
 
-    a_curves_offset = clut_offset + clut->getLength();
+  // The A curves.
+  size_t a_curves_offset = 0;
+  std::shared_ptr<DataStruct> a_curves_data[kNumChannels];
+  if (has_a_curves) {
+    a_curves_offset = offset;
     for (size_t i = 0; i < kNumChannels; ++i) {
       a_curves_data[i] = write_trc_tag(kLinear_TransFun);
+      offset += a_curves_data[i]->getLength();
     }
   }
 
-  int total_length = b_curves_offset;
-  for (size_t i = 0; i < kNumChannels; ++i) {
-    total_length += b_curves_data[i]->getLength();
+  // The matrix.
+  size_t matrix_offset = 0;
+  std::shared_ptr<DataStruct> matrix_data;
+  if (toXYZD50) {
+    matrix_offset = offset;
+    matrix_data = write_matrix(toXYZD50);
+    offset += matrix_data->getLength();
   }
-  if (has_a_curves) {
-    total_length += clut->getLength();
+
+  // The "M" curves.
+  size_t m_curves_offset = 0;
+  std::shared_ptr<DataStruct> m_curves_data[kNumChannels];
+  if (has_m_curves) {
+    m_curves_offset = offset;
     for (size_t i = 0; i < kNumChannels; ++i) {
-      total_length += a_curves_data[i]->getLength();
+      m_curves_data[i] = write_trc_tag(kLinear_TransFun);
+      offset += m_curves_data[i]->getLength();
     }
   }
-  std::shared_ptr<DataStruct> dataStruct = std::make_shared<DataStruct>(total_length);
+
+  std::shared_ptr<DataStruct> dataStruct = std::make_shared<DataStruct>(offset);
   dataStruct->write32(Endian_SwapBE32(type));             // Type signature
   dataStruct->write32(0);                                 // Reserved
   dataStruct->write8(kNumChannels);                       // Input channels
   dataStruct->write8(kNumChannels);                       // Output channels
   dataStruct->write16(0);                                 // Reserved
   dataStruct->write32(Endian_SwapBE32(b_curves_offset));  // B curve offset
-  dataStruct->write32(Endian_SwapBE32(0));                // Matrix offset (ignored)
-  dataStruct->write32(Endian_SwapBE32(0));                // M curve offset (ignored)
+  dataStruct->write32(Endian_SwapBE32(matrix_offset));    // Matrix offset
+  dataStruct->write32(Endian_SwapBE32(m_curves_offset));  // M curve offset
   dataStruct->write32(Endian_SwapBE32(clut_offset));      // CLUT offset
   dataStruct->write32(Endian_SwapBE32(a_curves_offset));  // A curve offset
   for (size_t i = 0; i < kNumChannels; ++i) {
-    if (dataStruct->write(b_curves_data[i]->getData(), b_curves_data[i]->getLength())) {
-      return dataStruct;
-    }
+    dataStruct->write(b_curves_data[i]->getData(), b_curves_data[i]->getLength());
+  }
+  if (clut) {
+    dataStruct->write(clut->getData(), clut->getLength());
   }
   if (has_a_curves) {
-    dataStruct->write(clut->getData(), clut->getLength());
     for (size_t i = 0; i < kNumChannels; ++i) {
       dataStruct->write(a_curves_data[i]->getData(), a_curves_data[i]->getLength());
+    }
+  }
+  if (toXYZD50) {
+    dataStruct->write(matrix_data->getData(), matrix_data->getLength());
+  }
+  if (has_m_curves) {
+    for (size_t i = 0; i < kNumChannels; ++i) {
+      dataStruct->write(m_curves_data[i]->getData(), m_curves_data[i]->getLength());
     }
   }
   return dataStruct;
 }
 
 std::shared_ptr<DataStruct> IccHelper::writeIccProfile(uhdr_color_transfer_t tf,
-                                                       uhdr_color_gamut_t gamut) {
+                                                       uhdr_color_gamut_t gamut,
+                                                       bool write_tonemap_icc) {
   ICCHeader header;
 
   std::vector<std::pair<uint32_t, std::shared_ptr<DataStruct>>> tags;
@@ -417,6 +328,7 @@ std::shared_ptr<DataStruct> IccHelper::writeIccProfile(uhdr_color_transfer_t tf,
   std::string desc = get_desc_string(tf, gamut);
   tags.emplace_back(kTAG_desc, write_text_tag(desc.c_str()));
 
+  // Compute primaries.
   Matrix3x3 toXYZD50;
   switch (gamut) {
     case UHDR_CG_BT_709:
@@ -432,48 +344,29 @@ std::shared_ptr<DataStruct> IccHelper::writeIccProfile(uhdr_color_transfer_t tf,
       // Should not fall here.
       return nullptr;
   }
-
-  // Compute primaries.
-  {
-    tags.emplace_back(kTAG_rXYZ,
-                      write_xyz_tag(toXYZD50.vals[0][0], toXYZD50.vals[1][0], toXYZD50.vals[2][0]));
-    tags.emplace_back(kTAG_gXYZ,
-                      write_xyz_tag(toXYZD50.vals[0][1], toXYZD50.vals[1][1], toXYZD50.vals[2][1]));
-    tags.emplace_back(kTAG_bXYZ,
-                      write_xyz_tag(toXYZD50.vals[0][2], toXYZD50.vals[1][2], toXYZD50.vals[2][2]));
-  }
+  tags.emplace_back(kTAG_rXYZ,
+                    write_xyz_tag(toXYZD50.vals[0][0], toXYZD50.vals[1][0], toXYZD50.vals[2][0]));
+  tags.emplace_back(kTAG_gXYZ,
+                    write_xyz_tag(toXYZD50.vals[0][1], toXYZD50.vals[1][1], toXYZD50.vals[2][1]));
+  tags.emplace_back(kTAG_bXYZ,
+                    write_xyz_tag(toXYZD50.vals[0][2], toXYZD50.vals[1][2], toXYZD50.vals[2][2]));
 
   // Compute white point tag (must be D50)
   tags.emplace_back(kTAG_wtpt, write_xyz_tag(kD50_x, kD50_y, kD50_z));
 
   // Compute transfer curves.
-  if (tf != UHDR_CT_PQ) {
-    if (tf == UHDR_CT_HLG) {
-      std::vector<uint8_t> trc_table;
-      trc_table.resize(kTrcTableSize * 2);
-      for (uint32_t i = 0; i < kTrcTableSize; ++i) {
-        float x = i / (kTrcTableSize - 1.f);
-        float y = hlgOetf(x);
-        y *= compute_tone_map_gain(tf, y);
-        float_to_table16(y, &trc_table[2 * i]);
-      }
-
-      tags.emplace_back(kTAG_rTRC,
-                        write_trc_tag(kTrcTableSize, reinterpret_cast<uint8_t*>(trc_table.data())));
-      tags.emplace_back(kTAG_gTRC,
-                        write_trc_tag(kTrcTableSize, reinterpret_cast<uint8_t*>(trc_table.data())));
-      tags.emplace_back(kTAG_bTRC,
-                        write_trc_tag(kTrcTableSize, reinterpret_cast<uint8_t*>(trc_table.data())));
-    } else if (tf == UHDR_CT_SRGB) {
-      tags.emplace_back(kTAG_rTRC, write_trc_tag(kSRGB_TransFun));
-      tags.emplace_back(kTAG_gTRC, write_trc_tag(kSRGB_TransFun));
-      tags.emplace_back(kTAG_bTRC, write_trc_tag(kSRGB_TransFun));
-    } else if (tf == UHDR_CT_LINEAR) {
-      tags.emplace_back(kTAG_rTRC, write_trc_tag(kLinear_TransFun));
-      tags.emplace_back(kTAG_gTRC, write_trc_tag(kLinear_TransFun));
-      tags.emplace_back(kTAG_bTRC, write_trc_tag(kLinear_TransFun));
-    }
+  if (tf == UHDR_CT_SRGB) {
+    tags.emplace_back(kTAG_rTRC, write_trc_tag(kSRGB_TransFun));
+    // Use empty data to indicate that the entry should use the previous tag's
+    // data.
+    tags.emplace_back(kTAG_gTRC, make_empty());
+    // Use empty data to indicate that the entry should use the previous tag's
+    // data.
+    tags.emplace_back(kTAG_bTRC, make_empty());
   }
+
+  // Chroma adaptation matrix
+  tags.emplace_back(kTAG_chad, write_chad_tag());
 
   // Compute CICP - for hdr images icc profile shall contain cicp.
   if (tf == UHDR_CT_HLG || tf == UHDR_CT_PQ || tf == UHDR_CT_LINEAR) {
@@ -502,10 +395,14 @@ std::shared_ptr<DataStruct> IccHelper::writeIccProfile(uhdr_color_transfer_t tf,
     tags.emplace_back(kTAG_cicp, write_cicp_tag(color_primaries, transfer_characteristics));
   }
 
-  // Compute A2B0.
-  if (tf == UHDR_CT_PQ) {
-    std::vector<uint8_t> a2b_grid;
-    a2b_grid.resize(kGridSize * kGridSize * kGridSize * kNumChannels * 2);
+  // Compute A2B, B2A (PQ and HLG only).
+  if (write_tonemap_icc && (tf == UHDR_CT_PQ || tf == UHDR_CT_HLG)) {
+    // The uInt16Number used to encoude XYZ values has 1.0 map to 0x8000.
+    // See section "6.3.4.2 General PCS encoding" and Table 11.
+    constexpr uint16_t kOne16XYZ = 0x8000;
+
+    std::vector<uint16_t> a2b_grid;
+    a2b_grid.resize(kGridSize * kGridSize * kGridSize * kNumChannels);
     size_t a2b_grid_index = 0;
     for (uint32_t r_index = 0; r_index < kGridSize; ++r_index) {
       for (uint32_t g_index = 0; g_index < kGridSize; ++g_index) {
@@ -515,9 +412,11 @@ std::shared_ptr<DataStruct> IccHelper::writeIccProfile(uhdr_color_transfer_t tf,
               g_index / (kGridSize - 1.f),
               b_index / (kGridSize - 1.f),
           };
-          compute_lut_entry(toXYZD50, rgb);
-          float_XYZD50_to_grid16_lab(rgb, &a2b_grid[a2b_grid_index]);
-          a2b_grid_index += 6;
+          compute_lut_entry(tf, gamut, rgb);
+          // Write the result to the LUT.
+          for (const auto& c : rgb) {
+            a2b_grid[a2b_grid_index++] = Endian_SwapBE16(float_to_uInt16Number(c, kOne16XYZ));
+          }
         }
       }
     }
@@ -528,17 +427,10 @@ std::shared_ptr<DataStruct> IccHelper::writeIccProfile(uhdr_color_transfer_t tf,
       grid_points[i] = kGridSize;
     }
 
-    auto a2b_data = write_mAB_or_mBA_tag(kTAG_mABType,
-                                         /* has_a_curves */ true, grid_points, grid_16);
+    auto a2b_data = write_mAB_or_mBA_tag(kTAG_mABType, true, grid_points, grid_16, true, &toXYZD50);
     tags.emplace_back(kTAG_A2B0, std::move(a2b_data));
-  }
 
-  // Compute B2A0.
-  if (tf == UHDR_CT_PQ) {
-    auto b2a_data = write_mAB_or_mBA_tag(kTAG_mBAType,
-                                         /* has_a_curves */ false,
-                                         /* grid_points */ nullptr,
-                                         /* grid_16 */ nullptr);
+    auto b2a_data = write_mAB_or_mBA_tag(kTAG_mBAType, false, nullptr, nullptr, false, nullptr);
     tags.emplace_back(kTAG_B2A0, std::move(b2a_data));
   }
 
@@ -580,8 +472,10 @@ std::shared_ptr<DataStruct> IccHelper::writeIccProfile(uhdr_color_transfer_t tf,
   uint32_t last_tag_offset = sizeof(header) + tag_table_size;
   uint32_t last_tag_size = 0;
   for (const auto& tag : tags) {
-    last_tag_offset = last_tag_offset + last_tag_size;
-    last_tag_size = tag.second->getLength();
+    if (tag.second->getLength()) {
+      last_tag_offset = last_tag_offset + last_tag_size;
+      last_tag_size = tag.second->getLength();
+    }
     uint32_t tag_table_entry[3] = {
         Endian_SwapBE32(tag.first),
         Endian_SwapBE32(last_tag_offset),
