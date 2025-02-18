@@ -214,7 +214,7 @@ uhdr_error_info_t JpegR::encodeJPEGR(uhdr_raw_image_t* hdr_intent, uhdr_compress
 
   // compress gain map
   JpegEncoderHelper jpeg_enc_obj_gm;
-  UHDR_ERR_CHECK(compressGainMap(gainmap.get(), &jpeg_enc_obj_gm));
+  UHDR_ERR_CHECK(compressGainMap(gainmap.get(), &jpeg_enc_obj_gm, true /* write tonemap in icc */));
   uhdr_compressed_image_t gainmap_compressed = jpeg_enc_obj_gm.getCompressedImage();
 
   std::shared_ptr<DataStruct> icc = IccHelper::writeIccProfile(UHDR_CT_SRGB, sdr_intent->cg);
@@ -518,9 +518,10 @@ uhdr_error_info_t JpegR::convertYuv(uhdr_raw_image_t* image, uhdr_color_gamut_t 
 }
 
 uhdr_error_info_t JpegR::compressGainMap(uhdr_raw_image_t* gainmap_img,
-                                         JpegEncoderHelper* jpeg_enc_obj) {
+                                         JpegEncoderHelper* jpeg_enc_obj, bool write_tonemap_icc) {
   if (!kWriteXmpMetadata) {
-    std::shared_ptr<DataStruct> icc = IccHelper::writeIccProfile(gainmap_img->ct, gainmap_img->cg);
+    std::shared_ptr<DataStruct> icc =
+        IccHelper::writeIccProfile(gainmap_img->ct, gainmap_img->cg, write_tonemap_icc);
     return jpeg_enc_obj->compressImage(gainmap_img, mMapCompressQuality, icc->getData(),
                                        icc->getLength());
   }
