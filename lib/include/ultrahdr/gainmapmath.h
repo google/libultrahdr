@@ -347,6 +347,13 @@ Color pqInvOetfLUT(Color e_gamma);
 constexpr int32_t kPqInvOETFPrecision = 12;
 constexpr int32_t kPqInvOETFNumEntries = 1 << kPqInvOETFPrecision;
 
+////////////////////////////////////////////////////////////////////////////////
+// BT.601 transformations
+
+// BT.601 rgb <-> yuv conversion
+Color bt601RgbToYuv(Color e_gamma);
+Color bt601YuvToRgb(Color e_gamma);
+
 // util class to prepare look up tables for oetf/eotf functions
 class LookUpTable {
  public:
@@ -415,20 +422,26 @@ Color bt2100ToP3(Color e);
 
 // convert between yuv encodings
 extern const std::array<float, 9> kYuvBt709ToBt601;
+extern const std::array<float, 9> kYuvBt709ToDisplayP3;
 extern const std::array<float, 9> kYuvBt709ToBt2100;
-extern const std::array<float, 9> kYuvBt601ToBt709;
-extern const std::array<float, 9> kYuvBt601ToBt2100;
-extern const std::array<float, 9> kYuvBt2100ToBt709;
+extern const std::array<float, 9> kYuvDisplayP3ToBt601;
+extern const std::array<float, 9> kYuvDisplayP3ToBt709;
+extern const std::array<float, 9> kYuvDisplayP3ToBt2100;
 extern const std::array<float, 9> kYuvBt2100ToBt601;
+extern const std::array<float, 9> kYuvBt2100ToBt709;
+extern const std::array<float, 9> kYuvBt2100ToDisplayP3;
 
 #if (defined(UHDR_ENABLE_INTRINSICS) && (defined(__ARM_NEON__) || defined(__ARM_NEON)))
 
 extern const int16_t kYuv709To601_coeffs_neon[8];
+extern const int16_t kYuv709ToP3_coeffs_neon[8];
 extern const int16_t kYuv709To2100_coeffs_neon[8];
-extern const int16_t kYuv601To709_coeffs_neon[8];
-extern const int16_t kYuv601To2100_coeffs_neon[8];
-extern const int16_t kYuv2100To709_coeffs_neon[8];
+extern const int16_t kYuvP3To601_coeffs_neon[8];
+extern const int16_t kYuvP3To709_coeffs_neon[8];
+extern const int16_t kYuvP3To2100_coeffs_neon[8];
 extern const int16_t kYuv2100To601_coeffs_neon[8];
+extern const int16_t kYuv2100To709_coeffs_neon[8];
+extern const int16_t kYuv2100ToP3_coeffs_neon[8];
 
 /*
  * The Y values are provided at half the width of U & V values to allow use of the widening
@@ -608,10 +621,11 @@ std::unique_ptr<uhdr_raw_image_ext_t> copy_raw_image(uhdr_raw_image_t* src);
 uhdr_error_info_t copy_raw_image(uhdr_raw_image_t* src, uhdr_raw_image_t* dst);
 
 std::unique_ptr<uhdr_raw_image_ext_t> convert_raw_input_to_ycbcr(
-    uhdr_raw_image_t* src, bool chroma_sampling_enabled = false);
+    uhdr_raw_image_t* src, bool use_bt601 = false, bool chroma_sampling_enabled = false);
 
 #if (defined(UHDR_ENABLE_INTRINSICS) && (defined(__ARM_NEON__) || defined(__ARM_NEON)))
-std::unique_ptr<uhdr_raw_image_ext_t> convert_raw_input_to_ycbcr_neon(uhdr_raw_image_t* src);
+std::unique_ptr<uhdr_raw_image_ext_t> convert_raw_input_to_ycbcr_neon(uhdr_raw_image_t* src,
+                                                                      bool use_bt601 = false);
 #endif
 
 bool floatToSignedFraction(float v, int32_t* numerator, uint32_t* denominator);
