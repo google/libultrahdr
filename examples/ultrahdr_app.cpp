@@ -606,6 +606,9 @@ bool UltraHdrAppInput::fillExifMemoryBlock() {
   std::ifstream ifd(mExifFile, std::ios::binary | std::ios::ate);
   if (ifd.good()) {
     auto size = ifd.tellg();
+    mExifBlock.data = nullptr;
+    mExifBlock.data_sz = size;
+    mExifBlock.capacity = size;
     ifd.close();
     return loadFile(mExifFile, mExifBlock.data, size);
   }
