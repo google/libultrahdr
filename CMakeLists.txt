@@ -75,9 +75,9 @@ if(CMAKE_OSX_ARCHITECTURES)
     if(CMAKE_OSX_ARCHITECTURES STREQUAL "arm64")
       set(ARCH "aarch64")
     elseif(CMAKE_OSX_ARCHITECTURES STREQUAL "x86_64")
-      set(ARCH "x86_64")
+      set(ARCH "amd64")
     elseif(CMAKE_OSX_ARCHITECTURES STREQUAL "i386")
-      set(ARCH "x86")
+      set(ARCH "i386")
     else()
       message(FATAL_ERROR "Architecture ${CMAKE_OSX_ARCHITECTURES} is not "
                           "supported. Only one architecture (arm64, x86_64 "
