@@ -32,23 +32,23 @@
 
 #include "ultrahdr_api.h"
 
-const float BT601YUVtoRGBMatrix[9] = {
-    1.f, 0.f, 1.402f, 1.f, (-0.202008f / 0.587f), (-0.419198f / 0.587f), 1.0f, 1.772f, 0.0f};
+const float DisplayP3YUVtoRGBMatrix[9] = {
+    1.f, 0.f, 1.542f, 1.f, (-0.146023f / 0.6917f), (-0.353118f / 0.6917f), 1.0f, 1.8414f, 0.0f};
 const float BT709YUVtoRGBMatrix[9] = {
     1.f,  0.f,     1.5748f, 1.f, (-0.13397432f / 0.7152f), (-0.33480248f / 0.7152f),
     1.0f, 1.8556f, 0.0f};
 const float BT2020YUVtoRGBMatrix[9] = {
     1.f, 0.f, 1.4746f, 1.f, (-0.11156702f / 0.6780f), (-0.38737742f / 0.6780f), 1.f, 1.8814f, 0.f};
 
-const float BT601RGBtoYUVMatrix[9] = {0.299f,
-                                      0.587f,
-                                      0.114f,
-                                      (-0.299f / 1.772f),
-                                      (-0.587f / 1.772f),
-                                      0.5f,
-                                      0.5f,
-                                      (-0.587f / 1.402f),
-                                      (-0.114f / 1.402f)};
+const float DisplayP3RGBtoYUVMatrix[9] = {0.229f,
+                                          0.6917f,
+                                          0.0793f,
+                                          (-0.229f / 1.8414f),
+                                          (-0.6917f / 1.8414f),
+                                          0.5f,
+                                          0.5f,
+                                          (-0.6917f / 1.542f),
+                                          (-0.0793f / 1.542f)};
 const float BT709RGBtoYUVMatrix[9] = {0.2126f,
                                       0.7152f,
                                       0.0722f,
@@ -895,7 +895,7 @@ bool UltraHdrAppInput::convertP010ToRGBImage() {
   } else if (mHdrCg == UHDR_CG_BT_2100) {
     coeffs = BT2020YUVtoRGBMatrix;
   } else if (mHdrCg == UHDR_CG_DISPLAY_P3) {
-    coeffs = BT601YUVtoRGBMatrix;
+    coeffs = DisplayP3YUVtoRGBMatrix;
   } else {
     std::cerr << "color matrix not present for gamut " << mHdrCg << " using BT2020Matrix"
               << std::endl;
@@ -987,15 +987,15 @@ bool UltraHdrAppInput::convertYuv420ToRGBImage() {
   uint8_t* u = static_cast<uint8_t*>(mRawYuv420Image.planes[UHDR_PLANE_U]);
   uint8_t* v = static_cast<uint8_t*>(mRawYuv420Image.planes[UHDR_PLANE_V]);
 
-  const float* coeffs = BT601YUVtoRGBMatrix;
+  const float* coeffs = BT709YUVtoRGBMatrix;
   if (mSdrCg == UHDR_CG_BT_709) {
     coeffs = BT709YUVtoRGBMatrix;
   } else if (mSdrCg == UHDR_CG_BT_2100) {
     coeffs = BT2020YUVtoRGBMatrix;
   } else if (mSdrCg == UHDR_CG_DISPLAY_P3) {
-    coeffs = BT601YUVtoRGBMatrix;
+    coeffs = DisplayP3YUVtoRGBMatrix;
   } else {
-    std::cerr << "color matrix not present for gamut " << mSdrCg << " using BT601Matrix"
+    std::cerr << "color matrix not present for gamut " << mSdrCg << " using BT709Matrix"
               << std::endl;
   }
   for (size_t i = 0; i < mRawYuv420Image.h; i++) {
@@ -1057,16 +1057,16 @@ bool UltraHdrAppInput::convertRgba8888ToYUV444Image() {
   uint8_t* uData = static_cast<uint8_t*>(mDecodedUhdrYuv444Image.planes[UHDR_PLANE_U]);
   uint8_t* vData = static_cast<uint8_t*>(mDecodedUhdrYuv444Image.planes[UHDR_PLANE_V]);
 
-  const float* coeffs = BT601RGBtoYUVMatrix;
+  const float* coeffs = BT709RGBtoYUVMatrix;
   if (mDecodedUhdrRgbImage.cg == UHDR_CG_BT_709) {
     coeffs = BT709RGBtoYUVMatrix;
   } else if (mDecodedUhdrRgbImage.cg == UHDR_CG_BT_2100) {
     coeffs = BT2020RGBtoYUVMatrix;
   } else if (mDecodedUhdrRgbImage.cg == UHDR_CG_DISPLAY_P3) {
-    coeffs = BT601RGBtoYUVMatrix;
+    coeffs = DisplayP3RGBtoYUVMatrix;
   } else {
     std::cerr << "color matrix not present for gamut " << mDecodedUhdrRgbImage.cg
-              << " using BT601Matrix" << std::endl;
+              << " using BT709Matrix" << std::endl;
   }
 
   for (size_t i = 0; i < mDecodedUhdrRgbImage.h; i++) {
@@ -1111,7 +1111,7 @@ bool UltraHdrAppInput::convertRgba1010102ToYUV444Image() {
   } else if (mDecodedUhdrRgbImage.cg == UHDR_CG_BT_2100) {
     coeffs = BT2020RGBtoYUVMatrix;
   } else if (mDecodedUhdrRgbImage.cg == UHDR_CG_DISPLAY_P3) {
-    coeffs = BT601RGBtoYUVMatrix;
+    coeffs = DisplayP3RGBtoYUVMatrix;
   } else {
     std::cerr << "color matrix not present for gamut " << mDecodedUhdrRgbImage.cg
               << " using BT2020Matrix" << std::endl;
