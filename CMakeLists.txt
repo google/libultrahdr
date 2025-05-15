@@ -36,6 +36,7 @@ project(libuhdr
 if(${CMAKE_SYSTEM_NAME} MATCHES "Linux")
 elseif(${CMAKE_SYSTEM_NAME} MATCHES "Emscripten")
 elseif(${CMAKE_SYSTEM_NAME} MATCHES "Android")
+elseif(${CMAKE_SYSTEM_NAME} MATCHES "FreeBSD")
 elseif(WIN32)
 elseif(APPLE)
 else()
