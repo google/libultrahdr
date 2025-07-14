@@ -24,6 +24,7 @@
 #include <GLES3/gl3.h>
 #endif
 
+#include <cstdint>
 #include <deque>
 #include <map>
 #include <memory>
