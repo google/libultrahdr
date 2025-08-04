@@ -679,6 +679,90 @@ const std::array<float, 9> kYuvBt2100ToBt709 = {
 const std::array<float, 9> kYuvBt2100ToBt601 = {
     1.0f, 0.117887f, 0.105521f, 0.0f, 0.995211f, -0.059549f, 0.0f, -0.084085f, 0.976518f};
 
+#ifdef UHDR_ENABLE_INTRINSICS
+
+#ifdef _MSC_VER
+#define ALIGNED(x) __declspec(align(x))
+#else
+#define ALIGNED(x) __attribute__((aligned(x)))
+#endif
+// Scale all coefficients by 2^14 to avoid needing floating-point arithmetic. This can cause an off
+// by one error compared to the scalar floating-point implementation.
+
+// Removing conversion coefficients 1 and 0 from the group for each standard leaves 6 coefficients.
+// Pack them into a single 128-bit vector as follows, zeroing the remaining elements:
+// {Y1, Y2, U1, U2, V1, V2, 0, 0}
+
+// Yuv Bt709 -> Yuv Bt601
+// Y' = (1.0f * Y) + ( 0.101579f * U) + ( 0.196076f * V)
+// U' = (0.0f * Y) + ( 0.989854f * U) + (-0.110653f * V)
+// V' = (0.0f * Y) + (-0.072453f * U) + ( 0.983398f * V)
+ALIGNED(16)
+const int16_t kYuv709To601_coeffs_simd[8] = {1664, 3213, 16218, -1813, -1187, 16112, 0, 0};
+
+// Yuv Bt709 -> Yuv Bt2100
+// Y' = (1.0f * Y) + (-0.016969f * U) + ( 0.096312f * V)
+// U' = (0.0f * Y) + ( 0.995306f * U) + (-0.051192f * V)
+// V' = (0.0f * Y) + ( 0.011507f * U) + ( 1.002637f * V)
+ALIGNED(16)
+const int16_t kYuv709To2100_coeffs_simd[8] = {-278, 1578, 16307, -839, 189, 16427, 0, 0};
+
+// Yuv Bt601 -> Yuv Bt709
+// Y' = (1.0f * Y) + (-0.118188f * U) + (-0.212685f * V),
+// U' = (0.0f * Y) + ( 1.018640f * U) + ( 0.114618f * V),
+// V' = (0.0f * Y) + ( 0.075049f * U) + ( 1.025327f * V);
+ALIGNED(16)
+const int16_t kYuv601To709_coeffs_simd[8] = {-1936, -3485, 16689, 1878, 1230, 16799, 0, 0};
+
+// Yuv Bt601 -> Yuv Bt2100
+// Y' = (1.0f * Y) + (-0.128245f * U) + (-0.115879f * V)
+// U' = (0.0f * Y) + ( 1.010016f * U) + ( 0.061592f * V)
+// V' = (0.0f * Y) + ( 0.086969f * U) + ( 1.029350f * V)
+ALIGNED(16)
+const int16_t kYuv601To2100_coeffs_simd[8] = {-2101, -1899, 16548, 1009, 1425, 16865, 0, 0};
+
+// Yuv Bt2100 -> Yuv Bt709
+// Y' = (1.0f * Y) + ( 0.018149f * U) + (-0.095132f * V)
+// U' = (0.0f * Y) + ( 1.004123f * U) + ( 0.051267f * V)
+// V' = (0.0f * Y) + (-0.011524f * U) + ( 0.996782f * V)
+ALIGNED(16)
+const int16_t kYuv2100To709_coeffs_simd[8] = {297, -1559, 16452, 840, -189, 16331, 0, 0};
+
+// Yuv Bt2100 -> Yuv Bt601
+// Y' = (1.0f * Y) + ( 0.117887f * U) + ( 0.105521f * V)
+// U' = (0.0f * Y) + ( 0.995211f * U) + (-0.059549f * V)
+// V' = (0.0f * Y) + (-0.084085f * U) + ( 0.976518f * V)
+ALIGNED(16)
+const int16_t kYuv2100To601_coeffs_simd[8] = {1931, 1729, 16306, -976, -1378, 15999, 0, 0};
+
+// RGB -> Yuv
+
+// In the 3x3 conversion matrix, 0.5 is duplicated. But represented as only one entry in lut leaving
+// with an array size of 8 elements.
+
+// RGB Bt709 -> Yuv Bt709
+// Y = 0.212639 * R + 0.715169 * G + 0.072192 * B
+// U = -0.114592135 * R + -0.385407865 * G + 0.5 * B
+// V = 0.5 * R + -0.454155718 * G + -0.045844282 * B
+ALIGNED(16)
+const uint16_t kRgb709ToYuv_coeffs_simd[8] = {3484, 11717, 1183, 1877, 6315, 8192, 7441, 751};
+
+// RGB Display P3 -> Yuv Display P3
+// Y = 0.2289746 * R + 0.6917385 * G + 0.0792869 * B
+// U = -0.124346335 * R + -0.375653665 * G + 0.5 * B
+// V = 0.5 * R + -0.448583471 * G + -0.051416529 * B
+ALIGNED(16)
+const uint16_t kRgbDispP3ToYuv_coeffs_simd[8] = {3752, 11333, 1299, 2037, 6155, 8192, 7350, 842};
+
+// RGB Bt2100 -> Yuv Bt2100
+// Y = 0.2627 * R + 0.677998 * G + 0.059302 * B
+// U = -0.13963036 * R + -0.36036964 * G + 0.5 * B
+// V = 0.5 * R + -0.459784348 * G + -0.040215652 * B
+ALIGNED(16)
+const uint16_t kRgb2100ToYuv_coeffs_simd[8] = {4304, 11108, 972, 2288, 5904, 8192, 7533, 659};
+
+#endif
+
 Color yuvColorGamutConversion(Color e_gamma, const std::array<float, 9>& coeffs) {
   const float y = e_gamma.y * std::get<0>(coeffs) + e_gamma.u * std::get<1>(coeffs) +
                   e_gamma.v * std::get<2>(coeffs);

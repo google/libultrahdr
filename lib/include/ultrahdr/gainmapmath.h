@@ -421,14 +421,20 @@ extern const std::array<float, 9> kYuvBt601ToBt2100;
 extern const std::array<float, 9> kYuvBt2100ToBt709;
 extern const std::array<float, 9> kYuvBt2100ToBt601;
 
-#if (defined(UHDR_ENABLE_INTRINSICS) && (defined(__ARM_NEON__) || defined(__ARM_NEON)))
+#ifdef UHDR_ENABLE_INTRINSICS
 
-extern const int16_t kYuv709To601_coeffs_neon[8];
-extern const int16_t kYuv709To2100_coeffs_neon[8];
-extern const int16_t kYuv601To709_coeffs_neon[8];
-extern const int16_t kYuv601To2100_coeffs_neon[8];
-extern const int16_t kYuv2100To709_coeffs_neon[8];
-extern const int16_t kYuv2100To601_coeffs_neon[8];
+extern const int16_t kYuv709To601_coeffs_simd[8];
+extern const int16_t kYuv709To2100_coeffs_simd[8];
+extern const int16_t kYuv601To709_coeffs_simd[8];
+extern const int16_t kYuv601To2100_coeffs_simd[8];
+extern const int16_t kYuv2100To709_coeffs_simd[8];
+extern const int16_t kYuv2100To601_coeffs_simd[8];
+
+extern const uint16_t kRgb709ToYuv_coeffs_simd[8];
+extern const uint16_t kRgbDispP3ToYuv_coeffs_simd[8];
+extern const uint16_t kRgb2100ToYuv_coeffs_simd[8];
+
+#if (defined(__ARM_NEON__) || defined(__ARM_NEON))
 
 /*
  * The Y values are provided at half the width of U & V values to allow use of the widening
@@ -442,6 +448,15 @@ void transformYuv444_neon(uhdr_raw_image_t* image, const int16_t* coeffs_ptr);
 
 uhdr_error_info_t convertYuv_neon(uhdr_raw_image_t* image, uhdr_color_gamut_t src_encoding,
                                   uhdr_color_gamut_t dst_encoding);
+
+#elif defined(__riscv_v_intrinsic)
+
+void transformYuv420_rvv(uhdr_raw_image_t* image, const int16_t* coeffs_ptr);
+
+uhdr_error_info_t convertYuv_rvv(uhdr_raw_image_t* image, uhdr_color_gamut_t src_encoding,
+                                  uhdr_color_gamut_t dst_encoding);
+
+#endif
 #endif
 
 // Performs a color gamut transformation on an yuv image.
@@ -612,6 +627,8 @@ std::unique_ptr<uhdr_raw_image_ext_t> convert_raw_input_to_ycbcr(
 
 #if (defined(UHDR_ENABLE_INTRINSICS) && (defined(__ARM_NEON__) || defined(__ARM_NEON)))
 std::unique_ptr<uhdr_raw_image_ext_t> convert_raw_input_to_ycbcr_neon(uhdr_raw_image_t* src);
+#elif (defined(UHDR_ENABLE_INTRINSICS) && defined(__riscv_v_intrinsic))
+std::unique_ptr<uhdr_raw_image_ext_t> convert_raw_input_to_ycbcr_rvv(uhdr_raw_image_t* src);
 #endif
 
 bool floatToSignedFraction(float v, int32_t* numerator, uint32_t* denominator);
