@@ -121,6 +121,7 @@ static constexpr uint32_t kTAG_wtpt = SetFourByteTag('w', 't', 'p', 't');
 static constexpr uint32_t kTAG_rTRC = SetFourByteTag('r', 'T', 'R', 'C');
 static constexpr uint32_t kTAG_gTRC = SetFourByteTag('g', 'T', 'R', 'C');
 static constexpr uint32_t kTAG_bTRC = SetFourByteTag('b', 'T', 'R', 'C');
+static constexpr uint32_t kTAG_chad = SetFourByteTag('c', 'h', 'a', 'd');
 static constexpr uint32_t kTAG_cicp = SetFourByteTag('c', 'i', 'c', 'p');
 static constexpr uint32_t kTAG_cprt = SetFourByteTag('c', 'p', 'r', 't');
 static constexpr uint32_t kTAG_A2B0 = SetFourByteTag('A', '2', 'B', '0');
@@ -130,27 +131,32 @@ static constexpr uint32_t kTAG_CurveType = SetFourByteTag('c', 'u', 'r', 'v');
 static constexpr uint32_t kTAG_mABType = SetFourByteTag('m', 'A', 'B', ' ');
 static constexpr uint32_t kTAG_mBAType = SetFourByteTag('m', 'B', 'A', ' ');
 static constexpr uint32_t kTAG_ParaCurveType = SetFourByteTag('p', 'a', 'r', 'a');
+static constexpr uint32_t kTAG_s15Fixed16ArrayType = SetFourByteTag('s', 'f', '3', '2');
 
+// All these tables are derived using function skcms_PrimariesToXYZD50() at
+// https://cs.android.com/android/platform/superproject/main/+/main:external/skia/modules/skcms/skcms.cc
 static constexpr Matrix3x3 kSRGB = {{
-    // ICC fixed-point (16.16) representation, taken from skcms. Please keep them exactly in sync.
-    // 0.436065674f, 0.385147095f, 0.143066406f,
-    // 0.222488403f, 0.716873169f, 0.060607910f,
-    // 0.013916016f, 0.097076416f, 0.714096069f,
-    {FixedToFloat(0x6FA2), FixedToFloat(0x6299), FixedToFloat(0x24A0)},
-    {FixedToFloat(0x38F5), FixedToFloat(0xB785), FixedToFloat(0x0F84)},
-    {FixedToFloat(0x0390), FixedToFloat(0x18DA), FixedToFloat(0xB6CF)},
+    {0.43606575f, 0.38515151f, 0.14307842f},
+    {0.22249318f, 0.71688701f, 0.06061981f},
+    {0.01392392f, 0.09708132f, 0.71409936f},
 }};
 
 static constexpr Matrix3x3 kDisplayP3 = {{
-    {0.515102f, 0.291965f, 0.157153f},
-    {0.241182f, 0.692236f, 0.0665819f},
-    {-0.00104941f, 0.0418818f, 0.784378f},
+    {0.51514644f, 0.29200998f, 0.15713925f},
+    {0.24120032f, 0.69222254f, 0.06657714f},
+    {-0.00105014f, 0.04187827f, 0.78427647f},
 }};
 
 static constexpr Matrix3x3 kRec2020 = {{
-    {0.673459f, 0.165661f, 0.125100f},
-    {0.279033f, 0.675338f, 0.0456288f},
-    {-0.00193139f, 0.0299794f, 0.797162f},
+    {0.67351546f, 0.16569726f, 0.12508295f},
+    {0.27905901f, 0.67531801f, 0.04562299f},
+    {-0.00193243f, 0.02997783f, 0.7970592f},
+}};
+
+static constexpr Matrix3x3 adaptation_matrix = {{
+    {1.04792979f, 0.02294687f, -0.05019227f},
+    {0.02962781f, 0.99043443f, -0.0170738f},
+    {-0.00924304f, 0.01505519f, 0.75187428f},
 }};
 
 static constexpr uint32_t kCICPPrimariesUnSpecified = 2;
@@ -185,18 +191,13 @@ static inline Fixed float_round_to_fixed(float x) {
   return float_saturate2int((float)floor((double)x * Fixed1 + 0.5));
 }
 
-static inline uint16_t float_round_to_unorm16(float x) {
-  x = x * 65535.f + 0.5f;
-  if (x > 65535) return 65535;
+// Convert a float to a uInt16Number, with 0.0 mapping go 0 and 1.0 mapping to |one|.
+static inline uint16_t float_to_uInt16Number(float x, uint16_t one) {
+  x = x * one + 0.5;
+  if (x > one) return one;
   if (x < 0) return 0;
   return static_cast<uint16_t>(x);
 }
-
-static inline void float_to_table16(const float f, uint8_t* table_16) {
-  *reinterpret_cast<uint16_t*>(table_16) = Endian_SwapBE16(float_round_to_unorm16(f));
-}
-
-static inline bool isfinitef_(float x) { return 0 == x * 0; }
 
 struct ICCHeader {
   // Size of the profile (computed)
@@ -243,24 +244,26 @@ struct ICCHeader {
 
 class IccHelper {
  private:
-  static constexpr uint32_t kTrcTableSize = 65;
   static constexpr uint32_t kGridSize = 17;
   static constexpr size_t kNumChannels = 3;
 
+  static std::shared_ptr<DataStruct> make_empty() { return std::make_shared<DataStruct>(0); }
   static std::shared_ptr<DataStruct> write_text_tag(const char* text);
   static std::string get_desc_string(const uhdr_color_transfer_t tf,
                                      const uhdr_color_gamut_t gamut);
   static std::shared_ptr<DataStruct> write_xyz_tag(float x, float y, float z);
   static std::shared_ptr<DataStruct> write_trc_tag(const int table_entries, const void* table_16);
   static std::shared_ptr<DataStruct> write_trc_tag(const TransferFunction& fn);
-  static float compute_tone_map_gain(const uhdr_color_transfer_t tf, float L);
+  static std::shared_ptr<DataStruct> write_chad_tag();
   static std::shared_ptr<DataStruct> write_cicp_tag(uint32_t color_primaries,
                                                     uint32_t transfer_characteristics);
   static std::shared_ptr<DataStruct> write_mAB_or_mBA_tag(uint32_t type, bool has_a_curves,
                                                           const uint8_t* grid_points,
-                                                          const uint8_t* grid_16);
-  static void compute_lut_entry(const Matrix3x3& src_to_XYZD50, float rgb[3]);
+                                                          const uint8_t* grid_16, bool has_m_curves,
+                                                          Matrix3x3* toXYZD50);
+  static void compute_lut_entry(uhdr_color_transfer_t tf, uhdr_color_gamut_t cg, float rgb[3]);
   static std::shared_ptr<DataStruct> write_clut(const uint8_t* grid_points, const uint8_t* grid_16);
+  static std::shared_ptr<DataStruct> write_matrix(const Matrix3x3* matrix);
 
   // Checks if a set of xyz tags is equivalent to a 3x3 Matrix. Each input
   // tag buffer assumed to be at least kColorantTagSize in size.
@@ -271,7 +274,8 @@ class IccHelper {
   // Output includes JPEG embedding identifier and chunk information, but not
   // APPx information.
   static std::shared_ptr<DataStruct> writeIccProfile(const uhdr_color_transfer_t tf,
-                                                     const uhdr_color_gamut_t gamut);
+                                                     const uhdr_color_gamut_t gamut,
+                                                     bool write_tonemap_icc = false);
   // NOTE: this function is not robust; it can infer gamuts that IccHelper
   // writes out but should not be considered a reference implementation for
   // robust parsing of ICC profiles or their gamuts.
