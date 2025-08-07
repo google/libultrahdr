@@ -163,22 +163,15 @@ static const float kP3R = 0.2289746f, kP3G = 0.6917385f, kP3B = 0.0792869f;
 
 float p3Luminance(Color e) { return kP3R * e.r + kP3G * e.g + kP3B * e.b; }
 
-// See ITU-R BT.601-7, Sections 2.5.1 and 2.5.2.
-// Unfortunately, calculation of luma signal differs from calculation of
-// luminance for Display-P3, so we can't reuse p3Luminance here.
-static const float kP3YR = 0.299f, kP3YG = 0.587f, kP3YB = 0.114f;
-static const float kP3Cb = 1.772f, kP3Cr = 1.402f;
+static const float kP3Cb = (2 * (1 - kP3B)), kP3Cr = (2 * (1 - kP3R));
 
 Color p3RgbToYuv(Color e_gamma) {
-  float y_gamma = kP3YR * e_gamma.r + kP3YG * e_gamma.g + kP3YB * e_gamma.b;
+  float y_gamma = p3Luminance(e_gamma);
   return {{{y_gamma, (e_gamma.b - y_gamma) / kP3Cb, (e_gamma.r - y_gamma) / kP3Cr}}};
 }
 
-// See ITU-R BT.601-7, Sections 2.5.1 and 2.5.2.
-// Same derivation to BT.2100's YUV->RGB, below. Similar to p3RgbToYuv, we must
-// use luma signal coefficients rather than the luminance coefficients.
-static const float kP3GCb = kP3YB * kP3Cb / kP3YG;
-static const float kP3GCr = kP3YR * kP3Cr / kP3YG;
+static const float kP3GCb = kP3B * kP3Cb / kP3G;
+static const float kP3GCr = kP3R * kP3Cr / kP3G;
 
 Color p3YuvToRgb(Color e_gamma) {
   return {{{clampPixelFloat(e_gamma.y + kP3Cr * e_gamma.v),
@@ -352,6 +345,26 @@ float pqInvOetfLUT(float e_gamma) {
 
 Color pqInvOetfLUT(Color e_gamma) {
   return {{{pqInvOetfLUT(e_gamma.r), pqInvOetfLUT(e_gamma.g), pqInvOetfLUT(e_gamma.b)}}};
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// BT.601 transformations
+
+// See ITU-R BT.601-7, Sections 2.5.1 and 2.5.2.
+static const float kBt601R = 0.299f, kBt601G = 0.587f, kBt601B = 0.114f;
+static const float kBt601Cb = (2 * (1 - kBt601B)), kBt601Cr = (2 * (1 - kBt601R));
+static const float kBt601GCb = kBt601B * kBt601Cb / kBt601G;
+static const float kBt601GCr = kBt601R * kBt601Cr / kBt601G;
+
+Color bt601RgbToYuv(Color e_gamma) {
+  float y_gamma = kBt601R * e_gamma.r + kBt601G * e_gamma.g + kBt601B * e_gamma.b;
+  return {{{y_gamma, (e_gamma.b - y_gamma) / kBt601Cb, (e_gamma.r - y_gamma) / kBt601Cr}}};
+}
+
+Color bt601YuvToRgb(Color e_gamma) {
+  return {{{clampPixelFloat(e_gamma.y + kBt601Cr * e_gamma.v),
+            clampPixelFloat(e_gamma.y - kBt601GCb * e_gamma.u - kBt601GCr * e_gamma.v),
+            clampPixelFloat(e_gamma.y + kBt601Cb * e_gamma.u)}}};
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -634,8 +647,7 @@ Color bt2100ToP3(Color e) { return ConvertGamut(e, kBt2100ToP3); }
 
 // All of these conversions are derived from the respective input YUV->RGB conversion followed by
 // the RGB->YUV for the receiving encoding. They are consistent with the RGB<->YUV functions in
-// gainmapmath.cpp, given that we use BT.709 encoding for sRGB and BT.601 encoding for Display-P3,
-// to match DataSpace.
+// gainmapmath.cpp.
 
 // Yuv Bt709 -> Yuv Bt601
 // Y' = (1.0 * Y) + ( 0.101579 * U) + ( 0.196076 * V)
@@ -644,6 +656,13 @@ Color bt2100ToP3(Color e) { return ConvertGamut(e, kBt2100ToP3); }
 const std::array<float, 9> kYuvBt709ToBt601 = {
     1.0f, 0.101579f, 0.196076f, 0.0f, 0.989854f, -0.110653f, 0.0f, -0.072453f, 0.983398f};
 
+// Yuv Bt709 -> Display P3
+// Y' = (1.0 * Y) + ( 0.017545 * U) + ( 0.03677 * V)
+// U' = (0.0 * Y) + ( 0.998169 * U) + (-0.019968 * V)
+// V' = (0.0 * Y) + (-0.011378 * U) + ( 0.997393 * V)
+const std::array<float, 9> kYuvBt709ToDisplayP3 = {
+    1.0f, 0.017545f, 0.03677f, 0.0f, 0.998169f, -0.019968f, 0.0f, -0.011378f, 0.997393f};
+
 // Yuv Bt709 -> Yuv Bt2100
 // Y' = (1.0 * Y) + (-0.016969 * U) + ( 0.096312 * V)
 // U' = (0.0 * Y) + ( 0.995306 * U) + (-0.051192 * V)
@@ -651,19 +670,33 @@ const std::array<float, 9> kYuvBt709ToBt601 = {
 const std::array<float, 9> kYuvBt709ToBt2100 = {
     1.0f, -0.016969f, 0.096312f, 0.0f, 0.995306f, -0.051192f, 0.0f, 0.011507f, 1.002637f};
 
-// Yuv Bt601 -> Yuv Bt709
-// Y' = (1.0 * Y) + (-0.118188 * U) + (-0.212685 * V)
-// U' = (0.0 * Y) + ( 1.018640 * U) + ( 0.114618 * V)
-// V' = (0.0 * Y) + ( 0.075049 * U) + ( 1.025327 * V)
-const std::array<float, 9> kYuvBt601ToBt709 = {
-    1.0f, -0.118188f, -0.212685f, 0.0f, 1.018640f, 0.114618f, 0.0f, 0.075049f, 1.025327f};
+// Display P3 -> Yuv Bt601
+// Y' = (1.0 * Y) + ( 0.086028 * U) + ( 0.161445 * V)
+// U' = (0.0 * Y) + ( 0.990631 * U) + (-0.091109 * V)
+// V' = (0.0 * Y) + (-0.061361 * U) + ( 0.98474 * V)
+const std::array<float, 9> kYuvDisplayP3ToBt601 = {
+    1.0f, 0.086028f, 0.161445f, 0.0f, 0.990631f, -0.091109f, 0.0f, -0.061361f, 0.98474f};
 
-// Yuv Bt601 -> Yuv Bt2100
-// Y' = (1.0 * Y) + (-0.128245 * U) + (-0.115879 * V)
-// U' = (0.0 * Y) + ( 1.010016 * U) + ( 0.061592 * V)
-// V' = (0.0 * Y) + ( 0.086969 * U) + ( 1.029350 * V)
-const std::array<float, 9> kYuvBt601ToBt2100 = {
-    1.0f, -0.128245f, -0.115879, 0.0f, 1.010016f, 0.061592f, 0.0f, 0.086969f, 1.029350f};
+// Display P3 -> Yuv Bt709
+// Y' = (1.0 * Y) + (-0.018002 * U) + (-0.037226 * V)
+// U' = (0.0 * Y) + ( 1.002063 * U) + ( 0.020061 * V)
+// V' = (0.0 * Y) + ( 0.011431 * U) + ( 1.002843 * V)
+const std::array<float, 9> kYuvDisplayP3ToBt709 = {
+    1.0f, -0.018002f, -0.037226f, 0.0f, 1.002063f, 0.020061f, 0.0f, 0.011431f, 1.002843f};
+
+// Display P3 -> Yuv Bt2100
+// Y' = (1.0 * Y) + (-0.033905 * U) + ( 0.059019 * V)
+// U' = (0.0 * Y) + ( 0.996774 * U) + ( -0.03137 * V)
+// V' = (0.0 * Y) + ( 0.022992 * U) + ( 1.005718 * V)
+const std::array<float, 9> kYuvDisplayP3ToBt2100 = {
+    1.0f, -0.033905f, 0.059019f, 0.0f, 0.996774f, -0.03137f, 0.0f, 0.022992f, 1.005718f};
+
+// Yuv Bt2100 -> Yuv Bt601
+// Y' = (1.0 * Y) + ( 0.117887 * U) + ( 0.105521 * V)
+// U' = (0.0 * Y) + ( 0.995211 * U) + (-0.059549 * V)
+// V' = (0.0 * Y) + (-0.084085 * U) + ( 0.976518 * V)
+const std::array<float, 9> kYuvBt2100ToBt601 = {
+    1.0f, 0.117887f, 0.105521f, 0.0f, 0.995211f, -0.059549f, 0.0f, -0.084085f, 0.976518f};
 
 // Yuv Bt2100 -> Yuv Bt709
 // Y' = (1.0 * Y) + ( 0.018149 * U) + (-0.095132 * V)
@@ -672,12 +705,12 @@ const std::array<float, 9> kYuvBt601ToBt2100 = {
 const std::array<float, 9> kYuvBt2100ToBt709 = {
     1.0f, 0.018149f, -0.095132f, 0.0f, 1.004123f, 0.051267f, 0.0f, -0.011524f, 0.996782f};
 
-// Yuv Bt2100 -> Yuv Bt601
-// Y' = (1.0 * Y) + ( 0.117887 * U) + ( 0.105521 * V)
-// U' = (0.0 * Y) + ( 0.995211 * U) + (-0.059549 * V)
-// V' = (0.0 * Y) + (-0.084085 * U) + ( 0.976518 * V)
-const std::array<float, 9> kYuvBt2100ToBt601 = {
-    1.0f, 0.117887f, 0.105521f, 0.0f, 0.995211f, -0.059549f, 0.0f, -0.084085f, 0.976518f};
+// Yuv Bt2100 -> Display P3
+// Y' = (1.0 * Y) + ( 0.035343 * U) + ( -0.057581 * V)
+// U' = (0.0 * Y) + ( 1.002515 * U) + ( 0.03127 * V)
+// V' = (0.0 * Y) + (-0.022919 * U) + ( 0.9936 * V)
+const std::array<float, 9> kYuvBt2100ToDisplayP3 = {
+    1.0f, 0.035343f, -0.057581f, 0.0f, 1.002515f, 0.03127f, 0.0f, -0.022919f, 0.9936f};
 
 Color yuvColorGamutConversion(Color e_gamma, const std::array<float, 9>& coeffs) {
   const float y = e_gamma.y * std::get<0>(coeffs) + e_gamma.u * std::get<1>(coeffs) +
@@ -1295,12 +1328,15 @@ uint64_t colorToRgbaF16(Color e_gamma) {
 }
 
 std::unique_ptr<uhdr_raw_image_ext_t> convert_raw_input_to_ycbcr(uhdr_raw_image_t* src,
+                                                                 bool use_bt601,
                                                                  bool chroma_sampling_enabled) {
   std::unique_ptr<uhdr_raw_image_ext_t> dst = nullptr;
   Color (*rgbToyuv)(Color) = nullptr;
 
   if (src->fmt == UHDR_IMG_FMT_32bppRGBA1010102 || src->fmt == UHDR_IMG_FMT_32bppRGBA8888) {
-    if (src->cg == UHDR_CG_BT_709) {
+    if (use_bt601) {
+      rgbToyuv = bt601RgbToYuv;
+    } else if (src->cg == UHDR_CG_BT_709) {
       rgbToyuv = srgbRgbToYuv;
     } else if (src->cg == UHDR_CG_BT_2100) {
       rgbToyuv = bt2100RgbToYuv;
