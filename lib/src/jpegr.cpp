@@ -1451,7 +1451,7 @@ uhdr_error_info_t JpegR::decodeJPEGR(uhdr_compressed_image_t* uhdr_compressed_im
     uhdr_error_info_t status;
     status.error_code = UHDR_CODEC_MEM_ERROR;
     status.has_detail = 1;
-    snprintf(status.detail, sizeof status.detail, "The output buffer size is too small.");
+    snprintf(status.detail, sizeof status.detail, "The output buffer size is too small: " + e.what());
     return status;
   }
 
