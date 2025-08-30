@@ -25,6 +25,7 @@
 #include <deque>
 #include <functional>
 #include <mutex>
+#include <stdexcept>
 #include <thread>
 
 #include "ultrahdr/editorhelper.h"
@@ -1444,8 +1445,16 @@ uhdr_error_info_t JpegR::decodeJPEGR(uhdr_compressed_image_t* uhdr_compressed_im
     return g_no_error;
   }
 
-  UHDR_ERR_CHECK(applyGainMap(&sdr_intent, &gainmap, &uhdr_metadata, output_ct, output_format,
-                              max_display_boost, dest));
+  try {
+    UHDR_ERR_CHECK(applyGainMap(&sdr_intent, &gainmap, &uhdr_metadata, output_ct, output_format,
+                                max_display_boost, dest));
+  } catch (const std::out_of_range& e) {
+    uhdr_error_info_t status;
+    status.error_code = UHDR_CODEC_MEM_ERROR;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail, "The output buffer size is too small: %s", e.what());
+    return status;
+  }
 
   return g_no_error;
 }
