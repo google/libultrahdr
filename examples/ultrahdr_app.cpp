@@ -91,6 +91,7 @@ int getopt_s(int argc, char* const argv[], char* ostr) {
   }
   if (oindex[1] != ':') {
     optarg_s = nullptr;
+    ++optind_s;
     return optopt_s;
   }
 
@@ -304,11 +305,13 @@ class UltraHdrAppInput {
         mMinContentBoost(minContentBoost),
         mMaxContentBoost(maxContentBoost),
         mTargetDispPeakBrightness(targetDispPeakBrightness),
+        mProbe(false),
         mMode(0){};
 
   UltraHdrAppInput(const char* gainmapMetadataCfgFile, const char* uhdrFile, const char* outputFile,
                    uhdr_color_transfer_t oTf = UHDR_CT_HLG,
-                   uhdr_img_fmt_t oFmt = UHDR_IMG_FMT_32bppRGBA1010102, bool enableGLES = false)
+                   uhdr_img_fmt_t oFmt = UHDR_IMG_FMT_32bppRGBA1010102, bool enableGLES = false,
+                   bool probe = false)
       : mHdrIntentRawFile(nullptr),
         mSdrIntentRawFile(nullptr),
         mSdrIntentCompressedFile(nullptr),
@@ -337,6 +340,7 @@ class UltraHdrAppInput {
         mMinContentBoost(FLT_MIN),
         mMaxContentBoost(FLT_MAX),
         mTargetDispPeakBrightness(-1.0f),
+        mProbe(probe),
         mMode(1){};
 
   ~UltraHdrAppInput() {
@@ -387,7 +391,7 @@ class UltraHdrAppInput {
   bool fillGainMapCompressedImageHandle();
   bool fillGainMapMetadataDescriptor();
   bool fillExifMemoryBlock();
-  bool writeGainMapMetadataToFile(uhdr_gainmap_metadata_t* metadata);
+  void writeGainMapMetadataToFile(uhdr_gainmap_metadata_t* metadata, std::ostream& file);
   bool convertRgba8888ToYUV444Image();
   bool convertRgba1010102ToYUV444Image();
   bool encode();
@@ -425,6 +429,7 @@ class UltraHdrAppInput {
   const float mMinContentBoost;
   const float mMaxContentBoost;
   const float mTargetDispPeakBrightness;
+  const bool mProbe;
   const int mMode;
 
   uhdr_raw_image_t mRawP010Image{};
@@ -615,11 +620,8 @@ bool UltraHdrAppInput::fillExifMemoryBlock() {
   return false;
 }
 
-bool UltraHdrAppInput::writeGainMapMetadataToFile(uhdr_gainmap_metadata_t* metadata) {
-  std::ofstream file(mGainMapMetadataCfgFile);
-  if (!file.is_open()) {
-    return false;
-  }
+void UltraHdrAppInput::writeGainMapMetadataToFile(uhdr_gainmap_metadata_t* metadata,
+                                                  std::ostream& file) {
   bool allChannelsIdentical = metadata->max_content_boost[0] == metadata->max_content_boost[1] &&
                               metadata->max_content_boost[0] == metadata->max_content_boost[2] &&
                               metadata->min_content_boost[0] == metadata->min_content_boost[1] &&
@@ -651,8 +653,6 @@ bool UltraHdrAppInput::writeGainMapMetadataToFile(uhdr_gainmap_metadata_t* metad
   file << "--hdrCapacityMin " << metadata->hdr_capacity_min << std::endl;
   file << "--hdrCapacityMax " << metadata->hdr_capacity_max << std::endl;
   file << "--useBaseColorSpace " << metadata->use_base_cg << std::endl;
-  file.close();
-  return true;
 }
 
 bool UltraHdrAppInput::fillUhdrImageHandle() {
@@ -841,11 +841,20 @@ bool UltraHdrAppInput::decode() {
     RET_IF_ERR(uhdr_enable_gpu_acceleration(handle, mEnableGLES))
   }
   RET_IF_ERR(uhdr_dec_probe(handle))
-  if (mGainMapMetadataCfgFile != nullptr) {
+  if (mGainMapMetadataCfgFile != nullptr || mProbe) {
     uhdr_gainmap_metadata_t* metadata = uhdr_dec_get_gainmap_metadata(handle);
-    if (!writeGainMapMetadataToFile(metadata)) {
-      std::cerr << "failed to write gainmap metadata to file: " << mGainMapMetadataCfgFile
-                << std::endl;
+    if (mProbe) {
+      std::cout << "Ultra HDR Image: Yes \nGainMap Metadata: " << std::endl;
+      writeGainMapMetadataToFile(metadata, std::cout);
+      uhdr_release_decoder(handle);
+      return true;
+    }
+    std::ofstream file(mGainMapMetadataCfgFile);
+    if (file.is_open()) {
+      writeGainMapMetadataToFile(metadata, file);
+      file.close();
+    } else {
+      std::cerr << "failed to open gainmap metadata file: " << mGainMapMetadataCfgFile << std::endl;
     }
   }
 
@@ -1484,6 +1493,11 @@ static void usage(const char* name) {
   fprintf(stderr, "    -x    binary input resource containing exif data to insert, optional. \n");
   fprintf(stderr, "\n## decoder options : \n");
   fprintf(stderr, "    -j    ultra hdr compressed input resource, required. \n");
+  fprintf(stderr,
+          "    -P    Probe mode. Probes input uhdr resource for gainmap metadata. \n"
+          "          For valid uhdr images, gainmap metadata is displayed. no options required. \n"
+          "          For invalid uhdr images, error is indicated. no options required. \n"
+          "          No options required. \n");
   fprintf(
       stderr,
       "    -o    output transfer function, optional. [0:linear, 1:hlg (default), 2:pq, 3:srgb] \n");
@@ -1568,7 +1582,7 @@ static void usage(const char* name) {
 }
 
 int main(int argc, char* argv[]) {
-  char opt_string[] = "p:y:i:g:f:w:h:C:c:t:q:o:O:m:j:e:a:b:z:R:s:M:Q:G:x:u:D:k:K:L:";
+  char opt_string[] = "p:y:i:g:f:w:h:C:c:t:q:o:O:m:j:e:a:b:z:R:s:M:Q:G:x:u:D:k:K:L:P";
   char *hdr_intent_raw_file = nullptr, *sdr_intent_raw_file = nullptr, *uhdr_file = nullptr,
        *sdr_intent_compressed_file = nullptr, *gainmap_compressed_file = nullptr,
        *gainmap_metadata_cfg_file = nullptr, *output_file = nullptr, *exif_file = nullptr;
@@ -1593,6 +1607,7 @@ int main(int argc, char* argv[]) {
   float min_content_boost = FLT_MIN;
   float max_content_boost = FLT_MAX;
   float target_disp_peak_brightness = -1.0f;
+  bool probe = false;
   int ch;
   while ((ch = getopt_s(argc, argv, opt_string)) != -1) {
     switch (ch) {
@@ -1690,6 +1705,9 @@ int main(int argc, char* argv[]) {
       case 'L':
         target_disp_peak_brightness = (float)atof(optarg_s);
         break;
+      case 'P':
+        probe = true;
+        break;
       default:
         usage(argv[0]);
         return -1;
@@ -1751,8 +1769,8 @@ int main(int argc, char* argv[]) {
       return -1;
     }
     UltraHdrAppInput appInput(gainmap_metadata_cfg_file, uhdr_file,
-                              output_file ? output_file : "outrgb.raw", out_tf, out_cf,
-                              enable_gles);
+                              output_file ? output_file : "outrgb.raw", out_tf, out_cf, enable_gles,
+                              probe);
     if (!appInput.decode()) return -1;
   } else {
     if (argc > 1) std::cerr << "did not receive valid mode of operation " << mode << std::endl;
