@@ -15,12 +15,7 @@
 #
 
 cmake_minimum_required(VERSION 3.15)
-
-# CMP0091: MSVC runtime library flags are selected by an abstraction.
-# New in CMake 3.15. https://cmake.org/cmake/help/latest/policy/CMP0091.html
-if(POLICY CMP0091)
-  cmake_policy(SET CMP0091 OLD)
-endif()
+cmake_policy(SET CMP0091 NEW)
 
 set(UHDR_MAJOR_VERSION 1)
 set(UHDR_MINOR_VERSION 4)
@@ -116,20 +111,13 @@ if(NOT IS_MULTI)
   endif()
 endif()
 
-if(EMSCRIPTEN)
-  # platform does not support dynamic linking?
-  message(STATUS "For wasm targets, selecting static only builds")
-  option(BUILD_SHARED_LIBS "Build shared libraries" FALSE)
-elseif(NOT DEFINED BUILD_SHARED_LIBS)
-  message(STATUS "No target type chosen, selecting Shared")
-  option(BUILD_SHARED_LIBS "Build shared libraries" TRUE)
-endif()
-
 function(option_if_not_defined name description default)
   if(NOT DEFINED ${name})
     option(${name} ${description} ${default})
   endif()
 endfunction()
+
+option_if_not_defined(BUILD_SHARED_LIBS "Build and use shared libraries" TRUE)
 
 option_if_not_defined(UHDR_BUILD_EXAMPLES "Build sample application " TRUE)
 option_if_not_defined(UHDR_BUILD_TESTS "Build unit tests " FALSE)
@@ -154,10 +142,6 @@ option_if_not_defined(UHDR_WRITE_ISO "Write gainmap metadata in ISO 21496_1 pack
 # pre-requisites
 if(UHDR_BUILD_TESTS AND EMSCRIPTEN)
   message(FATAL_ERROR "Building tests not supported for wasm targets")
-endif()
-
-if(UHDR_BUILD_BENCHMARK AND WIN32)
-  message(FATAL_ERROR "Building benchmarks not supported in Windows")
 endif()
 
 if(UHDR_BUILD_BENCHMARK AND EMSCRIPTEN)
@@ -189,6 +173,19 @@ if(UHDR_BUILD_DEPS AND UHDR_ENABLE_INSTALL)
   message(STATUS "Install and uninstall targets - Disabled")
 endif()
 
+if(EMSCRIPTEN AND BUILD_SHARED_LIBS)
+  # platform does not support dynamic linking?
+  set(BUILD_SHARED_LIBS FALSE)
+  message(STATUS "For wasm targets, build and use static libraries")
+endif()
+
+if(MSVC AND (UHDR_BUILD_DEPS OR UHDR_BUILD_TESTS OR UHDR_BUILD_BENCHMARK) AND BUILD_SHARED_LIBS)
+  # ExternalProject_Add() for jpeg, gtest, google benchmarks is configured to build static libraries
+  # to avoid msvc run-time mismatches (/MD vs /MT) during linking, explicitly set BUILD_SHARED_LIBS to STATIC
+  set(BUILD_SHARED_LIBS FALSE)
+  message(STATUS "When building dependencies from source, on MSVC, build and use static libraries")
+endif()
+
 ###########################################################
 # Compile flags
 ###########################################################
@@ -200,22 +197,25 @@ if(BUILD_SHARED_LIBS)
   set(CMAKE_CXX_VISIBILITY_PRESET hidden)
   set(CMAKE_VISIBILITY_INLINES_HIDDEN YES)
   set(UHDR_ENABLE_STATIC_LINKING OFF)
+  set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
   add_compile_options(-DUHDR_BUILDING_SHARED_LIBRARY)
 else()
   if(WIN32)
-    set(CMAKE_FIND_LIBRARY_SUFFIXES .lib .a)
+    set(CMAKE_FIND_LIBRARY_SUFFIXES -static.lib .lib .a)
   else()
     set(CMAKE_FIND_LIBRARY_SUFFIXES .a)
   endif()
   if(APPLE)
-    message(STATUS "Apple does not support statically linking an entire executable, disabling '-static' option")
+    # Apple does not support statically linking an entire executable
+    message(STATUS "Pure static executable may not possible, disabling '-static' option")
     set(UHDR_ENABLE_STATIC_LINKING OFF)
   elseif(DEFINED UHDR_SANITIZE_OPTIONS OR UHDR_BUILD_FUZZERS)
-    message(STATUS "Possible that sanitizer libraries are only DSO's, disabling '-static' option")
+    # Sanitizer libraries could be only DSO's, static linking an entire executable not possible
+    message(STATUS "Pure static executable may not possible, disabling '-static' option")
     set(UHDR_ENABLE_STATIC_LINKING OFF)
   elseif(MSVC)
-    message(STATUS "Disabling '-static' option in MSVC platforms")
-    set(UHDR_ENABLE_STATIC_LINKING OFF)
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+    set(UHDR_ENABLE_STATIC_LINKING ON)
   else()
     set(UHDR_ENABLE_STATIC_LINKING ON)
   endif()
@@ -397,6 +397,9 @@ list(APPEND UHDR_CMAKE_ARGS -DCMAKE_CXX_FLAGS_DEBUG=${CMAKE_CXX_FLAGS_DEBUG})
 list(APPEND UHDR_CMAKE_ARGS -DCMAKE_CXX_FLAGS_RELEASE=${CMAKE_CXX_FLAGS_RELEASE})
 list(APPEND UHDR_CMAKE_ARGS -DCMAKE_CXX_FLAGS_MINSIZEREL=${CMAKE_CXX_FLAGS_MINSIZEREL})
 list(APPEND UHDR_CMAKE_ARGS -DCMAKE_CXX_FLAGS_RELWITHDEBINFO=${CMAKE_CXX_FLAGS_RELWITHDEBINFO})
+list(APPEND UHDR_CMAKE_ARGS -DCMAKE_MSVC_RUNTIME_LIBRARY=${CMAKE_MSVC_RUNTIME_LIBRARY})
+# Build and use static libraries of dependencies
+list(APPEND UHDR_CMAKE_ARGS -DBUILD_SHARED_LIBS=OFF)
 if(BUILD_SHARED_LIBS)
   list(APPEND UHDR_CMAKE_ARGS -DCMAKE_POSITION_INDEPENDENT_CODE=ON)
 endif()
@@ -647,7 +650,8 @@ if(UHDR_BUILD_EXAMPLES)
   if(UHDR_BUILD_FUZZERS)
     target_link_options(${UHDR_SAMPLE_APP} PRIVATE -fsanitize=fuzzer-no-link)
   endif()
-  if(UHDR_ENABLE_STATIC_LINKING)
+  if(UHDR_ENABLE_STATIC_LINKING AND NOT MSVC)
+    # "MSVC_RUNTIME_LIBRARY is set, no need for '-static' option"
     target_link_options(${UHDR_SAMPLE_APP} PRIVATE -static)
   endif()
   target_link_libraries(${UHDR_SAMPLE_APP} PRIVATE ${UHDR_CORE_LIB_NAME})
@@ -688,6 +692,7 @@ if(UHDR_BUILD_BENCHMARK)
   add_executable(ultrahdr_bm ${UHDR_BM_SRCS_LIST})
   add_dependencies(ultrahdr_bm ${BM_TARGET_NAME} ${UHDR_CORE_LIB_NAME})
   target_compile_options(ultrahdr_bm PRIVATE ${UHDR_WERROR_FLAGS})
+  target_compile_options(ultrahdr_bm PRIVATE -DBENCHMARK_STATIC_DEFINE)
   target_include_directories(ultrahdr_bm PRIVATE
     ${PRIVATE_INCLUDE_DIR}
     ${BENCHMARK_INCLUDE_DIR}
@@ -696,6 +701,10 @@ if(UHDR_BUILD_BENCHMARK)
     target_link_options(ultrahdr_bm PRIVATE -fsanitize=fuzzer-no-link)
   endif()
   target_link_libraries(ultrahdr_bm ${UHDR_CORE_LIB_NAME} ${BENCHMARK_LIBRARIES})
+  # We need extra libraries on Windows
+  if(${CMAKE_SYSTEM_NAME} MATCHES "Windows")
+    target_link_libraries(ultrahdr_bm shlwapi)
+  endif()
 
   set(RES_FILE "${TESTS_DIR}/data/UltrahdrBenchmarkTestRes-1.2.zip")
   set(RES_FILE_MD5SUM "14eac767ef7252051cc5658c4ad776d9")
@@ -768,7 +777,11 @@ if(UHDR_BUILD_FUZZERS)
   target_link_libraries(ultrahdr_legacy_fuzzer ${UHDR_CORE_LIB_NAME})
 endif()
 
-set(UHDR_TARGET_NAME uhdr)
+if(MSVC AND NOT BUILD_SHARED_LIBS)
+  set(UHDR_TARGET_NAME uhdr-static)
+else()
+  set(UHDR_TARGET_NAME uhdr)
+endif()
 add_library(${UHDR_TARGET_NAME})
 add_dependencies(${UHDR_TARGET_NAME} ${UHDR_CORE_LIB_NAME})
 target_compile_options(${UHDR_TARGET_NAME} PRIVATE ${UHDR_WERROR_FLAGS})
@@ -788,7 +801,7 @@ endif()
 combine_static_libs(${UHDR_CORE_LIB_NAME} ${UHDR_TARGET_NAME})
 
 # Build static library as well
-if(BUILD_SHARED_LIBS)
+if(BUILD_SHARED_LIBS AND NOT MSVC)
   set(UHDR_TARGET_NAME_STATIC uhdr-static)
   add_library(${UHDR_TARGET_NAME_STATIC} STATIC)
   add_dependencies(${UHDR_TARGET_NAME_STATIC} ${UHDR_CORE_LIB_NAME})
@@ -819,7 +832,9 @@ if(UHDR_BUILD_JAVA)
 endif()
 
 if(UHDR_ENABLE_INSTALL)
-  if(NOT(MSVC OR XCODE))
+  # XCODE seems to have issues when the target has only object files as input
+  # we use combine_static_libs to prepare install targets
+  if(NOT XCODE)
     include(GNUInstallDirs)
 
     # pkg-config: libuhdr.pc
@@ -856,6 +871,5 @@ if(UHDR_ENABLE_INSTALL)
       include(cmake/package.cmake)
       include(CPack)
     endif()
-
   endif()
 endif()
