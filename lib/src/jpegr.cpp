@@ -1739,7 +1739,7 @@ uhdr_error_info_t JpegR::extractPrimaryImageAndGainMap(uhdr_compressed_image_t* 
     uhdr_error_info_t status;
     status.error_code = UHDR_CODEC_INVALID_PARAM;
     status.has_detail = 1;
-    snprintf(status.detail, sizeof status.detail, "input uhdr image does not any valid images");
+    snprintf(status.detail, sizeof status.detail, "input uhdr image does not contain any valid images");
     return status;
   }
 
