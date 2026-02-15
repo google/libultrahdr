@@ -54,13 +54,13 @@ Following is a list of available options:
 | `BUILD_SHARED_LIBS` | ON | See CMake documentation [here](https://cmake.org/cmake/help/latest/variable/BUILD_SHARED_LIBS.html). <ul><li> If `BUILD_SHARED_LIBS` is **OFF**, in the linking phase, static versions of dependencies are chosen. However, the executable targets are not purely static because the system libraries used are still dynamic. </li></ul> |
 | `UHDR_BUILD_EXAMPLES` | ON | Build sample application. This application demonstrates how to use [ultrahdr_api.h](../ultrahdr_api.h). |
 | `UHDR_BUILD_TESTS` | OFF | Build Unit Tests. Mostly for Devs. During development, different modules of libuhdr library are validated using GoogleTest framework. Developers after making changes to library are expected to run these tests to ensure every thing is functional. |
-| `UHDR_BUILD_BENCHMARK` | OFF | Build Benchmark Tests. These are for profiling libuhdr encode/decode API. Resources used by benchmark tests are shared [here](https://storage.googleapis.com/android_media/external/libultrahdr/benchmark/UltrahdrBenchmarkTestRes-1.1.zip). These are downloaded and extracted automatically during the build process for later benchmarking. <ul><li> Benchmark tests are not supported on Windows and this parameter is forced to **OFF** internally while building on **WIN32** platforms. </li></ul>|
+| `UHDR_BUILD_BENCHMARK` | OFF | Build Benchmark Tests. These are for profiling libuhdr encode/decode API. Resources used by benchmark tests are shared [here](https://storage.googleapis.com/android_media/external/libultrahdr/benchmark/UltrahdrBenchmarkTestRes-1.1.zip). These are downloaded and extracted automatically during the build process for later benchmarking. |
 | `UHDR_BUILD_FUZZERS` | OFF | Build Fuzz Test Applications. Mostly for Devs. <ul><li> Fuzz applications are built by instrumenting the entire software suite. This includes dependency libraries. This is done by forcing `UHDR_BUILD_DEPS` to **ON** internally. </li></ul> |
 | `UHDR_BUILD_DEPS` | OFF | Clone and Build project dependencies and not use pre-installed packages. |
 | `UHDR_BUILD_JAVA` | OFF | Build JNI wrapper, Java front-end classes and Java sample application. |
 | `UHDR_ENABLE_LOGS` | OFF | Build with verbose logging. |
 | `UHDR_ENABLE_INSTALL` | ON | Enable install and uninstall targets for libuhdr package. <ul><li> For system wide installation it is best if dependencies are acquired from OS package manager instead of building from source. This is to avoid conflicts with software that is using a different version of the said dependency and also links to libuhdr. So if `UHDR_BUILD_DEPS` is **ON** then `UHDR_ENABLE_INSTALL` is forced to **OFF** internally. |
-| `UHDR_ENABLE_INTRINSICS` | ON | Build with SIMD acceleration. Sections of libuhdr are accelerated for Arm Neon architectures and these are enabled. <ul><li> For x86/x86_64 architectures currently no SIMD acceleration is present. Consequently this option has no effect. </li><li> This parameter has no effect no SIMD configuration settings of dependencies. </li></ul> |
+| `UHDR_ENABLE_INTRINSICS` | ON | Build with SIMD acceleration. Sections of libuhdr are accelerated for Arm Neon architectures and these are enabled. <ul><li> For x86/x86_64 architectures currently no SIMD acceleration is present. Consequently this option has no effect. </li><li> This parameter has no effect on SIMD configuration settings of dependencies. </li></ul> |
 | `UHDR_ENABLE_GLES` | OFF | Build with GPU acceleration. |
 | `UHDR_ENABLE_WERROR` | OFF | Enable -Werror when building. |
 | `UHDR_MAX_DIMENSION` | 8192 | Maximum dimension supported by the library. The library defaults to handling images upto resolution 8192x8192. For different resolution needs use this option. For example, `-DUHDR_MAX_DIMENSION=4096`. |
@@ -190,12 +190,21 @@ This will generate the following files under `build_directory`:
 
 ### Windows Platform - MSVC Env
 
+Install the prerequisite packages before building:
+
+```sh
+git clone https://github.com/libjpeg-turbo/libjpeg-turbo.git
+cd libjpeg-turbo
+cmake -G "Visual Studio 16 2019" -DCMAKE_INSTALL_PREFIX=/c/msvcinstalls/ -S. -Bbuild
+cmake --build ./build --config=Release --target install
+```
+
 #### IDE
 
 Compile and Test:
 
 ```sh
-cmake -G "Visual Studio 16 2019" -DUHDR_BUILD_DEPS=1 -DUHDR_BUILD_TESTS=1 ../
+cmake -G "Visual Studio 16 2019" -DCMAKE_PREFIX_PATH=/c/msvcinstalls/ -DCMAKE_INSTALL_PREFIX=/c/msvcinstalls/ ../
 cmake --build ./ --config=Release
 ctest -C Release
 ```
@@ -205,7 +214,7 @@ ctest -C Release
 Compile and Test:
 
 ```sh
-cmake -G "NMake Makefiles" -DUHDR_BUILD_DEPS=1 -DUHDR_BUILD_TESTS=1 ../
+cmake -G "NMake Makefiles" -DCMAKE_PREFIX_PATH=/c/msvcinstalls/ -DCMAKE_INSTALL_PREFIX=/c/msvcinstalls/ ../
 cmake --build ./
 ctest
 ```
@@ -214,9 +223,7 @@ This will generate the following files under `build_directory`:
 
 **uhdr.dll** - Shared library for the libuhdr API <br>
 **uhdr.lib** - Import library for the libuhdr API <br>
-**uhdr-static.lib** - Static link library for the libuhdr API <br>
 **ultrahdr_app** - sample application <br>
-**ultrahdr_unit_test** - unit tests <br>
 
 ### Cross-Compilation - Build System Linux
 

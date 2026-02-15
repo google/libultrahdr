@@ -411,7 +411,7 @@ uhdr_error_info_t applyGainMapGLES(uhdr_raw_image_t* sdr_intent, uhdr_raw_image_
         (log2(display_boost) - log2(gainmap_metadata->hdr_capacity_min)) /
         (log2(gainmap_metadata->hdr_capacity_max) - log2(gainmap_metadata->hdr_capacity_min));
     // avoid extrapolating the gain map to fill the displayable range
-    gainmap_weight = CLIP3(0.0f, gainmap_weight, 1.0f);
+    gainmap_weight = CLIP3(gainmap_weight, 0.0f, 1.0f);
   } else {
     gainmap_weight = 1.0f;
   }
