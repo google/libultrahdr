@@ -21,6 +21,7 @@
 #endif
 #include <gtest/gtest.h>
 
+#include <cmath>
 #include <fstream>
 #include <iostream>
 
@@ -39,10 +40,14 @@ namespace ultrahdr {
 const char* kYCbCrP010FileName = "/data/local/tmp/raw_p010_image.p010";
 const char* kYCbCr420FileName = "/data/local/tmp/raw_yuv420_image.yuv420";
 const char* kSdrJpgFileName = "/data/local/tmp/jpeg_image.jpg";
+const char* kOldAppleFileName = "/data/local/tmp/apple_gainmap_old.jpg";
+const char* kNewAppleFileName = "/data/local/tmp/apple_gainmap_new.jpg";
 #else
 const char* kYCbCrP010FileName = "./data/raw_p010_image.p010";
 const char* kYCbCr420FileName = "./data/raw_yuv420_image.yuv420";
 const char* kSdrJpgFileName = "./data/jpeg_image.jpg";
+const char* kOldAppleFileName = "./data/apple_gainmap_old.jpg";
+const char* kNewAppleFileName = "./data/apple_gainmap_new.jpg";
 #endif
 const size_t kImageWidth = 1280;
 const size_t kImageHeight = 720;
@@ -1424,7 +1429,9 @@ TEST(JpegRTest, writeXmpThenRead) {
                  reinterpret_cast<const uint8_t*>(xmp.c_str()) + xmp.size());
 
   uhdr_gainmap_metadata_ext_t metadata_read;
-  EXPECT_EQ(getMetadataFromXMP(xmpData.data(), xmpData.size(), &metadata_read).error_code,
+  EXPECT_EQ(getMetadataFromXMP(xmpData.data(), xmpData.size(), /*exif_data=*/nullptr,
+                               /*exif_size=*/0, &metadata_read)
+                .error_code,
             UHDR_CODEC_OK);
   EXPECT_FLOAT_EQ(metadata_expected.max_content_boost[0], metadata_read.max_content_boost[0]);
   EXPECT_FLOAT_EQ(metadata_expected.min_content_boost[0], metadata_read.min_content_boost[0]);
@@ -1436,11 +1443,54 @@ TEST(JpegRTest, writeXmpThenRead) {
   EXPECT_TRUE(metadata_read.use_base_cg);
 }
 
+TEST(JpegRTest, decodeApple) {
+  JpegR decoder;
+  uhdr_compressed_image_t uhdrCompressedImg;
+  for (const auto& fileName : {kOldAppleFileName, kNewAppleFileName}) {
+    std::ifstream ifs(fileName);
+    std::string content((std::istreambuf_iterator<char>(ifs)), (std::istreambuf_iterator<char>()));
+    ASSERT_EQ(is_uhdr_image(content.data(), content.size()), 1);
+
+    uhdrCompressedImg.data = content.data();
+    uhdrCompressedImg.data_sz = content.size();
+    uhdrCompressedImg.capacity = content.size();
+    uhdrCompressedImg.cg = UHDR_CG_UNSPECIFIED;
+    uhdrCompressedImg.ct = UHDR_CT_UNSPECIFIED;
+    uhdrCompressedImg.range = UHDR_CR_UNSPECIFIED;
+
+    uhdr_codec_private_t* dec = uhdr_create_decoder();
+    ASSERT_NE(dec, nullptr);
+    ASSERT_EQ(uhdr_dec_set_image(dec, &uhdrCompressedImg).error_code, UHDR_CODEC_OK);
+    ASSERT_EQ(uhdr_decode(dec).error_code, UHDR_CODEC_OK);
+
+    const uhdr_mem_block_t* gainMapImg = uhdr_dec_get_gainmap_image(dec);
+    ASSERT_NE(gainMapImg, nullptr);
+    EXPECT_EQ(uhdr_dec_get_gainmap_width(dec), 192u);
+    EXPECT_EQ(uhdr_dec_get_gainmap_height(dec), 256u);
+
+    const uhdr_gainmap_metadata_t* gainmapMetadata = uhdr_dec_get_gainmap_metadata(dec);
+    ASSERT_NE(gainmapMetadata, nullptr);
+
+    const double headroom = fileName == kOldAppleFileName ? 8.0 : 23.1474762;
+    for (int c = 0; c < 3; ++c) {
+      EXPECT_EQ(gainmapMetadata->gamma[c], 1.0f);
+      EXPECT_EQ(gainmapMetadata->offset_sdr[c], 0.0f);
+      EXPECT_EQ(gainmapMetadata->offset_hdr[c], 0.0f);
+      EXPECT_EQ(gainmapMetadata->min_content_boost[c], 1.0f);
+      EXPECT_FLOAT_EQ(gainmapMetadata->max_content_boost[c], headroom);
+    }
+    EXPECT_EQ(gainmapMetadata->hdr_capacity_min, 1.0f);
+    EXPECT_FLOAT_EQ(gainmapMetadata->hdr_capacity_max, headroom);
+
+    uhdr_release_decoder(dec);
+  }
+}
+
 class JpegRAPIEncodeAndDecodeTest
     : public ::testing::TestWithParam<std::tuple<ultrahdr_color_gamut, ultrahdr_color_gamut>> {
  public:
   JpegRAPIEncodeAndDecodeTest()
-      : mP010ColorGamut(std::get<0>(GetParam())), mYuv420ColorGamut(std::get<1>(GetParam())){};
+      : mP010ColorGamut(std::get<0>(GetParam())), mYuv420ColorGamut(std::get<1>(GetParam())) {};
 
   const ultrahdr_color_gamut mP010ColorGamut;
   const ultrahdr_color_gamut mYuv420ColorGamut;

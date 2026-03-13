@@ -72,11 +72,13 @@ uhdr_error_info_t Write(uhdr_compressed_image_t* destination, const void* source
  *
  * @param xmp_data pointer to XMP packet
  * @param xmp_size size of XMP packet
+ * @param exif_data pointer to EXIF packet
+ * @param exif_size size of EXIF packet
  * @param metadata place to store HDR metadata values
  * @return success or error code.
  */
-uhdr_error_info_t getMetadataFromXMP(uint8_t* xmp_data, size_t xmp_size,
-                                     uhdr_gainmap_metadata_ext_t* metadata);
+uhdr_error_info_t getMetadataFromXMP(uint8_t* xmp_data, size_t xmp_size, uint8_t* exif_data,
+                                     int exif_size, uhdr_gainmap_metadata_ext_t* metadata);
 
 /*
  * This method generates XMP metadata for the primary image.

@@ -411,12 +411,14 @@ class JpegR {
    * \param[in]       iso_size                  iso block size
    * \param[in]       xmp_data                  xmp memory block
    * \param[in]       xmp_size                  xmp block size
+   * \param[in]       exif_data                 exif memory block
+   * \param[in]       exif_size                 exif block size
    * \param[in, out]  gainmap_metadata          gainmap metadata descriptor
    *
    * \return uhdr_error_info_t #UHDR_CODEC_OK if operation succeeds, uhdr_codec_err_t otherwise.
    */
   uhdr_error_info_t parseGainMapMetadata(uint8_t* iso_data, size_t iso_size, uint8_t* xmp_data,
-                                         size_t xmp_size,
+                                         size_t xmp_size, uint8_t* exif_data, int exif_size,
                                          uhdr_gainmap_metadata_ext_t* uhdr_metadata);
 
   /*!\brief This method is used to tone map a hdr image

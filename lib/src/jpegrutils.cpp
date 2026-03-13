@@ -125,6 +125,7 @@ class XMPXmlHandler : public XmlHandler {
     hdrCapacityMinFound = false;
     hdrCapacityMaxFound = false;
     baseRenditionIsHdrFound = false;
+    isApple = false;
   }
 
   enum ParseState { NotStrarted, Started, Done };
@@ -134,6 +135,14 @@ class XMPXmlHandler : public XmlHandler {
     if (context.BuildTokenValue(&val)) {
       if (!val.compare(containerName)) {
         state = Started;
+      } else if (state == Started) {
+        if (val.find(kAppleMapVersion) != string::npos) {
+          lastElementName = kAppleMapVersion;
+        } else if (val.find(kAppleMapHeadroom) != string::npos) {
+          lastElementName = kAppleMapHeadroom;
+        } else {
+          lastElementName = "Unknown";
+        }
       } else {
         if (state != Done) {
           state = NotStrarted;
@@ -145,8 +154,29 @@ class XMPXmlHandler : public XmlHandler {
 
   virtual DataMatchResult FinishElement(const XmlTokenContext& context) {
     if (state == Started) {
-      state = Done;
-      lastAttributeName = "";
+      if (lastElementName.empty()) {
+        state = Done;
+        lastAttributeName = "";
+      } else {
+        lastElementName = "";
+      }
+    }
+    return context.GetResult();
+  }
+
+  virtual DataMatchResult ElementContent(const XmlTokenContext& context) {
+    string val;
+    if (state == Started && !lastElementName.empty()) {
+      if (context.BuildTokenValue(&val)) {
+        if (!lastElementName.compare(kAppleMapVersion)) {
+          versionStr = val;
+          versionFound = true;
+          isApple = true;
+        } else if (!lastElementName.compare(kAppleMapHeadroom)) {
+          maxContentBoostStr = val;
+          maxContentBoostFound = true;
+        }
+      }
     }
     return context.GetResult();
   }
@@ -357,6 +387,8 @@ class XMPXmlHandler : public XmlHandler {
     }
   }
 
+  bool getIsApple() const { return isApple; }
+
  private:
   static const string containerName;
 
@@ -389,7 +421,12 @@ class XMPXmlHandler : public XmlHandler {
   bool baseRenditionIsHdrFound;
 
   string lastAttributeName;
+  string lastElementName;
   ParseState state;
+  bool isApple;
+
+  static const string kAppleMapVersion;
+  static const string kAppleMapHeadroom;
 };
 
 // GContainer XMP constants - URI and namespace prefix
@@ -441,9 +478,168 @@ const string XMPXmlHandler::offsetHdrAttrName = kMapOffsetHdr;
 const string XMPXmlHandler::hdrCapacityMinAttrName = kMapHDRCapacityMin;
 const string XMPXmlHandler::hdrCapacityMaxAttrName = kMapHDRCapacityMax;
 const string XMPXmlHandler::baseRenditionIsHdrAttrName = kMapBaseRenditionIsHDR;
+const string XMPXmlHandler::kAppleMapVersion = "HDRGainMapVersion";
+const string XMPXmlHandler::kAppleMapHeadroom = "HDRGainMapHeadroom";
 
-uhdr_error_info_t getMetadataFromXMP(uint8_t* xmp_data, size_t xmp_size,
-                                     uhdr_gainmap_metadata_ext_t* metadata) {
+static bool readU16(const uint8_t* data, size_t size, uint16_t* value, size_t* offset,
+                    bool isBigEndian) {
+  if (*offset + 2 > size) return false;
+  if (isBigEndian) {
+    *value = (data[*offset] << 8) | data[*offset + 1];
+  } else {
+    *value = data[*offset] | (data[*offset + 1] << 8);
+  }
+  *offset += 2;
+  return true;
+}
+
+static bool readU32(const uint8_t* data, size_t size, uint32_t* value, size_t* offset,
+                    bool isBigEndian) {
+  if (*offset + 4 > size) return false;
+  if (isBigEndian) {
+    *value = (data[*offset] << 24) | (data[*offset + 1] << 16) | (data[*offset + 2] << 8) |
+             data[*offset + 3];
+  } else {
+    *value = data[*offset] | (data[*offset + 1] << 8) | (data[*offset + 2] << 16) |
+             (data[*offset + 3] << 24);
+  }
+  *offset += 4;
+  return true;
+}
+
+static bool readS32(const uint8_t* data, size_t size, int32_t* value, size_t* offset,
+                    bool isBigEndian) {
+  uint32_t u;
+  if (!readU32(data, size, &u, offset, isBigEndian)) return false;
+  *value = (int32_t)u;
+  return true;
+}
+
+static bool getExifAppleHeadroom(const uint8_t* exif, size_t size, float* altHeadroom) {
+  *altHeadroom = 0.0f;
+  size_t offset = 0;
+
+  // Find TIFF header offset
+  if (size < 6 || memcmp(exif, "Exif\0\0", 6) != 0) {
+    // Some EXIF blobs might not have the APP1 EXIF marker depending on where it
+    // was extracted. Try to find the TIFF header by looking for II*\0 or MM\0*
+    bool found = false;
+    for (size_t i = 0; i + 4 <= size; i++) {
+      if ((exif[i] == 'I' && exif[i + 1] == 'I' && exif[i + 2] == 0x2A && exif[i + 3] == 0) ||
+          (exif[i] == 'M' && exif[i + 1] == 'M' && exif[i + 2] == 0 && exif[i + 3] == 0x2A)) {
+        offset = i;
+        found = true;
+        break;
+      }
+    }
+    if (!found) return false;
+  } else {
+    offset = 6;
+  }
+
+  if (offset + 4 > size) return false;
+  bool isBigEndian = (exif[offset] == 'M');
+  offset += 4;  // Skip the TIFF header.
+
+  uint32_t offsetToIfd;
+  if (!readU32(exif, size, &offsetToIfd, &offset, isBigEndian)) return false;
+
+  const uint8_t appleMakerNotesHeader[] = {'A', 'p', 'p',  'l',  'e',  ' ', 'i',
+                                           'O', 'S', 0x00, 0x00, 0x01, 'M', 'M'};
+  const size_t appleMakerNotesHeaderSize = sizeof(appleMakerNotesHeader);
+  bool inAppleMakerNotes = false;
+
+  bool hasMaker33Or48 = false;
+  double maker33 = 0.0;
+  double maker48 = 0.0;
+
+  int numIfds = 0;
+  const int maxIfds = 3;  // Prevent infinite looping caused by malformed data.
+
+  // Exif offset is relative to TIFF header
+  const size_t tiffHeaderOffset = offset - 8;
+
+  while (offsetToIfd != 0 && numIfds++ < maxIfds) {
+    offset = tiffHeaderOffset + offsetToIfd;
+    bool offsetToNextIfdAlreadySet = false;
+
+    uint16_t fieldCount;
+    if (!readU16(exif, size, &fieldCount, &offset, isBigEndian)) return false;
+
+    for (uint16_t field = 0; field < fieldCount; ++field) {
+      uint16_t tagId;
+      uint16_t dataFormat;
+      uint32_t numComponents;
+      uint32_t tagData;
+      if (!readU16(exif, size, &tagId, &offset, isBigEndian)) return false;
+      if (!readU16(exif, size, &dataFormat, &offset, isBigEndian)) return false;
+      if (!readU32(exif, size, &numComponents, &offset, isBigEndian)) return false;
+      if (!readU32(exif, size, &tagData, &offset, isBigEndian)) return false;
+
+      if (tagId == 0x8769) {  // Exif Offset (offset to a sub IFD)
+        offsetToIfd = tagData;
+        offsetToNextIfdAlreadySet = true;
+        break;
+      } else if (tagId == 0x927c) {  // Maker Notes
+        uint32_t makerNotesOffset = tagData;
+        if (tiffHeaderOffset + makerNotesOffset + appleMakerNotesHeaderSize <= size &&
+            !memcmp(&exif[tiffHeaderOffset + makerNotesOffset], appleMakerNotesHeader,
+                    appleMakerNotesHeaderSize)) {
+          offsetToIfd = makerNotesOffset + (uint32_t)appleMakerNotesHeaderSize;
+          inAppleMakerNotes = true;
+          offsetToNextIfdAlreadySet = true;
+          isBigEndian = true;  // Apple Maker Notes are always big endian.
+          break;
+        }
+      } else if (inAppleMakerNotes && (tagId == 33 || tagId == 48) && dataFormat == 10) {
+        size_t tmpOffset =
+            tiffHeaderOffset + offsetToIfd - appleMakerNotesHeaderSize + (size_t)tagData;
+        int32_t numerator;
+        uint32_t denominator;
+        if (!readS32(exif, size, &numerator, &tmpOffset, isBigEndian)) return false;
+        if (!readU32(exif, size, &denominator, &tmpOffset, isBigEndian)) return false;
+        if (denominator != 0) {
+          const double v = (double)numerator / denominator;
+          if (tagId == 33) {
+            maker33 = v;
+          } else {
+            maker48 = v;
+          }
+          hasMaker33Or48 = true;
+        }
+      }
+    }
+
+    if (!offsetToNextIfdAlreadySet) {
+      if (!readU32(exif, size, &offsetToIfd, &offset, isBigEndian)) return false;
+    }
+  }
+
+  if (!hasMaker33Or48) {
+    return false;
+  }
+
+  double stops;
+  if (maker33 < 1.0) {
+    if (maker48 <= 0.01) {
+      stops = -20.0 * maker48 + 1.8;
+    } else {
+      stops = -0.101 * maker48 + 1.601;
+    }
+  } else {
+    if (maker48 <= 0.01) {
+      stops = -70.0 * maker48 + 3.0;
+    } else {
+      stops = -0.303 * maker48 + 2.303;
+    }
+  }
+
+  *altHeadroom = pow(2.0, stops);
+  return true;
+}
+
+uhdr_error_info_t getMetadataFromXMP(uint8_t* xmp_data, size_t xmp_size, uint8_t* exif_data,
+                                     int exif_size, uhdr_gainmap_metadata_ext_t* metadata) {
   string nameSpace = "http://ns.adobe.com/xap/1.0/\0";
 
   if (xmp_size < nameSpace.size() + 2) {
@@ -516,6 +712,45 @@ uhdr_error_info_t getMetadataFromXMP(uint8_t* xmp_data, size_t xmp_size,
     status.error_code = UHDR_CODEC_UNKNOWN_ERROR;
     status.has_detail = 1;
     snprintf(status.detail, sizeof status.detail, "xml parser returned with error");
+    return status;
+  }
+
+  if (handler.getIsApple()) {
+    metadata->version = kJpegrVersion;
+    for (int c = 0; c < 3; ++c) {
+      metadata->gamma[c] = 1.0f;
+      metadata->min_content_boost[c] = 1.0f;
+      metadata->offset_sdr[c] = 0.0f;
+      metadata->offset_hdr[c] = 0.0f;
+    }
+    metadata->hdr_capacity_min = 1.0f;
+
+    float max_content_boost;
+    bool present = false;
+    if (handler.getMaxContentBoost(&max_content_boost, &present) && present) {
+      for (int c = 0; c < 3; ++c) {
+        metadata->max_content_boost[c] = max_content_boost;
+      }
+      metadata->hdr_capacity_max = max_content_boost;
+    } else if (exif_data != nullptr && exif_size > 0 &&
+               getExifAppleHeadroom(exif_data, exif_size, &max_content_boost)) {
+      for (int c = 0; c < 3; ++c) {
+        metadata->max_content_boost[c] = max_content_boost;
+      }
+      metadata->hdr_capacity_max = max_content_boost;
+    } else {
+      uhdr_error_info_t status;
+      status.error_code = UHDR_CODEC_ERROR;
+      status.has_detail = 1;
+      snprintf(status.detail, sizeof status.detail,
+               "xml parse error, could not find attribute HDRGainMapHeadroom "
+               "and Exif Headroom missing");
+      return status;
+    }
+
+    uhdr_error_info_t status;
+    status.error_code = UHDR_CODEC_OK;
+    status.has_detail = 0;
     return status;
   }
 
