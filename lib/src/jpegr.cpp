@@ -1345,7 +1345,7 @@ uhdr_error_info_t JpegR::getJPEGRInfo(uhdr_compressed_image_t* uhdr_compressed_i
 }
 
 uhdr_error_info_t JpegR::parseGainMapMetadata(uint8_t* iso_data, size_t iso_size, uint8_t* xmp_data,
-                                              size_t xmp_size,
+                                              size_t xmp_size, uint8_t* exif_data, int exif_size,
                                               uhdr_gainmap_metadata_ext_t* uhdr_metadata) {
   if (iso_size > 0) {
     if (iso_size < kIsoNameSpace.size() + 1) {
@@ -1367,7 +1367,7 @@ uhdr_error_info_t JpegR::parseGainMapMetadata(uint8_t* iso_data, size_t iso_size
     UHDR_ERR_CHECK(uhdr_gainmap_metadata_frac::gainmapMetadataFractionToFloat(&decodedMetadata,
                                                                               uhdr_metadata));
   } else if (xmp_size > 0) {
-    UHDR_ERR_CHECK(getMetadataFromXMP(xmp_data, xmp_size, uhdr_metadata));
+    UHDR_ERR_CHECK(getMetadataFromXMP(xmp_data, xmp_size, exif_data, exif_size, uhdr_metadata));
   } else {
     uhdr_error_info_t status;
     status.error_code = UHDR_CODEC_INVALID_PARAM;
@@ -1410,10 +1410,11 @@ uhdr_error_info_t JpegR::decodeJPEGR(uhdr_compressed_image_t* uhdr_compressed_im
 
   uhdr_gainmap_metadata_ext_t uhdr_metadata;
   if (gainmap_metadata != nullptr || output_ct != UHDR_CT_SRGB) {
-    UHDR_ERR_CHECK(parseGainMapMetadata(static_cast<uint8_t*>(jpeg_dec_obj_gm.getIsoMetadataPtr()),
-                                        jpeg_dec_obj_gm.getIsoMetadataSize(),
-                                        static_cast<uint8_t*>(jpeg_dec_obj_gm.getXMPPtr()),
-                                        jpeg_dec_obj_gm.getXMPSize(), &uhdr_metadata))
+    UHDR_ERR_CHECK(parseGainMapMetadata(
+        static_cast<uint8_t*>(jpeg_dec_obj_gm.getIsoMetadataPtr()),
+        jpeg_dec_obj_gm.getIsoMetadataSize(), static_cast<uint8_t*>(jpeg_dec_obj_gm.getXMPPtr()),
+        jpeg_dec_obj_gm.getXMPSize(), static_cast<uint8_t*>(jpeg_dec_obj_sdr.getEXIFPtr()),
+        jpeg_dec_obj_sdr.getEXIFSize(), &uhdr_metadata))
     if (gainmap_metadata != nullptr) {
       std::copy(uhdr_metadata.min_content_boost, uhdr_metadata.min_content_boost + 3,
                 gainmap_metadata->min_content_boost);
@@ -1733,7 +1734,8 @@ uhdr_error_info_t JpegR::extractPrimaryImageAndGainMap(uhdr_compressed_image_t* 
     uhdr_error_info_t status;
     status.error_code = UHDR_CODEC_INVALID_PARAM;
     status.has_detail = 1;
-    snprintf(status.detail, sizeof status.detail, "input uhdr image does not contain any valid images");
+    snprintf(status.detail, sizeof status.detail,
+             "input uhdr image does not contain any valid images");
     return status;
   }
 
