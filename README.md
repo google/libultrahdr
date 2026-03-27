@@ -54,3 +54,10 @@ Configure display device characteristics (display transfer characteristics, max 
 | ------------- | ------------- |
 | max_display_boost  | (optional, >= 1.0) the maximum available boost supported by a display. |
 | supported color transfer format pairs  | <table><thead><tr><th>color transfer</th><th>Color format </th></tr></thead><tbody><tr><td>SDR</td><td>32bppRGBA8888</td></tr><tr><td>HDR_LINEAR</td><td>64bppRGBAHalfFloat</td></tr><tr><td>HDR_PQ</td><td>32bppRGBA1010102 PQ</td></tr><tr><td>HDR_HLG</td><td>32bppRGBA1010102 HLG</td></tr></tbody></table> |
+
+## License
+
+This software is distributed under the terms of both the MIT license and the
+Apache License (Version 2.0).
+
+See [LICENSE-APACHE](LICENSE-APACHE) and [LICENSE-MIT](LICENSE-MIT) for details.
