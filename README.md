@@ -60,4 +60,4 @@ Configure display device characteristics (display transfer characteristics, max 
 This software is distributed under the terms of both the MIT license and the
 Apache License (Version 2.0).
 
-See [LICENSE-APACHE](LICENSE-APACHE) and [LICENSE-MIT](LICENSE-MIT) for details.
+See [LICENSE](LICENSE) for details.
