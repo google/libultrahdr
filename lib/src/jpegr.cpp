@@ -1,8 +1,11 @@
 /*
  * Copyright 2022 The Android Open Source Project
  *
- * This project is dual-licensed under Apache 2.0 and MIT terms.
- * See LICENSE-APACHE and LICENSE-MIT for details.
+ * Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
+ * https://www.apache.org/licenses/LICENSE-2.0> or the MIT license
+ * <LICENSE-MIT or https://opensource.org/licenses/MIT>, at your
+ * option. This file may not be copied, modified, or distributed
+ * except according to those terms.
  */
 
 #ifdef _WIN32
