@@ -1,3 +1,5 @@
+AAAA
+
 ## Introduction
 
 libultrahdr is an image compression library that uses gain map technology
