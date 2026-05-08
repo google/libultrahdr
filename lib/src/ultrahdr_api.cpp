@@ -1574,7 +1574,8 @@ uhdr_error_info_t uhdr_dec_probe(uhdr_codec_private_t* dec) {
     ultrahdr::uhdr_gainmap_metadata_ext_t metadata;
     status = jpegr.parseGainMapMetadata(gainmap_image.isoData.data(), gainmap_image.isoData.size(),
                                         gainmap_image.xmpData.data(), gainmap_image.xmpData.size(),
-                                        &metadata);
+                                        primary_image.exifData.data(),
+                                        primary_image.exifData.size(), &metadata);
     if (status.error_code != UHDR_CODEC_OK) return status;
     std::copy(metadata.max_content_boost, metadata.max_content_boost + 3,
               handle->m_metadata.max_content_boost);
