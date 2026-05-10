@@ -126,6 +126,7 @@ option_if_not_defined(UHDR_ENABLE_INSTALL "Enable install and uninstall targets 
 option_if_not_defined(UHDR_ENABLE_INTRINSICS "Build with SIMD acceleration " TRUE)
 option_if_not_defined(UHDR_ENABLE_GLES "Build with GPU acceleration " FALSE)
 option_if_not_defined(UHDR_ENABLE_WERROR "Build with -Werror" FALSE)
+option_if_not_defined(UHDR_ENABLE_SYSTEM_GTEST "Build with system GoogleTest dependency" FALSE)
 
 # These options effect only encoding process.
 # Decoding continues to support both iso and xmp irrespective of this configuration.
@@ -514,32 +515,36 @@ if(UHDR_BUILD_JAVA)
 endif()
 
 if(UHDR_BUILD_TESTS)
-  # gtest and gmock
-  set(GTEST_TARGET_NAME googletest)
-  set(GTEST_PREFIX_DIR ${CMAKE_CURRENT_BINARY_DIR}/${GTEST_TARGET_NAME})
-  set(GTEST_SOURCE_DIR ${THIRD_PARTY_DIR}/${GTEST_TARGET_NAME})
-  set(GTEST_BINARY_DIR ${GTEST_PREFIX_DIR}/src/${GTEST_TARGET_NAME}-build)
-  set(GTEST_INCLUDE_DIRS
-      ${GTEST_SOURCE_DIR}/googletest/include
-      ${GTEST_SOURCE_DIR}/googlemock/include)
-  set(GTEST_LIB ${CMAKE_STATIC_LIBRARY_PREFIX}gtest${CMAKE_STATIC_LIBRARY_SUFFIX})
-  set(GTEST_LIB_MAIN ${CMAKE_STATIC_LIBRARY_PREFIX}gtest_main${CMAKE_STATIC_LIBRARY_SUFFIX})
-  if(IS_MULTI)
-    set(GTEST_LIB_PREFIX ${GTEST_BINARY_DIR}/lib/$<CONFIG>/)
+  if(UHDR_ENABLE_SYSTEM_GTEST)
+    find_package(GTest REQUIRED)
   else()
-    set(GTEST_LIB_PREFIX ${GTEST_BINARY_DIR}/lib/)
+    # gtest and gmock
+    set(GTEST_TARGET_NAME googletest)
+    set(GTEST_PREFIX_DIR ${CMAKE_CURRENT_BINARY_DIR}/${GTEST_TARGET_NAME})
+    set(GTEST_SOURCE_DIR ${THIRD_PARTY_DIR}/${GTEST_TARGET_NAME})
+    set(GTEST_BINARY_DIR ${GTEST_PREFIX_DIR}/src/${GTEST_TARGET_NAME}-build)
+    set(GTEST_INCLUDE_DIRS
+        ${GTEST_SOURCE_DIR}/googletest/include
+        ${GTEST_SOURCE_DIR}/googlemock/include)
+    set(GTEST_LIB ${CMAKE_STATIC_LIBRARY_PREFIX}gtest${CMAKE_STATIC_LIBRARY_SUFFIX})
+    set(GTEST_LIB_MAIN ${CMAKE_STATIC_LIBRARY_PREFIX}gtest_main${CMAKE_STATIC_LIBRARY_SUFFIX})
+    if(IS_MULTI)
+      set(GTEST_LIB_PREFIX ${GTEST_BINARY_DIR}/lib/$<CONFIG>/)
+    else()
+      set(GTEST_LIB_PREFIX ${GTEST_BINARY_DIR}/lib/)
+    endif()
+    set(GTEST_BOTH_LIBRARIES ${GTEST_LIB_PREFIX}${GTEST_LIB} ${GTEST_LIB_PREFIX}${GTEST_LIB_MAIN})
+    ExternalProject_Add(${GTEST_TARGET_NAME}
+        GIT_REPOSITORY https://github.com/google/googletest
+        GIT_TAG v1.14.0
+        PREFIX ${GTEST_PREFIX_DIR}
+        SOURCE_DIR ${GTEST_SOURCE_DIR}
+        BINARY_DIR ${GTEST_BINARY_DIR}
+        CMAKE_ARGS ${UHDR_CMAKE_ARGS}
+        BUILD_BYPRODUCTS ${GTEST_BOTH_LIBRARIES}
+        INSTALL_COMMAND ""
+    )
   endif()
-  set(GTEST_BOTH_LIBRARIES ${GTEST_LIB_PREFIX}${GTEST_LIB} ${GTEST_LIB_PREFIX}${GTEST_LIB_MAIN})
-  ExternalProject_Add(${GTEST_TARGET_NAME}
-      GIT_REPOSITORY https://github.com/google/googletest
-      GIT_TAG v1.14.0
-      PREFIX ${GTEST_PREFIX_DIR}
-      SOURCE_DIR ${GTEST_SOURCE_DIR}
-      BINARY_DIR ${GTEST_BINARY_DIR}
-      CMAKE_ARGS ${UHDR_CMAKE_ARGS}
-      BUILD_BYPRODUCTS ${GTEST_BOTH_LIBRARIES}
-      INSTALL_COMMAND ""
-  )
 endif()
 
 if(UHDR_BUILD_BENCHMARK)
