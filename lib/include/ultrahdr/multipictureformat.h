@@ -13,23 +13,24 @@
 
 #include <memory>
 
+#include "ultrahdr/jpegr.h"
+#include "ultrahdr/gainmapmath.h"
+#include "ultrahdr/jpegrutils.h"
+
 #ifndef USE_BIG_ENDIAN_IN_MPF
 #define USE_BIG_ENDIAN_IN_MPF true
 #endif
 
 #undef Endian_SwapBE32
 #undef Endian_SwapBE16
-#if USE_BIG_ENDIAN_IN_MPF
-#define Endian_SwapBE32(n) EndianSwap32(n)
-#define Endian_SwapBE16(n) EndianSwap16(n)
-#else
+
+#if (USE_BIG_ENDIAN_IN_MPF == UHDR_HOST_BIG_ENDIAN)
 #define Endian_SwapBE32(n) (n)
 #define Endian_SwapBE16(n) (n)
+#else
+#define Endian_SwapBE32(n) EndianSwap32(n)
+#define Endian_SwapBE16(n) EndianSwap16(n)
 #endif
-
-#include "ultrahdr/jpegr.h"
-#include "ultrahdr/gainmapmath.h"
-#include "ultrahdr/jpegrutils.h"
 
 namespace ultrahdr {
 

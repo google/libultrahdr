@@ -13,6 +13,18 @@
 
 #include "ultrahdr/jpegr.h"
 
+#if (defined(__BYTE_ORDER__) && defined(__ORDER_LITTLE_ENDIAN__) && \
+     __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__) ||                  \
+    defined(_WIN32) || defined(_WIN64)
+#define UHDR_HOST_BIG_ENDIAN false
+#elif (defined(__BYTE_ORDER__) && defined(__ORDER_BIG_ENDIAN__) && \
+       __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__) ||                  \
+    defined(__BIG_ENDIAN__)
+#define UHDR_HOST_BIG_ENDIAN true
+#else
+#error "Unable to detect endianness."
+#endif
+
 // TODO (dichenzhang): This is old version metadata, new version can be found in
 // https://drive.google.com/file/d/1yUGmjGytRuBa2vpr9eM5Uu8CVhyyddjp/view?resourcekey=0-HGzFrzPQzu5FNYLRAJXQBA
 // and in gainmapmetadata.h/.cpp
