@@ -207,6 +207,9 @@ else()
     # Sanitizer libraries could be only DSO's, static linking an entire executable not possible
     message(STATUS "Pure static executable may not possible, disabling '-static' option")
     set(UHDR_ENABLE_STATIC_LINKING OFF)
+  elseif(MSVC AND DEFINED BUILD_FOR_WINUI AND BUILD_FOR_WINUI)
+    # WinUI builds use /MD (DLL CRT), keep the global setting from parent project
+    set(UHDR_ENABLE_STATIC_LINKING OFF)
   elseif(MSVC)
     set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
     set(UHDR_ENABLE_STATIC_LINKING ON)
@@ -489,7 +492,7 @@ if(NOT JPEG_FOUND)
         SOURCE_DIR ${JPEGTURBO_SOURCE_DIR}
         BINARY_DIR ${JPEGTURBO_BINARY_DIR}
         BUILD_COMMAND ${CMAKE_COMMAND} --build <BINARY_DIR> --config $<CONFIG> --target jpeg-static
-        CMAKE_ARGS ${UHDR_CMAKE_ARGS} -DENABLE_SHARED=0
+        CMAKE_ARGS ${UHDR_CMAKE_ARGS} -DENABLE_SHARED=0 -DWITH_CRT_DLL=ON
         BUILD_BYPRODUCTS ${JPEG_LIBRARIES}
         INSTALL_COMMAND ""
     )
