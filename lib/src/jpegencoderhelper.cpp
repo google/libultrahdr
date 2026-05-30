@@ -200,7 +200,8 @@ uhdr_error_info_t JpegEncoderHelper::encode(const uint8_t* planes[3], const unsi
     // start compress
     jpeg_start_compress(&cinfo, TRUE);
     if (iccBuffer != nullptr && iccSize > 0) {
-      jpeg_write_marker(&cinfo, JPEG_APP0 + 2, static_cast<const JOCTET*>(iccBuffer), iccSize);
+      jpeg_write_marker(&cinfo, JPEG_APP0 + 2, static_cast<const JOCTET*>(iccBuffer),
+                        static_cast<unsigned int>(iccSize));
     }
     if (isGainMapImg) {
       char comment[255];
@@ -278,9 +279,9 @@ uhdr_error_info_t JpegEncoderHelper::compressYCbCr(jpeg_compress_struct* cinfo,
     JDIMENSION mcu_scanline_start[kMaxNumComponents];
 
     for (int i = 0; i < cinfo->num_components; i++) {
-      mcu_scanline_start[i] =
+      mcu_scanline_start[i] = static_cast<JDIMENSION>(
           std::ceil(((float)cinfo->next_scanline * cinfo->comp_info[i].v_samp_factor) /
-                    cinfo->max_v_samp_factor);
+                    cinfo->max_v_samp_factor));
 
       for (int j = 0; j < cinfo->comp_info[i].v_samp_factor * DCTSIZE; j++) {
         JDIMENSION scanline = mcu_scanline_start[i] + j;
