@@ -45,11 +45,11 @@ void ShepardsIDW::fillShepardsIDW(float* weights, int incR, int incB) {
     for (int x = 0; x < mMapScaleFactor; x++) {
       float pos_x = ((float)x) / mMapScaleFactor;
       float pos_y = ((float)y) / mMapScaleFactor;
-      int curr_x = floor(pos_x);
-      int curr_y = floor(pos_y);
+      int curr_x = static_cast<int>(floor(pos_x));
+      int curr_y = static_cast<int>(floor(pos_y));
       int next_x = curr_x + incR;
       int next_y = curr_y + incB;
-      float e1_distance = euclideanDistance(pos_x, curr_x, pos_y, curr_y);
+      float e1_distance = euclideanDistance(pos_x, (float)curr_x, pos_y, (float)curr_y);
       int index = y * mMapScaleFactor * 4 + x * 4;
       if (e1_distance == 0) {
         weights[index++] = 1.f;
@@ -59,13 +59,13 @@ void ShepardsIDW::fillShepardsIDW(float* weights, int incR, int incB) {
       } else {
         float e1_weight = 1.f / e1_distance;
 
-        float e2_distance = euclideanDistance(pos_x, curr_x, pos_y, next_y);
+        float e2_distance = euclideanDistance(pos_x, (float)curr_x, pos_y, (float)next_y);
         float e2_weight = 1.f / e2_distance;
 
-        float e3_distance = euclideanDistance(pos_x, next_x, pos_y, curr_y);
+        float e3_distance = euclideanDistance(pos_x, (float)next_x, pos_y, (float)curr_y);
         float e3_weight = 1.f / e3_distance;
 
-        float e4_distance = euclideanDistance(pos_x, next_x, pos_y, next_y);
+        float e4_distance = euclideanDistance(pos_x, (float)next_x, pos_y, (float)next_y);
         float e4_weight = 1.f / e4_distance;
 
         float total_weight = e1_weight + e2_weight + e3_weight + e4_weight;
@@ -657,7 +657,7 @@ const std::array<float, 9> kYuvBt601ToBt709 = {
 // U' = (0.0 * Y) + ( 1.010016 * U) + ( 0.061592 * V)
 // V' = (0.0 * Y) + ( 0.086969 * U) + ( 1.029350 * V)
 const std::array<float, 9> kYuvBt601ToBt2100 = {
-    1.0f, -0.128245f, -0.115879, 0.0f, 1.010016f, 0.061592f, 0.0f, 0.086969f, 1.029350f};
+    1.0f, -0.128245f, -0.115879f, 0.0f, 1.010016f, 0.061592f, 0.0f, 0.086969f, 1.029350f};
 
 // Yuv Bt2100 -> Yuv Bt709
 // Y' = (1.0 * Y) + ( 0.018149 * U) + (-0.095132 * V)
@@ -785,7 +785,7 @@ uint8_t affineMapGain(float gainlog2, float mingainlog2, float maxgainlog2, floa
   float mappedVal = (gainlog2 - mingainlog2) / (maxgainlog2 - mingainlog2);
   if (gamma != 1.0f) mappedVal = pow(mappedVal, gamma);
   mappedVal *= 255;
-  return CLIP3(mappedVal + 0.5f, 0, 255);
+  return static_cast<uint8_t>(CLIP3(mappedVal + 0.5f, 0.0f, 255.0f));
 }
 
 Color applyGain(Color e, float gain, uhdr_gainmap_metadata_ext_t* metadata) {
@@ -1277,9 +1277,9 @@ bool isPixelFormatRgb(uhdr_img_fmt_t format) {
 }
 
 uint32_t colorToRgba1010102(Color e_gamma) {
-  uint32_t r = CLIP3((e_gamma.r * 1023 + 0.5f), 0.0f, 1023.0f);
-  uint32_t g = CLIP3((e_gamma.g * 1023 + 0.5f), 0.0f, 1023.0f);
-  uint32_t b = CLIP3((e_gamma.b * 1023 + 0.5f), 0.0f, 1023.0f);
+  uint32_t r = static_cast<uint32_t>(CLIP3((e_gamma.r * 1023 + 0.5f), 0.0f, 1023.0f));
+  uint32_t g = static_cast<uint32_t>(CLIP3((e_gamma.g * 1023 + 0.5f), 0.0f, 1023.0f));
+  uint32_t b = static_cast<uint32_t>(CLIP3((e_gamma.b * 1023 + 0.5f), 0.0f, 1023.0f));
   return (r | (g << 10) | (b << 20) | (0x3 << 30));  // Set alpha to 1.0
 }
 
