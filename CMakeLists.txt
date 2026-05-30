@@ -251,13 +251,6 @@ endif()
 set(UHDR_WERROR_FLAGS "")
 if(MSVC)
   add_definitions(-D_CRT_SECURE_NO_WARNINGS)
-  # Disable specific warnings
-  # TODO: None of these should be disabled, but for now, for a warning-free msvc build these are
-  # added. fix the warnings and remove these filters
-  add_compile_options(/wd4244) # conversion from 'type1' to 'type2', possible loss of data
-  add_compile_options(/wd4267) # conversion from 'size_t' to 'type' possible loss of data
-  add_compile_options(/wd4305) # truncation from 'double' to 'float'
-  add_compile_options(/wd4838) # conversion from 'type1' to 'type2' requires a narrowing conversion
   add_compile_options(/wd26812) # Prefer enum class over enum
 elseif(EMSCRIPTEN)
   if(NOT UHDR_BUILD_DEPS)

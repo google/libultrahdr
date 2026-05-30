@@ -81,7 +81,7 @@ bool Matrix3x3_invert(const Matrix3x3* src, Matrix3x3* dst) {
 }
 
 static Matrix3x3 Matrix3x3_concat(const Matrix3x3* A, const Matrix3x3* B) {
-  Matrix3x3 m = {{{0, 0, 0}, {0, 0, 0}, {0, 0, 0}}};
+  Matrix3x3 m = {{{0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}}};
   for (int r = 0; r < 3; r++)
     for (int c = 0; c < 3; c++) {
       m.vals[r][c] = A->vals[r][0] * B->vals[0][c] + A->vals[r][1] * B->vals[1][c] +
@@ -156,7 +156,7 @@ std::string IccHelper::get_desc_string(const uhdr_color_transfer_t tf,
 }
 
 std::shared_ptr<DataStruct> IccHelper::write_text_tag(const char* text) {
-  uint32_t text_length = strlen(text);
+  uint32_t text_length = static_cast<uint32_t>(strlen(text));
   uint32_t header[] = {
       Endian_SwapBE32(kTAG_TextType),                       // Type signature
       0,                                                    // Reserved
