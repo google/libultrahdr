@@ -11,7 +11,7 @@ jobs:
       fail-fast: true
       matrix:
         config:
-          # <Windows-latest, Release Build, Cl compiler toolchain, Visual Studio 17 2022 generator>
+          # <Windows-latest, Release Build, Cl compiler toolchain, default Visual Studio generator>
           - name: "windows latest cl rel visual studio 17 2022 with deps"
             os: windows-latest
             build_type: Release
@@ -32,7 +32,7 @@ jobs:
         export CC=${{ matrix.config.cc }}
         export CXX=${{ matrix.config.cxx }}
         mkdir build
-        cmake -G "Visual Studio 17 2022" -B build -DCMAKE_BUILD_TYPE=${{ matrix.config.build_type }} ${{ matrix.config.cmake-opts }}
+        cmake -B build -DCMAKE_BUILD_TYPE=${{ matrix.config.build_type }} ${{ matrix.config.cmake-opts }}
 
     - name: Build
       run: cmake --build build --config ${{ matrix.config.build_type }}
