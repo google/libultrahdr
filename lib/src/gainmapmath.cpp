@@ -11,6 +11,10 @@
 #include <cmath>
 
 #include "ultrahdr/gainmapmath.h"
+#ifdef UHDR_ENABLE_SMPTE2094_50
+#include "smpte2094_50/pchip.h"
+#include "smpte2094_50/utils.h"
+#endif
 
 namespace ultrahdr {
 
@@ -1682,5 +1686,129 @@ bool floatToSignedFraction(float v, int32_t* numerator, uint32_t* denominator) {
 bool floatToUnsignedFraction(float v, uint32_t* numerator, uint32_t* denominator) {
   return floatToUnsignedFractionImpl(v, UINT32_MAX, numerator, denominator);
 }
+
+#ifdef UHDR_ENABLE_SMPTE2094_50
+GainLUT::GainLUT(const smpte2094_50::DynamicMetadata& metadata, float target_disp_headroom_log2) {
+  smpte2094_50::DynamicMetadata local_metadata = metadata;
+  (void)smpte2094_50::PopulateImplicitParameters(local_metadata);
+
+  for (int i = 0; i < 3; i++) {
+    mGainTable[i] = memory[i] = new float[kGainFactorNumEntries];
+    mGammaInv[i] =
+        1.0f;  // SMPTE 2094-50 gain is usually linear, gamma isn't explicitly defined the same way.
+    std::fill(mGainTable[i], mGainTable[i] + kGainFactorNumEntries, 0.0f);
+  }
+
+  if (local_metadata.rules.empty()) return;
+
+  // Represents an evaluated curve at a specific target headroom.
+  struct Evaluator {
+    float H;
+    std::unique_ptr<smpte2094_50::GainCurve> curve;
+    bool is_baseline;
+  };
+
+  for (int c = 0; c < 3; ++c) {
+    std::vector<Evaluator> evaluators;
+    Evaluator baseline;
+    baseline.H = local_metadata.baseline_hdr_headroom_log2;
+    baseline.is_baseline = true;
+    evaluators.push_back(std::move(baseline));
+
+    for (const auto& rule : local_metadata.rules) {
+      // Per SMPTE ST 2094-50 Section 6.4 (Component mixing function structure) and
+      // Section 6.4.3 (Function evaluation): we verify if this tone mapping rule applies
+      // to the current color channel. If the sum of all mix weights is 0, it acts as a
+      // generic fallback. Otherwise, we check if the rule explicitly targets this RGB channel
+      // or if it applies to all components uniformly.
+      //
+      // NOTE: Because libultrahdr precomputes three independent 1D lookup tables (one for 
+      // each color channel) rather than evaluating the gain curve per-pixel, we fundamentally 
+      // assume that cross-component mixing weights (like k_max or k_min) are either zero 
+      // or that the input behaves such that they don't break the 1D LUT assumption (e.g. 
+      // a grayscale gain map where R=G=B).
+      float k_sum = rule.mix.rgb[0] + rule.mix.rgb[1] + rule.mix.rgb[2] + rule.mix.component +
+                    rule.mix.max + rule.mix.min;
+      bool applies = (k_sum == 0.0f) || (rule.mix.rgb[c] > 0.0f) || (rule.mix.component > 0.0f) ||
+                     (rule.mix.max > 0.0f) || (rule.mix.min > 0.0f);
+      if (!applies) continue;
+
+      Evaluator ev;
+      ev.H = rule.alternate_hdr_headroom_log2;
+      ev.is_baseline = false;
+      std::vector<float> x, y;
+      x.reserve(rule.curve.size());
+      y.reserve(rule.curve.size());
+      for (const auto& cp : rule.curve) {
+        x.push_back(cp.x);
+        y.push_back(cp.y);
+      }
+      auto result = smpte2094_50::GainCurve::Create(x, y);
+      if (result.ok()) {
+        ev.curve = std::make_unique<smpte2094_50::GainCurve>(std::move(*result));
+      }
+      evaluators.push_back(std::move(ev));
+    }
+
+    if (evaluators.size() == 1) {
+      // Only the baseline is available; gain remains 1.0 (0.0 in log2 space).
+      for (size_t i = 0; i < kGainFactorNumEntries; ++i) {
+        mGainTable[c][i] = 1.0f;
+      }
+      continue;
+    }
+
+    // Sort evaluators by their targeting headroom for interpolation bounding.
+    std::sort(evaluators.begin(), evaluators.end(),
+              [](const Evaluator& a, const Evaluator& b) { return a.H < b.H; });
+
+    float target = target_disp_headroom_log2;
+    // Clamp the target to the minimum and maximum available alternate image headrooms.
+    if (target < evaluators.front().H) target = evaluators.front().H;
+    if (target > evaluators.back().H) target = evaluators.back().H;
+
+    // Find the interpolation interval [H0, H1] bounding the target headroom.
+    size_t idx = 0;
+    for (size_t i = 0; i < evaluators.size() - 1; ++i) {
+      if (target >= evaluators[i].H && target <= evaluators[i + 1].H) {
+        idx = i;
+        break;
+      }
+    }
+
+    float H0 = evaluators[idx].H;
+    float H1 = evaluators[idx + 1].H;
+    float w1 = (H1 == H0) ? 0.0f : (target - H0) / (H1 - H0);
+    float w0 = 1.0f - w1;
+
+    // Per SMPTE ST 2094-50 Section 6.2.5 (Computation of the headroom-adaptive tone map)
+    // and Section 6.3.2 (Function evaluation): Interpolate the log2 gain factors linearly
+    // based on the weights.
+    for (size_t i = 0; i < kGainFactorNumEntries; ++i) {
+      float xi = static_cast<float>(i) / (kGainFactorNumEntries - 1);
+      float gy0 = 0.0f;
+      if (!evaluators[idx].is_baseline && evaluators[idx].curve) {
+        gy0 = evaluators[idx].curve->Interpolate(xi);
+      }
+      float gy1 = 0.0f;
+      if (!evaluators[idx + 1].is_baseline && evaluators[idx + 1].curve) {
+        gy1 = evaluators[idx + 1].curve->Interpolate(xi);
+      }
+      float gy = w0 * gy0 + w1 * gy1;
+      mGainTable[c][i] = exp2(gy);  // Convert out of log2 space into the linear multiplier.
+    }
+  }
+
+  // Memory optimization: if the interpolated tables for all color channels are strictly equal,
+  // we can safely discard the duplicated allocations and share a single table pointer.
+  if (std::equal(mGainTable[0], mGainTable[0] + kGainFactorNumEntries, mGainTable[1]) &&
+      std::equal(mGainTable[0], mGainTable[0] + kGainFactorNumEntries, mGainTable[2])) {
+    delete[] memory[1];
+    delete[] memory[2];
+    memory[1] = memory[2] = nullptr;
+    mGainTable[1] = mGainTable[2] = mGainTable[0];
+  }
+}
+#endif
 
 }  // namespace ultrahdr
