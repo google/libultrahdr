@@ -12,6 +12,9 @@
 #include <gmock/gmock.h>
 
 #include "ultrahdr/gainmapmath.h"
+#ifdef UHDR_ENABLE_SMPTE2094_50
+#include "smpte2094_50/smpte2094_50.h"
+#endif
 
 namespace ultrahdr {
 
@@ -1682,5 +1685,112 @@ TEST_F(GainMapMathTest, ApplyMap) {
   EXPECT_RGB_EQ(Recover(YuvWhite(), 0.25f, &metadata), RgbWhite());
   EXPECT_RGB_EQ(Recover(YuvWhite(), 0.0f, &metadata), RgbWhite() / 2.0f);
 }
+
+#ifdef UHDR_ENABLE_SMPTE2094_50
+TEST_F(GainMapMathTest, Smpte2094GainLUT) {
+  smpte2094_50::DynamicMetadata metadata;
+  smpte2094_50::ToneMappingRule rule;
+  rule.alternate_hdr_headroom_log2 = 2.0f; // Target headroom limit in log2 space (e.g. 4x linear)
+  // Simple curve where the log2 gain factor goes from 0.0 at SDR to 2.0 at HDR.
+  rule.curve.push_back({0.0f, 0.0f});
+  rule.curve.push_back({1.0f, 2.0f});
+  metadata.rules.push_back(rule);
+
+  // Test full headroom targeting
+  {
+    GainLUT gainLUT(metadata, 2.0f);
+    // At x=0.0 -> log2_gain=0.0 -> exp2(0.0 * 2.0/2.0) = 1.0
+    EXPECT_FLOAT_EQ(gainLUT.getGainFactor(0.0f, 0), 1.0f);
+    // At x=1.0 -> log2_gain=2.0 -> exp2(2.0 * 2.0/2.0) = 4.0
+    EXPECT_FLOAT_EQ(gainLUT.getGainFactor(1.0f, 0), 4.0f);
+  }
+
+  // Test half headroom targeting
+  {
+    GainLUT gainLUT(metadata, 1.0f);
+    // At x=0.0 -> log2_gain=0.0 -> exp2(0.0 * 1.0/2.0) = 1.0
+    EXPECT_FLOAT_EQ(gainLUT.getGainFactor(0.0f, 0), 1.0f);
+    // At x=1.0 -> log2_gain=2.0 -> exp2(2.0 * 1.0/2.0) = 2.0
+    EXPECT_FLOAT_EQ(gainLUT.getGainFactor(1.0f, 0), 2.0f);
+  }
+
+  // Test zero headroom targeting (fall back to 1.0 linear gain)
+  {
+    GainLUT gainLUT(metadata, 0.0f);
+    EXPECT_FLOAT_EQ(gainLUT.getGainFactor(0.0f, 0), 1.0f);
+    EXPECT_FLOAT_EQ(gainLUT.getGainFactor(1.0f, 0), 1.0f);
+  }
+}
+
+TEST_F(GainMapMathTest, Smpte2094GainLUTMultipleRules) {
+  smpte2094_50::DynamicMetadata metadata;
+  metadata.baseline_hdr_headroom_log2 = 0.0f;
+
+  // First rule: alternate_hdr_headroom_log2 = 1.0f
+  smpte2094_50::ToneMappingRule rule1;
+  rule1.alternate_hdr_headroom_log2 = 1.0f;
+  rule1.curve.push_back({0.0f, 0.0f});
+  rule1.curve.push_back({1.0f, 1.0f}); // log2 gain 1.0
+  metadata.rules.push_back(rule1);
+
+  // Second rule: alternate_hdr_headroom_log2 = 3.0f
+  smpte2094_50::ToneMappingRule rule2;
+  rule2.alternate_hdr_headroom_log2 = 3.0f;
+  rule2.curve.push_back({0.0f, 0.0f});
+  rule2.curve.push_back({1.0f, 3.0f}); // log2 gain 3.0
+  metadata.rules.push_back(rule2);
+
+  // Target headroom: 2.0f
+  // We interpolate between rule1 (H=1, gy=1) and rule2 (H=3, gy=3)
+  // target = 2.0f => w1 = (2-1)/(3-1) = 0.5.
+  // interpolated gy = 0.5 * 1.0f + 0.5 * 3.0f = 2.0f.
+  // gain factor = exp2(2.0f) = 4.0f.
+  GainLUT gainLUT(metadata, 2.0f);
+
+  // Red channel (index 0)
+  EXPECT_FLOAT_EQ(gainLUT.getGainFactor(1.0f, 0), 4.0f);
+  // Green channel (index 1)
+  EXPECT_FLOAT_EQ(gainLUT.getGainFactor(1.0f, 1), 4.0f);
+  // Blue channel (index 2)
+  EXPECT_FLOAT_EQ(gainLUT.getGainFactor(1.0f, 2), 4.0f);
+}
+
+TEST_F(GainMapMathTest, Smpte2094GainLUT3Channel) {
+  smpte2094_50::DynamicMetadata metadata;
+
+  // Rule for Red channel
+  smpte2094_50::ToneMappingRule ruleR{};
+  ruleR.alternate_hdr_headroom_log2 = 2.0f;
+  ruleR.curve.push_back({0.0f, 0.0f});
+  ruleR.curve.push_back({1.0f, 1.0f}); // log2 gain 1.0 -> factor 2.0
+  ruleR.mix.rgb = {1.0f, 0.0f, 0.0f};
+  metadata.rules.push_back(ruleR);
+
+  // Rule for Green channel
+  smpte2094_50::ToneMappingRule ruleG{};
+  ruleG.alternate_hdr_headroom_log2 = 2.0f;
+  ruleG.curve.push_back({0.0f, 0.0f});
+  ruleG.curve.push_back({1.0f, 2.0f}); // log2 gain 2.0 -> factor 4.0
+  ruleG.mix.rgb = {0.0f, 1.0f, 0.0f};
+  metadata.rules.push_back(ruleG);
+
+  // Rule for Blue channel
+  smpte2094_50::ToneMappingRule ruleB{};
+  ruleB.alternate_hdr_headroom_log2 = 2.0f;
+  ruleB.curve.push_back({0.0f, 0.0f});
+  ruleB.curve.push_back({1.0f, 3.0f}); // log2 gain 3.0 -> factor 8.0
+  ruleB.mix.rgb = {0.0f, 0.0f, 1.0f};
+  metadata.rules.push_back(ruleB);
+
+  GainLUT gainLUT(metadata, 2.0f);
+
+  // Red channel (index 0)
+  EXPECT_FLOAT_EQ(gainLUT.getGainFactor(1.0f, 0), 2.0f);
+  // Green channel (index 1)
+  EXPECT_FLOAT_EQ(gainLUT.getGainFactor(1.0f, 1), 4.0f);
+  // Blue channel (index 2)
+  EXPECT_FLOAT_EQ(gainLUT.getGainFactor(1.0f, 2), 8.0f);
+}
+#endif
 
 }  // namespace ultrahdr
