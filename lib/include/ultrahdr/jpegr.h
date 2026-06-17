@@ -397,9 +397,10 @@ class JpegR {
    */
   status_t getJPEGRInfo(jr_compressed_ptr jpegr_image_ptr, jr_info_ptr jpegr_image_info_ptr);
 
-  /*!\brief This function receives iso block and / or xmp block and parses gainmap metadata and fill
-   * the output descriptor. If both iso block and xmp block are available, then iso block is
-   * preferred over xmp.
+  /*!\brief This function receives iso block and / or xmp + exif block and parses gainmap metadata
+   * and fill the output descriptor. If both iso block and xmp +exif block are available, then iso
+   * block is preferred over xmp. Exif can be useful with xmp for Apple gain maps:
+   * https://developer.apple.com/documentation/appkit/applying-apple-hdr-effect-to-your-photos
    *
    * \param[in]       iso_data                  iso memory block
    * \param[in]       iso_size                  iso block size
