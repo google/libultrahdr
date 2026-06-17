@@ -1441,7 +1441,7 @@ TEST(JpegRTest, decodeApple) {
   JpegR decoder;
   uhdr_compressed_image_t uhdrCompressedImg;
   for (const auto& fileName : {kOldAppleFileName, kNewAppleFileName}) {
-    std::ifstream ifs(fileName);
+    std::ifstream ifs(fileName, std::ios::binary);
     std::string content((std::istreambuf_iterator<char>(ifs)), (std::istreambuf_iterator<char>()));
     ASSERT_EQ(is_uhdr_image(content.data(), content.size()), 1);
 
