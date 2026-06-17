@@ -219,6 +219,8 @@ uhdr_error_info_t JpegR::encodeJPEGR(uhdr_raw_image_t* hdr_intent, uhdr_compress
   if (isPixelFormatRgb(sdr_intent->fmt)) {
 #if (defined(UHDR_ENABLE_INTRINSICS) && (defined(__ARM_NEON__) || defined(__ARM_NEON)))
     sdr_intent_yuv_ext = convert_raw_input_to_ycbcr_neon(sdr_intent.get());
+#elif (defined(UHDR_ENABLE_INTRINSICS) && defined(__riscv_v_intrinsic))
+    sdr_intent_yuv_ext = convert_raw_input_to_ycbcr_rvv(sdr_intent.get());
 #else
     sdr_intent_yuv_ext = convert_raw_input_to_ycbcr(sdr_intent.get());
 #endif
@@ -258,6 +260,8 @@ uhdr_error_info_t JpegR::encodeJPEGR(uhdr_raw_image_t* hdr_intent, uhdr_raw_imag
   if (isPixelFormatRgb(sdr_intent->fmt)) {
 #if (defined(UHDR_ENABLE_INTRINSICS) && (defined(__ARM_NEON__) || defined(__ARM_NEON)))
     sdr_intent_yuv_ext = convert_raw_input_to_ycbcr_neon(sdr_intent);
+#elif (defined(UHDR_ENABLE_INTRINSICS) && defined(__riscv_v_intrinsic))
+    sdr_intent_yuv_ext = convert_raw_input_to_ycbcr_rvv(sdr_intent);
 #else
     sdr_intent_yuv_ext = convert_raw_input_to_ycbcr(sdr_intent);
 #endif
@@ -267,6 +271,8 @@ uhdr_error_info_t JpegR::encodeJPEGR(uhdr_raw_image_t* hdr_intent, uhdr_raw_imag
   // convert to bt601 YUV encoding for JPEG encode
 #if (defined(UHDR_ENABLE_INTRINSICS) && (defined(__ARM_NEON__) || defined(__ARM_NEON)))
   UHDR_ERR_CHECK(convertYuv_neon(sdr_intent_yuv, sdr_intent_yuv->cg, UHDR_CG_DISPLAY_P3));
+#elif (defined(UHDR_ENABLE_INTRINSICS) && defined(__riscv_v_intrinsic))
+  UHDR_ERR_CHECK(convertYuv_rvv(sdr_intent_yuv, sdr_intent_yuv->cg, UHDR_CG_DISPLAY_P3));
 #else
   UHDR_ERR_CHECK(convertYuv(sdr_intent_yuv, sdr_intent_yuv->cg, UHDR_CG_DISPLAY_P3));
 #endif
