@@ -90,7 +90,7 @@ cd build_directory
 Install the prerequisite packages before building:
 
 ```sh
-sudo apt install cmake pkg-config libjpeg-dev ninja-build
+sudo apt install clang cmake pkg-config libjpeg-dev ninja-build
 ```
 
 Compile and Test:

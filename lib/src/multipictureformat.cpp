@@ -69,15 +69,15 @@ std::shared_ptr<DataStruct> generateMpf(size_t primary_image_size, size_t primar
 
   // Write the MP entries for primary image
   dataStruct->write32(Endian_SwapBE32(kMPEntryAttributeFormatJpeg | kMPEntryAttributeTypePrimary));
-  dataStruct->write32(Endian_SwapBE32(primary_image_size));
-  dataStruct->write32(Endian_SwapBE32(primary_image_offset));
+  dataStruct->write32(Endian_SwapBE32(static_cast<uint32_t>(primary_image_size)));
+  dataStruct->write32(Endian_SwapBE32(static_cast<uint32_t>(primary_image_offset)));
   dataStruct->write16(0);
   dataStruct->write16(0);
 
   // Write the MP entries for secondary image
   dataStruct->write32(Endian_SwapBE32(kMPEntryAttributeFormatJpeg));
-  dataStruct->write32(Endian_SwapBE32(secondary_image_size));
-  dataStruct->write32(Endian_SwapBE32(secondary_image_offset));
+  dataStruct->write32(Endian_SwapBE32(static_cast<uint32_t>(secondary_image_size)));
+  dataStruct->write32(Endian_SwapBE32(static_cast<uint32_t>(secondary_image_offset)));
   dataStruct->write16(0);
   dataStruct->write16(0);
 

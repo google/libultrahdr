@@ -308,11 +308,13 @@ uhdr_error_info_t JpegDecoderHelper::decode(const void* image, size_t length, de
 
     mNumComponents = cinfo.num_components;
     for (int i = 0; i < cinfo.num_components; i++) {
-      mPlaneWidth[i] = std::ceil(((float)cinfo.image_width * cinfo.comp_info[i].h_samp_factor) /
-                                 cinfo.max_h_samp_factor);
+      mPlaneWidth[i] = static_cast<unsigned int>(
+          std::ceil(((float)cinfo.image_width * cinfo.comp_info[i].h_samp_factor) /
+                    cinfo.max_h_samp_factor));
       mPlaneHStride[i] = mPlaneWidth[i];
-      mPlaneHeight[i] = std::ceil(((float)cinfo.image_height * cinfo.comp_info[i].v_samp_factor) /
-                                  cinfo.max_v_samp_factor);
+      mPlaneHeight[i] = static_cast<unsigned int>(
+          std::ceil(((float)cinfo.image_height * cinfo.comp_info[i].v_samp_factor) /
+                    cinfo.max_v_samp_factor));
       mPlaneVStride[i] = mPlaneHeight[i];
     }
 
@@ -494,9 +496,9 @@ uhdr_error_info_t JpegDecoderHelper::decodeToCSYCbCr(jpeg_decompress_struct* cin
     JDIMENSION mcu_scanline_start[kMaxNumComponents];
 
     for (int i = 0; i < cinfo->num_components; i++) {
-      mcu_scanline_start[i] =
+      mcu_scanline_start[i] = static_cast<JDIMENSION>(
           std::ceil(((float)cinfo->output_scanline * cinfo->comp_info[i].v_samp_factor) /
-                    cinfo->max_v_samp_factor);
+                    cinfo->max_v_samp_factor));
 
       for (int j = 0; j < cinfo->comp_info[i].v_samp_factor * DCTSIZE; j++) {
         JDIMENSION scanline = mcu_scanline_start[i] + j;

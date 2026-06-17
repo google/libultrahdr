@@ -81,7 +81,7 @@ bool Matrix3x3_invert(const Matrix3x3* src, Matrix3x3* dst) {
 }
 
 static Matrix3x3 Matrix3x3_concat(const Matrix3x3* A, const Matrix3x3* B) {
-  Matrix3x3 m = {{{0, 0, 0}, {0, 0, 0}, {0, 0, 0}}};
+  Matrix3x3 m = {{{0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}}};
   for (int r = 0; r < 3; r++)
     for (int c = 0; c < 3; c++) {
       m.vals[r][c] = A->vals[r][0] * B->vals[0][c] + A->vals[r][1] * B->vals[1][c] +
@@ -156,7 +156,7 @@ std::string IccHelper::get_desc_string(const uhdr_color_transfer_t tf,
 }
 
 std::shared_ptr<DataStruct> IccHelper::write_text_tag(const char* text) {
-  uint32_t text_length = strlen(text);
+  uint32_t text_length = static_cast<uint32_t>(strlen(text));
   uint32_t header[] = {
       Endian_SwapBE32(kTAG_TextType),                       // Type signature
       0,                                                    // Reserved
@@ -270,8 +270,8 @@ std::shared_ptr<DataStruct> IccHelper::write_cicp_tag(uint32_t color_primaries,
   std::shared_ptr<DataStruct> dataStruct = std::make_shared<DataStruct>(kCicpTagSize);
   dataStruct->write32(Endian_SwapBE32(kTAG_cicp));  // Type signature
   dataStruct->write32(0);                           // Reserved
-  dataStruct->write8(color_primaries);              // Color primaries
-  dataStruct->write8(transfer_characteristics);     // Transfer characteristics
+  dataStruct->write8(static_cast<uint8_t>(color_primaries));              // Color primaries
+  dataStruct->write8(static_cast<uint8_t>(transfer_characteristics));     // Transfer characteristics
   dataStruct->write8(0);                            // RGB matrix
   dataStruct->write8(1);                            // Full range
   return dataStruct;
@@ -366,7 +366,7 @@ std::shared_ptr<DataStruct> IccHelper::write_mAB_or_mBA_tag(uint32_t type, bool 
     }
   }
 
-  int total_length = b_curves_offset;
+  size_t total_length = b_curves_offset;
   for (size_t i = 0; i < kNumChannels; ++i) {
     total_length += b_curves_data[i]->getLength();
   }
@@ -382,11 +382,11 @@ std::shared_ptr<DataStruct> IccHelper::write_mAB_or_mBA_tag(uint32_t type, bool 
   dataStruct->write8(kNumChannels);                       // Input channels
   dataStruct->write8(kNumChannels);                       // Output channels
   dataStruct->write16(0);                                 // Reserved
-  dataStruct->write32(Endian_SwapBE32(b_curves_offset));  // B curve offset
-  dataStruct->write32(Endian_SwapBE32(0));                // Matrix offset (ignored)
-  dataStruct->write32(Endian_SwapBE32(0));                // M curve offset (ignored)
-  dataStruct->write32(Endian_SwapBE32(clut_offset));      // CLUT offset
-  dataStruct->write32(Endian_SwapBE32(a_curves_offset));  // A curve offset
+  dataStruct->write32(Endian_SwapBE32(static_cast<uint32_t>(b_curves_offset)));  // B curve offset
+  dataStruct->write32(Endian_SwapBE32(0));                                       // Matrix offset (ignored)
+  dataStruct->write32(Endian_SwapBE32(0));                                       // M curve offset (ignored)
+  dataStruct->write32(Endian_SwapBE32(static_cast<uint32_t>(clut_offset)));      // CLUT offset
+  dataStruct->write32(Endian_SwapBE32(static_cast<uint32_t>(a_curves_offset)));  // A curve offset
   for (size_t i = 0; i < kNumChannels; ++i) {
     if (dataStruct->write(b_curves_data[i]->getData(), b_curves_data[i]->getLength())) {
       return dataStruct;
@@ -560,8 +560,8 @@ std::shared_ptr<DataStruct> IccHelper::writeIccProfile(uhdr_color_transfer_t tf,
   // Write the header.
   header.data_color_space = Endian_SwapBE32(Signature_RGB);
   header.pcs = Endian_SwapBE32(tf == UHDR_CT_PQ ? Signature_Lab : Signature_XYZ);
-  header.size = Endian_SwapBE32(profile_size);
-  header.tag_count = Endian_SwapBE32(tags.size());
+  header.size = Endian_SwapBE32(static_cast<uint32_t>(profile_size));
+  header.tag_count = Endian_SwapBE32(static_cast<uint32_t>(tags.size()));
 
   if (!dataStruct->write(&header, sizeof(header))) {
     ALOGE("writeIccProfile(): error in header");
@@ -571,11 +571,11 @@ std::shared_ptr<DataStruct> IccHelper::writeIccProfile(uhdr_color_transfer_t tf,
   // Write the tag table. Track the offset and size of the previous tag to
   // compute each tag's offset. An empty SkData indicates that the previous
   // tag is to be reused.
-  uint32_t last_tag_offset = sizeof(header) + tag_table_size;
+  uint32_t last_tag_offset = static_cast<uint32_t>(sizeof(header) + tag_table_size);
   uint32_t last_tag_size = 0;
   for (const auto& tag : tags) {
     last_tag_offset = last_tag_offset + last_tag_size;
-    last_tag_size = tag.second->getLength();
+    last_tag_size = static_cast<uint32_t>(tag.second->getLength());
     uint32_t tag_table_entry[3] = {
         Endian_SwapBE32(tag.first),
         Endian_SwapBE32(last_tag_offset),
