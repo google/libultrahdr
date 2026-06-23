@@ -126,6 +126,7 @@ option_if_not_defined(UHDR_ENABLE_INSTALL "Enable install and uninstall targets 
 option_if_not_defined(UHDR_ENABLE_INTRINSICS "Build with SIMD acceleration " TRUE)
 option_if_not_defined(UHDR_ENABLE_GLES "Build with GPU acceleration " FALSE)
 option_if_not_defined(UHDR_ENABLE_WERROR "Build with -Werror" FALSE)
+option_if_not_defined(UHDR_ENABLE_SMPTE2094_50 "Build with SMPTE 2094-50 support" FALSE)
 
 # These options effect only encoding process.
 # Decoding continues to support both iso and xmp irrespective of this configuration.
@@ -374,6 +375,24 @@ find_package(Threads REQUIRED)
 
 include(ExternalProject)
 
+if(UHDR_ENABLE_SMPTE2094_50)
+  if(UHDR_BUILD_DEPS)
+    add_compile_options(-DUHDR_ENABLE_SMPTE2094_50)
+    include(FetchContent)
+    FetchContent_Declare(
+      libsmpte2094_50
+      GIT_REPOSITORY https://github.com/webmproject/libsmpte2094-50.git
+      GIT_TAG v0.1.4)
+    set(OLD_BUILD_SHARED_LIBS ${BUILD_SHARED_LIBS})
+    set(BUILD_SHARED_LIBS OFF)
+    FetchContent_MakeAvailable(libsmpte2094_50)
+    set(BUILD_SHARED_LIBS ${OLD_BUILD_SHARED_LIBS})
+  else()
+    message(WARNING "libsmpte2094-50 package not available")
+    set(UHDR_ENABLE_SMPTE2094_50 OFF)
+  endif()
+endif()
+
 get_directory_property(UHDR_COMPILE_FLAGS COMPILE_OPTIONS)
 string (REPLACE ";" " " UHDR_COMPILE_FLAGS_STR "${UHDR_COMPILE_FLAGS}")
 set(UHDR_CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${UHDR_COMPILE_FLAGS_STR}")
@@ -599,6 +618,9 @@ file(GLOB IMAGE_IO_SRCS_LIST "${THIRD_PARTY_DIR}/image_io/src/**/*.cc")
 
 set(PRIVATE_INCLUDE_DIR ${SOURCE_DIR}/include/ ${JPEG_INCLUDE_DIRS})
 set(PRIVATE_LINK_LIBS ${JPEG_LIBRARIES} Threads::Threads)
+if(UHDR_ENABLE_SMPTE2094_50)
+  list(APPEND PRIVATE_LINK_LIBS smpte2094_50_utils)
+endif()
 if(UHDR_ENABLE_GLES)
   list(APPEND PRIVATE_INCLUDE_DIR ${EGL_INCLUDE_DIRS} ${OPENGLES3_INCLUDE_DIRS})
   list(APPEND PRIVATE_LINK_LIBS ${EGL_LIBRARIES} ${OPENGLES3_LIBRARIES})
@@ -678,7 +700,11 @@ if(UHDR_BUILD_TESTS)
   if(UHDR_BUILD_FUZZERS)
     target_link_options(ultrahdr_unit_test PRIVATE -fsanitize=fuzzer-no-link)
   endif()
-  target_link_libraries(ultrahdr_unit_test ${UHDR_CORE_LIB_NAME} ${GTEST_BOTH_LIBRARIES})
+  if(UHDR_ENABLE_SMPTE2094_50)
+    target_link_libraries(ultrahdr_unit_test ${UHDR_CORE_LIB_NAME} ${GTEST_BOTH_LIBRARIES} smpte2094_50_utils)
+  else()
+    target_link_libraries(ultrahdr_unit_test ${UHDR_CORE_LIB_NAME} ${GTEST_BOTH_LIBRARIES})
+  endif()
   add_test(NAME UHDRUnitTests, COMMAND ultrahdr_unit_test)
 endif()
 
