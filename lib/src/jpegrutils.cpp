@@ -586,8 +586,19 @@ static bool getExifAppleHeadroom(const uint8_t* exif, size_t size, float* altHea
           break;
         }
       } else if (inAppleMakerNotes && (tagId == 33 || tagId == 48) && dataFormat == 10) {
+        // Guard against size_t underflow before the subtraction. If
+        // (tiffHeaderOffset + offsetToIfd) is smaller than the Apple Maker
+        // Notes header size, the unsigned arithmetic would wrap around to a
+        // value close to SIZE_MAX, and the subsequent readU32/readS32 bounds
+        // check (*offset + 4 > size) would also overflow and silently pass,
+        // resulting in an out-of-bounds read.
+        if (tiffHeaderOffset + offsetToIfd < appleMakerNotesHeaderSize) return false;
         size_t tmpOffset =
-            tiffHeaderOffset + offsetToIfd - appleMakerNotesHeaderSize + (size_t)tagData;
+            tiffHeaderOffset + offsetToIfd - appleMakerNotesHeaderSize;
+        // Guard against size_t overflow when adding the attacker-controlled
+        // tagData to the computed base offset.
+        if (tmpOffset > SIZE_MAX - (size_t)tagData) return false;
+        tmpOffset += (size_t)tagData;
         int32_t numerator;
         uint32_t denominator;
         if (!readS32(exif, size, &numerator, &tmpOffset, isBigEndian)) return false;
