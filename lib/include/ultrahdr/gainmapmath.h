@@ -20,12 +20,6 @@
 #include "ultrahdr/ultrahdrcommon.h"
 #include "ultrahdr/jpegr.h"
 
-#ifdef UHDR_ENABLE_SMPTE2094_50
-namespace smpte2094_50 {
-struct DynamicMetadata;
-}
-#endif
-
 #if (defined(UHDR_ENABLE_INTRINSICS) && (defined(__ARM_NEON__) || defined(__ARM_NEON)))
 #include <arm_neon.h>
 #endif
@@ -476,10 +470,6 @@ struct GainLUT {
   }
 
   GainLUT(uhdr_gainmap_metadata_ext_t* metadata) : GainLUT(metadata, 1.0f) {}
-
-#ifdef UHDR_ENABLE_SMPTE2094_50
-  GainLUT(const smpte2094_50::DynamicMetadata& metadata, float target_disp_headroom_log2);
-#endif
 
   ~GainLUT() {
     for (int i = 0; i < 3; i++) {
