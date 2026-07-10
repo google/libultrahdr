@@ -140,6 +140,26 @@ ninja
 ctest
 ```
 
+#### Cross-compiling for Intel on Apple Silicon
+
+From the libultrahdr source directory, build a thin x86_64 binary on an Apple
+Silicon Mac:
+
+```sh
+cmake -G Ninja -S . -B build-x86_64 \
+  -DCMAKE_OSX_ARCHITECTURES=x86_64 \
+  -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0 \
+  -DUHDR_BUILD_DEPS=1 \
+  -DUHDR_BUILD_TESTS=1
+cmake --build build-x86_64
+```
+
+`UHDR_BUILD_DEPS=1` builds libjpeg-turbo and test dependencies for the
+requested architecture. When using installed dependencies instead, they must
+contain an x86_64 slice. Only one value in `CMAKE_OSX_ARCHITECTURES` is
+supported per build; universal arm64+x86_64 builds are not supported. Running
+the x86_64 tests on Apple Silicon requires Rosetta 2.
+
 This will generate the following files under `build_directory`:
 
 **libuhdr.{version}.dylib** - Shared library for the libuhdr API <br>
