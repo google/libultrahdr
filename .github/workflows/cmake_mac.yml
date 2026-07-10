@@ -18,6 +18,8 @@ jobs:
             cc: clang
             cxx: clang++
             cmake-opts: '-DUHDR_BUILD_TESTS=1 -DUHDR_ENABLE_LOGS=1 -DUHDR_ENABLE_INSTALL=1 -DUHDR_ENABLE_WERROR=1'
+            run_tests: true
+            expected_arch: arm64
 
           # <macOS-latest ARM64 Platform, Release Build, Clang toolchain, Ninja generator, Build Deps>
           - name: "macOS latest ARM64 clang rel ninja with deps"
@@ -26,6 +28,8 @@ jobs:
             cc: clang
             cxx: clang++
             cmake-opts: '-DUHDR_BUILD_TESTS=1 -DUHDR_ENABLE_LOGS=1 -DUHDR_BUILD_DEPS=1 -DUHDR_ENABLE_WERROR=1'
+            run_tests: true
+            expected_arch: arm64
 
           # <macOS-latest ARM64 Platform, Release Build, Clang toolchain, Ninja generator, Static linking>
           - name: "macOS latest ARM64 clang rel ninja static"
@@ -34,6 +38,29 @@ jobs:
             cc: clang
             cxx: clang++
             cmake-opts: '-DUHDR_BUILD_TESTS=1 -DUHDR_ENABLE_LOGS=1 -DUHDR_ENABLE_INSTALL=1 -DBUILD_SHARED_LIBS=0 -DUHDR_ENABLE_WERROR=1'
+            run_tests: true
+            expected_arch: arm64
+
+          # <macOS-15 Intel Platform, Release Build, Clang toolchain, Ninja generator>
+          - name: "macOS-15 Intel clang rel ninja"
+            os: macos-15-intel
+            build_type: Release
+            cc: clang
+            cxx: clang++
+            cmake-opts: '-DUHDR_BUILD_TESTS=1 -DUHDR_ENABLE_LOGS=1 -DUHDR_ENABLE_INSTALL=1 -DUHDR_ENABLE_WERROR=1'
+            run_tests: true
+            run_cli_smoke: true
+            expected_arch: x86_64
+
+          # <macOS-latest ARM64 Platform, cross-compiled x86_64, Release Build, Clang toolchain, Ninja generator, Build Deps>
+          - name: "macOS latest ARM64 cross x86_64 clang rel ninja with deps"
+            os: macos-latest
+            build_type: Release
+            cc: clang
+            cxx: clang++
+            cmake-opts: '-DUHDR_BUILD_TESTS=1 -DUHDR_ENABLE_LOGS=1 -DUHDR_BUILD_DEPS=1 -DUHDR_ENABLE_WERROR=1 -DCMAKE_OSX_ARCHITECTURES=x86_64 -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0'
+            run_tests: false
+            expected_arch: x86_64
 
     steps:
     - name: Checkout the repository
@@ -65,6 +92,34 @@ jobs:
     - name: Build
       run: cmake --build build --config ${{ matrix.config.build_type }}
 
+    - name: Verify artifact architecture
+      env:
+        EXPECTED_ARCH: ${{ matrix.config.expected_arch }}
+      shell: bash
+      run: |
+        artifacts=(
+          build/libuhdr.a
+          build/ultrahdr_app
+          build/ultrahdr_unit_test
+        )
+        if [[ -e build/libuhdr.dylib ]]; then
+          artifacts+=(build/libuhdr.dylib)
+        fi
+        if [[ -e build/turbojpeg/src/turbojpeg-build/libjpeg.a ]]; then
+          artifacts+=(build/turbojpeg/src/turbojpeg-build/libjpeg.a)
+        fi
+        for artifact in "${artifacts[@]}"; do
+          test "$(lipo -archs "$artifact")" = "$EXPECTED_ARCH"
+        done
+
     - name: Test
+      if: matrix.config.run_tests
       working-directory: build
       run: ctest --build-config ${{ matrix.config.build_type }}
+
+    - name: Test CLI
+      if: matrix.config.run_cli_smoke
+      run: |
+        build/ultrahdr_app -m 0 -p tests/data/raw_p010_image.p010 -w 1280 -h 720 -a 0 -z build/cli-smoke.jpeg
+        build/ultrahdr_app -m 1 -j build/cli-smoke.jpeg -P
+        build/ultrahdr_app -m 1 -j build/cli-smoke.jpeg -o 1 -O 5 -z build/cli-smoke.raw
