@@ -424,7 +424,6 @@ const string kMapOffsetHdr = Name(kGainMapPrefix, "OffsetHDR");
 const string kMapHDRCapacityMin = Name(kGainMapPrefix, "HDRCapacityMin");
 const string kMapHDRCapacityMax = Name(kGainMapPrefix, "HDRCapacityMax");
 const string kMapBaseRenditionIsHDR = Name(kGainMapPrefix, "BaseRenditionIsHDR");
-const string kMapOplusScale = Name(kGainMapPrefix, "OplusScale");
 
 // GainMap XMP constants - names for XMP handlers
 const string XMPXmlHandler::versionAttrName = kMapVersion;
@@ -688,7 +687,6 @@ string generateXmpForSecondaryImage(uhdr_gainmap_metadata_ext_t& metadata) {
   writer.WriteAttributeNameAndValue(kMapOffsetHdr, metadata.offset_hdr[0]);
   writer.WriteAttributeNameAndValue(kMapHDRCapacityMin, log2(metadata.hdr_capacity_min));
   writer.WriteAttributeNameAndValue(kMapHDRCapacityMax, log2(metadata.hdr_capacity_max));
-  writer.WriteAttributeNameAndValue(kMapOplusScale, "-1");
   writer.WriteAttributeNameAndValue(kMapBaseRenditionIsHDR, "False");
   writer.FinishWriting();
 
