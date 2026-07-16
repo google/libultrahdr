@@ -63,4 +63,47 @@ TEST_F(IccHelperTest, iccEndianness) {
   EXPECT_EQ(static_cast<size_t>(encoded_size), profile_size);
 }
 
+TEST_F(IccHelperTest, iccIntegerOverflowOffset) {
+  std::shared_ptr<DataStruct> icc = IccHelper::writeIccProfile(UHDR_CT_SRGB, UHDR_CG_BT_709);
+  ASSERT_NE(icc->getLength(), 0);
+  ASSERT_NE(icc->getData(), nullptr);
+
+  // 1. Mutate cicp tag offset to cause integer overflow when added to identifier size.
+  std::vector<uint8_t> buffer_cicp(reinterpret_cast<uint8_t*>(icc->getData()),
+                                   reinterpret_cast<uint8_t*>(icc->getData()) + icc->getLength());
+  uint8_t* icc_bytes = buffer_cicp.data() + kICCIdentifierSize;
+  uint32_t tag_count_be;
+  memcpy(&tag_count_be, icc_bytes + offsetof(ICCHeader, tag_count), sizeof(tag_count_be));
+  size_t tag_count = Endian_SwapBE32(tag_count_be);
+  for (size_t tag_idx = 0; tag_idx < tag_count; ++tag_idx) {
+    size_t entry_offset = sizeof(ICCHeader) + tag_idx * 12;
+    uint32_t sig_be;
+    memcpy(&sig_be, icc_bytes + entry_offset, sizeof(sig_be));
+    if (sig_be == Endian_SwapBE32(kTAG_cicp)) {
+      uint32_t bad_offset_be = Endian_SwapBE32(0xfffffff1U);
+      memcpy(icc_bytes + entry_offset + 4, &bad_offset_be, sizeof(bad_offset_be));
+      break;
+    }
+  }
+  // With overflow-safe bounds checks, cicp is ignored and fallback matrix tags return BT_709 cleanly without crash.
+  EXPECT_EQ(IccHelper::readIccColorGamut(buffer_cicp.data(), buffer_cicp.size()), UHDR_CG_BT_709);
+
+  // 2. Mutate red colorant tag offset to cause integer overflow.
+  std::vector<uint8_t> buffer_rxyz(reinterpret_cast<uint8_t*>(icc->getData()),
+                                   reinterpret_cast<uint8_t*>(icc->getData()) + icc->getLength());
+  icc_bytes = buffer_rxyz.data() + kICCIdentifierSize;
+  for (size_t tag_idx = 0; tag_idx < tag_count; ++tag_idx) {
+    size_t entry_offset = sizeof(ICCHeader) + tag_idx * 12;
+    uint32_t sig_be;
+    memcpy(&sig_be, icc_bytes + entry_offset, sizeof(sig_be));
+    if (sig_be == Endian_SwapBE32(kTAG_rXYZ)) {
+      uint32_t bad_offset_be = Endian_SwapBE32(0xfffffff1U);
+      memcpy(icc_bytes + entry_offset + 4, &bad_offset_be, sizeof(bad_offset_be));
+      break;
+    }
+  }
+  // With overflow-safe bounds checks, invalid colorant offset returns UHDR_CG_UNSPECIFIED without crash.
+  EXPECT_EQ(IccHelper::readIccColorGamut(buffer_rxyz.data(), buffer_rxyz.size()), UHDR_CG_UNSPECIFIED);
+}
+
 }  // namespace ultrahdr

@@ -477,7 +477,7 @@ const string XMPXmlHandler::kAppleMapHeadroom = "HDRGainMapHeadroom";
 
 static bool readU16(const uint8_t* data, size_t size, uint16_t* value, size_t* offset,
                     bool isBigEndian) {
-  if (*offset + 2 > size) return false;
+  if (*offset > size || size - *offset < 2) return false;
   if (isBigEndian) {
     *value = (data[*offset] << 8) | data[*offset + 1];
   } else {
@@ -489,7 +489,7 @@ static bool readU16(const uint8_t* data, size_t size, uint16_t* value, size_t* o
 
 static bool readU32(const uint8_t* data, size_t size, uint32_t* value, size_t* offset,
                     bool isBigEndian) {
-  if (*offset + 4 > size) return false;
+  if (*offset > size || size - *offset < 4) return false;
   if (isBigEndian) {
     *value = (data[*offset] << 24) | (data[*offset + 1] << 16) | (data[*offset + 2] << 8) |
              data[*offset + 3];

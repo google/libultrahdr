@@ -664,20 +664,22 @@ uhdr_color_gamut_t IccHelper::readIccColorGamut(void* icc_data, size_t icc_size)
   }
   ICCHeader* header = reinterpret_cast<ICCHeader*>(icc_bytes);
 
+  const size_t profile_size = icc_size - kICCIdentifierSize;
+  const size_t max_tags = (profile_size - sizeof(ICCHeader)) / kTagTableEntrySize;
+  size_t tag_count = Endian_SwapBE32(header->tag_count);
+  if (tag_count > max_tags) {
+    ALOGE("Tag table size exceeds buffer size during icc parsing. tag count %zu, max tags %zu",
+          tag_count, max_tags);
+    if (aligned_block) ::operator delete[](aligned_block, std::align_val_t(alignment_needs));
+    return UHDR_CG_UNSPECIFIED;
+  }
+
   // Use 0 to indicate not found, since offsets are always relative to start
   // of ICC data and therefore a tag offset of zero would never be valid.
   size_t red_primary_offset = 0, green_primary_offset = 0, blue_primary_offset = 0;
   size_t red_primary_size = 0, green_primary_size = 0, blue_primary_size = 0;
   size_t cicp_size = 0, cicp_offset = 0;
-  for (size_t tag_idx = 0; tag_idx < Endian_SwapBE32(header->tag_count); ++tag_idx) {
-    if (icc_size < kICCIdentifierSize + sizeof(ICCHeader) + ((tag_idx + 1) * kTagTableEntrySize)) {
-      ALOGE(
-          "Insufficient buffer size during icc parsing. tag index %zu, header %zu, tag size %zu, "
-          "icc size %zu",
-          tag_idx, kICCIdentifierSize + sizeof(ICCHeader), kTagTableEntrySize, icc_size);
-      if (aligned_block) ::operator delete[](aligned_block, std::align_val_t(alignment_needs));
-      return UHDR_CG_UNSPECIFIED;
-    }
+  for (size_t tag_idx = 0; tag_idx < tag_count; ++tag_idx) {
     uint32_t* tag_entry_start =
         reinterpret_cast<uint32_t*>(icc_bytes + sizeof(ICCHeader) + tag_idx * kTagTableEntrySize);
     // first 4 bytes are the tag signature, next 4 bytes are the tag offset,
@@ -698,7 +700,7 @@ uhdr_color_gamut_t IccHelper::readIccColorGamut(void* icc_data, size_t icc_size)
   }
 
   if (cicp_offset != 0 && cicp_size == kCicpTagSize &&
-      kICCIdentifierSize + cicp_offset + cicp_size <= icc_size) {
+      cicp_offset <= profile_size && cicp_size <= profile_size - cicp_offset) {
     uint8_t* cicp = icc_bytes + cicp_offset;
     uint8_t primaries = cicp[8];
     uhdr_color_gamut_t gamut = UHDR_CG_UNSPECIFIED;
@@ -716,11 +718,11 @@ uhdr_color_gamut_t IccHelper::readIccColorGamut(void* icc_data, size_t icc_size)
   }
 
   if (red_primary_offset == 0 || red_primary_size != kColorantTagSize ||
-      kICCIdentifierSize + red_primary_offset + red_primary_size > icc_size ||
+      red_primary_offset > profile_size || red_primary_size > profile_size - red_primary_offset ||
       green_primary_offset == 0 || green_primary_size != kColorantTagSize ||
-      kICCIdentifierSize + green_primary_offset + green_primary_size > icc_size ||
+      green_primary_offset > profile_size || green_primary_size > profile_size - green_primary_offset ||
       blue_primary_offset == 0 || blue_primary_size != kColorantTagSize ||
-      kICCIdentifierSize + blue_primary_offset + blue_primary_size > icc_size) {
+      blue_primary_offset > profile_size || blue_primary_size > profile_size - blue_primary_offset) {
     if (aligned_block) ::operator delete[](aligned_block, std::align_val_t(alignment_needs));
     return UHDR_CG_UNSPECIFIED;
   }
