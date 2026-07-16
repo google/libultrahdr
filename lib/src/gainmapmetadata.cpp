@@ -52,7 +52,7 @@ uhdr_error_info_t streamReadU8(const std::vector<uint8_t> &data, uint8_t &value,
 }
 
 uhdr_error_info_t streamReadU16(const std::vector<uint8_t> &data, uint16_t &value, size_t &pos) {
-  if (pos + 1 >= data.size()) {
+  if (pos > data.size() || data.size() - pos < 2) {
     uhdr_error_info_t status;
     status.error_code = UHDR_CODEC_MEM_ERROR;
     status.has_detail = 1;
@@ -67,7 +67,7 @@ uhdr_error_info_t streamReadU16(const std::vector<uint8_t> &data, uint16_t &valu
 }
 
 uhdr_error_info_t streamReadU32(const std::vector<uint8_t> &data, uint32_t &value, size_t &pos) {
-  if (pos + 3 >= data.size()) {
+  if (pos > data.size() || data.size() - pos < 4) {
     uhdr_error_info_t status;
     status.error_code = UHDR_CODEC_MEM_ERROR;
     status.has_detail = 1;
@@ -82,7 +82,7 @@ uhdr_error_info_t streamReadU32(const std::vector<uint8_t> &data, uint32_t &valu
 }
 
 uhdr_error_info_t streamReadS32(const std::vector<uint8_t> &data, int32_t &value, size_t &pos) {
-  if (pos + 3 >= data.size()) {
+  if (pos > data.size() || data.size() - pos < 4) {
     uhdr_error_info_t status;
     status.error_code = UHDR_CODEC_MEM_ERROR;
     status.has_detail = 1;
