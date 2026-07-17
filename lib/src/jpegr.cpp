@@ -1295,6 +1295,7 @@ uhdr_error_info_t JpegR::appendGainMap(uhdr_compressed_image_t* sdr_intent_compr
   size_t sos_offset = 0;
   while (base_pos < base_size) {
       if (base_data[base_pos] != 0xFF) break;
+      if (base_pos + 1 >= base_size) break;  // guard against truncated data
       uint8_t marker = base_data[base_pos+1];
       if (marker == 0xDA) {            // SOS — stop here, MPF goes before this
           sos_offset = base_pos;
@@ -1303,7 +1304,14 @@ uhdr_error_info_t JpegR::appendGainMap(uhdr_compressed_image_t* sdr_intent_compr
       if (marker == 0x00 || marker == 0xFF) { base_pos += 2; continue; }
       if (marker >= 0xD0 && marker <= 0xD7) { base_pos += 2; continue; }
       if (marker == 0xD9) break;      // EOI — shouldn't happen here but guard
+      // OOB check: need at least 2 bytes for the segment length field
+      if (base_pos + 4 > base_size) break;
       int seg_len = (base_data[base_pos+2] << 8) | base_data[base_pos+3];
+      // OOB check: the segment must fit within the remaining data
+      if (base_pos + 2 + static_cast<size_t>(seg_len) > base_size) break;
+      // Skip APP markers (0xE0-0xEF) to avoid duplicating metadata
+      // (JFIF/XMP/ICC/ISO) that was already written above
+      if (marker >= 0xE0 && marker <= 0xEF) { base_pos += 2 + seg_len; continue; }
       UHDR_ERR_CHECK(Write(dest, &base_data[base_pos], 2 + seg_len, pos));
       base_pos += 2 + seg_len;
   }
