@@ -923,6 +923,7 @@ string generateXmpForSecondaryImage(uhdr_gainmap_metadata_ext_t& metadata) {
   writer.StartWritingElement("rdf:RDF");
   writer.WriteXmlns("rdf", "http://www.w3.org/1999/02/22-rdf-syntax-ns#");
   writer.StartWritingElement("rdf:Description");
+  writer.WriteAttributeNameAndValue("rdf:about", "");
   writer.WriteXmlns(kGainMapPrefix, kGainMapUri);
   writer.WriteAttributeNameAndValue(kMapVersion, metadata.version);
   writer.WriteAttributeNameAndValue(kMapGainMapMin, log2(metadata.min_content_boost[0]));
