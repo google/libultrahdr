@@ -1604,7 +1604,7 @@ uhdr_error_info_t JpegR::applyGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_ima
             if (map_scale_factor != floorf(map_scale_factor)) {
               gain = sampleMap(gainmap_img, map_scale_factor, x, y);
             } else {
-              gain = sampleMap(gainmap_img, map_scale_factor, x, y, idwTable);
+              gain = sampleMap(gainmap_img, static_cast<size_t>(map_scale_factor), x, y, idwTable);
             }
 
 #if USE_APPLY_GAIN_LUT
@@ -1619,8 +1619,8 @@ uhdr_error_info_t JpegR::applyGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_ima
               gain = sampleMap3Channel(gainmap_img, map_scale_factor, x, y,
                                        gainmap_img->fmt == UHDR_IMG_FMT_32bppRGBA8888);
             } else {
-              gain = sampleMap3Channel(gainmap_img, map_scale_factor, x, y, idwTable,
-                                       gainmap_img->fmt == UHDR_IMG_FMT_32bppRGBA8888);
+              gain = sampleMap3Channel(gainmap_img, static_cast<size_t>(map_scale_factor), x, y,
+                                       idwTable, gainmap_img->fmt == UHDR_IMG_FMT_32bppRGBA8888);
             }
 
 #if USE_APPLY_GAIN_LUT
@@ -1847,7 +1847,7 @@ GlobalTonemapOutputs globalTonemap(const std::array<float, 3>& rgb_in, float hea
 uint8_t ScaleTo8Bit(float value) {
   constexpr float kMaxValFloat = 255.0f;
   constexpr int kMaxValInt = 255;
-  return std::clamp(static_cast<int>(std::round(value * kMaxValFloat)), 0, kMaxValInt);
+  return static_cast<uint8_t>(std::clamp(static_cast<int>(std::round(value * kMaxValFloat)), 0, kMaxValInt));
 }
 
 uhdr_error_info_t JpegR::toneMap(uhdr_raw_image_t* hdr_intent, uhdr_raw_image_t* sdr_intent) {
