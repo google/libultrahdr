@@ -429,7 +429,11 @@ Color getP010Pixel(uhdr_raw_image_t* image, size_t x, size_t y) {
   size_t chroma_stride = image->stride[UHDR_PLANE_UV];
 
   size_t pixel_y_idx = y * luma_stride + x;
-  size_t pixel_u_idx = (y >> 1) * chroma_stride + (x & ~0x1);
+  size_t chroma_x = x & ~(size_t)0x1;
+  // Clamp chroma_x so that the interleaved V sample (at chroma_x + 1) stays within the
+  // chroma row.  Without this, odd image widths cause a 1-element OOB read.
+  if (chroma_x + 1 >= image->w) chroma_x = image->w >= 2 ? image->w - 2 : 0;
+  size_t pixel_u_idx = (y >> 1) * chroma_stride + chroma_x;
   size_t pixel_v_idx = pixel_u_idx + 1;
 
   uint16_t y_uint = luma_data[pixel_y_idx] >> 6;
@@ -1316,8 +1320,8 @@ std::unique_ptr<uhdr_raw_image_ext_t> convert_raw_input_to_ycbcr(uhdr_raw_image_
     uint16_t* uData = static_cast<uint16_t*>(dst->planes[UHDR_PLANE_UV]);
     uint16_t* vData = uData + 1;
 
-    for (size_t i = 0; i < dst->h; i += 2) {
-      for (size_t j = 0; j < dst->w; j += 2) {
+    for (size_t i = 0; i + 1 < dst->h; i += 2) {
+      for (size_t j = 0; j + 1 < dst->w; j += 2) {
         Color pixel[4];
 
         pixel[0].r = float(rgbData[srcStride * i + j] & 0x3ff);
@@ -1410,8 +1414,8 @@ std::unique_ptr<uhdr_raw_image_ext_t> convert_raw_input_to_ycbcr(uhdr_raw_image_
     uint8_t* yData = static_cast<uint8_t*>(dst->planes[UHDR_PLANE_Y]);
     uint8_t* uData = static_cast<uint8_t*>(dst->planes[UHDR_PLANE_U]);
     uint8_t* vData = static_cast<uint8_t*>(dst->planes[UHDR_PLANE_V]);
-    for (size_t i = 0; i < dst->h; i += 2) {
-      for (size_t j = 0; j < dst->w; j += 2) {
+    for (size_t i = 0; i + 1 < dst->h; i += 2) {
+      for (size_t j = 0; j + 1 < dst->w; j += 2) {
         Color pixel[4];
 
         pixel[0].r = float(rgbData[srcStride * i + j] & 0xff);
