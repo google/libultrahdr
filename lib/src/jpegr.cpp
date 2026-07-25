@@ -1201,19 +1201,31 @@ uhdr_error_info_t JpegR::appendGainMap(uhdr_compressed_image_t* sdr_intent_compr
   uhdr_compressed_image_t* final_primary_jpg_image_ptr =
       new_jpg_image.data_sz == 0 ? sdr_intent_compressed : &new_jpg_image;
 
+  // If the primary JPEG already carries an ICC profile and none was passed in, reuse it so the
+  // "Write ICC" block below emits it; the APP marker skip in the reorder loop would otherwise
+  // silently drop it from the output.
+  if (pIcc == nullptr && decoder.getICCSize() > 0) {
+    pIcc = decoder.getICCPtr();
+    icc_size = decoder.getICCSize();
+  }
+
   size_t pos = 0;
   // Begin primary image
   // Write SOI
   UHDR_ERR_CHECK(Write(dest, &photos_editing_formats::image_io::JpegMarker::kStart, 1, pos));
   UHDR_ERR_CHECK(Write(dest, &photos_editing_formats::image_io::JpegMarker::kSOI, 1, pos));
 
-  // ── Extract APP0(JFIF) from base JPEG and write it first (per JFIF spec, APP0 must be first) ──
+  // -- Extract APP0(JFIF) from base JPEG and write it first (per JFIF spec, APP0 must be first) --
   {
     uint8_t* base_data = (uint8_t*)final_primary_jpg_image_ptr->data;
     size_t base_size = final_primary_jpg_image_ptr->data_sz;
-    if (base_size > 4 && base_data[2] == 0xFF && base_data[3] == 0xE0) {
+    // OOB check: need marker (2 bytes) + segment length field (2 bytes)
+    if (base_size >= 6 && base_data[2] == 0xFF && base_data[3] == 0xE0) {
         int jfif_len = (base_data[4] << 8) | base_data[5];
-        UHDR_ERR_CHECK(Write(dest, &base_data[2], 2 + jfif_len, pos));
+        // OOB check: the segment must fit within the base data
+        if (2 + 2 + static_cast<size_t>(jfif_len) <= base_size) {
+            UHDR_ERR_CHECK(Write(dest, &base_data[2], 2 + jfif_len, pos));
+        }
     }
   }
 
@@ -1272,9 +1284,9 @@ uhdr_error_info_t JpegR::appendGainMap(uhdr_compressed_image_t* sdr_intent_compr
     UHDR_ERR_CHECK(Write(dest, &zero, 1, pos));  // 2 bytes writer_version: (00 00)
   }
 
-  // ── Parse and reorder primary JPEG data ──
-  // Standard order: SOI → APP0(JFIF) → APP1(XMP) → APP2(ICC) → APP2(ISO) → DQT/SOF/DHT → APP2(MPF) → SOS
-  // libjpeg-turbo encodes the base JPEG as: SOI → APP0(JFIF) → DQT×2 → SOF0 → DHT×4 → SOS → data → EOI
+  // -- Parse and reorder primary JPEG data --
+  // Standard order: SOI -> APP0(JFIF) -> APP1(XMP) -> APP2(ICC) -> APP2(ISO) -> DQT/SOF/DHT -> APP2(MPF) -> SOS
+  // libjpeg-turbo encodes the base JPEG as: SOI -> APP0(JFIF) -> DQTx2 -> SOF0 -> DHTx4 -> SOS -> data -> EOI
   // We need to:
   //   1. Extract APP0(JFIF) and write it immediately after SOI (before our XMP/ISO/ICC)
   //   2. Write DQT/SOF/DHT from the base JPEG
@@ -1285,25 +1297,25 @@ uhdr_error_info_t JpegR::appendGainMap(uhdr_compressed_image_t* sdr_intent_compr
   size_t base_size = final_primary_jpg_image_ptr->data_sz;
   size_t base_pos = 2;  // skip SOI (base_data[0..1] = FF D8)
 
-  // ── Skip APP0(JFIF) in base JPEG data (already written above) ──
+  // -- Skip APP0(JFIF) in base JPEG data (already written above) --
   if (base_pos + 4 <= base_size && base_data[base_pos] == 0xFF && base_data[base_pos+1] == 0xE0) {
       int jfif_len = (base_data[base_pos+2] << 8) | base_data[base_pos+3];
       base_pos += 2 + jfif_len;
   }
 
-  // ── Write marker segments (DQT, SOF, DHT) up to SOS ──
+  // -- Write marker segments (DQT, SOF, DHT) up to SOS --
   size_t sos_offset = 0;
   while (base_pos < base_size) {
       if (base_data[base_pos] != 0xFF) break;
       if (base_pos + 1 >= base_size) break;  // guard against truncated data
       uint8_t marker = base_data[base_pos+1];
-      if (marker == 0xDA) {            // SOS — stop here, MPF goes before this
+      if (marker == 0xDA) {            // SOS - stop here, MPF goes before this
           sos_offset = base_pos;
           break;
       }
       if (marker == 0x00 || marker == 0xFF) { base_pos += 2; continue; }
       if (marker >= 0xD0 && marker <= 0xD7) { base_pos += 2; continue; }
-      if (marker == 0xD9) break;      // EOI — shouldn't happen here but guard
+      if (marker == 0xD9) break;      // EOI - shouldn't happen here but guard
       // OOB check: need at least 2 bytes for the segment length field
       if (base_pos + 4 > base_size) break;
       int seg_len = (base_data[base_pos+2] << 8) | base_data[base_pos+3];
@@ -1316,7 +1328,7 @@ uhdr_error_info_t JpegR::appendGainMap(uhdr_compressed_image_t* sdr_intent_compr
       base_pos += 2 + seg_len;
   }
 
-  // ── Write MPF (right before SOS, per CIPA DC-007) ──
+  // -- Write MPF (right before SOS, per CIPA DC-007) --
   {
     const size_t length = 2 + calculateMpfSize();
     const uint8_t lengthH = ((length >> 8) & 0xff);
@@ -1336,11 +1348,11 @@ uhdr_error_info_t JpegR::appendGainMap(uhdr_compressed_image_t* sdr_intent_compr
     UHDR_ERR_CHECK(Write(dest, (void*)mpf->getData(), mpf->getLength(), pos));
   }
 
-  // ── Write SOS + compressed data + EOI ──
+  // -- Write SOS + compressed data + EOI --
   if (sos_offset > 0) {
       UHDR_ERR_CHECK(Write(dest, &base_data[sos_offset], base_size - sos_offset, pos));
   }
-  // Finish primary image — EOI is already included in the base JPEG data
+  // Finish primary image - EOI is already included in the base JPEG data
 
   // Begin secondary image (gain map)
   // Write SOI
