@@ -1328,12 +1328,25 @@ uhdr_error_info_t JpegR::appendGainMap(uhdr_compressed_image_t* sdr_intent_compr
       base_pos += 2 + seg_len;
   }
 
+  // The reorder path depends on locating SOS in the base JPEG; without it the primary image
+  // would be emitted without its entropy-coded data, producing a corrupt file.
+  if (sos_offset == 0) {
+    uhdr_error_info_t status;
+    status.error_code = UHDR_CODEC_INVALID_PARAM;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "SOS marker not found while reordering base jpeg segments, unable to append gainmap");
+    return status;
+  }
+
   // -- Write MPF (right before SOS, per CIPA DC-007) --
   {
     const size_t length = 2 + calculateMpfSize();
     const uint8_t lengthH = ((length >> 8) & 0xff);
     const uint8_t lengthL = (length & 0xff);
-    size_t primary_image_size = pos + length + (base_size - sos_offset);
+    // primary image size = bytes written so far + MPF APP2 block (2 bytes marker + length)
+    //                    + SOS through EOI copied from the base JPEG
+    size_t primary_image_size = pos + 2 + length + (base_size - sos_offset);
     // between APP2 + package size + signature
     // ff e2 00 58 4d 50 46 00
     // 2 + 2 + 4 = 8 (bytes)
@@ -1349,9 +1362,7 @@ uhdr_error_info_t JpegR::appendGainMap(uhdr_compressed_image_t* sdr_intent_compr
   }
 
   // -- Write SOS + compressed data + EOI --
-  if (sos_offset > 0) {
-      UHDR_ERR_CHECK(Write(dest, &base_data[sos_offset], base_size - sos_offset, pos));
-  }
+  UHDR_ERR_CHECK(Write(dest, &base_data[sos_offset], base_size - sos_offset, pos));
   // Finish primary image - EOI is already included in the base JPEG data
 
   // Begin secondary image (gain map)
