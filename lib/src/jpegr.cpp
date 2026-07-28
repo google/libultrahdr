@@ -1548,14 +1548,17 @@ uhdr_error_info_t UltraHdr::applyGainMap(uhdr_raw_image_t* sdr_intent,
   UHDR_ERR_CHECK(uhdr_validate_gainmap_metadata_descriptor(gainmap_metadata));
   if (sdr_intent->fmt != UHDR_IMG_FMT_24bppYCbCr444 &&
       sdr_intent->fmt != UHDR_IMG_FMT_16bppYCbCr422 &&
-      sdr_intent->fmt != UHDR_IMG_FMT_12bppYCbCr420) {
+      sdr_intent->fmt != UHDR_IMG_FMT_12bppYCbCr420 &&
+      sdr_intent->fmt != UHDR_IMG_FMT_24bppRGB888 &&
+      sdr_intent->fmt != UHDR_IMG_FMT_32bppRGBA8888) {
     uhdr_error_info_t status;
     status.error_code = UHDR_CODEC_UNSUPPORTED_FEATURE;
     status.has_detail = 1;
     snprintf(status.detail, sizeof status.detail,
              "apply gainmap method expects base image color format to be one of "
              "{UHDR_IMG_FMT_24bppYCbCr444, UHDR_IMG_FMT_16bppYCbCr422, "
-             "UHDR_IMG_FMT_12bppYCbCr420}. Received %d",
+             "UHDR_IMG_FMT_12bppYCbCr420, UHDR_IMG_FMT_24bppRGB888, UHDR_IMG_FMT_32bppRGBA8888}. "
+             "Received %d",
              sdr_intent->fmt);
     return status;
   }
@@ -1669,13 +1672,19 @@ uhdr_error_info_t UltraHdr::applyGainMap(uhdr_raw_image_t* sdr_intent,
                                        map_scale_factor, get_pixel_fn]() -> void {
     unsigned int width = sdr_intent->w;
     unsigned int rowStart, rowEnd;
+    const bool isSdrIntentRgb = isPixelFormatRgb(sdr_intent->fmt);
 
     while (jobQueue.dequeueJob(rowStart, rowEnd)) {
       for (size_t y = rowStart; y < rowEnd; ++y) {
         for (size_t x = 0; x < width; ++x) {
-          Color yuv_gamma_sdr = get_pixel_fn(sdr_intent, x, y);
-          // Assuming the sdr image is a decoded JPEG, we should always use Rec.601 YUV coefficients
-          Color rgb_gamma_sdr = p3YuvToRgb(yuv_gamma_sdr);
+          Color rgb_gamma_sdr;
+
+          if (isSdrIntentRgb) {
+            rgb_gamma_sdr = get_pixel_fn(sdr_intent, x, y);
+          } else {
+            Color yuv_gamma_sdr = get_pixel_fn(sdr_intent, x, y);
+            rgb_gamma_sdr = p3YuvToRgb(yuv_gamma_sdr);
+          }
           // We are assuming the SDR base image is always sRGB transfer.
 #if USE_SRGB_INVOETF_LUT
           Color rgb_sdr = srgbInvOetfLUT(rgb_gamma_sdr);

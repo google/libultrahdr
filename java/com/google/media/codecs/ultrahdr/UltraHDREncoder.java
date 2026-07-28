@@ -423,7 +423,9 @@ public class UltraHDREncoder implements AutoCloseable {
      * image and gainmap image. Default configuration is {@link UltraHDREncoder#UHDR_CODEC_JPG}.
      *
      * @param mediaType output image compression format. Supported values are
-     *                  {@link UltraHDREncoder#UHDR_CODEC_JPG}
+     *                  {@link UltraHDREncoder#UHDR_CODEC_JPG},
+     *                  {@link UltraHDREncoder#UHDR_CODEC_HEIF},
+     *                  {@link UltraHDREncoder#UHDR_CODEC_AVIF}
      * @throws IOException If parameters are not valid or current encoder instance is not valid
      *                     or current encoder instance is not suitable for configuration
      *                     exception is thrown

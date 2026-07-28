@@ -399,6 +399,7 @@ struct uhdr_decoder_private : uhdr_codec_private {
 
   // internal data
   bool m_probed;
+  bool m_is_jpeg;
   std::unique_ptr<ultrahdr::uhdr_raw_image_ext_t> m_decoded_img_buffer;
   std::unique_ptr<ultrahdr::uhdr_raw_image_ext_t> m_gainmap_img_buffer;
   int m_img_wd, m_img_ht;

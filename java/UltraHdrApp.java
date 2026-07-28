@@ -9,6 +9,9 @@
  */
 
 import static com.google.media.codecs.ultrahdr.UltraHDRCommon.*;
+import static com.google.media.codecs.ultrahdr.UltraHDREncoder.UHDR_CODEC_AVIF;
+import static com.google.media.codecs.ultrahdr.UltraHDREncoder.UHDR_CODEC_HEIF;
+import static com.google.media.codecs.ultrahdr.UltraHDREncoder.UHDR_CODEC_JPG;
 import static com.google.media.codecs.ultrahdr.UltraHDREncoder.UHDR_USAGE_BEST_QUALITY;
 
 import java.io.File;
@@ -57,6 +60,7 @@ public class UltraHdrApp {
     private final float mGamma;
     private final boolean mEnableGLES;
     private final int mEncPreset;
+    private final int mOutFormat;
     private final float mMinContentBoost;
     private final float mMaxContentBoost;
     private final float mTargetDispPeakBrightness;
@@ -77,7 +81,8 @@ public class UltraHdrApp {
             String gainmapMetadataCfgFile, String exifFile, String outputFile, int width,
             int height, int hdrCf, int sdrCf, int hdrCg, int sdrCg, int hdrTf, int quality, int oTf,
             int oFmt, boolean isHdrCrFull, int gainmapScaleFactor, int gainmapQuality,
-            boolean enableMultiChannelGainMap, float gamma, int encPreset, float minContentBoost,
+            boolean enableMultiChannelGainMap, float gamma, int encPreset, int outFormat,
+            float minContentBoost,
             float maxContentBoost, float targetDispPeakBrightness) {
         mHdrIntentRawFile = hdrIntentRawFile;
         mSdrIntentRawFile = sdrIntentRawFile;
@@ -104,6 +109,7 @@ public class UltraHdrApp {
         mGamma = gamma;
         mEnableGLES = false;
         mEncPreset = encPreset;
+        mOutFormat = outFormat;
         mMinContentBoost = minContentBoost;
         mMaxContentBoost = maxContentBoost;
         mTargetDispPeakBrightness = targetDispPeakBrightness;
@@ -136,6 +142,7 @@ public class UltraHdrApp {
         mGamma = 1.0f;
         mEnableGLES = enableGLES;
         mEncPreset = UHDR_USAGE_BEST_QUALITY;
+        mOutFormat = UHDR_CODEC_JPG;
         mMinContentBoost = Float.MIN_VALUE;
         mMaxContentBoost = Float.MAX_VALUE;
         mTargetDispPeakBrightness = -1.0f;
@@ -445,6 +452,7 @@ public class UltraHdrApp {
             handle.setGainMapScaleFactor(mMapDimensionScaleFactor);
             handle.setGainMapGamma(mGamma);
             handle.setEncPreset(mEncPreset);
+            handle.setOutputFormat(mOutFormat);
             if (mMinContentBoost != Float.MIN_VALUE || mMaxContentBoost != Float.MAX_VALUE) {
                 handle.setMinMaxContentBoost(mMinContentBoost, mMaxContentBoost);
             }
@@ -526,6 +534,9 @@ public class UltraHdrApp {
                 + " 1:enable (default)].");
         System.out.println("    -D    select encoding preset, optional. [0:real time,"
                 + " 1:best quality (default)].");
+        System.out.println(
+                "    -v    select output encoding format, optional. [0:jpg (default), 1:heif, "
+                        + "2:avif ]. \n");
         System.out.println("    -k    min content boost recommendation, must be in linear scale,"
                 + " optional. any positive real number");
         System.out.println("    -K    max content boost recommendation, must be in linear scale,"
@@ -553,7 +564,9 @@ public class UltraHdrApp {
                 "    -u    enable gles acceleration, optional. [0:disable (default), 1:enable].");
         System.out.println("\n## common options :");
         System.out.println("    -z    output filename, optional.");
-        System.out.println("          in encoding mode, default output filename 'out.jpeg'.");
+        System.out.println(
+                "          in encoding mode, default output filename 'out.jpeg / out.heif / out"
+                        + ".avif'.");
         System.out.println("          in decoding mode, default output filename 'outrgb.raw'.");
         System.out.println("    -f    gainmap metadata config file.");
         System.out.println("          in encoding mode, resource from which gainmap metadata is "
@@ -639,6 +652,7 @@ public class UltraHdrApp {
         int gain_map_scale_factor = 1;
         int gainmap_compression_quality = 95;
         int enc_preset = UHDR_USAGE_BEST_QUALITY;
+        int out_format = UHDR_CODEC_JPG;
         float gamma = 1.0f;
         boolean enable_gles = false;
         float min_content_boost = Float.MIN_VALUE;
@@ -728,6 +742,9 @@ public class UltraHdrApp {
                     case 'D':
                         enc_preset = Integer.parseInt(args[++i]);
                         break;
+                    case 'v':
+                        out_format = Integer.parseInt(args[++i]);
+                        break;
                     case 'k':
                         min_content_boost = Float.parseFloat(args[++i]);
                         break;
@@ -764,12 +781,22 @@ public class UltraHdrApp {
                 System.err.println("did not receive raw resources for encoding.");
                 return;
             }
+            if (output_file == null) {
+                if (out_format == UHDR_CODEC_JPG)
+                    output_file = "out.jpeg";
+                else if (out_format == UHDR_CODEC_HEIF)
+                    output_file = "out.heif";
+                else if (out_format == UHDR_CODEC_AVIF)
+                    output_file = "out.avif";
+                else
+                    output_file = "out.bin";
+            }
             UltraHdrApp appInput = new UltraHdrApp(hdr_intent_raw_file, sdr_intent_raw_file,
                     sdr_intent_compressed_file, gainmap_compressed_file, gainmap_metadata_cfg_file,
-                    exif_file, output_file != null ? output_file : "out.jpeg", width, height,
+                    exif_file, output_file, width, height,
                     hdr_cf, sdr_cf, hdr_cg, sdr_cg, hdr_tf, quality, out_tf, out_cf,
                     use_full_range_color_hdr, gain_map_scale_factor, gainmap_compression_quality,
-                    use_multi_channel_gainmap, gamma, enc_preset, min_content_boost,
+                    use_multi_channel_gainmap, gamma, enc_preset, out_format, min_content_boost,
                     max_content_boost, target_disp_max_brightness);
             appInput.encode();
         } else if (mode == 1) {
