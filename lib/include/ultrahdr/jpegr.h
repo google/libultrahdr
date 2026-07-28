@@ -22,32 +22,6 @@
 
 namespace ultrahdr {
 
-// Default configurations
-// gainmap image downscale factor
-static const int kMapDimensionScaleFactorDefault = 1;
-static const int kMapDimensionScaleFactorAndroidDefault = 4;
-
-// JPEG compress quality (0 ~ 100) for base image
-static const int kBaseCompressQualityDefault = 95;
-
-// JPEG compress quality (0 ~ 100) for gain map
-static const int kMapCompressQualityDefault = 95;
-static const int kMapCompressQualityAndroidDefault = 85;
-
-// Gain map calculation
-static const bool kUseMultiChannelGainMapDefault = true;
-static const bool kUseMultiChannelGainMapAndroidDefault = false;
-
-// encoding preset
-static const uhdr_enc_preset_t kEncSpeedPresetDefault = UHDR_USAGE_BEST_QUALITY;
-static const uhdr_enc_preset_t kEncSpeedPresetAndroidDefault = UHDR_USAGE_REALTIME;
-
-// Default gamma value for gain map
-static const float kGainMapGammaDefault = 1.0f;
-
-// The current JPEGR version that we encode to
-static const char* const kJpegrVersion = "1.0";
-
 /*
  * Holds information of jpeg image
  */
@@ -75,7 +49,7 @@ struct jpegr_info_struct {
 typedef struct jpeg_info_struct* j_info_ptr;
 typedef struct jpegr_info_struct* jr_info_ptr;
 
-class JpegR {
+class JpegR : public UltraHdr {
  public:
   JpegR(void* uhdrGLESCtxt = nullptr,
         int mapDimensionScaleFactor = kMapDimensionScaleFactorAndroidDefault,
@@ -247,102 +221,6 @@ class JpegR {
   uhdr_error_info_t getJPEGRInfo(uhdr_compressed_image_t* uhdr_compressed_img,
                                  jr_info_ptr uhdr_image_info);
 
-  /*!\brief set gain map dimension scale factor
-   * NOTE: Applicable only in encoding scenario
-   *
-   * \param[in]       mapDimensionScaleFactor      scale factor
-   *
-   * \return none
-   */
-  void setMapDimensionScaleFactor(int mapDimensionScaleFactor) {
-    this->mMapDimensionScaleFactor = mapDimensionScaleFactor;
-  }
-
-  /*!\brief get gain map dimension scale factor
-   * NOTE: Applicable only in encoding scenario
-   *
-   * \return mapDimensionScaleFactor
-   */
-  int getMapDimensionScaleFactor() { return this->mMapDimensionScaleFactor; }
-
-  /*!\brief set gain map compression quality factor
-   * NOTE: Applicable only in encoding scenario
-   *
-   * \param[in]       mapCompressQuality      quality factor for gain map image compression
-   *
-   * \return none
-   */
-  void setMapCompressQuality(int mapCompressQuality) {
-    this->mMapCompressQuality = mapCompressQuality;
-  }
-
-  /*!\brief get gain map quality factor
-   * NOTE: Applicable only in encoding scenario
-   *
-   * \return quality factor
-   */
-  int getMapCompressQuality() { return this->mMapCompressQuality; }
-
-  /*!\brief set gain map gamma
-   * NOTE: Applicable only in encoding scenario
-   *
-   * \param[in]       gamma      gamma parameter that is used for gain map calculation
-   *
-   * \return none
-   */
-  void setGainMapGamma(float gamma) { this->mGamma = gamma; }
-
-  /*!\brief get gain map gamma
-   * NOTE: Applicable only in encoding scenario
-   *
-   * \return gamma parameter
-   */
-  float getGainMapGamma() { return this->mGamma; }
-
-  /*!\brief enable / disable multi channel gain map
-   * NOTE: Applicable only in encoding scenario
-   *
-   * \param[in]       useMultiChannelGainMap      enable / disable multi channel gain map
-   *
-   * \return none
-   */
-  void setUseMultiChannelGainMap(bool useMultiChannelGainMap) {
-    this->mUseMultiChannelGainMap = useMultiChannelGainMap;
-  }
-
-  /*!\brief check if multi channel gain map is enabled
-   * NOTE: Applicable only in encoding scenario
-   *
-   * \return true if multi channel gain map is enabled, false otherwise
-   */
-  bool isUsingMultiChannelGainMap() { return this->mUseMultiChannelGainMap; }
-
-  /*!\brief set gain map min and max content boost
-   * NOTE: Applicable only in encoding scenario
-   *
-   * \param[in]       minBoost      gain map min content boost
-   * \param[in]       maxBoost      gain map max content boost
-   *
-   * \return none
-   */
-  void setGainMapMinMaxContentBoost(float minBoost, float maxBoost) {
-    this->mMinContentBoost = minBoost;
-    this->mMaxContentBoost = maxBoost;
-  }
-
-  /*!\brief get gain map min max content boost
-   * NOTE: Applicable only in encoding scenario
-   *
-   * \param[out]       minBoost      gain map min content boost
-   * \param[out]       maxBoost      gain map max content boost
-   *
-   * \return none
-   */
-  void getGainMapMinMaxContentBoost(float& minBoost, float& maxBoost) {
-    minBoost = this->mMinContentBoost;
-    maxBoost = this->mMaxContentBoost;
-  }
-
   /* \brief Alias of Encode API-0.
    *
    * \deprecated This function is deprecated. Use its alias
@@ -396,87 +274,6 @@ class JpegR {
    * \deprecated This function is deprecated. Use its actual
    */
   status_t getJPEGRInfo(jr_compressed_ptr jpegr_image_ptr, jr_info_ptr jpegr_image_info_ptr);
-
-  /*!\brief This function receives iso block and / or xmp + exif block and parses gainmap metadata
-   * and fill the output descriptor. If both iso block and xmp +exif block are available, then iso
-   * block is preferred over xmp. Exif can be useful with xmp for Apple gain maps:
-   * https://developer.apple.com/documentation/appkit/applying-apple-hdr-effect-to-your-photos
-   *
-   * \param[in]       iso_data                  iso memory block
-   * \param[in]       iso_size                  iso block size
-   * \param[in]       xmp_data                  xmp memory block
-   * \param[in]       xmp_size                  xmp block size
-   * \param[in]       exif_data                 exif memory block
-   * \param[in]       exif_size                 exif block size
-   * \param[in, out]  gainmap_metadata          gainmap metadata descriptor
-   *
-   * \return uhdr_error_info_t #UHDR_CODEC_OK if operation succeeds, uhdr_codec_err_t otherwise.
-   */
-  uhdr_error_info_t parseGainMapMetadata(uint8_t* iso_data, size_t iso_size, uint8_t* xmp_data,
-                                         size_t xmp_size, uint8_t* exif_data, int exif_size,
-                                         uhdr_gainmap_metadata_ext_t* uhdr_metadata);
-
-  /*!\brief This method is used to tone map a hdr image
-   *
-   * \param[in]            hdr_intent      hdr image descriptor
-   * \param[in, out]       sdr_intent      sdr image descriptor
-   *
-   * \return uhdr_error_info_t #UHDR_CODEC_OK if operation succeeds, uhdr_codec_err_t otherwise.
-   */
-  uhdr_error_info_t toneMap(uhdr_raw_image_t* hdr_intent, uhdr_raw_image_t* sdr_intent);
-
-  /*!\brief This method takes hdr intent and sdr intent and computes gainmap coefficient.
-   *
-   * This method is called in the encoding pipeline. It takes uncompressed 8-bit and 10-bit yuv
-   * images as input and calculates gainmap.
-   *
-   * NOTE: The input images must be the same resolution.
-   * NOTE: The SDR input is assumed to use the sRGB transfer function.
-   *
-   * \param[in]       sdr_intent               sdr intent raw input image descriptor
-   * \param[in]       hdr_intent               hdr intent raw input image descriptor
-   * \param[in, out]  gainmap_metadata         gainmap metadata descriptor
-   * \param[in, out]  gainmap_img              gainmap image descriptor
-   * \param[in]       sdr_is_601               (optional) if sdr_is_601 is true, then use BT.601
-   *                                           gamut to represent sdr intent regardless of the value
-   *                                           present in the sdr intent image descriptor
-   * \param[in]       use_luminance            (optional) used for single channel gainmap. If
-   *                                           use_luminance is true, gainmap calculation is based
-   *                                           on the pixel's luminance which is a weighted
-   *                                           combination of r, g, b channels; otherwise, gainmap
-   *                                           calculation is based of the maximun value of r, g, b
-   *                                           channels.
-   *
-   * \return uhdr_error_info_t #UHDR_CODEC_OK if operation succeeds, uhdr_codec_err_t otherwise.
-   */
-  uhdr_error_info_t generateGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_image_t* hdr_intent,
-                                    uhdr_gainmap_metadata_ext_t* gainmap_metadata,
-                                    std::unique_ptr<uhdr_raw_image_ext_t>& gainmap_img,
-                                    bool sdr_is_601 = false, bool use_luminance = true);
-
- protected:
-  /*!\brief This method takes sdr intent, gainmap image and gainmap metadata and computes hdr
-   * intent. This method is called in the decoding pipeline. The output hdr intent image will have
-   * same color gamut as sdr intent.
-   *
-   * NOTE: The SDR input is assumed to use the sRGB transfer function.
-   *
-   * \param[in]       sdr_intent               sdr intent raw input image descriptor
-   * \param[in]       gainmap_img              gainmap image descriptor
-   * \param[in]       gainmap_metadata         gainmap metadata descriptor
-   * \param[in]       output_ct                output color transfer
-   * \param[in]       output_format            output pixel format
-   * \param[in]       max_display_boost        the maximum available boost supported by a
-   *                                           display, the value must be greater than or equal
-   *                                           to 1.0
-   * \param[in, out]  dest                     output image descriptor to store output
-   *
-   * \return uhdr_error_info_t #UHDR_CODEC_OK if operation succeeds, uhdr_codec_err_t otherwise.
-   */
-  uhdr_error_info_t applyGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_image_t* gainmap_img,
-                                 uhdr_gainmap_metadata_ext_t* gainmap_metadata,
-                                 uhdr_color_transfer_t output_ct, uhdr_img_fmt_t output_format,
-                                 float max_display_boost, uhdr_raw_image_t* dest);
 
  private:
   /*!\brief compress gainmap image
@@ -545,18 +342,6 @@ class JpegR {
                                   uhdr_gainmap_metadata_ext_t* metadata,
                                   uhdr_compressed_image_t* dest);
 
-  /*!\brief This method is used to convert a raw image from one gamut space to another gamut space
-   * in-place.
-   *
-   * \param[in, out]  image              raw image descriptor
-   * \param[in]       src_encoding       input gamut space
-   * \param[in]       dst_encoding       destination gamut space
-   *
-   * \return uhdr_error_info_t #UHDR_CODEC_OK if operation succeeds, uhdr_codec_err_t otherwise.
-   */
-  uhdr_error_info_t convertYuv(uhdr_raw_image_t* image, uhdr_color_gamut_t src_encoding,
-                               uhdr_color_gamut_t dst_encoding);
-
   /*
    * This method will check the validity of the input arguments.
    *
@@ -593,41 +378,7 @@ class JpegR {
                                   jr_uncompressed_ptr yuv420_image_ptr,
                                   ultrahdr_transfer_function hdr_tf, jr_compressed_ptr dest,
                                   int quality);
-
-  // Configurations
-  void* mUhdrGLESCtxt;              // opengl es context
-  int mMapDimensionScaleFactor;     // gain map scale factor
-  int mMapCompressQuality;          // gain map quality factor
-  bool mUseMultiChannelGainMap;     // enable multichannel gain map
-  float mGamma;                     // gain map gamma parameter
-  uhdr_enc_preset_t mEncPreset;     // encoding speed preset
-  float mMinContentBoost;           // min content boost recommendation
-  float mMaxContentBoost;           // max content boost recommendation
-  float mTargetDispPeakBrightness;  // target display max luminance in nits
 };
-
-/*
- * Holds tonemapping results of a pixel
- */
-struct GlobalTonemapOutputs {
-  std::array<float, 3> rgb_out;
-  float y_hdr;
-  float y_sdr;
-};
-
-/*!\brief Applies a global tone mapping, based on Chrome's HLG/PQ rendering implemented at
- *  https://source.chromium.org/chromium/chromium/src/+/main:ui/gfx/color_transform.cc;l=1197-1252;drc=ac505aff1d29ec3bfcf317cb77d5e196a3664e92
- *
- * \param[in]       rgb_in              hdr intent pixel in array format.
- * \param[in]       headroom            ratio between hdr and sdr peak luminances. Must be greater
- *                                      than 1. If the input is normalized, then this is used to
- *                                      stretch it linearly from [0.0..1.0] to [0.0..headroom]
- * \param[in]       is_normalized       marker to differentiate, if the input is normalized.
- *
- * \return tonemapped pixel in the normalized range [0.0..1.0]
- */
-GlobalTonemapOutputs globalTonemap(const std::array<float, 3>& rgb_in, float headroom,
-                                   bool is_normalized);
 
 }  // namespace ultrahdr
 

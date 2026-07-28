@@ -134,7 +134,13 @@ unsigned int GetCPUCoreCount() { return (std::max)(1u, std::thread::hardware_con
 
 JpegR::JpegR(void* uhdrGLESCtxt, int mapDimensionScaleFactor, int mapCompressQuality,
              bool useMultiChannelGainMap, float gamma, uhdr_enc_preset_t preset,
-             float minContentBoost, float maxContentBoost, float targetDispPeakBrightness) {
+             float minContentBoost, float maxContentBoost, float targetDispPeakBrightness)
+    : UltraHdr(uhdrGLESCtxt, mapDimensionScaleFactor, mapCompressQuality, useMultiChannelGainMap,
+               gamma, preset, minContentBoost, maxContentBoost, targetDispPeakBrightness) {}
+
+UltraHdr::UltraHdr(void* uhdrGLESCtxt, int mapDimensionScaleFactor, int mapCompressQuality,
+                   bool useMultiChannelGainMap, float gamma, uhdr_enc_preset_t preset,
+                   float minContentBoost, float maxContentBoost, float targetDispPeakBrightness) {
   mUhdrGLESCtxt = uhdrGLESCtxt;
   mMapDimensionScaleFactor = mapDimensionScaleFactor;
   mMapCompressQuality = mapCompressQuality;
@@ -427,8 +433,8 @@ uhdr_error_info_t JpegR::encodeJPEGR(uhdr_compressed_image_t* base_img_compresse
   return g_no_error;
 }
 
-uhdr_error_info_t JpegR::convertYuv(uhdr_raw_image_t* image, uhdr_color_gamut_t src_encoding,
-                                    uhdr_color_gamut_t dst_encoding) {
+uhdr_error_info_t UltraHdr::convertYuv(uhdr_raw_image_t* image, uhdr_color_gamut_t src_encoding,
+                                       uhdr_color_gamut_t dst_encoding) {
   const std::array<float, 9>* coeffs_ptr = nullptr;
   uhdr_error_info_t status = g_no_error;
 
@@ -521,10 +527,11 @@ uhdr_error_info_t JpegR::compressGainMap(uhdr_raw_image_t* gainmap_img,
   return jpeg_enc_obj->compressImage(gainmap_img, mMapCompressQuality, nullptr, 0);
 }
 
-uhdr_error_info_t JpegR::generateGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_image_t* hdr_intent,
-                                         uhdr_gainmap_metadata_ext_t* gainmap_metadata,
-                                         std::unique_ptr<uhdr_raw_image_ext_t>& gainmap_img,
-                                         bool sdr_is_601, bool use_luminance) {
+uhdr_error_info_t UltraHdr::generateGainMap(uhdr_raw_image_t* sdr_intent,
+                                            uhdr_raw_image_t* hdr_intent,
+                                            uhdr_gainmap_metadata_ext_t* gainmap_metadata,
+                                            std::unique_ptr<uhdr_raw_image_ext_t>& gainmap_img,
+                                            bool sdr_is_601, bool use_luminance) {
   uhdr_error_info_t status = g_no_error;
 
   if (sdr_intent->fmt != UHDR_IMG_FMT_24bppYCbCr444 &&
@@ -1422,9 +1429,9 @@ uhdr_error_info_t JpegR::getJPEGRInfo(uhdr_compressed_image_t* uhdr_compressed_i
   return g_no_error;
 }
 
-uhdr_error_info_t JpegR::parseGainMapMetadata(uint8_t* iso_data, size_t iso_size, uint8_t* xmp_data,
-                                              size_t xmp_size, uint8_t* exif_data, int exif_size,
-                                              uhdr_gainmap_metadata_ext_t* uhdr_metadata) {
+uhdr_error_info_t UltraHdr::parseGainMapMetadata(uint8_t* iso_data, size_t iso_size, uint8_t* xmp_data,
+                                                 size_t xmp_size, uint8_t* exif_data, int exif_size,
+                                                 uhdr_gainmap_metadata_ext_t* uhdr_metadata) {
   if (iso_size > 0) {
     if (iso_size < kIsoNameSpace.size() + 1) {
       uhdr_error_info_t status;
@@ -1523,11 +1530,12 @@ uhdr_error_info_t JpegR::decodeJPEGR(uhdr_compressed_image_t* uhdr_compressed_im
   return g_no_error;
 }
 
-uhdr_error_info_t JpegR::applyGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_image_t* gainmap_img,
-                                      uhdr_gainmap_metadata_ext_t* gainmap_metadata,
-                                      uhdr_color_transfer_t output_ct,
-                                      [[maybe_unused]] uhdr_img_fmt_t output_format,
-                                      float max_display_boost, uhdr_raw_image_t* dest) {
+uhdr_error_info_t UltraHdr::applyGainMap(uhdr_raw_image_t* sdr_intent,
+                                         uhdr_raw_image_t* gainmap_img,
+                                         uhdr_gainmap_metadata_ext_t* gainmap_metadata,
+                                         uhdr_color_transfer_t output_ct,
+                                         [[maybe_unused]] uhdr_img_fmt_t output_format,
+                                         float max_display_boost, uhdr_raw_image_t* dest) {
   if (gainmap_metadata->version.compare(kJpegrVersion)) {
     uhdr_error_info_t status;
     status.error_code = UHDR_CODEC_UNSUPPORTED_FEATURE;
@@ -1928,7 +1936,7 @@ uint8_t ScaleTo8Bit(float value) {
   return std::clamp(static_cast<int>(std::round(value * kMaxValFloat)), 0, kMaxValInt);
 }
 
-uhdr_error_info_t JpegR::toneMap(uhdr_raw_image_t* hdr_intent, uhdr_raw_image_t* sdr_intent) {
+uhdr_error_info_t UltraHdr::toneMap(uhdr_raw_image_t* hdr_intent, uhdr_raw_image_t* sdr_intent) {
   if (hdr_intent->fmt != UHDR_IMG_FMT_24bppYCbCrP010 &&
       hdr_intent->fmt != UHDR_IMG_FMT_30bppYCbCr444 &&
       hdr_intent->fmt != UHDR_IMG_FMT_32bppRGBA1010102 &&
