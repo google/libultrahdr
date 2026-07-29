@@ -1399,8 +1399,13 @@ TEST(JpegRTest, DecodeAPIWithInvalidArgs) {
       << "fail, API allows invalid output format";
 }
 
+class TestJpegR : public JpegR {
+ public:
+  using JpegR::applyGainMap;
+};
+
 TEST(JpegRTest, ApplyGainMapInvalidArgs) {
-  JpegR uHdrLib;
+  TestJpegR uHdrLib;
   uhdr_raw_image_t sdr_intent{};
   sdr_intent.fmt = UHDR_IMG_FMT_32bppRGBA8888;
   sdr_intent.w = 16;
