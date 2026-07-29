@@ -66,7 +66,7 @@
  *                                               existing API which warrants a major version update.
  *                                               But indicated as a minor update.
  *   1.3.0           1.3.0                       Some bug fixes, introduced new API.
- *   1.4.0           1.4.0                       quality improvements, bug fixes, added new features
+ *   1.5.0           1.5.0                       quality improvements, bug fixes, added new features
  *                                               and api update.
  */
 
