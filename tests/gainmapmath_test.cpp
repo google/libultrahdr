@@ -1433,6 +1433,16 @@ TEST_F(GainMapMathTest, GetP010Pixel) {
   }
 }
 
+TEST_F(GainMapMathTest, GetP010PixelOddWidth) {
+  auto image = P010Image();
+  image.w = 3;
+  for (size_t y = 0; y < 4; ++y) {
+    for (size_t x = 0; x < 3; ++x) {
+      EXPECT_NO_FATAL_FAILURE(getP010Pixel(&image, x, y));
+    }
+  }
+}
+
 TEST_F(GainMapMathTest, SampleYuv420) {
   auto image = Yuv420Image();
   Color(*colors)[4] = Yuv420Colors();
