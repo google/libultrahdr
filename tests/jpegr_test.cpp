@@ -1399,6 +1399,61 @@ TEST(JpegRTest, DecodeAPIWithInvalidArgs) {
       << "fail, API allows invalid output format";
 }
 
+TEST(JpegRTest, ApplyGainMapInvalidArgs) {
+  JpegR uHdrLib;
+  uhdr_raw_image_t sdr_intent{};
+  sdr_intent.fmt = UHDR_IMG_FMT_32bppRGBA8888;
+  sdr_intent.w = 16;
+  sdr_intent.h = 16;
+  sdr_intent.stride[0] = 16;
+  std::vector<uint8_t> sdr_buf(16 * 16 * 4, 128);
+  sdr_intent.planes[0] = sdr_buf.data();
+
+  uhdr_raw_image_t gainmap_img{};
+  gainmap_img.fmt = UHDR_IMG_FMT_8bppYCbCr400;
+  gainmap_img.w = 16;
+  gainmap_img.h = 16;
+  gainmap_img.stride[0] = 16;
+  std::vector<uint8_t> gm_buf(16 * 16, 128);
+  gainmap_img.planes[0] = gm_buf.data();
+
+  uhdr_gainmap_metadata_ext_t metadata("1.0");
+  std::fill_n(metadata.max_content_boost, 3, 2.0f);
+  std::fill_n(metadata.min_content_boost, 3, 1.0f);
+  std::fill_n(metadata.gamma, 3, 1.0f);
+  std::fill_n(metadata.offset_sdr, 3, 0.0f);
+  std::fill_n(metadata.offset_hdr, 3, 0.0f);
+  metadata.hdr_capacity_min = 1.0f;
+  metadata.hdr_capacity_max = 2.0f;
+
+  uhdr_raw_image_t dest{};
+  dest.fmt = UHDR_IMG_FMT_64bppRGBAHalfFloat;
+  dest.w = 16;
+  dest.h = 16;
+  dest.stride[0] = 16;
+  std::vector<uint8_t> dest_buf(16 * 16 * 8);
+  dest.planes[0] = dest_buf.data();
+
+  // Test nullptr dest or plane pointer
+  EXPECT_NE(uHdrLib.applyGainMap(&sdr_intent, &gainmap_img, &metadata, UHDR_CT_LINEAR, dest.fmt, 2.0f, nullptr).error_code, UHDR_CODEC_OK);
+  dest.planes[0] = nullptr;
+  EXPECT_EQ(uHdrLib.applyGainMap(&sdr_intent, &gainmap_img, &metadata, UHDR_CT_LINEAR, dest.fmt, 2.0f, &dest).error_code, UHDR_CODEC_INVALID_PARAM);
+
+  dest.planes[0] = dest_buf.data();
+
+  // Test stride < width
+  dest.stride[0] = 8;
+  EXPECT_EQ(uHdrLib.applyGainMap(&sdr_intent, &gainmap_img, &metadata, UHDR_CT_LINEAR, dest.fmt, 2.0f, &dest).error_code, UHDR_CODEC_INVALID_PARAM);
+  dest.stride[0] = 16;
+
+  // Test invalid output_ct
+  EXPECT_EQ(uHdrLib.applyGainMap(&sdr_intent, &gainmap_img, &metadata, UHDR_CT_UNSPECIFIED, dest.fmt, 2.0f, &dest).error_code, UHDR_CODEC_INVALID_PARAM);
+
+  // Test format mismatch (LINEAR ct with non-64bpp format)
+  dest.fmt = UHDR_IMG_FMT_32bppRGBA1010102;
+  EXPECT_EQ(uHdrLib.applyGainMap(&sdr_intent, &gainmap_img, &metadata, UHDR_CT_LINEAR, dest.fmt, 2.0f, &dest).error_code, UHDR_CODEC_INVALID_PARAM);
+}
+
 TEST(JpegRTest, writeXmpThenRead) {
   uhdr_gainmap_metadata_ext_t metadata_expected("1.0");
   std::fill_n(metadata_expected.max_content_boost, 3, 1.25f);
