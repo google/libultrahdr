@@ -1536,6 +1536,44 @@ uhdr_error_info_t UltraHdr::applyGainMap(uhdr_raw_image_t* sdr_intent,
                                          uhdr_color_transfer_t output_ct,
                                          [[maybe_unused]] uhdr_img_fmt_t output_format,
                                          float max_display_boost, uhdr_raw_image_t* dest) {
+  if (dest == nullptr || dest->planes[UHDR_PLANE_PACKED] == nullptr) {
+    uhdr_error_info_t status;
+    status.error_code = UHDR_CODEC_INVALID_PARAM;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "apply gainmap method received nullptr for destination image or plane pointer");
+    return status;
+  }
+  if (dest->stride[UHDR_PLANE_PACKED] < dest->w) {
+    uhdr_error_info_t status;
+    status.error_code = UHDR_CODEC_INVALID_PARAM;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "destination stride (%u) cannot be less than image width (%u)",
+             dest->stride[UHDR_PLANE_PACKED], dest->w);
+    return status;
+  }
+  if (output_ct != UHDR_CT_LINEAR && output_ct != UHDR_CT_HLG && output_ct != UHDR_CT_PQ) {
+    uhdr_error_info_t status;
+    status.error_code = UHDR_CODEC_INVALID_PARAM;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "apply gainmap method expects output color transfer to be one of "
+             "{UHDR_CT_LINEAR, UHDR_CT_HLG, UHDR_CT_PQ}. Received %d",
+             output_ct);
+    return status;
+  }
+  if ((output_ct == UHDR_CT_LINEAR && dest->fmt != UHDR_IMG_FMT_64bppRGBAHalfFloat) ||
+      ((output_ct == UHDR_CT_HLG || output_ct == UHDR_CT_PQ) &&
+       dest->fmt != UHDR_IMG_FMT_32bppRGBA1010102)) {
+    uhdr_error_info_t status;
+    status.error_code = UHDR_CODEC_INVALID_PARAM;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "unsupported destination pixel format %d for output color transfer %d",
+             dest->fmt, output_ct);
+    return status;
+  }
   if (gainmap_metadata->version.compare(kJpegrVersion)) {
     uhdr_error_info_t status;
     status.error_code = UHDR_CODEC_UNSUPPORTED_FEATURE;
