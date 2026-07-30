@@ -34,8 +34,11 @@ cc_library {
         "lib/include",
     ],
     local_include_dirs: ["lib/include"],
-    cflags: ["-DUHDR_ENABLE_INTRINSICS",
-        "-DUHDR_WRITE_XMP",],
+    cflags: [
+        "-DUHDR_ENABLE_INTRINSICS",
+        "-DUHDR_WRITE_ISO",
+        "-DUHDR_WRITE_XMP",
+    ],
     srcs: [
         "lib/src/icc.cpp",
         "lib/src/jpegr.cpp",
