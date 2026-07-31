@@ -8,7 +8,7 @@
  * except according to those terms.
  */
 
-#include <ultrahdr/editorhelper.h>
+#include "ultrahdr/editorhelper.h"
 
 
 namespace ultrahdr {
