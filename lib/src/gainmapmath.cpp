@@ -1585,6 +1585,21 @@ uhdr_error_info_t copy_raw_image(uhdr_raw_image_t* src, uhdr_raw_image_t* dst) {
         plane_src += (size_t)3 * src->stride[UHDR_PLANE_PACKED];
       }
       return g_no_error;
+    } else if (src->fmt == UHDR_IMG_FMT_32bppRGBA8888 && dst->fmt == UHDR_IMG_FMT_8bppYCbCr400) {
+      uint8_t* plane_dst = static_cast<uint8_t*>(dst->planes[UHDR_PLANE_Y]);
+      const uint8_t* plane_src = static_cast<const uint8_t*>(src->planes[UHDR_PLANE_PACKED]);
+      for (size_t i = 0; i < src->h; i++) {
+        uint8_t* pixel_dst = plane_dst;
+        const uint8_t* pixel_src = plane_src;
+        for (size_t j = 0; j < src->w; j++) {
+          *pixel_dst = pixel_src[0];
+          pixel_src += 4;
+          pixel_dst += 1;
+        }
+        plane_dst += dst->stride[UHDR_PLANE_Y];
+        plane_src += (size_t)4 * src->stride[UHDR_PLANE_PACKED];
+      }
+      return g_no_error;
     }
   }
   uhdr_error_info_t status;

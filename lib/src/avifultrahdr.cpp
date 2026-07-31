@@ -606,10 +606,20 @@ uhdr_error_info_t AvifUltraHdr::decodeAvifUltraHdr(uhdr_compressed_image_t* uhdr
   enum heif_colorspace out_colorspace;
   enum heif_chroma out_chroma;
   uhdr_img_fmt_t fmt;
-  int sdr_width, sdr_height;
-  int gainmap_width, gainmap_height;
+  int sdr_width = 0, sdr_height = 0;
+  int gainmap_width = 0, gainmap_height = 0;
   std::unique_ptr<uhdr_raw_image_ext_t> sdr_intent, gainmap;
-  heif_context* ctx = heif_context_alloc();
+  heif_context* ctx = nullptr;
+  heif_error nclx_err;
+  uhdr_color_gamut_t sdr_cg = UHDR_CG_BT_709;
+  uhdr_color_transfer_t sdr_ct = UHDR_CT_SRGB;
+  uhdr_color_range_t sdr_range = UHDR_CR_FULL_RANGE;
+  uhdr_color_gamut_t gm_cg = UHDR_CG_BT_709;
+  uhdr_color_transfer_t gm_ct = UHDR_CT_SRGB;
+  uhdr_color_range_t gm_range = UHDR_CR_FULL_RANGE;
+  heif_error err;
+
+  ctx = heif_context_alloc();
   if (!ctx) {
     status.error_code = UHDR_CODEC_MEM_ERROR;
     status.has_detail = 1;
@@ -625,17 +635,28 @@ uhdr_error_info_t AvifUltraHdr::decodeAvifUltraHdr(uhdr_compressed_image_t* uhdr
   out_chroma = heif_chroma_interleaved_RGBA;
   HEIF_ERR_CHECK(
       heif_decode_image(base_handle, &sdr_image, out_colorspace, out_chroma, decoding_options))
-  HEIF_ERR_CHECK(heif_image_get_nclx_color_profile(sdr_image, &nclx))
+  nclx_err = heif_image_handle_get_nclx_color_profile(base_handle, &nclx);
+  if (nclx_err.code != heif_error_Ok) {
+    nclx_err = heif_image_get_nclx_color_profile(sdr_image, &nclx);
+  }
   HEIF_ERR_CHECK(map_heif_chroma_vars_to_fmt(out_colorspace, out_chroma, fmt))
   sdr_width = heif_image_handle_get_width(base_handle);
   sdr_height = heif_image_handle_get_height(base_handle);
+  sdr_cg = (nclx_err.code == heif_error_Ok && nclx != nullptr)
+               ? map_primaries_inverse(nclx->color_primaries)
+               : UHDR_CG_BT_709;
+  sdr_ct = (nclx_err.code == heif_error_Ok && nclx != nullptr)
+               ? map_transfer_inverse(nclx->transfer_characteristics)
+               : UHDR_CT_SRGB;
+  sdr_range = (nclx_err.code == heif_error_Ok && nclx != nullptr)
+                  ? (nclx->full_range_flag ? UHDR_CR_FULL_RANGE : UHDR_CR_LIMITED_RANGE)
+                  : UHDR_CR_FULL_RANGE;
   sdr_intent = std::make_unique<uhdr_raw_image_ext_t>(
-      fmt, map_primaries_inverse(nclx->color_primaries),
-      map_transfer_inverse(nclx->transfer_characteristics),
-      nclx->full_range_flag ? UHDR_CR_FULL_RANGE : UHDR_CR_LIMITED_RANGE, sdr_width, sdr_height,
-      64);
-  heif_nclx_color_profile_free(nclx);
-  nclx = nullptr;
+      fmt, sdr_cg, sdr_ct, sdr_range, sdr_width, sdr_height, 64);
+  if (nclx) {
+    heif_nclx_color_profile_free(nclx);
+    nclx = nullptr;
+  }
   HEIF_ERR_CHECK(copy_img_plane(sdr_image, heif_channel_interleaved,
                                 sdr_intent->planes[UHDR_PLANE_PACKED], sdr_width, sdr_height,
                                 sdr_intent->stride[UHDR_PLANE_PACKED] * 4, 4))
@@ -661,19 +682,42 @@ uhdr_error_info_t AvifUltraHdr::decodeAvifUltraHdr(uhdr_compressed_image_t* uhdr
       out_colorspace = heif_colorspace_RGB;
       out_chroma = heif_chroma_interleaved_RGBA;
     }
-    HEIF_ERR_CHECK(heif_decode_image(gainmap_handle, &gainmap_image, out_colorspace, out_chroma,
-                                     decoding_options))
-    HEIF_ERR_CHECK(heif_image_get_nclx_color_profile(gainmap_image, &nclx))
+    heif_error decode_err = heif_decode_image(gainmap_handle, &gainmap_image, out_colorspace,
+                                              out_chroma, decoding_options);
+    if (decode_err.code != heif_error_Ok && out_colorspace == heif_colorspace_monochrome) {
+      out_colorspace = heif_colorspace_RGB;
+      out_chroma = heif_chroma_interleaved_RGBA;
+      decode_err = heif_decode_image(gainmap_handle, &gainmap_image, out_colorspace, out_chroma,
+                                     decoding_options);
+    }
+    if (decode_err.code != heif_error_Ok) {
+      status.error_code = UHDR_CODEC_ERROR;
+      status.has_detail = 1;
+      snprintf(status.detail, sizeof status.detail, "%s", decode_err.message);
+      goto CleanUp;
+    }
+    nclx_err = heif_image_handle_get_nclx_color_profile(gainmap_handle, &nclx);
+    if (nclx_err.code != heif_error_Ok) {
+      nclx_err = heif_image_get_nclx_color_profile(gainmap_image, &nclx);
+    }
     HEIF_ERR_CHECK(map_heif_chroma_vars_to_fmt(out_colorspace, out_chroma, fmt))
     gainmap_width = heif_image_handle_get_width(gainmap_handle);
     gainmap_height = heif_image_handle_get_height(gainmap_handle);
+    gm_cg = (nclx_err.code == heif_error_Ok && nclx != nullptr)
+                ? map_matrix_inverse(nclx->matrix_coefficients)
+                : UHDR_CG_BT_709;
+    gm_ct = (nclx_err.code == heif_error_Ok && nclx != nullptr)
+                ? map_transfer_inverse(nclx->transfer_characteristics)
+                : UHDR_CT_SRGB;
+    gm_range = (nclx_err.code == heif_error_Ok && nclx != nullptr)
+                   ? (nclx->full_range_flag ? UHDR_CR_FULL_RANGE : UHDR_CR_LIMITED_RANGE)
+                   : UHDR_CR_FULL_RANGE;
     gainmap = std::make_unique<uhdr_raw_image_ext_t>(
-        fmt, map_matrix_inverse(nclx->matrix_coefficients),
-        map_transfer_inverse(nclx->transfer_characteristics),
-        nclx->full_range_flag ? UHDR_CR_FULL_RANGE : UHDR_CR_LIMITED_RANGE, gainmap_width,
-        gainmap_height, 64);
-    heif_nclx_color_profile_free(nclx);
-    nclx = nullptr;
+        fmt, gm_cg, gm_ct, gm_range, gainmap_width, gainmap_height, 64);
+    if (nclx) {
+      heif_nclx_color_profile_free(nclx);
+      nclx = nullptr;
+    }
     if (out_colorspace == heif_colorspace_monochrome) {
       HEIF_ERR_CHECK(copy_img_plane(gainmap_image, heif_channel_Y, gainmap->planes[UHDR_PLANE_Y],
                                     gainmap_width, gainmap_height, gainmap->stride[UHDR_PLANE_Y],
@@ -687,7 +731,7 @@ uhdr_error_info_t AvifUltraHdr::decodeAvifUltraHdr(uhdr_compressed_image_t* uhdr
       status = copy_raw_image(gainmap.get(), gainmap_img);
       if (status.error_code != UHDR_CODEC_OK) goto CleanUp;
     }
-    heif_error err = heif_image_handle_get_derived_image_nclx_color_profile(base_handle, &nclx);
+    err = heif_image_handle_get_derived_image_nclx_color_profile(base_handle, &nclx);
     if (err.code == heif_error_Ok) {
       gainmap->cg = map_primaries_inverse(nclx->color_primaries);
       gainmap->ct = map_transfer_inverse(nclx->transfer_characteristics);
