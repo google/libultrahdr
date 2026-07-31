@@ -429,11 +429,7 @@ Color getP010Pixel(uhdr_raw_image_t* image, size_t x, size_t y) {
   size_t chroma_stride = image->stride[UHDR_PLANE_UV];
 
   size_t pixel_y_idx = y * luma_stride + x;
-  size_t chroma_x = x & ~(size_t)0x1;
-  if (chroma_x + 1 >= image->w) {
-    chroma_x = (image->w >= 2) ? ((image->w - 2) & ~(size_t)0x1) : 0;
-  }
-  size_t pixel_u_idx = (y >> 1) * chroma_stride + chroma_x;
+  size_t pixel_u_idx = (y >> 1) * chroma_stride + (x & ~0x1);
   size_t pixel_v_idx = pixel_u_idx + 1;
 
   uint16_t y_uint = luma_data[pixel_y_idx] >> 6;
@@ -1297,7 +1293,8 @@ std::unique_ptr<uhdr_raw_image_ext_t> convert_raw_input_to_ycbcr(uhdr_raw_image_
   std::unique_ptr<uhdr_raw_image_ext_t> dst = nullptr;
   Color (*rgbToyuv)(Color) = nullptr;
 
-  if (src->fmt == UHDR_IMG_FMT_32bppRGBA1010102 || src->fmt == UHDR_IMG_FMT_32bppRGBA8888) {
+  if (src->fmt == UHDR_IMG_FMT_32bppRGBA1010102 || src->fmt == UHDR_IMG_FMT_32bppRGBA8888 ||
+      src->fmt == UHDR_IMG_FMT_24bppRGB888) {
     if (src->cg == UHDR_CG_BT_709) {
       rgbToyuv = srgbRgbToYuv;
     } else if (src->cg == UHDR_CG_BT_2100) {
@@ -1320,8 +1317,8 @@ std::unique_ptr<uhdr_raw_image_ext_t> convert_raw_input_to_ycbcr(uhdr_raw_image_
     uint16_t* uData = static_cast<uint16_t*>(dst->planes[UHDR_PLANE_UV]);
     uint16_t* vData = uData + 1;
 
-    for (size_t i = 0; i + 1 < dst->h; i += 2) {
-      for (size_t j = 0; j + 1 < dst->w; j += 2) {
+    for (size_t i = 0; i < dst->h; i += 2) {
+      for (size_t j = 0; j < dst->w; j += 2) {
         Color pixel[4];
 
         pixel[0].r = float(rgbData[srcStride * i + j] & 0x3ff);
@@ -1405,38 +1402,25 @@ std::unique_ptr<uhdr_raw_image_ext_t> convert_raw_input_to_ycbcr(uhdr_raw_image_
         vData[dst->stride[UHDR_PLANE_V] * i + j] = uint16_t(pixel.v);
       }
     }
-  } else if (src->fmt == UHDR_IMG_FMT_32bppRGBA8888 && chroma_sampling_enabled) {
+  } else if ((src->fmt == UHDR_IMG_FMT_32bppRGBA8888 || src->fmt == UHDR_IMG_FMT_24bppRGB888) &&
+             chroma_sampling_enabled) {
     dst = std::make_unique<uhdr_raw_image_ext_t>(UHDR_IMG_FMT_12bppYCbCr420, src->cg, src->ct,
                                                  UHDR_CR_FULL_RANGE, src->w, src->h, 64);
-    uint32_t* rgbData = static_cast<uint32_t*>(src->planes[UHDR_PLANE_PACKED]);
-    unsigned int srcStride = src->stride[UHDR_PLANE_PACKED];
-
+    GetPixelFn getPixel = getPixelFn(src->fmt);
     uint8_t* yData = static_cast<uint8_t*>(dst->planes[UHDR_PLANE_Y]);
     uint8_t* uData = static_cast<uint8_t*>(dst->planes[UHDR_PLANE_U]);
     uint8_t* vData = static_cast<uint8_t*>(dst->planes[UHDR_PLANE_V]);
-    for (size_t i = 0; i + 1 < dst->h; i += 2) {
-      for (size_t j = 0; j + 1 < dst->w; j += 2) {
+    for (size_t i = 0; i < dst->h; i += 2) {
+      for (size_t j = 0; j < dst->w; j += 2) {
         Color pixel[4];
 
-        pixel[0].r = float(rgbData[srcStride * i + j] & 0xff);
-        pixel[0].g = float((rgbData[srcStride * i + j] >> 8) & 0xff);
-        pixel[0].b = float((rgbData[srcStride * i + j] >> 16) & 0xff);
-
-        pixel[1].r = float(rgbData[srcStride * i + (j + 1)] & 0xff);
-        pixel[1].g = float((rgbData[srcStride * i + (j + 1)] >> 8) & 0xff);
-        pixel[1].b = float((rgbData[srcStride * i + (j + 1)] >> 16) & 0xff);
-
-        pixel[2].r = float(rgbData[srcStride * (i + 1) + j] & 0xff);
-        pixel[2].g = float((rgbData[srcStride * (i + 1) + j] >> 8) & 0xff);
-        pixel[2].b = float((rgbData[srcStride * (i + 1) + j] >> 16) & 0xff);
-
-        pixel[3].r = float(rgbData[srcStride * (i + 1) + (j + 1)] & 0xff);
-        pixel[3].g = float((rgbData[srcStride * (i + 1) + (j + 1)] >> 8) & 0xff);
-        pixel[3].b = float((rgbData[srcStride * (i + 1) + (j + 1)] >> 16) & 0xff);
+        pixel[0] = getPixel(src, j, i);
+        pixel[1] = getPixel(src, j + 1, i);
+        pixel[2] = getPixel(src, j, i + 1);
+        pixel[3] = getPixel(src, j + 1, i + 1);
 
         for (int k = 0; k < 4; k++) {
           // Now we only support the RGB input being full range
-          pixel[k] /= 255.0f;
           pixel[k] = (*rgbToyuv)(pixel[k]);
 
           pixel[k].y = pixel[k].y * 255.0f + 0.5f;
@@ -1460,25 +1444,18 @@ std::unique_ptr<uhdr_raw_image_ext_t> convert_raw_input_to_ycbcr(uhdr_raw_image_
         vData[dst->stride[UHDR_PLANE_V] * (i / 2) + (j / 2)] = uint8_t(pixel[0].v);
       }
     }
-  } else if (src->fmt == UHDR_IMG_FMT_32bppRGBA8888) {
+  } else if (src->fmt == UHDR_IMG_FMT_32bppRGBA8888 || src->fmt == UHDR_IMG_FMT_24bppRGB888) {
     dst = std::make_unique<uhdr_raw_image_ext_t>(UHDR_IMG_FMT_24bppYCbCr444, src->cg, src->ct,
                                                  UHDR_CR_FULL_RANGE, src->w, src->h, 64);
-    uint32_t* rgbData = static_cast<uint32_t*>(src->planes[UHDR_PLANE_PACKED]);
-    unsigned int srcStride = src->stride[UHDR_PLANE_PACKED];
-
+    GetPixelFn getPixel = getPixelFn(src->fmt);
     uint8_t* yData = static_cast<uint8_t*>(dst->planes[UHDR_PLANE_Y]);
     uint8_t* uData = static_cast<uint8_t*>(dst->planes[UHDR_PLANE_U]);
     uint8_t* vData = static_cast<uint8_t*>(dst->planes[UHDR_PLANE_V]);
     for (size_t i = 0; i < dst->h; i++) {
       for (size_t j = 0; j < dst->w; j++) {
-        Color pixel;
-
-        pixel.r = float(rgbData[srcStride * i + j] & 0xff);
-        pixel.g = float((rgbData[srcStride * i + j] >> 8) & 0xff);
-        pixel.b = float((rgbData[srcStride * i + j] >> 16) & 0xff);
+        Color pixel = getPixel(src, j, i);
 
         // Now we only support the RGB input being full range
-        pixel /= 255.0f;
         pixel = (*rgbToyuv)(pixel);
 
         pixel.y = pixel.y * 255.0f + 0.5f;

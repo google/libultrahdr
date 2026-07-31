@@ -11,6 +11,7 @@
 #ifndef ULTRAHDR_ULTRAHDR_H
 #define ULTRAHDR_ULTRAHDR_H
 
+#include "ultrahdr_api.h"
 #include <string>
 
 namespace ultrahdr {

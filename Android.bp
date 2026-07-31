@@ -36,10 +36,13 @@ cc_library {
     local_include_dirs: ["lib/include"],
     cflags: [
         "-DUHDR_ENABLE_INTRINSICS",
+        "-DUHDR_ENABLE_HEIF",
         "-DUHDR_WRITE_ISO",
         "-DUHDR_WRITE_XMP",
     ],
     srcs: [
+        "lib/src/avifultrahdr.cpp",
+        "lib/src/heifultrahdr.cpp",
         "lib/src/icc.cpp",
         "lib/src/jpegr.cpp",
         "lib/src/gainmapmath.cpp",
@@ -50,6 +53,7 @@ cc_library {
         "lib/src/ultrahdr_api.cpp",
     ],
     shared_libs: [
+        "libheif",
         "libimage_io",
         "libjpeg",
         "libjpegencoder",
