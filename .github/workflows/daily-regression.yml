@@ -1,0 +1,132 @@
+name: Daily Regression Matrix & Auto-Triage
+
+on:
+  schedule:
+    # Runs every day at 02:00 UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  regression-matrix:
+    name: ${{ matrix.config.name }}
+    runs-on: ${{ matrix.config.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        config:
+          # --- Linux Configurations ---
+          - name: "Linux GCC (HEIF ON)"
+            os: ubuntu-latest
+            cc: gcc
+            cxx: g++
+            cmake-opts: "-DUHDR_BUILD_TESTS=1 -DUHDR_BUILD_DEPS=1 -DUHDR_ENABLE_HEIF=1 -DUHDR_ENABLE_WERROR=1"
+            enable_heif: "ON"
+
+          - name: "Linux Clang ASan/UBSan (HEIF ON)"
+            os: ubuntu-latest
+            cc: clang
+            cxx: clang++
+            cmake-opts: "-DUHDR_BUILD_TESTS=1 -DUHDR_BUILD_DEPS=1 -DUHDR_ENABLE_HEIF=1 -DUHDR_SANITIZE_OPTIONS=address,undefined -DUHDR_ENABLE_WERROR=1"
+            enable_heif: "ON"
+
+          - name: "Linux Clang (HEIF OFF - JPEG Only)"
+            os: ubuntu-latest
+            cc: clang
+            cxx: clang++
+            cmake-opts: "-DUHDR_BUILD_TESTS=1 -DUHDR_BUILD_DEPS=1 -DUHDR_ENABLE_HEIF=0 -DUHDR_ENABLE_WERROR=1"
+            enable_heif: "OFF"
+
+          # --- macOS Configurations ---
+          - name: "macOS Apple Silicon (HEIF ON)"
+            os: macos-14
+            cc: clang
+            cxx: clang++
+            cmake-opts: "-DUHDR_BUILD_TESTS=1 -DUHDR_BUILD_DEPS=1 -DUHDR_ENABLE_HEIF=1 -DUHDR_ENABLE_WERROR=1"
+            enable_heif: "ON"
+
+          - name: "macOS Intel (HEIF ON)"
+            os: macos-13
+            cc: clang
+            cxx: clang++
+            cmake-opts: "-DUHDR_BUILD_TESTS=1 -DUHDR_BUILD_DEPS=1 -DUHDR_ENABLE_HEIF=1 -DUHDR_ENABLE_WERROR=1"
+            enable_heif: "ON"
+
+          # --- Windows Configurations ---
+          - name: "Windows MSVC 2022 (HEIF OFF)"
+            os: windows-latest
+            cc: cl
+            cxx: cl
+            cmake-opts: "-DUHDR_BUILD_TESTS=1 -DUHDR_BUILD_DEPS=1 -DUHDR_ENABLE_HEIF=0 -DUHDR_ENABLE_WERROR=1"
+            enable_heif: "OFF"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 50
+
+      - name: Setup Ninja
+        uses: seanmiddleditch/gha-setup-ninja@master
+
+      - name: Setup CMake
+        uses: jwlawson/actions-setup-cmake@v2
+
+      - name: Install dependencies (Ubuntu)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt update
+          sudo apt install -y libjpeg-dev libheif-dev pkg-config yasm
+
+      - name: Install dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install libheif yasm pkg-config || true
+
+      - name: Configure CMake
+        shell: bash
+        run: |
+          if [ "${{ runner.os }}" != "Windows" ]; then
+            export CC=${{ matrix.config.cc }}
+            export CXX=${{ matrix.config.cxx }}
+          fi
+          cmake -G Ninja -B build -DCMAKE_BUILD_TYPE=Release ${{ matrix.config.cmake-opts }}
+
+      - name: Build Targets
+        shell: bash
+        run: |
+          cmake --build build --config Release
+
+      - name: Execute Regression Test Suite
+        id: run_tests
+        shell: bash
+        run: |
+          set -o pipefail
+          ./build/ultrahdr_unit_test 2>&1 | tee test_output.log
+
+      - name: Report Regression Issue (On Failure)
+        if: failure() && steps.run_tests.outcome == 'failure'
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          python3 scripts/report_regression_issue.py \
+            --log-file test_output.log \
+            --os "${{ matrix.config.os }}" \
+            --compiler "${{ matrix.config.cc }}" \
+            --config "${{ matrix.config.cmake-opts }}" \
+            --repo "${{ github.repository }}" \
+            --token "${{ secrets.GITHUB_TOKEN }}" \
+            --run-url "$GITHUB_RUN_URL"
+
+      - name: Upload Test Failure Logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: regression-logs-${{ matrix.config.name }}
+          path: test_output.log
