@@ -66,15 +66,15 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           fetch-depth: 50
 
       - name: Setup Ninja
-        uses: seanmiddleditch/gha-setup-ninja@master
+        uses: seanmiddleditch/gha-setup-ninja@7e868db0f3406270dd46e1dac26c65f621456723 # master
 
       - name: Setup CMake
-        uses: jwlawson/actions-setup-cmake@v2
+        uses: jwlawson/actions-setup-cmake@802fa1a2c4e212495c05bf94dba2704a92a472be # v2.0.2
 
       - name: Install dependencies (Ubuntu)
         if: runner.os == 'Linux'
@@ -89,12 +89,17 @@ jobs:
 
       - name: Configure CMake
         shell: bash
+        env:
+          RUNNER_OS_NAME: ${{ runner.os }}
+          MATRIX_CC: ${{ matrix.config.cc }}
+          MATRIX_CXX: ${{ matrix.config.cxx }}
+          MATRIX_CMAKE_OPTS: ${{ matrix.config.cmake-opts }}
         run: |
-          if [ "${{ runner.os }}" != "Windows" ]; then
-            export CC=${{ matrix.config.cc }}
-            export CXX=${{ matrix.config.cxx }}
+          if [ "$RUNNER_OS_NAME" != "Windows" ]; then
+            export CC="$MATRIX_CC"
+            export CXX="$MATRIX_CXX"
           fi
-          cmake -G Ninja -B build -DCMAKE_BUILD_TYPE=Release ${{ matrix.config.cmake-opts }}
+          cmake -G Ninja -B build -DCMAKE_BUILD_TYPE=Release $MATRIX_CMAKE_OPTS
 
       - name: Build Targets
         shell: bash
@@ -114,19 +119,23 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          MATRIX_OS: ${{ matrix.config.os }}
+          MATRIX_CC: ${{ matrix.config.cc }}
+          MATRIX_CMAKE_OPTS: ${{ matrix.config.cmake-opts }}
+          GITHUB_REPO: ${{ github.repository }}
         run: |
           python3 scripts/report_regression_issue.py \
             --log-file test_output.log \
-            --os "${{ matrix.config.os }}" \
-            --compiler "${{ matrix.config.cc }}" \
-            --config "${{ matrix.config.cmake-opts }}" \
-            --repo "${{ github.repository }}" \
-            --token "${{ secrets.GITHUB_TOKEN }}" \
+            --os "$MATRIX_OS" \
+            --compiler "$MATRIX_CC" \
+            --config "$MATRIX_CMAKE_OPTS" \
+            --repo "$GITHUB_REPO" \
+            --token "$GITHUB_TOKEN" \
             --run-url "$GITHUB_RUN_URL"
 
       - name: Upload Test Failure Logs
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08 # v4.6.0
         with:
           name: regression-logs-${{ matrix.config.name }}
           path: test_output.log
