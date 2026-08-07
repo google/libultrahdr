@@ -72,12 +72,16 @@
  *                                               SMPTE 2094-50 (AGTM) support, standards compliance.
  *   1.5.1           1.5.1                       enable writing both ISO 21496-1 and XMP metadata in
  *                                               Android.bp.
+ *   2.0.0           2.0.0                       add HEIF (HEIC) and AVIF multi-format container
+ *                                               support, ISO 21496-1 gain map encapsulation,
+ *                                               modular UltraHdr class architecture, and transparent
+ *                                               multi-codec decoding.
  */
 
 // This needs to be kept in sync with version in CMakeLists.txt
-#define UHDR_LIB_VER_MAJOR 1
-#define UHDR_LIB_VER_MINOR 5
-#define UHDR_LIB_VER_PATCH 1
+#define UHDR_LIB_VER_MAJOR 2
+#define UHDR_LIB_VER_MINOR 0
+#define UHDR_LIB_VER_PATCH 0
 
 #define UHDR_LIB_VERSION \
   ((UHDR_LIB_VER_MAJOR * 10000) + (UHDR_LIB_VER_MINOR * 100) + UHDR_LIB_VER_PATCH)
