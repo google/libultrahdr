@@ -12,6 +12,8 @@
 
 #include <fstream>
 #include <iostream>
+#include <string>
+#include <vector>
 
 #include "ultrahdr/ultrahdrcommon.h"
 #include "ultrahdr/jpegencoderhelper.h"
@@ -59,14 +61,27 @@ JpegEncoderHelperTest::JpegEncoderHelperTest() {}
 JpegEncoderHelperTest::~JpegEncoderHelperTest() {}
 
 static bool loadFile(const char filename[], JpegEncoderHelperTest::Image* result) {
-  std::ifstream ifd(filename, std::ios::binary | std::ios::ate);
-  if (ifd.good()) {
-    int size = ifd.tellg();
-    ifd.seekg(0, std::ios::beg);
-    result->buffer.reset(new uint8_t[size]);
-    ifd.read(reinterpret_cast<char*>(result->buffer.get()), size);
-    ifd.close();
-    return true;
+  std::string base_name = filename;
+  size_t last_slash = base_name.find_last_of("/\\");
+  std::string raw_name = (last_slash != std::string::npos) ? base_name.substr(last_slash + 1) : base_name;
+  std::vector<std::string> candidates = {
+      filename,
+      std::string("tests/data/") + raw_name,
+      std::string("third_party/libultrahdr/tests/data/") + raw_name,
+      std::string("./data/") + raw_name,
+      std::string("../tests/data/") + raw_name,
+      std::string("build/data/") + raw_name,
+  };
+  for (const auto& path : candidates) {
+    std::ifstream ifd(path, std::ios::binary | std::ios::ate);
+    if (ifd.good()) {
+      int size = ifd.tellg();
+      ifd.seekg(0, std::ios::beg);
+      result->buffer.reset(new uint8_t[size]);
+      ifd.read(reinterpret_cast<char*>(result->buffer.get()), size);
+      ifd.close();
+      return true;
+    }
   }
   return false;
 }
