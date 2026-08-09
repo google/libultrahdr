@@ -1694,64 +1694,53 @@ uhdr_error_info_t uhdr_dec_probe(uhdr_codec_private_t* dec) {
         handle->m_uhdr_compressed_img->data_sz);
     if (filetype == heif_filetype_yes_supported || filetype == heif_filetype_maybe) {
       struct heif_context* ctx = heif_context_alloc();
-      if (!ctx) {
-        status.error_code = UHDR_CODEC_MEM_ERROR;
-        return status;
-      }
-      heif_error err = heif_context_read_from_memory_without_copy(
-          ctx, static_cast<const uint8_t*>(handle->m_uhdr_compressed_img->data),
-          handle->m_uhdr_compressed_img->data_sz, nullptr);
-      if (err.code != heif_error_Ok) {
-        heif_context_free(ctx);
-        status.error_code = UHDR_CODEC_ERROR;
-        status.has_detail = 1;
-        snprintf(status.detail, sizeof status.detail, "%s", err.message);
-        return status;
-      }
-      struct heif_image_handle* base_handle = nullptr;
-      err = heif_context_get_primary_image_handle(ctx, &base_handle);
-      if (err.code != heif_error_Ok || !base_handle) {
-        heif_context_free(ctx);
-        status.error_code = UHDR_CODEC_ERROR;
-        status.has_detail = 1;
-        snprintf(status.detail, sizeof status.detail, "Failed to get primary image handle");
-        return status;
-      }
-      handle->m_img_wd = heif_image_handle_get_width(base_handle);
-      handle->m_img_ht = heif_image_handle_get_height(base_handle);
+      if (ctx) {
+        heif_error err = heif_context_read_from_memory_without_copy(
+            ctx, static_cast<const uint8_t*>(handle->m_uhdr_compressed_img->data),
+            handle->m_uhdr_compressed_img->data_sz, nullptr);
+        if (err.code == heif_error_Ok) {
+          struct heif_image_handle* base_handle = nullptr;
+          err = heif_context_get_primary_image_handle(ctx, &base_handle);
+          if (err.code == heif_error_Ok && base_handle != nullptr) {
+            handle->m_img_wd = heif_image_handle_get_width(base_handle);
+            handle->m_img_ht = heif_image_handle_get_height(base_handle);
 
-      struct heif_image_handle* gainmap_handle = nullptr;
-      err = heif_image_handle_get_gain_map_image_handle(base_handle, &gainmap_handle);
-      if (err.code == heif_error_Ok && gainmap_handle != nullptr) {
-        handle->m_gainmap_wd = heif_image_handle_get_width(gainmap_handle);
-        handle->m_gainmap_ht = heif_image_handle_get_height(gainmap_handle);
-        handle->m_gainmap_num_comp = 1;
+            struct heif_image_handle* gainmap_handle = nullptr;
+            err = heif_image_handle_get_gain_map_image_handle(base_handle, &gainmap_handle);
+            if (err.code == heif_error_Ok && gainmap_handle != nullptr) {
+              handle->m_gainmap_wd = heif_image_handle_get_width(gainmap_handle);
+              handle->m_gainmap_ht = heif_image_handle_get_height(gainmap_handle);
+              handle->m_gainmap_num_comp = 1;
 
-        int meta_len = heif_image_handle_get_gain_map_metadata_size(base_handle);
-        if (meta_len > 0) {
-          std::vector<uint8_t> meta(meta_len);
-          heif_image_handle_get_gain_map_metadata(base_handle, meta.data());
-          ultrahdr::uhdr_gainmap_metadata_frac frac;
-          if (ultrahdr::uhdr_gainmap_metadata_frac::decodeGainmapMetadata(meta, &frac).error_code == UHDR_CODEC_OK) {
-            ultrahdr::uhdr_gainmap_metadata_ext_t metadata;
-            ultrahdr::uhdr_gainmap_metadata_frac::gainmapMetadataFractionToFloat(&frac, &metadata);
-            std::copy(metadata.max_content_boost, metadata.max_content_boost + 3,
-                      handle->m_metadata.max_content_boost);
-            std::copy(metadata.min_content_boost, metadata.min_content_boost + 3,
-                      handle->m_metadata.min_content_boost);
-            std::copy(metadata.gamma, metadata.gamma + 3, handle->m_metadata.gamma);
-            std::copy(metadata.offset_sdr, metadata.offset_sdr + 3, handle->m_metadata.offset_sdr);
-            std::copy(metadata.offset_hdr, metadata.offset_hdr + 3, handle->m_metadata.offset_hdr);
-            handle->m_metadata.hdr_capacity_min = metadata.hdr_capacity_min;
-            handle->m_metadata.hdr_capacity_max = metadata.hdr_capacity_max;
-            handle->m_metadata.use_base_cg = metadata.use_base_cg;
+              int meta_len = heif_image_handle_get_gain_map_metadata_size(base_handle);
+              if (meta_len > 0) {
+                std::vector<uint8_t> meta(meta_len);
+                heif_image_handle_get_gain_map_metadata(base_handle, meta.data());
+                ultrahdr::uhdr_gainmap_metadata_frac frac;
+                if (ultrahdr::uhdr_gainmap_metadata_frac::decodeGainmapMetadata(meta, &frac).error_code == UHDR_CODEC_OK) {
+                  ultrahdr::uhdr_gainmap_metadata_ext_t metadata;
+                  ultrahdr::uhdr_gainmap_metadata_frac::gainmapMetadataFractionToFloat(&frac, &metadata);
+                  std::copy(metadata.max_content_boost, metadata.max_content_boost + 3,
+                            handle->m_metadata.max_content_boost);
+                  std::copy(metadata.min_content_boost, metadata.min_content_boost + 3,
+                            handle->m_metadata.min_content_boost);
+                  std::copy(metadata.gamma, metadata.gamma + 3, handle->m_metadata.gamma);
+                  std::copy(metadata.offset_sdr, metadata.offset_sdr + 3, handle->m_metadata.offset_sdr);
+                  std::copy(metadata.offset_hdr, metadata.offset_hdr + 3, handle->m_metadata.offset_hdr);
+                  handle->m_metadata.hdr_capacity_min = metadata.hdr_capacity_min;
+                  handle->m_metadata.hdr_capacity_max = metadata.hdr_capacity_max;
+                  handle->m_metadata.use_base_cg = metadata.use_base_cg;
+                }
+              }
+              heif_image_handle_release(gainmap_handle);
+            }
+            heif_image_handle_release(base_handle);
+            heif_context_free(ctx);
+            return status;
           }
         }
-        heif_image_handle_release(gainmap_handle);
+        heif_context_free(ctx);
       }
-      heif_image_handle_release(base_handle);
-      heif_context_free(ctx);
-      return status;
     }
 #endif
 
