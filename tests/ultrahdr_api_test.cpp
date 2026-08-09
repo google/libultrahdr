@@ -195,7 +195,18 @@ TEST_F(UltraHdrApiTest, HeicEncodeApi0AndDecode) {
   EXPECT_EQ(uhdr_enc_set_quality(enc, 85, UHDR_BASE_IMG).error_code, UHDR_CODEC_OK);
   EXPECT_EQ(uhdr_enc_set_quality(enc, 85, UHDR_GAIN_MAP_IMG).error_code, UHDR_CODEC_OK);
 
-  ASSERT_EQ(uhdr_encode(enc).error_code, UHDR_CODEC_OK);
+  uhdr_error_info_t enc_status = uhdr_encode(enc);
+  if (enc_status.error_code != UHDR_CODEC_OK) {
+    if (enc_status.has_detail &&
+        (strstr(enc_status.detail, "Unsupported file-type") != nullptr ||
+         strstr(enc_status.detail, "No encoder") != nullptr)) {
+      std::string detail_msg = enc_status.detail;
+      uhdr_release_encoder(enc);
+      GTEST_SKIP() << "HEVC encoder plugin not available in environment: " << detail_msg;
+      return;
+    }
+  }
+  ASSERT_EQ(enc_status.error_code, UHDR_CODEC_OK);
   uhdr_compressed_image_t* output = uhdr_get_encoded_stream(enc);
   ASSERT_NE(output, nullptr);
   ASSERT_GT(output->data_sz, 0u);
@@ -236,7 +247,18 @@ TEST_F(UltraHdrApiTest, HeicEncodeApi1AndDecode) {
   EXPECT_EQ(uhdr_enc_set_raw_image(enc, &mSdrRaw, UHDR_SDR_IMG).error_code, UHDR_CODEC_OK);
   EXPECT_EQ(uhdr_enc_set_output_format(enc, UHDR_CODEC_HEIF).error_code, UHDR_CODEC_OK);
 
-  ASSERT_EQ(uhdr_encode(enc).error_code, UHDR_CODEC_OK);
+  uhdr_error_info_t enc_status = uhdr_encode(enc);
+  if (enc_status.error_code != UHDR_CODEC_OK) {
+    if (enc_status.has_detail &&
+        (strstr(enc_status.detail, "Unsupported file-type") != nullptr ||
+         strstr(enc_status.detail, "No encoder") != nullptr)) {
+      std::string detail_msg = enc_status.detail;
+      uhdr_release_encoder(enc);
+      GTEST_SKIP() << "HEVC encoder plugin not available in environment: " << detail_msg;
+      return;
+    }
+  }
+  ASSERT_EQ(enc_status.error_code, UHDR_CODEC_OK);
   uhdr_compressed_image_t* output = uhdr_get_encoded_stream(enc);
   ASSERT_NE(output, nullptr);
   ASSERT_GT(output->data_sz, 0u);
@@ -278,7 +300,18 @@ TEST_F(UltraHdrApiTest, AvifEncodeApi0AndDecode) {
   EXPECT_EQ(uhdr_enc_set_quality(enc, 85, UHDR_BASE_IMG).error_code, UHDR_CODEC_OK);
   EXPECT_EQ(uhdr_enc_set_quality(enc, 85, UHDR_GAIN_MAP_IMG).error_code, UHDR_CODEC_OK);
 
-  ASSERT_EQ(uhdr_encode(enc).error_code, UHDR_CODEC_OK);
+  uhdr_error_info_t enc_status = uhdr_encode(enc);
+  if (enc_status.error_code != UHDR_CODEC_OK) {
+    if (enc_status.has_detail &&
+        (strstr(enc_status.detail, "Unsupported file-type") != nullptr ||
+         strstr(enc_status.detail, "No encoder") != nullptr)) {
+      std::string detail_msg = enc_status.detail;
+      uhdr_release_encoder(enc);
+      GTEST_SKIP() << "AV1 encoder plugin not available in environment: " << detail_msg;
+      return;
+    }
+  }
+  ASSERT_EQ(enc_status.error_code, UHDR_CODEC_OK);
   uhdr_compressed_image_t* output = uhdr_get_encoded_stream(enc);
   ASSERT_NE(output, nullptr);
   ASSERT_GT(output->data_sz, 0u);
@@ -316,7 +349,17 @@ TEST_F(UltraHdrApiTest, AvifEncodeApi1AndDecode) {
   EXPECT_EQ(uhdr_enc_set_raw_image(enc, &mSdrRaw, UHDR_SDR_IMG).error_code, UHDR_CODEC_OK);
   EXPECT_EQ(uhdr_enc_set_output_format(enc, UHDR_CODEC_AVIF).error_code, UHDR_CODEC_OK);
 
-  ASSERT_EQ(uhdr_encode(enc).error_code, UHDR_CODEC_OK);
+  uhdr_error_info_t enc_status = uhdr_encode(enc);
+  if (enc_status.error_code != UHDR_CODEC_OK) {
+    if (enc_status.has_detail &&
+        (strstr(enc_status.detail, "Unsupported file-type") != nullptr ||
+         strstr(enc_status.detail, "No encoder") != nullptr)) {
+      uhdr_release_encoder(enc);
+      GTEST_SKIP() << "AV1 encoder plugin not available in environment: " << enc_status.detail;
+      return;
+    }
+  }
+  ASSERT_EQ(enc_status.error_code, UHDR_CODEC_OK);
   uhdr_compressed_image_t* output = uhdr_get_encoded_stream(enc);
   ASSERT_NE(output, nullptr);
   ASSERT_GT(output->data_sz, 0u);
@@ -325,11 +368,7 @@ TEST_F(UltraHdrApiTest, AvifEncodeApi1AndDecode) {
   ASSERT_NE(dec, nullptr);
   EXPECT_EQ(uhdr_dec_set_image(dec, output).error_code, UHDR_CODEC_OK);
   EXPECT_EQ(uhdr_dec_probe(dec).error_code, UHDR_CODEC_OK);
-  uhdr_error_info_t dec_status = uhdr_decode(dec);
-  if (dec_status.error_code != UHDR_CODEC_OK) {
-    std::cout << "AvifEncodeApi1 decode error: " << (dec_status.has_detail ? dec_status.detail : "no detail") << std::endl;
-  }
-  EXPECT_EQ(dec_status.error_code, UHDR_CODEC_OK);
+  EXPECT_EQ(uhdr_decode(dec).error_code, UHDR_CODEC_OK);
 
   uhdr_release_decoder(dec);
   uhdr_release_encoder(enc);
