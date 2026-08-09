@@ -29,11 +29,11 @@
 
 #define HEIF_ERR_CHECK(x)                                               \
   {                                                                     \
-    heif_error err = (x);                                               \
-    if (err.code != heif_error_Ok) {                                    \
+    heif_error _heif_res = (x);                                         \
+    if (_heif_res.code != heif_error_Ok) {                              \
       status.error_code = UHDR_CODEC_ERROR;                             \
       status.has_detail = 1;                                            \
-      snprintf(status.detail, sizeof status.detail, "%s", err.message); \
+      snprintf(status.detail, sizeof status.detail, "%s", _heif_res.message); \
       goto CleanUp;                                                     \
     }                                                                   \
   }

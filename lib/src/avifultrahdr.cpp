@@ -243,38 +243,6 @@ static heif_error set_internal_color_format(heif_encoder* encoder, enum heif_chr
   return err;
 }
 
-static heif_error get_image_metadata(struct heif_image_handle* handle, ultrahdr::jpeg_info_struct& image) {
-  struct heif_error err {
-    heif_error_Ok, heif_suberror_Unspecified, nullptr
-  };
-  int num_metadata = heif_image_handle_get_number_of_metadata_blocks(handle, nullptr);
-  if (num_metadata > 0) {
-    std::vector<heif_item_id> ids(num_metadata);
-    heif_image_handle_get_list_of_metadata_block_IDs(handle, nullptr, ids.data(), num_metadata);
-    for (int n = 0; n < num_metadata; n++) {
-      // check whether metadata block is XMP
-      std::string itemtype = heif_image_handle_get_metadata_type(handle, ids[n]);
-      std::string contenttype = heif_image_handle_get_metadata_content_type(handle, ids[n]);
-      if (contenttype == "application/rdf+xml") {
-        // read XMP data to memory array
-        size_t xmpSize = heif_image_handle_get_metadata_size(handle, ids[n]);
-        std::vector<uint8_t> xmp(xmpSize);
-        err = heif_image_handle_get_metadata(handle, ids[n], xmp.data());
-        if (err.code != heif_error_Ok) return err;
-        image.xmpData = std::move(xmp);
-      } else if (itemtype == "Exif") {
-        // read EXIF data to memory array
-        size_t exifSize = heif_image_handle_get_metadata_size(handle, ids[n]);
-        std::vector<uint8_t> exif(exifSize);
-        err = heif_image_handle_get_metadata(handle, ids[n], exif.data());
-        if (err.code != heif_error_Ok) return err;
-        image.exifData = std::move(exif);
-      }
-    }
-  }
-  return {heif_error_Ok, heif_suberror_Unspecified, nullptr};
-}
-
 static uhdr_error_info_t heif_get_gainmap_metadata(struct heif_image_handle* base_handle,
                                                    uhdr_gainmap_metadata_ext_t* metadata) {
   size_t iso_vec_sz = heif_image_handle_get_gain_map_metadata_size(base_handle);
@@ -345,11 +313,9 @@ uhdr_error_info_t AvifUltraHdr::encodeAvifUltraHdr(uhdr_raw_image_t* hdr_intent,
   uhdr_raw_image_t* sdr_intent_yuv = sdr_intent.get();
   if (isPixelFormatRgb(sdr_intent->fmt)) {
 #if (defined(UHDR_ENABLE_INTRINSICS) && (defined(__ARM_NEON__) || defined(__ARM_NEON)))
-    sdr_intent_yuv_ext = convert_raw_input_to_ycbcr_neon(
-        sdr_intent.get(), sdr_intent->cg == UHDR_CG_DISPLAY_P3 /* use bt601 */);
+    sdr_intent_yuv_ext = convert_raw_input_to_ycbcr_neon(sdr_intent.get());
 #else
-    sdr_intent_yuv_ext = convert_raw_input_to_ycbcr(
-        sdr_intent.get(), sdr_intent->cg == UHDR_CG_DISPLAY_P3 /* use bt601 */);
+    sdr_intent_yuv_ext = convert_raw_input_to_ycbcr(sdr_intent.get());
 #endif
     sdr_intent_yuv = sdr_intent_yuv_ext.get();
   }
@@ -376,11 +342,9 @@ uhdr_error_info_t AvifUltraHdr::encodeAvifUltraHdr(uhdr_raw_image_t* hdr_intent,
   uhdr_raw_image_t* sdr_intent_yuv = sdr_intent;
   if (isPixelFormatRgb(sdr_intent->fmt)) {
 #if (defined(UHDR_ENABLE_INTRINSICS) && (defined(__ARM_NEON__) || defined(__ARM_NEON)))
-    sdr_intent_yuv_ext = convert_raw_input_to_ycbcr_neon(
-        sdr_intent, sdr_intent->cg == UHDR_CG_DISPLAY_P3 /* use bt601 */);
+    sdr_intent_yuv_ext = convert_raw_input_to_ycbcr_neon(sdr_intent);
 #else
-    sdr_intent_yuv_ext = convert_raw_input_to_ycbcr(
-        sdr_intent, sdr_intent->cg == UHDR_CG_DISPLAY_P3 /* use bt601 */);
+    sdr_intent_yuv_ext = convert_raw_input_to_ycbcr(sdr_intent);
 #endif
     sdr_intent_yuv = sdr_intent_yuv_ext.get();
   }
