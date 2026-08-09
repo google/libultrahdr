@@ -12,6 +12,8 @@
 
 #include <fstream>
 #include <iostream>
+#include <string>
+#include <vector>
 
 #include "ultrahdr/editorhelper.h"
 
@@ -57,9 +59,9 @@ static bool writeFile(std::string prefixName, uhdr_raw_image_t* img) {
       bpp = 8;
     }
 
-    const char* data = static_cast<char*>(img->planes[UHDR_PLANE_Y]);
-    size_t stride = img->stride[UHDR_PLANE_Y] * bpp;
-    size_t length = img->w * bpp;
+    char* data = static_cast<char*>(img->planes[UHDR_PLANE_Y]);
+    int stride = img->stride[UHDR_PLANE_Y] * bpp;
+    int length = img->w * bpp;
     for (unsigned i = 0; i < img->h; i++, data += stride) {
       ofd.write(data, length);
     }
@@ -95,7 +97,23 @@ static bool writeFile(std::string prefixName, uhdr_raw_image_t* img) {
 namespace ultrahdr {
 
 static bool loadFile(const char* filename, uhdr_raw_image_t* handle) {
-  std::ifstream ifd(filename, std::ios::binary);
+  std::string base_name = filename;
+  size_t last_slash = base_name.find_last_of("/\\");
+  std::string raw_name = (last_slash != std::string::npos) ? base_name.substr(last_slash + 1) : base_name;
+  std::vector<std::string> candidates = {
+      filename,
+      std::string("tests/data/") + raw_name,
+      std::string("third_party/libultrahdr/tests/data/") + raw_name,
+      std::string("./data/") + raw_name,
+      std::string("../tests/data/") + raw_name,
+      std::string("build/data/") + raw_name,
+  };
+  std::ifstream ifd;
+  for (const auto& path : candidates) {
+    ifd.open(path, std::ios::binary);
+    if (ifd.good()) break;
+    ifd.clear();
+  }
   if (ifd.good()) {
     if (handle->fmt == UHDR_IMG_FMT_24bppYCbCrP010) {
       const int bpp = 2;

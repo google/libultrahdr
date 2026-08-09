@@ -18,6 +18,8 @@
 #include <cmath>
 #include <fstream>
 #include <iostream>
+#include <string>
+#include <vector>
 
 #include "ultrahdr_api.h"
 
@@ -203,7 +205,23 @@ bool UhdrUnCompressedStructWrapper::loadRawResource(const char* fileName) {
     std::cerr << "memory is not allocated, read not possible" << std::endl;
     return false;
   }
-  std::ifstream ifd(fileName, std::ios::binary | std::ios::ate);
+  std::string base_name = fileName;
+  size_t last_slash = base_name.find_last_of("/\\");
+  std::string raw_name = (last_slash != std::string::npos) ? base_name.substr(last_slash + 1) : base_name;
+  std::vector<std::string> candidates = {
+      fileName,
+      std::string("tests/data/") + raw_name,
+      std::string("third_party/libultrahdr/tests/data/") + raw_name,
+      std::string("./data/") + raw_name,
+      std::string("../tests/data/") + raw_name,
+      std::string("build/data/") + raw_name,
+  };
+  std::ifstream ifd;
+  for (const auto& path : candidates) {
+    ifd.open(path, std::ios::binary | std::ios::ate);
+    if (ifd.good()) break;
+    ifd.clear();
+  }
   if (ifd.good()) {
     int bpp = mFormat == YCbCr_p010 ? 2 : 1;
     int size = ifd.tellg();
@@ -289,7 +307,23 @@ static bool writeFile(const char* filename, void*& result, int length) {
 #endif
 
 static bool readFile(const char* fileName, void*& result, size_t maxLength, size_t& length) {
-  std::ifstream ifd(fileName, std::ios::binary | std::ios::ate);
+  std::string base_name = fileName;
+  size_t last_slash = base_name.find_last_of("/\\");
+  std::string raw_name = (last_slash != std::string::npos) ? base_name.substr(last_slash + 1) : base_name;
+  std::vector<std::string> candidates = {
+      fileName,
+      std::string("tests/data/") + raw_name,
+      std::string("third_party/libultrahdr/tests/data/") + raw_name,
+      std::string("./data/") + raw_name,
+      std::string("../tests/data/") + raw_name,
+      std::string("build/data/") + raw_name,
+  };
+  std::ifstream ifd;
+  for (const auto& path : candidates) {
+    ifd.open(path, std::ios::binary | std::ios::ate);
+    if (ifd.good()) break;
+    ifd.clear();
+  }
   if (ifd.good()) {
     length = ifd.tellg();
     if (length > maxLength) {
@@ -1500,8 +1534,24 @@ TEST(JpegRTest, writeXmpThenRead) {
 TEST(JpegRTest, decodeApple) {
   JpegR decoder;
   uhdr_compressed_image_t uhdrCompressedImg;
-  for (const auto& fileName : {kOldAppleFileName, kNewAppleFileName}) {
-    std::ifstream ifs(fileName, std::ios::binary);
+  for (const auto& rawFileName : {kOldAppleFileName, kNewAppleFileName}) {
+    std::string base_name = rawFileName;
+    size_t last_slash = base_name.find_last_of("/\\");
+    std::string raw_name = (last_slash != std::string::npos) ? base_name.substr(last_slash + 1) : base_name;
+    std::vector<std::string> candidates = {
+        rawFileName,
+        std::string("tests/data/") + raw_name,
+        std::string("third_party/libultrahdr/tests/data/") + raw_name,
+        std::string("./data/") + raw_name,
+        std::string("../tests/data/") + raw_name,
+        std::string("build/data/") + raw_name,
+    };
+    std::ifstream ifs;
+    for (const auto& path : candidates) {
+      ifs.open(path, std::ios::binary);
+      if (ifs.is_open()) break;
+      ifs.clear();
+    }
     std::string content((std::istreambuf_iterator<char>(ifs)), (std::istreambuf_iterator<char>()));
     ASSERT_EQ(is_uhdr_image(content.data(), content.size()), 1);
 
@@ -1525,7 +1575,7 @@ TEST(JpegRTest, decodeApple) {
     const uhdr_gainmap_metadata_t* gainmapMetadata = uhdr_dec_get_gainmap_metadata(dec);
     ASSERT_NE(gainmapMetadata, nullptr);
 
-    const double headroom = fileName == kOldAppleFileName ? 8.0 : 23.1474762;
+    const double headroom = rawFileName == kOldAppleFileName ? 8.0 : 23.1474762;
     for (int c = 0; c < 3; ++c) {
       EXPECT_EQ(gainmapMetadata->gamma[c], 1.0f);
       EXPECT_EQ(gainmapMetadata->offset_sdr[c], 0.0f);
