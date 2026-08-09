@@ -12,6 +12,8 @@
 
 #include <fstream>
 #include <iostream>
+#include <string>
+#include <vector>
 
 #include "ultrahdr/ultrahdrcommon.h"
 #include "ultrahdr/jpegencoderhelper.h"
@@ -24,10 +26,10 @@ namespace ultrahdr {
 #define UNALIGNED_IMAGE "/data/local/tmp/minnie-318x240.yu12"
 #define RGB_IMAGE "/data/local/tmp/minnie-320x240.rgb"
 #else
-#define ALIGNED_IMAGE "./data/minnie-320x240.yu12"
-#define SINGLE_CHANNEL_IMAGE "./data/minnie-320x240.y"
-#define UNALIGNED_IMAGE "./data/minnie-318x240.yu12"
-#define RGB_IMAGE "./data/minnie-320x240.rgb"
+#define ALIGNED_IMAGE "minnie-320x240.yu12"
+#define SINGLE_CHANNEL_IMAGE "minnie-320x240.y"
+#define UNALIGNED_IMAGE "minnie-318x240.yu12"
+#define RGB_IMAGE "minnie-320x240.rgb"
 #endif
 #define ALIGNED_IMAGE_WIDTH 320
 #define ALIGNED_IMAGE_HEIGHT 240
@@ -59,14 +61,23 @@ JpegEncoderHelperTest::JpegEncoderHelperTest() {}
 JpegEncoderHelperTest::~JpegEncoderHelperTest() {}
 
 static bool loadFile(const char filename[], JpegEncoderHelperTest::Image* result) {
-  std::ifstream ifd(filename, std::ios::binary | std::ios::ate);
-  if (ifd.good()) {
-    int size = ifd.tellg();
-    ifd.seekg(0, std::ios::beg);
-    result->buffer.reset(new uint8_t[size]);
-    ifd.read(reinterpret_cast<char*>(result->buffer.get()), size);
-    ifd.close();
-    return true;
+  std::vector<std::string> candidates = {
+      filename,
+      std::string("third_party/libultrahdr/tests/data/") + filename,
+      std::string("tests/data/") + filename,
+      std::string("./data/") + filename,
+      std::string("../tests/data/") + filename,
+  };
+  for (const auto& path : candidates) {
+    std::ifstream ifd(path, std::ios::binary | std::ios::ate);
+    if (ifd.good()) {
+      int size = ifd.tellg();
+      ifd.seekg(0, std::ios::beg);
+      result->buffer.reset(new uint8_t[size]);
+      ifd.read(reinterpret_cast<char*>(result->buffer.get()), size);
+      ifd.close();
+      return true;
+    }
   }
   return false;
 }
