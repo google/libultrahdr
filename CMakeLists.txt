@@ -652,11 +652,79 @@ if(UHDR_ENABLE_HEIF)
       set(LIBHEIF_FOUND TRUE)
     endif()
   endif()
+  if(NOT LIBHEIF_FOUND AND UHDR_BUILD_DEPS)
+    find_package(Git QUIET)
+    set(LIBHEIF_TARGET_NAME libheif)
+    set(LIBHEIF_PREFIX_DIR ${CMAKE_CURRENT_BINARY_DIR}/${LIBHEIF_TARGET_NAME})
+    set(LIBHEIF_SOURCE_DIR ${THIRD_PARTY_DIR}/${LIBHEIF_TARGET_NAME})
+    set(LIBHEIF_BINARY_DIR ${LIBHEIF_PREFIX_DIR}/src/${LIBHEIF_TARGET_NAME}-build)
+    set(LIBHEIF_INCLUDE_DIRS
+        ${LIBHEIF_SOURCE_DIR}/libheif/api
+        ${LIBHEIF_SOURCE_DIR}/libheif/api/libheif
+        ${LIBHEIF_SOURCE_DIR}/include
+        ${LIBHEIF_SOURCE_DIR}/include/libheif
+        ${LIBHEIF_BINARY_DIR}
+        ${LIBHEIF_BINARY_DIR}/libheif)
+    if(IS_MULTI)
+      if(WIN32 AND NOT MINGW)
+        set(LIBHEIF_LIB_PREFIX ${LIBHEIF_BINARY_DIR}/libheif/Release/)
+      else()
+        set(LIBHEIF_LIB_PREFIX ${LIBHEIF_BINARY_DIR}/libheif/$<CONFIG>/)
+      endif()
+    else()
+      set(LIBHEIF_LIB_PREFIX ${LIBHEIF_BINARY_DIR}/libheif/)
+    endif()
+    if(WIN32 AND NOT MINGW)
+      set(LIBHEIF_LIB heif.lib)
+    else()
+      set(LIBHEIF_LIB ${CMAKE_STATIC_LIBRARY_PREFIX}heif${CMAKE_STATIC_LIBRARY_SUFFIX})
+    endif()
+    set(LIBHEIF_LIBRARIES ${LIBHEIF_LIB_PREFIX}${LIBHEIF_LIB})
+
+    if(GIT_FOUND)
+      set(LIBHEIF_PATCH_CMD ${GIT_EXECUTABLE} checkout 4a3f74bc593ebfc29becc1ed5dd0a61cc66d40e1 -- .
+                            COMMAND ${GIT_EXECUTABLE} apply --ignore-space-change --whitespace=nowarn ${CMAKE_CURRENT_SOURCE_DIR}/cmake/patches/libheif_pr1503.patch)
+    else()
+      set(LIBHEIF_PATCH_CMD git checkout 4a3f74bc593ebfc29becc1ed5dd0a61cc66d40e1 -- .
+                            COMMAND git apply --ignore-space-change --whitespace=nowarn ${CMAKE_CURRENT_SOURCE_DIR}/cmake/patches/libheif_pr1503.patch)
+    endif()
+
+    ExternalProject_Add(${LIBHEIF_TARGET_NAME}
+        GIT_REPOSITORY https://github.com/strukturag/libheif.git
+        GIT_TAG 4a3f74bc593ebfc29becc1ed5dd0a61cc66d40e1
+        PATCH_COMMAND ${LIBHEIF_PATCH_CMD}
+        PREFIX ${LIBHEIF_PREFIX_DIR}
+        SOURCE_DIR ${LIBHEIF_SOURCE_DIR}
+        BINARY_DIR ${LIBHEIF_BINARY_DIR}
+        BUILD_COMMAND ${CMAKE_COMMAND} --build <BINARY_DIR> --config $<CONFIG> --target heif
+        INSTALL_COMMAND ""
+        CMAKE_ARGS ${UHDR_CMAKE_ARGS}
+                   -DBUILD_SHARED_LIBS=OFF
+                   -DCMAKE_DISABLE_FIND_PACKAGE_Doxygen=ON
+                   -DWITH_DOCS=OFF
+                   -DENABLE_PLUGIN_LOADING=ON
+                   -DWITH_EXAMPLES=OFF
+                   -DWITH_GDK_PIXBUF=OFF
+                   -DWITH_LIBSHARPYUV=OFF
+                   -DBUILD_TESTING=OFF
+                   -DWITH_EXPERIMENTAL_GAIN_MAP=ON
+                   -DWITH_HEIFIO=OFF
+                   -DWITH_JPEG_DECODER=OFF
+                   -DWITH_JPEG_ENCODER=OFF
+                   -DWITH_OpenJPEG=OFF
+                   -DWITH_OpenJPH=OFF
+                   -DWITH_LIBPNG=OFF
+                   -DWITH_LIBTIFF=OFF
+                   -DWITH_FFMPEG_DECODER=OFF
+        BUILD_BYPRODUCTS ${LIBHEIF_LIBRARIES}
+    )
+    set(LIBHEIF_FOUND TRUE)
+  endif()
   if(LIBHEIF_FOUND)
     message(STATUS "Found libheif: ${LIBHEIF_LIBRARIES}")
-    add_compile_options(-DUHDR_ENABLE_HEIF)
+    add_compile_options(-DUHDR_ENABLE_HEIF -DWITH_EXPERIMENTAL_GAIN_MAP=1 -DLIBHEIF_STATIC_BUILD)
     list(APPEND PRIVATE_INCLUDE_DIR ${LIBHEIF_INCLUDE_DIRS})
-    list(APPEND PRIVATE_LINK_LIBS ${LIBHEIF_LIBRARIES})
+    list(APPEND PRIVATE_LINK_LIBS ${LIBHEIF_LIBRARIES} ${CMAKE_DL_LIBS})
   else()
     message(WARNING "libheif not found. Building without HEIF/AVIF support.")
     set(UHDR_ENABLE_HEIF FALSE)
@@ -679,6 +747,9 @@ target_compile_options(${UHDR_CORE_LIB_NAME} PRIVATE ${UHDR_WERROR_FLAGS})
 if(NOT JPEG_FOUND)
   add_dependencies(${UHDR_CORE_LIB_NAME} ${JPEGTURBO_TARGET_NAME})
 endif()
+if(TARGET libheif)
+  add_dependencies(${UHDR_CORE_LIB_NAME} ${LIBHEIF_TARGET_NAME})
+endif()
 if(NOT MSVC)
   target_compile_options(${UHDR_CORE_LIB_NAME} PRIVATE -Wall -Wextra -Wshadow)
 endif()
@@ -693,7 +764,7 @@ target_include_directories(${UHDR_CORE_LIB_NAME} PUBLIC ${EXPORT_INCLUDE_DIR})
 if(${CMAKE_SYSTEM_NAME} MATCHES "Android")
   target_link_libraries(${UHDR_CORE_LIB_NAME} PUBLIC ${log-lib})
 endif()
-target_link_libraries(${UHDR_CORE_LIB_NAME} PRIVATE ${PRIVATE_LINK_LIBS} ${IMAGEIO_TARGET_NAME})
+target_link_libraries(${UHDR_CORE_LIB_NAME} PUBLIC ${PRIVATE_LINK_LIBS} ${IMAGEIO_TARGET_NAME})
 
 if(UHDR_BUILD_EXAMPLES)
   set(UHDR_SAMPLE_APP ultrahdr_app)
@@ -729,6 +800,9 @@ endif()
 if(UHDR_BUILD_TESTS)
   add_executable(ultrahdr_unit_test ${UHDR_TEST_SRCS_LIST})
   add_dependencies(ultrahdr_unit_test ${GTEST_TARGET_NAME} ${UHDR_CORE_LIB_NAME})
+  if(TARGET libheif)
+    add_dependencies(ultrahdr_unit_test ${LIBHEIF_TARGET_NAME})
+  endif()
   target_compile_options(ultrahdr_unit_test PRIVATE ${UHDR_WERROR_FLAGS})
   target_include_directories(ultrahdr_unit_test PRIVATE
     ${PRIVATE_INCLUDE_DIR}
@@ -738,9 +812,9 @@ if(UHDR_BUILD_TESTS)
     target_link_options(ultrahdr_unit_test PRIVATE -fsanitize=fuzzer-no-link)
   endif()
   if(UHDR_ENABLE_SMPTE2094_50)
-    target_link_libraries(ultrahdr_unit_test ${UHDR_CORE_LIB_NAME} ${GTEST_BOTH_LIBRARIES} smpte2094_50_utils)
+    target_link_libraries(ultrahdr_unit_test ${UHDR_CORE_LIB_NAME} ${GTEST_BOTH_LIBRARIES} smpte2094_50_utils ${PRIVATE_LINK_LIBS})
   else()
-    target_link_libraries(ultrahdr_unit_test ${UHDR_CORE_LIB_NAME} ${GTEST_BOTH_LIBRARIES})
+    target_link_libraries(ultrahdr_unit_test ${UHDR_CORE_LIB_NAME} ${GTEST_BOTH_LIBRARIES} ${PRIVATE_LINK_LIBS})
   endif()
   add_test(NAME UHDRUnitTests, COMMAND ultrahdr_unit_test)
 endif()
