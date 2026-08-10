@@ -767,6 +767,22 @@ bool UltraHdrAppInput::encode() {
     RET_IF_ERR(uhdr_enc_set_exif_data(handle, &mExifBlock))
   }
 
+  if (mOutputFile != nullptr) {
+    std::string outStr(mOutputFile);
+    size_t dotPos = outStr.find_last_of('.');
+    if (dotPos != std::string::npos) {
+      std::string ext = outStr.substr(dotPos + 1);
+      std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+      if (ext == "heic" || ext == "heif") {
+        RET_IF_ERR(uhdr_enc_set_output_format(handle, UHDR_CODEC_HEIF))
+      } else if (ext == "avif") {
+        RET_IF_ERR(uhdr_enc_set_output_format(handle, UHDR_CODEC_AVIF))
+      } else if (ext == "jpg" || ext == "jpeg") {
+        RET_IF_ERR(uhdr_enc_set_output_format(handle, UHDR_CODEC_JPG))
+      }
+    }
+  }
+
   RET_IF_ERR(uhdr_enc_set_quality(handle, mQuality, UHDR_BASE_IMG))
   RET_IF_ERR(uhdr_enc_set_quality(handle, mMapCompressQuality, UHDR_GAIN_MAP_IMG))
   RET_IF_ERR(uhdr_enc_set_using_multi_channel_gainmap(handle, mUseMultiChannelGainMap))
@@ -1510,6 +1526,8 @@ static void usage(const char* name) {
   fprintf(stderr,
           "    -z    output filename, optional. \n"
           "          in encoding mode, default output filename 'out.jpeg'. \n"
+          "          (target container format is auto-detected from file extension: \n"
+          "           .jpg / .jpeg -> JPEG, .heic / .heif -> HEIC, .avif -> AVIF) \n"
           "          in decoding mode, default output filename 'outrgb.raw'. \n");
   fprintf(
       stderr,
