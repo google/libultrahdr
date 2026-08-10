@@ -76,12 +76,16 @@
  *                                               support, ISO 21496-1 gain map encapsulation,
  *                                               modular UltraHdr class architecture, and transparent
  *                                               multi-codec decoding.
+ *   2.0.1           2.0.1                       support dynamic/system libheif linking with fallback
+ *                                               when gain map API is absent; fix OSS-Fuzz static
+ *                                               linking; auto-detect output format in ultrahdr_app;
+ *                                               fix CI matrix and macOS/Linux runtime RPATH.
  */
 
 // This needs to be kept in sync with version in CMakeLists.txt
 #define UHDR_LIB_VER_MAJOR 2
 #define UHDR_LIB_VER_MINOR 0
-#define UHDR_LIB_VER_PATCH 0
+#define UHDR_LIB_VER_PATCH 1
 
 #define UHDR_LIB_VERSION \
   ((UHDR_LIB_VER_MAJOR * 10000) + (UHDR_LIB_VER_MINOR * 100) + UHDR_LIB_VER_PATCH)
