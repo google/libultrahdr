@@ -1484,6 +1484,8 @@ void uhdr_reset_encoder(uhdr_codec_private_t* enc) {
 }
 
 int is_uhdr_image(void* data, int size) {
+  if (data == nullptr || size < 4) return 0;
+
 #define RET_IF_ERR(x)                         \
   {                                           \
     uhdr_error_info_t status = (x);           \

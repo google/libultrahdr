@@ -80,12 +80,12 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt update
-          sudo apt install -y libjpeg-dev libheif-dev pkg-config yasm
+          sudo apt install -y libjpeg-dev pkg-config yasm
 
       - name: Install dependencies (macOS)
         if: runner.os == 'macOS'
         run: |
-          brew install libheif yasm pkg-config || true
+          brew install yasm pkg-config || true
 
       - name: Configure CMake
         shell: bash
@@ -108,10 +108,11 @@ jobs:
 
       - name: Execute Regression Test Suite
         id: run_tests
+        working-directory: build
         shell: bash
         run: |
           set -o pipefail
-          ./build/ultrahdr_unit_test 2>&1 | tee test_output.log
+          ./ultrahdr_unit_test 2>&1 | tee test_output.log
 
       - name: Report Regression Issue (On Failure)
         if: failure() && steps.run_tests.outcome == 'failure'

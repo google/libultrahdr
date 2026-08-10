@@ -37,11 +37,11 @@ const char* kSdrJpgFileName = "/data/local/tmp/jpeg_image.jpg";
 const char* kOldAppleFileName = "/data/local/tmp/apple_gainmap_old.jpg";
 const char* kNewAppleFileName = "/data/local/tmp/apple_gainmap_new.jpg";
 #else
-const char* kYCbCrP010FileName = "./data/raw_p010_image.p010";
-const char* kYCbCr420FileName = "./data/raw_yuv420_image.yuv420";
-const char* kSdrJpgFileName = "./data/jpeg_image.jpg";
-const char* kOldAppleFileName = "./data/apple_gainmap_old.jpg";
-const char* kNewAppleFileName = "./data/apple_gainmap_new.jpg";
+const char* kYCbCrP010FileName = "raw_p010_image.p010";
+const char* kYCbCr420FileName = "raw_yuv420_image.yuv420";
+const char* kSdrJpgFileName = "jpeg_image.jpg";
+const char* kOldAppleFileName = "apple_gainmap_old.jpg";
+const char* kNewAppleFileName = "apple_gainmap_new.jpg";
 #endif
 const size_t kImageWidth = 1280;
 const size_t kImageHeight = 720;
@@ -198,13 +198,31 @@ bool UhdrUnCompressedStructWrapper::allocateMemory() {
   return true;
 }
 
+static bool openFileHelper(const char* filename, std::ifstream& ifd,
+                           std::ios_base::openmode mode = std::ios::binary | std::ios::ate) {
+  std::vector<std::string> candidates = {
+      filename,
+      std::string("tests/data/") + filename,
+      std::string("./data/") + filename,
+      std::string("data/") + filename,
+      std::string("../tests/data/") + filename,
+      std::string("third_party/libultrahdr/tests/data/") + filename,
+  };
+  for (const auto& path : candidates) {
+    ifd.open(path, mode);
+    if (ifd.good()) return true;
+    ifd.clear();
+  }
+  return false;
+}
+
 bool UhdrUnCompressedStructWrapper::loadRawResource(const char* fileName) {
   if (!mImg.data) {
     std::cerr << "memory is not allocated, read not possible" << std::endl;
     return false;
   }
-  std::ifstream ifd(fileName, std::ios::binary | std::ios::ate);
-  if (ifd.good()) {
+  std::ifstream ifd;
+  if (openFileHelper(fileName, ifd, std::ios::binary | std::ios::ate)) {
     int bpp = mFormat == YCbCr_p010 ? 2 : 1;
     int size = ifd.tellg();
     int length = mImg.width * mImg.height * bpp * 3 / 2;  // 2x2 subsampling
@@ -289,8 +307,8 @@ static bool writeFile(const char* filename, void*& result, int length) {
 #endif
 
 static bool readFile(const char* fileName, void*& result, size_t maxLength, size_t& length) {
-  std::ifstream ifd(fileName, std::ios::binary | std::ios::ate);
-  if (ifd.good()) {
+  std::ifstream ifd;
+  if (openFileHelper(fileName, ifd, std::ios::binary | std::ios::ate)) {
     length = ifd.tellg();
     if (length > maxLength) {
       std::cerr << "not enough space to read file" << std::endl;
@@ -1501,8 +1519,11 @@ TEST(JpegRTest, decodeApple) {
   JpegR decoder;
   uhdr_compressed_image_t uhdrCompressedImg;
   for (const auto& fileName : {kOldAppleFileName, kNewAppleFileName}) {
-    std::ifstream ifs(fileName, std::ios::binary);
+    std::ifstream ifs;
+    ASSERT_TRUE(openFileHelper(fileName, ifs, std::ios::binary))
+        << "Failed to open test image: " << fileName;
     std::string content((std::istreambuf_iterator<char>(ifs)), (std::istreambuf_iterator<char>()));
+    ASSERT_GT(content.size(), 4u);
     ASSERT_EQ(is_uhdr_image(content.data(), content.size()), 1);
 
     uhdrCompressedImg.data = content.data();
