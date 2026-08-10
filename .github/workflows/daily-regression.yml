@@ -112,7 +112,11 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          ./ultrahdr_unit_test 2>&1 | tee test_output.log
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            ctest --output-on-failure --build-config Release 2>&1 | tee test_output.log
+          else
+            ./ultrahdr_unit_test 2>&1 | tee test_output.log
+          fi
 
       - name: Report Regression Issue (On Failure)
         if: failure() && steps.run_tests.outcome == 'failure'

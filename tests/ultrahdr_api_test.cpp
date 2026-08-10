@@ -31,6 +31,7 @@ static bool loadFile(const char* filename, std::vector<uint8_t>& buffer) {
       std::string("third_party/libultrahdr/tests/data/") + filename,
       std::string("tests/data/") + filename,
       std::string("./data/") + filename,
+      std::string("data/") + filename,
       std::string("../tests/data/") + filename,
   };
   for (const auto& path : candidates) {
