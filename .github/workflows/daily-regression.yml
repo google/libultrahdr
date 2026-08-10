@@ -114,6 +114,8 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
+          export DYLD_LIBRARY_PATH="$(pwd)/libheif/src/libheif-build/libheif:$DYLD_LIBRARY_PATH"
+          export LD_LIBRARY_PATH="$(pwd)/libheif/src/libheif-build/libheif:$LD_LIBRARY_PATH"
           if [ "$RUNNER_OS" = "Windows" ]; then
             ctest --output-on-failure --build-config Release -R UHDRUnitTests 2>&1 | tee test_output.log
           else
