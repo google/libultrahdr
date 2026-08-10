@@ -674,20 +674,10 @@ if(UHDR_ENABLE_HEIF)
     else()
       set(LIBHEIF_LIB_PREFIX ${LIBHEIF_BINARY_DIR}/libheif/)
     endif()
-    if(BUILD_SHARED_LIBS)
-      if(WIN32 AND NOT MINGW)
-        set(LIBHEIF_LIB heif.lib)
-      elseif(APPLE)
-        set(LIBHEIF_LIB libheif.dylib)
-      else()
-        set(LIBHEIF_LIB libheif.so)
-      endif()
+    if(WIN32 AND NOT MINGW)
+      set(LIBHEIF_LIB heif.lib)
     else()
-      if(WIN32 AND NOT MINGW)
-        set(LIBHEIF_LIB heif.lib)
-      else()
-        set(LIBHEIF_LIB ${CMAKE_STATIC_LIBRARY_PREFIX}heif${CMAKE_STATIC_LIBRARY_SUFFIX})
-      endif()
+      set(LIBHEIF_LIB ${CMAKE_STATIC_LIBRARY_PREFIX}heif${CMAKE_STATIC_LIBRARY_SUFFIX})
     endif()
     set(LIBHEIF_LIBRARIES ${LIBHEIF_LIB_PREFIX}${LIBHEIF_LIB})
 
@@ -709,7 +699,7 @@ if(UHDR_ENABLE_HEIF)
         BUILD_COMMAND ${CMAKE_COMMAND} --build <BINARY_DIR> --config $<CONFIG> --target heif
         INSTALL_COMMAND ""
         CMAKE_ARGS ${UHDR_CMAKE_ARGS}
-                   -DBUILD_SHARED_LIBS=${BUILD_SHARED_LIBS}
+                   -DBUILD_SHARED_LIBS=OFF
                    -DCMAKE_DISABLE_FIND_PACKAGE_Doxygen=ON
                    -DWITH_DOCS=OFF
                    -DENABLE_PLUGIN_LOADING=ON
@@ -734,16 +724,8 @@ if(UHDR_ENABLE_HEIF)
       set_target_properties(libheif::heif PROPERTIES
         IMPORTED_LOCATION "${LIBHEIF_LIBRARIES}"
         INTERFACE_INCLUDE_DIRECTORIES "${LIBHEIF_INCLUDE_DIRS}"
+        INTERFACE_COMPILE_DEFINITIONS "LIBHEIF_STATIC_BUILD;WITH_EXPERIMENTAL_GAIN_MAP=1"
       )
-      if(NOT BUILD_SHARED_LIBS)
-        set_target_properties(libheif::heif PROPERTIES
-          INTERFACE_COMPILE_DEFINITIONS "LIBHEIF_STATIC_BUILD;WITH_EXPERIMENTAL_GAIN_MAP=1"
-        )
-      else()
-        set_target_properties(libheif::heif PROPERTIES
-          INTERFACE_COMPILE_DEFINITIONS "WITH_EXPERIMENTAL_GAIN_MAP=1"
-        )
-      endif()
     endif()
     set(LIBHEIF_FOUND TRUE)
   endif()
