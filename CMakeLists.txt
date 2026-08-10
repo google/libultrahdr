@@ -818,7 +818,7 @@ if(UHDR_BUILD_TESTS)
   else()
     target_link_libraries(ultrahdr_unit_test ${UHDR_CORE_LIB_NAME} ${GTEST_BOTH_LIBRARIES} ${PRIVATE_LINK_LIBS})
   endif()
-  add_test(NAME UHDRUnitTests, COMMAND ultrahdr_unit_test)
+  add_test(NAME UHDRUnitTests COMMAND ultrahdr_unit_test)
 endif()
 
 if(UHDR_BUILD_BENCHMARK)
