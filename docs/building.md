@@ -10,13 +10,13 @@
 
 - [CMake](http://www.cmake.org) v3.15 or later
 - C++ compiler, supporting at least C++17.
-- libultrahdr uses jpeg compression format to store sdr image and gainmap quotient.
-  So, libjpeg or any other jpeg codec that is ABI and API compatible with libjpeg.
+- libultrahdr uses JPEG compression format to store SDR images and gainmap quotients.
+  So, libjpeg or any other JPEG codec that is ABI and API compatible with libjpeg is required for JPEG support.
+- libultrahdr supports ISO 21496-1 gain map encoding and decoding in HEIF and AVIF containers via [libheif](https://github.com/strukturag/libheif).
 
-The library offers a way to skip installing libjpeg by passing `UHDR_BUILD_DEPS=1`
-at the time of configure. That is, `cmake -DUHDR_BUILD_DEPS=1` will clone jpeg codec
-from [link](https://github.com/libjpeg-turbo/libjpeg-turbo.git) and include it in
-the build process. This is however not recommended.
+The library offers a way to skip installing dependencies manually by passing `UHDR_BUILD_DEPS=1`
+at configure time. That is, `cmake -DUHDR_BUILD_DEPS=1` will clone [libjpeg-turbo](https://github.com/libjpeg-turbo/libjpeg-turbo.git)
+and [libheif](https://github.com/strukturag/libheif.git) (with the ISO 21496-1 gain map patch applied) and build them statically.
 
 If jpeg is included in the build process then,
 - C compiler
@@ -56,13 +56,15 @@ Following is a list of available options:
 | `UHDR_BUILD_TESTS` | OFF | Build Unit Tests. Mostly for Devs. During development, different modules of libuhdr library are validated using GoogleTest framework. Developers after making changes to library are expected to run these tests to ensure every thing is functional. |
 | `UHDR_BUILD_BENCHMARK` | OFF | Build Benchmark Tests. These are for profiling libuhdr encode/decode API. Resources used by benchmark tests are shared [here](https://storage.googleapis.com/android_media/external/libultrahdr/benchmark/UltrahdrBenchmarkTestRes-1.1.zip). These are downloaded and extracted automatically during the build process for later benchmarking. |
 | `UHDR_BUILD_FUZZERS` | OFF | Build Fuzz Test Applications. Mostly for Devs. <ul><li> Fuzz applications are built by instrumenting the entire software suite. This includes dependency libraries. This is done by forcing `UHDR_BUILD_DEPS` to **ON** internally. </li></ul> |
-| `UHDR_BUILD_DEPS` | OFF | Clone and Build project dependencies and not use pre-installed packages. |
+| `UHDR_BUILD_DEPS` | OFF | Clone and Build project dependencies (libjpeg-turbo, libheif with ISO 21496-1 patch, googletest, benchmark) and not use pre-installed packages. |
 | `UHDR_BUILD_JAVA` | OFF | Build JNI wrapper, Java front-end classes and Java sample application. |
 | `UHDR_ENABLE_LOGS` | OFF | Build with verbose logging. |
 | `UHDR_ENABLE_INSTALL` | ON | Enable install and uninstall targets for libuhdr package. <ul><li> For system wide installation it is best if dependencies are acquired from OS package manager instead of building from source. This is to avoid conflicts with software that is using a different version of the said dependency and also links to libuhdr. So if `UHDR_BUILD_DEPS` is **ON** then `UHDR_ENABLE_INSTALL` is forced to **OFF** internally. |
 | `UHDR_ENABLE_INTRINSICS` | ON | Build with SIMD acceleration. Sections of libuhdr are accelerated for Arm Neon architectures and these are enabled. <ul><li> For x86/x86_64 architectures currently no SIMD acceleration is present. Consequently this option has no effect. </li><li> This parameter has no effect on SIMD configuration settings of dependencies. </li></ul> |
 | `UHDR_ENABLE_GLES` | OFF | Build with GPU acceleration. |
 | `UHDR_ENABLE_WERROR` | OFF | Enable -Werror when building. |
+| `UHDR_ENABLE_SMPTE2094_50` | OFF | Build with SMPTE 2094-50 dynamic metadata support. |
+| `UHDR_ENABLE_HEIF` | ON | Build with HEIF and AVIF container support via `libheif`. <ul><li> If `UHDR_BUILD_DEPS` is **OFF**, CMake looks for a system `libheif` that provides ISO 21496-1 gain map APIs. If system `libheif` lacks the gain map APIs or is missing, HEIF support is gracefully disabled with a warning. </li><li> If `UHDR_BUILD_DEPS` is **ON**, CMake automatically clones bundled `libheif` with the ISO 21496-1 patch and builds it statically. </li></ul> |
 | `UHDR_MAX_DIMENSION` | 8192 | Maximum dimension supported by the library. The library defaults to handling images upto resolution 8192x8192. For different resolution needs use this option. For example, `-DUHDR_MAX_DIMENSION=4096`. |
 | `UHDR_WRITE_XMP` | OFF | Enable writing gainmap metadata in XMP packet. <ul><li> Current implementation of XMP format supports writing only single channel gainmap metadata. To support encoding multi channel gainmap metadata, XMP format encoding is disabled by default. If enabled, metadata of all channels of gainmap image is merged into one and signalled. </li></ul> |
 | `UHDR_WRITE_ISO` | ON | Enable writing gainmap metadata in ISO 21496-1 format. |
@@ -118,11 +120,45 @@ sudo ninja install
 
 This installs the headers, pkg-config, and shared libraries. By default the headers are put in `/usr/local/include/`, libraries in `/usr/local/lib/` and pkg-config file in `/usr/local/lib/pkgconfig/`. You may need to add path `/usr/local/lib/` to `LD_LIBRARY_PATH` if binaries linking with ultrahdr library are unable to load it at run time. e.g. `export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/lib/`.
 
-Uninstallation:
+### Enabling HEIF and AVIF Gain Map Encoding and Decoding
+
+libultrahdr supports encoding and decoding ISO 21496-1 gain map images in HEIF (`.heic`) and AVIF (`.avif`) container formats via `libheif`.
+
+#### 1. Building with Bundled Dependencies (Recommended)
+
+To ensure full HEIF and AVIF gain map support out-of-the-box on any machine, build with `-DUHDR_BUILD_DEPS=1`:
 
 ```sh
-sudo ninja uninstall
+cmake -G Ninja -DUHDR_BUILD_DEPS=1 -DUHDR_BUILD_TESTS=1 ../
+ninja
 ```
+
+This automatically downloads bundled `libheif` source and applies the ISO 21496-1 gain map patch ([PR #1503](https://github.com/strukturag/libheif/pull/1503)).
+
+#### 2. Building with System libheif
+
+If you have a system-installed `libheif` that provides ISO 21496-1 gain map APIs:
+
+```sh
+cmake -G Ninja -DUHDR_BUILD_TESTS=1 ../
+ninja
+```
+
+CMake will automatically discover system `libheif` and dynamically link against `libheif::heif`. If the system `libheif` is missing or lacks the gain map APIs, CMake gracefully disables `UHDR_ENABLE_HEIF` with a warning, allowing the rest of the build to succeed.
+
+#### 3. Runtime Codec Plugins for HEIF/AVIF Full-Pixel Encoding and Decoding
+
+`libheif` uses modular codec plugins at runtime for compression and decompression:
+- **HEVC Decode**: `libde265` (`libheif-plugin-libde265` on Debian/Ubuntu)
+- **HEVC Encode**: `x265` (`libheif-plugin-x265` on Debian/Ubuntu)
+- **AV1 Decode**: `dav1d` (`libheif-plugin-dav1d` on Debian/Ubuntu)
+- **AV1 Encode**: `aom` / `svt-av1` (`libheif-plugin-aomenc` / `libheif-plugin-svtenc` on Debian/Ubuntu)
+
+On Debian/Ubuntu, install the required codec plugins:
+```sh
+sudo apt install libheif-plugin-libde265 libheif-plugin-x265 libheif-plugin-dav1d libheif-plugin-aomenc
+```
+If plugins are located in a custom directory, set the `LIBHEIF_PLUGIN_DIRECTORY` environment variable to point to the plugin folder (e.g. `export LIBHEIF_PLUGIN_DIRECTORY=/usr/lib/x86_64-linux-gnu/libheif/plugins`).
 
 ### macOS Platform
 
