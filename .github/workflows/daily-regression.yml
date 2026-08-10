@@ -49,13 +49,6 @@ jobs:
             cmake-opts: "-DUHDR_BUILD_TESTS=1 -DUHDR_BUILD_DEPS=1 -DUHDR_ENABLE_HEIF=1 -DUHDR_ENABLE_WERROR=1"
             enable_heif: "ON"
 
-          - name: "macOS Intel (HEIF ON)"
-            os: macos-13
-            cc: clang
-            cxx: clang++
-            cmake-opts: "-DUHDR_BUILD_TESTS=1 -DUHDR_BUILD_DEPS=1 -DUHDR_ENABLE_HEIF=1 -DUHDR_ENABLE_WERROR=1"
-            enable_heif: "ON"
-
           # --- Windows Configurations ---
           - name: "Windows MSVC 2022 (HEIF OFF)"
             os: windows-latest
