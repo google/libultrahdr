@@ -642,29 +642,24 @@ if(UHDR_ENABLE_GLES)
 endif()
 if(UHDR_ENABLE_HEIF)
   if(NOT UHDR_BUILD_DEPS)
-    find_package(PkgConfig QUIET)
-    if(PkgConfig_FOUND)
-      pkg_check_modules(LIBHEIF QUIET libheif)
-    endif()
-    if(NOT LIBHEIF_FOUND)
-      find_path(LIBHEIF_INCLUDE_DIRS "libheif/heif.h")
-      find_library(LIBHEIF_LIBRARIES NAMES heif libheif)
-      if(LIBHEIF_INCLUDE_DIRS AND LIBHEIF_LIBRARIES)
-        set(LIBHEIF_FOUND TRUE)
-      endif()
+    list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
+    find_package(libheif QUIET)
+    if(libheif_FOUND AND NOT LIBHEIF_HAS_GAIN_MAP)
+      message(WARNING "System libheif found but lacks ISO 21496-1 gain map API (PR 1503). "
+                      "Switching to bundled dependency build.")
+      set(libheif_FOUND FALSE)
     endif()
   endif()
-  if(NOT LIBHEIF_FOUND AND UHDR_BUILD_DEPS)
+  if(NOT libheif_FOUND AND UHDR_BUILD_DEPS)
     find_package(Git QUIET)
     set(LIBHEIF_TARGET_NAME libheif)
     set(LIBHEIF_PREFIX_DIR ${CMAKE_CURRENT_BINARY_DIR}/${LIBHEIF_TARGET_NAME})
     set(LIBHEIF_SOURCE_DIR ${THIRD_PARTY_DIR}/${LIBHEIF_TARGET_NAME})
     set(LIBHEIF_BINARY_DIR ${LIBHEIF_PREFIX_DIR}/src/${LIBHEIF_TARGET_NAME}-build)
+    file(MAKE_DIRECTORY ${LIBHEIF_BINARY_DIR}/libheif)
     set(LIBHEIF_INCLUDE_DIRS
         ${LIBHEIF_SOURCE_DIR}/libheif/api
         ${LIBHEIF_SOURCE_DIR}/libheif/api/libheif
-        ${LIBHEIF_SOURCE_DIR}/include
-        ${LIBHEIF_SOURCE_DIR}/include/libheif
         ${LIBHEIF_BINARY_DIR}
         ${LIBHEIF_BINARY_DIR}/libheif)
     if(IS_MULTI)
@@ -676,10 +671,20 @@ if(UHDR_ENABLE_HEIF)
     else()
       set(LIBHEIF_LIB_PREFIX ${LIBHEIF_BINARY_DIR}/libheif/)
     endif()
-    if(WIN32 AND NOT MINGW)
-      set(LIBHEIF_LIB heif.lib)
+    if(BUILD_SHARED_LIBS)
+      if(WIN32 AND NOT MINGW)
+        set(LIBHEIF_LIB heif.lib)
+      elseif(APPLE)
+        set(LIBHEIF_LIB libheif.dylib)
+      else()
+        set(LIBHEIF_LIB libheif.so)
+      endif()
     else()
-      set(LIBHEIF_LIB ${CMAKE_STATIC_LIBRARY_PREFIX}heif${CMAKE_STATIC_LIBRARY_SUFFIX})
+      if(WIN32 AND NOT MINGW)
+        set(LIBHEIF_LIB heif.lib)
+      else()
+        set(LIBHEIF_LIB ${CMAKE_STATIC_LIBRARY_PREFIX}heif${CMAKE_STATIC_LIBRARY_SUFFIX})
+      endif()
     endif()
     set(LIBHEIF_LIBRARIES ${LIBHEIF_LIB_PREFIX}${LIBHEIF_LIB})
 
@@ -701,7 +706,7 @@ if(UHDR_ENABLE_HEIF)
         BUILD_COMMAND ${CMAKE_COMMAND} --build <BINARY_DIR> --config $<CONFIG> --target heif
         INSTALL_COMMAND ""
         CMAKE_ARGS ${UHDR_CMAKE_ARGS}
-                   -DBUILD_SHARED_LIBS=OFF
+                   -DBUILD_SHARED_LIBS=${BUILD_SHARED_LIBS}
                    -DCMAKE_DISABLE_FIND_PACKAGE_Doxygen=ON
                    -DWITH_DOCS=OFF
                    -DENABLE_PLUGIN_LOADING=ON
@@ -720,13 +725,29 @@ if(UHDR_ENABLE_HEIF)
                    -DWITH_FFMPEG_DECODER=OFF
         BUILD_BYPRODUCTS ${LIBHEIF_LIBRARIES}
     )
-    set(LIBHEIF_FOUND TRUE)
+    if(NOT TARGET libheif::heif)
+      add_library(libheif::heif UNKNOWN IMPORTED)
+      add_dependencies(libheif::heif ${LIBHEIF_TARGET_NAME})
+      set_target_properties(libheif::heif PROPERTIES
+        IMPORTED_LOCATION "${LIBHEIF_LIBRARIES}"
+        INTERFACE_INCLUDE_DIRECTORIES "${LIBHEIF_INCLUDE_DIRS}"
+      )
+      if(NOT BUILD_SHARED_LIBS)
+        set_target_properties(libheif::heif PROPERTIES
+          INTERFACE_COMPILE_DEFINITIONS "LIBHEIF_STATIC_BUILD;WITH_EXPERIMENTAL_GAIN_MAP=1"
+        )
+      else()
+        set_target_properties(libheif::heif PROPERTIES
+          INTERFACE_COMPILE_DEFINITIONS "WITH_EXPERIMENTAL_GAIN_MAP=1"
+        )
+      endif()
+    endif()
+    set(libheif_FOUND TRUE)
   endif()
-  if(LIBHEIF_FOUND)
+  if(libheif_FOUND)
     message(STATUS "Found libheif: ${LIBHEIF_LIBRARIES}")
-    add_compile_options(-DUHDR_ENABLE_HEIF -DWITH_EXPERIMENTAL_GAIN_MAP=1 -DLIBHEIF_STATIC_BUILD)
-    list(APPEND PRIVATE_INCLUDE_DIR ${LIBHEIF_INCLUDE_DIRS})
-    list(APPEND PRIVATE_LINK_LIBS ${LIBHEIF_LIBRARIES} ${CMAKE_DL_LIBS})
+    add_compile_options(-DUHDR_ENABLE_HEIF)
+    list(APPEND PRIVATE_LINK_LIBS libheif::heif ${CMAKE_DL_LIBS})
   else()
     message(WARNING "libheif not found. Building without HEIF/AVIF support.")
     set(UHDR_ENABLE_HEIF FALSE)
