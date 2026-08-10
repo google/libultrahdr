@@ -114,7 +114,7 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          if [ "$RUNNER_OS_NAME" = "Windows" ]; then
+          if [ "$RUNNER_OS" = "Windows" ]; then
             ctest --output-on-failure --build-config Release -R UHDRUnitTests 2>&1 | tee test_output.log
           else
             ./ultrahdr_unit_test 2>&1 | tee test_output.log
