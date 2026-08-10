@@ -6,9 +6,11 @@
 #   libheif::heif - Target representing the libheif library
 #
 # Result Variables:
-#   libheif_FOUND             - True if libheif was found
+#   LIBHEIF_FOUND             - True if libheif was found
 #   LIBHEIF_HAS_GAIN_MAP      - True if libheif includes ISO 21496-1 gain map APIs
 #   LIBHEIF_VERSION           - Version of libheif found
+#   LIBHEIF_INCLUDE_DIRS      - Include directories for libheif
+#   LIBHEIF_LIBRARIES         - Libraries needed to link against libheif
 
 include(CheckCXXSymbolExists)
 include(FindPackageHandleStandardArgs)
@@ -19,7 +21,7 @@ set(LIBHEIF_TARGET "")
 # 1. Primary Method: Modern CMake CONFIG Mode (libheifConfig.cmake)
 # -----------------------------------------------------------------------------
 find_package(libheif CONFIG QUIET)
-if(libheif_FOUND)
+if(libheif_FOUND OR LIBHEIF_FOUND)
   if(TARGET libheif::heif)
     set(LIBHEIF_TARGET libheif::heif)
   elseif(TARGET heif)
@@ -27,6 +29,9 @@ if(libheif_FOUND)
     if(NOT TARGET libheif::heif)
       add_library(libheif::heif ALIAS heif)
     endif()
+  endif()
+  if(libheif_VERSION)
+    set(LIBHEIF_VERSION ${libheif_VERSION})
   endif()
 endif()
 
@@ -43,6 +48,8 @@ if(NOT LIBHEIF_TARGET)
       endif()
       set(LIBHEIF_TARGET libheif::heif)
       set(LIBHEIF_VERSION ${PC_LIBHEIF_VERSION})
+      set(LIBHEIF_INCLUDE_DIRS ${PC_LIBHEIF_INCLUDE_DIRS})
+      set(LIBHEIF_LIBRARIES ${PC_LIBHEIF_LIBRARIES})
     endif()
   endif()
 endif()
@@ -63,6 +70,8 @@ if(NOT LIBHEIF_TARGET)
       )
     endif()
     set(LIBHEIF_TARGET libheif::heif)
+    set(LIBHEIF_INCLUDE_DIRS "${LIBHEIF_INCLUDE_DIR}")
+    set(LIBHEIF_LIBRARIES "${LIBHEIF_LIBRARY}")
   endif()
 endif()
 
@@ -98,4 +107,5 @@ endif()
 find_package_handle_standard_args(libheif
   REQUIRED_VARS LIBHEIF_TARGET
   VERSION_VAR LIBHEIF_VERSION
+  FOUND_VAR LIBHEIF_FOUND
 )
