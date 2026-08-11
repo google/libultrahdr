@@ -642,7 +642,6 @@ if(UHDR_ENABLE_GLES)
 endif()
 if(UHDR_ENABLE_HEIF)
   if(NOT UHDR_BUILD_DEPS)
-    list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
     find_package(libheif QUIET)
     if(LIBHEIF_FOUND AND NOT LIBHEIF_HAS_GAIN_MAP)
       message(WARNING "System libheif found but lacks ISO 21496-1 gain map API (PR 1503). "
@@ -725,6 +724,7 @@ if(UHDR_ENABLE_HEIF)
         IMPORTED_LOCATION "${LIBHEIF_LIBRARIES}"
         INTERFACE_INCLUDE_DIRECTORIES "${LIBHEIF_INCLUDE_DIRS}"
         INTERFACE_COMPILE_DEFINITIONS "LIBHEIF_STATIC_BUILD;WITH_EXPERIMENTAL_GAIN_MAP=1"
+        INTERFACE_LINK_LIBRARIES "${CMAKE_DL_LIBS}"
       )
     endif()
     set(LIBHEIF_FOUND TRUE)
@@ -732,7 +732,7 @@ if(UHDR_ENABLE_HEIF)
   if(LIBHEIF_FOUND)
     message(STATUS "Found libheif: ${LIBHEIF_LIBRARIES}")
     add_compile_options(-DUHDR_ENABLE_HEIF)
-    list(APPEND PRIVATE_LINK_LIBS libheif::heif ${CMAKE_DL_LIBS})
+    list(APPEND PRIVATE_LINK_LIBS libheif::heif)
   else()
     message(WARNING "libheif not found. Building without HEIF/AVIF support.")
     set(UHDR_ENABLE_HEIF FALSE)
@@ -772,7 +772,7 @@ target_include_directories(${UHDR_CORE_LIB_NAME} PUBLIC ${EXPORT_INCLUDE_DIR})
 if(${CMAKE_SYSTEM_NAME} MATCHES "Android")
   target_link_libraries(${UHDR_CORE_LIB_NAME} PUBLIC ${log-lib})
 endif()
-target_link_libraries(${UHDR_CORE_LIB_NAME} PUBLIC ${PRIVATE_LINK_LIBS} ${IMAGEIO_TARGET_NAME})
+target_link_libraries(${UHDR_CORE_LIB_NAME} PRIVATE ${PRIVATE_LINK_LIBS} ${IMAGEIO_TARGET_NAME})
 
 if(UHDR_BUILD_EXAMPLES)
   set(UHDR_SAMPLE_APP ultrahdr_app)

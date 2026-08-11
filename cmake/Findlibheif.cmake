@@ -67,6 +67,7 @@ if(NOT LIBHEIF_TARGET)
       set_target_properties(libheif::heif PROPERTIES
         IMPORTED_LOCATION "${LIBHEIF_LIBRARY}"
         INTERFACE_INCLUDE_DIRECTORIES "${LIBHEIF_INCLUDE_DIR}"
+        INTERFACE_LINK_LIBRARIES "${CMAKE_DL_LIBS}"
       )
     endif()
     set(LIBHEIF_TARGET libheif::heif)
@@ -89,16 +90,24 @@ if(LIBHEIF_TARGET)
   if(LIBHEIF_INCLUDE_DIR)
     list(APPEND CMAKE_REQUIRED_INCLUDES ${LIBHEIF_INCLUDE_DIR})
   endif()
-  set(CMAKE_REQUIRED_LIBRARIES ${LIBHEIF_TARGET})
   if(LIBHEIF_DEFS)
     set(CMAKE_REQUIRED_DEFINITIONS "-D${LIBHEIF_DEFS}")
   endif()
+
+  # Perform a compile-only check to avoid linking transitive dependencies
+  # (e.g. AOM::aom, x265) of static libheif targets in the try_compile sandbox.
+  set(_saved_try_compile_target_type ${CMAKE_TRY_COMPILE_TARGET_TYPE})
+  set(CMAKE_TRY_COMPILE_TARGET_TYPE STATIC_LIBRARY)
 
   check_cxx_symbol_exists(
     heif_image_handle_get_gain_map_image_handle
     "libheif/heif.h"
     LIBHEIF_HAS_GAIN_MAP
   )
+
+  set(CMAKE_TRY_COMPILE_TARGET_TYPE ${_saved_try_compile_target_type})
+  unset(CMAKE_REQUIRED_INCLUDES)
+  unset(CMAKE_REQUIRED_DEFINITIONS)
 endif()
 
 # -----------------------------------------------------------------------------
