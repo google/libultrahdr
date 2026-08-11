@@ -757,17 +757,14 @@ uint8_t encodeGain(float y_sdr, float y_hdr, uhdr_gainmap_metadata_ext_t* metada
 
 uint8_t encodeGain(float y_sdr, float y_hdr, uhdr_gainmap_metadata_ext_t* metadata,
                    float log2MinContentBoost, float log2MaxContentBoost, int index) {
-  float gain = 1.0f;
-  if (y_sdr > 0.0f) {
-    gain = y_hdr / y_sdr;
-  }
+  float gain = (y_hdr + metadata->offset_hdr[index]) / (y_sdr + metadata->offset_sdr[index]);
 
   if (gain < metadata->min_content_boost[index]) gain = metadata->min_content_boost[index];
   if (gain > metadata->max_content_boost[index]) gain = metadata->max_content_boost[index];
   float gain_normalized =
       (log2(gain) - log2MinContentBoost) / (log2MaxContentBoost - log2MinContentBoost);
   float gain_normalized_gamma = powf(gain_normalized, metadata->gamma[index]);
-  return static_cast<uint8_t>(gain_normalized_gamma * 255.0f);
+  return static_cast<uint8_t>(CLIP3(gain_normalized_gamma * 255.0f + 0.5f, 0.0f, 255.0f));
 }
 
 float computeGain(float sdr, float hdr) {

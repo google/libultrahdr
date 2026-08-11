@@ -544,10 +544,12 @@ GetPixelFn getPixelFn(uhdr_img_fmt_t format);
 SamplePixelFn getSamplePixelFn(uhdr_img_fmt_t format);
 PutPixelFn putPixelFn(uhdr_img_fmt_t format);
 
-////////////////////////////////////////////////////////////////////////////////
-// common utils
-static const float kHdrOffset = 1e-7f;
-static const float kSdrOffset = 1e-7f;
+// Common utils: Default offsets for gain map generation and reconstruction.
+// Standard recommended value is 1/64 (0.015625) per ISO/IEC TS 21496-1,
+// Android Ultra HDR Image Format specification, and Adobe HDR Gain Map specification:
+// https://developer.android.com/media/platform/hdr-image-format#guidelines_for_gain_map_metadata
+static const float kHdrOffset = 1.0f / 64.0f;
+static const float kSdrOffset = 1.0f / 64.0f;
 
 static inline float clipNegatives(float value) { return (value < 0.0f) ? 0.0f : value; }
 

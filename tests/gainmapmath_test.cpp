@@ -1278,8 +1278,8 @@ TEST_F(GainMapMathTest, ColorConversionLookup) {
 }
 
 TEST_F(GainMapMathTest, EncodeGain) {
-  float min_boost = log2(1.0f / 4.0f);
-  float max_boost = log2(4.0f);
+  float min_boost = computeGain(4.0f, 1.0f);
+  float max_boost = computeGain(1.0f, 4.0f);
   float gamma = 1.0f;
 
   EXPECT_EQ(affineMapGain(computeGain(0.0f, 1.0f), min_boost, max_boost, 1.0f), 255);
@@ -1294,24 +1294,24 @@ TEST_F(GainMapMathTest, EncodeGain) {
   EXPECT_EQ(affineMapGain(computeGain(1.0f, 2.0f), min_boost, max_boost, 1.0f), 191);
   EXPECT_EQ(affineMapGain(computeGain(2.0f, 1.0f), min_boost, max_boost, 1.0f), 64);
 
-  min_boost = log2(1.0f / 2.0f);
-  max_boost = log2(2.0f);
+  min_boost = computeGain(2.0f, 1.0f);
+  max_boost = computeGain(1.0f, 2.0f);
 
   EXPECT_EQ(affineMapGain(computeGain(1.0f, 2.0f), min_boost, max_boost, 1.0f), 255);
   EXPECT_EQ(affineMapGain(computeGain(2.0f, 1.0f), min_boost, max_boost, 1.0f), 0);
   EXPECT_EQ(affineMapGain(computeGain(1.0f, 1.41421f), min_boost, max_boost, 1.0f), 191);
   EXPECT_EQ(affineMapGain(computeGain(1.41421f, 1.0f), min_boost, max_boost, 1.0f), 64);
 
-  min_boost = log2(1.0f / 8.0f);
-  max_boost = log2(8.0f);
+  min_boost = computeGain(8.0f, 1.0f);
+  max_boost = computeGain(1.0f, 8.0f);
 
   EXPECT_EQ(affineMapGain(computeGain(1.0f, 8.0f), min_boost, max_boost, 1.0f), 255);
   EXPECT_EQ(affineMapGain(computeGain(8.0f, 1.0f), min_boost, max_boost, 1.0f), 0);
   EXPECT_EQ(affineMapGain(computeGain(1.0f, 2.82843f), min_boost, max_boost, 1.0f), 191);
   EXPECT_EQ(affineMapGain(computeGain(2.82843f, 1.0f), min_boost, max_boost, 1.0f), 64);
 
-  min_boost = log2(1.0f);
-  max_boost = log2(8.0f);
+  min_boost = computeGain(1.0f, 1.0f);
+  max_boost = computeGain(1.0f, 8.0f);
 
   EXPECT_EQ(affineMapGain(computeGain(0.0f, 0.0f), min_boost, max_boost, 1.0f), 0);
   EXPECT_EQ(affineMapGain(computeGain(1.0f, 0.0f), min_boost, max_boost, 1.0f), 0);
@@ -1320,8 +1320,8 @@ TEST_F(GainMapMathTest, EncodeGain) {
   EXPECT_EQ(affineMapGain(computeGain(1.0f, 4.0f), min_boost, max_boost, 1.0f), 170);
   EXPECT_EQ(affineMapGain(computeGain(1.0f, 2.0f), min_boost, max_boost, 1.0f), 85);
 
-  min_boost = log2(1.0f / 2.0f);
-  max_boost = log2(8.0f);
+  min_boost = computeGain(2.0f, 1.0f);
+  max_boost = computeGain(1.0f, 8.0f);
 
   EXPECT_EQ(affineMapGain(computeGain(0.0f, 0.0f), min_boost, max_boost, 1.0f), 64);
   EXPECT_EQ(affineMapGain(computeGain(1.0f, 0.0f), min_boost, max_boost, 1.0f), 0);
@@ -1330,7 +1330,7 @@ TEST_F(GainMapMathTest, EncodeGain) {
   EXPECT_EQ(affineMapGain(computeGain(1.0f, 4.0f), min_boost, max_boost, 1.0f), 191);
   EXPECT_EQ(affineMapGain(computeGain(1.0f, 2.0f), min_boost, max_boost, 1.0f), 127);
   EXPECT_EQ(affineMapGain(computeGain(1.0f, 0.7071f), min_boost, max_boost, 1.0f), 32);
-  EXPECT_EQ(affineMapGain(computeGain(1.0f, 0.5f), min_boost, max_boost, 1.0f), 0);
+  EXPECT_EQ(affineMapGain(computeGain(2.0f, 1.0f), min_boost, max_boost, 1.0f), 0);
 }
 
 TEST_F(GainMapMathTest, ApplyGain) {

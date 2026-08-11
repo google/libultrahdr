@@ -721,14 +721,16 @@ uhdr_error_info_t UltraHdr::generateGainMap(uhdr_raw_image_t* sdr_intent,
                                  sdrGamutConversionFn, luminanceFn, sdrYuvToRgbFn, hdrYuvToRgbFn,
                                  sdr_sample_pixel_fn, hdr_sample_pixel_fn, hdr_white_nits,
                                  use_luminance]() -> void {
-    std::fill_n(gainmap_metadata->max_content_boost, 3, hdr_white_nits / kSdrWhiteNits);
+    std::fill_n(gainmap_metadata->max_content_boost, 3,
+                (hdr_white_nits / kSdrWhiteNits + kHdrOffset) / (1.0f + kSdrOffset));
     std::fill_n(gainmap_metadata->min_content_boost, 3, 1.0f);
     std::fill_n(gainmap_metadata->gamma, 3, mGamma);
-    std::fill_n(gainmap_metadata->offset_sdr, 3, 0.0f);
-    std::fill_n(gainmap_metadata->offset_hdr, 3, 0.0f);
+    std::fill_n(gainmap_metadata->offset_sdr, 3, kSdrOffset);
+    std::fill_n(gainmap_metadata->offset_hdr, 3, kHdrOffset);
     gainmap_metadata->hdr_capacity_min = 1.0f;
     if (this->mTargetDispPeakBrightness != -1.0f) {
-      gainmap_metadata->hdr_capacity_max = this->mTargetDispPeakBrightness / kSdrWhiteNits;
+      gainmap_metadata->hdr_capacity_max =
+          (this->mTargetDispPeakBrightness / kSdrWhiteNits + kHdrOffset) / (1.0f + kSdrOffset);
     } else {
       gainmap_metadata->hdr_capacity_max = gainmap_metadata->max_content_boost[0];
     }
@@ -748,8 +750,8 @@ uhdr_error_info_t UltraHdr::generateGainMap(uhdr_raw_image_t* sdr_intent,
       unsigned int rowStart, rowEnd;
       const bool isHdrIntentRgb = isPixelFormatRgb(hdr_intent->fmt);
       const bool isSdrIntentRgb = isPixelFormatRgb(sdr_intent->fmt);
-      const float hdrSampleToNitsFactor =
-          hdr_intent->ct == UHDR_CT_LINEAR ? kSdrWhiteNits : hdr_white_nits;
+      const float hdrSampleToNormalizedFactor =
+          (hdr_intent->ct == UHDR_CT_LINEAR ? kSdrWhiteNits : hdr_white_nits) / kSdrWhiteNits;
       while (jobQueue.dequeueJob(rowStart, rowEnd)) {
         for (size_t y = rowStart; y < rowEnd; ++y) {
           for (size_t x = 0; x < dest->w; ++x) {
@@ -785,33 +787,33 @@ uhdr_error_info_t UltraHdr::generateGainMap(uhdr_raw_image_t* sdr_intent,
             hdr_rgb = clipNegatives(hdr_rgb);
 
             if (mUseMultiChannelGainMap) {
-              Color sdr_rgb_nits = sdr_rgb * kSdrWhiteNits;
-              Color hdr_rgb_nits = hdr_rgb * hdrSampleToNitsFactor;
+              Color sdr_rgb_norm = sdr_rgb;
+              Color hdr_rgb_norm = hdr_rgb * hdrSampleToNormalizedFactor;
               size_t pixel_idx = (x + y * dest->stride[UHDR_PLANE_PACKED]) * 3;
 
               reinterpret_cast<uint8_t*>(dest->planes[UHDR_PLANE_PACKED])[pixel_idx] = encodeGain(
-                  sdr_rgb_nits.r, hdr_rgb_nits.r, gainmap_metadata, log2MinBoost, log2MaxBoost, 0);
+                  sdr_rgb_norm.r, hdr_rgb_norm.r, gainmap_metadata, log2MinBoost, log2MaxBoost, 0);
               reinterpret_cast<uint8_t*>(dest->planes[UHDR_PLANE_PACKED])[pixel_idx + 1] =
-                  encodeGain(sdr_rgb_nits.g, hdr_rgb_nits.g, gainmap_metadata, log2MinBoost,
+                  encodeGain(sdr_rgb_norm.g, hdr_rgb_norm.g, gainmap_metadata, log2MinBoost,
                              log2MaxBoost, 1);
               reinterpret_cast<uint8_t*>(dest->planes[UHDR_PLANE_PACKED])[pixel_idx + 2] =
-                  encodeGain(sdr_rgb_nits.b, hdr_rgb_nits.b, gainmap_metadata, log2MinBoost,
+                  encodeGain(sdr_rgb_norm.b, hdr_rgb_norm.b, gainmap_metadata, log2MinBoost,
                              log2MaxBoost, 2);
             } else {
-              float sdr_y_nits;
-              float hdr_y_nits;
+              float sdr_y_norm;
+              float hdr_y_norm;
               if (use_luminance) {
-                sdr_y_nits = luminanceFn(sdr_rgb) * kSdrWhiteNits;
-                hdr_y_nits = luminanceFn(hdr_rgb) * hdrSampleToNitsFactor;
+                sdr_y_norm = luminanceFn(sdr_rgb);
+                hdr_y_norm = luminanceFn(hdr_rgb) * hdrSampleToNormalizedFactor;
               } else {
-                sdr_y_nits = fmax(sdr_rgb.r, fmax(sdr_rgb.g, sdr_rgb.b)) * kSdrWhiteNits;
-                hdr_y_nits = fmax(hdr_rgb.r, fmax(hdr_rgb.g, hdr_rgb.b)) * hdrSampleToNitsFactor;
+                sdr_y_norm = fmax(sdr_rgb.r, fmax(sdr_rgb.g, sdr_rgb.b));
+                hdr_y_norm = fmax(hdr_rgb.r, fmax(hdr_rgb.g, hdr_rgb.b)) * hdrSampleToNormalizedFactor;
               }
 
               size_t pixel_idx = x + y * dest->stride[UHDR_PLANE_Y];
 
               reinterpret_cast<uint8_t*>(dest->planes[UHDR_PLANE_Y])[pixel_idx] = encodeGain(
-                  sdr_y_nits, hdr_y_nits, gainmap_metadata, log2MinBoost, log2MaxBoost, 0);
+                  sdr_y_norm, hdr_y_norm, gainmap_metadata, log2MinBoost, log2MaxBoost, 0);
             }
           }
         }
