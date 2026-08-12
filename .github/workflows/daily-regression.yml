@@ -41,6 +41,15 @@ jobs:
             cmake-opts: "-DUHDR_BUILD_TESTS=1 -DUHDR_BUILD_DEPS=1 -DUHDR_ENABLE_HEIF=0 -DUHDR_ENABLE_WERROR=1"
             enable_heif: "OFF"
 
+          # --- System libheif Configuration ---
+          - name: "Linux GCC (System libheif-dev)"
+            os: ubuntu-latest
+            cc: gcc
+            cxx: g++
+            extra_pkgs: "libheif-dev"
+            cmake-opts: "-DUHDR_BUILD_TESTS=1 -DUHDR_BUILD_DEPS=0 -DUHDR_ENABLE_HEIF=1 -DUHDR_ENABLE_WERROR=1"
+            enable_heif: "AUTO"
+
           # --- macOS Configurations ---
           - name: "macOS Apple Silicon (HEIF ON)"
             os: macos-14
@@ -73,7 +82,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt update
-          sudo apt install -y libjpeg-dev pkg-config yasm
+          sudo apt install -y libjpeg-dev pkg-config yasm ${{ matrix.config.extra-pkgs }}
 
       - name: Install dependencies (macOS)
         if: runner.os == 'macOS'
