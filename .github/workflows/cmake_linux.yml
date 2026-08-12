@@ -75,6 +75,15 @@ jobs:
             cxx: clang++
             cmake-opts: '-DUHDR_BUILD_TESTS=1 -DUHDR_ENABLE_LOGS=1 -DUHDR_ENABLE_INSTALL=1 -DBUILD_SHARED_LIBS=0 -DUHDR_ENABLE_WERROR=1'
 
+          # <Ubuntu-latest Platform, Release Build, GCC toolchain, Ninja generator, System libheif-dev>
+          - name: "ubuntu latest gcc rel ninja with system libheif"
+            os: ubuntu-latest
+            build_type: Release
+            cc: gcc
+            cxx: g++
+            extra_pkgs: "libheif-dev"
+            cmake-opts: '-DUHDR_BUILD_TESTS=1 -DUHDR_ENABLE_LOGS=1 -DUHDR_ENABLE_INSTALL=1 -DUHDR_ENABLE_HEIF=1 -DUHDR_BUILD_DEPS=0 -DUHDR_ENABLE_WERROR=1'
+
     steps:
     - name: Checkout the repository
       uses: actions/checkout@v4
@@ -86,7 +95,9 @@ jobs:
       uses: jwlawson/actions-setup-cmake@v2
 
     - name: Install dependencies on Ubuntu
-      run: sudo apt install -y libjpeg-dev
+      run: |
+        sudo apt update
+        sudo apt install -y libjpeg-dev ${{ matrix.config.extra_pkgs }}
 
     - name: Configure CMake
       shell: bash
