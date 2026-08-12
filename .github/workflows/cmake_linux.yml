@@ -8,7 +8,7 @@ jobs:
     name: ${{ matrix.config.name }}
     runs-on: ${{ matrix.config.os }}
     strategy:
-      fail-fast: true
+      fail-fast: false
       matrix:
         config:
           # <Ubuntu-latest Platform, Release Build, GCC toolchain, Ninja generator>
