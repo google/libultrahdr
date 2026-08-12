@@ -1,0 +1,40 @@
+name: Verify Release Tag & Version Consistency
+
+on:
+  push:
+    tags:
+      - 'v*'
+    branches:
+      - main
+      - 'release/**'
+  pull_request:
+    paths:
+      - 'CMakeLists.txt'
+      - 'ultrahdr_api.h'
+      - 'scripts/verify_tag_and_version.py'
+      - '.github/workflows/verify_release_tag.yml'
+
+jobs:
+  verify-version-consistency:
+    name: Verify Version Consistency
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Verify Version Consistency
+        shell: bash
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            TAG_NAME="${{ github.ref_name }}"
+            echo "Verifying release tag: ${TAG_NAME}"
+            python3 scripts/verify_tag_and_version.py --tag "${TAG_NAME}"
+          else
+            echo "Verifying in-tree version consistency between CMakeLists.txt and ultrahdr_api.h"
+            python3 scripts/verify_tag_and_version.py
+          fi
