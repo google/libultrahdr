@@ -534,6 +534,23 @@ TEST_F(GainMapMathTest, ColorDivideFloat) {
   EXPECT_FLOAT_EQ(e2.b, e1.b / 4.0f);
 }
 
+TEST_F(GainMapMathTest, PutRgb888PixelWritesGreenChannel) {
+  uint8_t data[3] = {};
+  uhdr_raw_image_t image{};
+  image.fmt = UHDR_IMG_FMT_24bppRGB888;
+  image.w = 1;
+  image.h = 1;
+  image.planes[UHDR_PLANE_PACKED] = data;
+  image.stride[UHDR_PLANE_PACKED] = 1;
+
+  Color pixel = {{{0.1f, 0.5f, 0.9f}}};
+  putRgb888Pixel(&image, 0, 0, pixel);
+
+  EXPECT_EQ(26, data[0]);
+  EXPECT_EQ(128, data[1]);
+  EXPECT_EQ(230, data[2]);
+}
+
 TEST_F(GainMapMathTest, SrgbLuminance) {
   EXPECT_FLOAT_EQ(srgbLuminance(RgbBlack()), 0.0f);
   EXPECT_FLOAT_EQ(srgbLuminance(RgbWhite()), 1.0f);
