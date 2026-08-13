@@ -88,16 +88,15 @@ jobs:
     - name: Checkout the repository
       uses: actions/checkout@v4
 
-    - name: Setup ninja
-      uses: seanmiddleditch/gha-setup-ninja@master
-
     - name: Setup cmake
       uses: jwlawson/actions-setup-cmake@v2
 
     - name: Install dependencies on Ubuntu
+      env:
+        EXTRA_PKGS: ${{ matrix.config.extra_pkgs }}
       run: |
         sudo apt update
-        sudo apt install -y libjpeg-dev ${{ matrix.config.extra_pkgs }}
+        sudo apt install -y ninja-build libjpeg-dev ${EXTRA_PKGS}
 
     - name: Configure CMake
       shell: bash

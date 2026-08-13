@@ -80,9 +80,11 @@ jobs:
 
       - name: Install dependencies (Ubuntu)
         if: runner.os == 'Linux'
+        env:
+          EXTRA_PKGS: ${{ matrix.config.extra_pkgs }}
         run: |
           sudo apt update
-          sudo apt install -y libjpeg-dev pkg-config yasm ${{ matrix.config.extra-pkgs }}
+          sudo apt install -y libjpeg-dev pkg-config yasm ${EXTRA_PKGS}
 
       - name: Install dependencies (macOS)
         if: runner.os == 'macOS'
