@@ -561,7 +561,7 @@ void putRgb888Pixel(uhdr_raw_image_t* image, size_t x, size_t y, Color& pixel) {
   pixel.g = CLIP3(pixel.g, 0.0f, 255.0f);
   pixel.b = CLIP3(pixel.b, 0.0f, 255.0f);
   rgbData[offset] = uint8_t(pixel.r);
-  rgbData[offset + 1] = uint8_t(pixel.r);
+  rgbData[offset + 1] = uint8_t(pixel.g);
   rgbData[offset + 2] = uint8_t(pixel.b);
 }
 
