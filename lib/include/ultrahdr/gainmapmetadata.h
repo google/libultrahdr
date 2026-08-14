@@ -23,25 +23,25 @@ constexpr uint8_t kUseBaseColorSpaceMask = (1u << 6);
 // Gain map metadata, for tone mapping between SDR and HDR.
 // This is the fraction version of {@code uhdr_gainmap_metadata_ext_t}.
 struct uhdr_gainmap_metadata_frac {
-  int32_t gainMapMinN[3];
-  uint32_t gainMapMinD[3];
-  int32_t gainMapMaxN[3];
-  uint32_t gainMapMaxD[3];
-  uint32_t gainMapGammaN[3];
-  uint32_t gainMapGammaD[3];
+  int32_t gainMapMinN[3] = {0, 0, 0};
+  uint32_t gainMapMinD[3] = {1, 1, 1};
+  int32_t gainMapMaxN[3] = {1, 1, 1};
+  uint32_t gainMapMaxD[3] = {1, 1, 1};
+  uint32_t gainMapGammaN[3] = {1, 1, 1};
+  uint32_t gainMapGammaD[3] = {1, 1, 1};
 
-  int32_t baseOffsetN[3];
-  uint32_t baseOffsetD[3];
-  int32_t alternateOffsetN[3];
-  uint32_t alternateOffsetD[3];
+  int32_t baseOffsetN[3] = {0, 0, 0};
+  uint32_t baseOffsetD[3] = {1, 1, 1};
+  int32_t alternateOffsetN[3] = {0, 0, 0};
+  uint32_t alternateOffsetD[3] = {1, 1, 1};
 
-  uint32_t baseHdrHeadroomN;
-  uint32_t baseHdrHeadroomD;
-  uint32_t alternateHdrHeadroomN;
-  uint32_t alternateHdrHeadroomD;
+  uint32_t baseHdrHeadroomN = 0;
+  uint32_t baseHdrHeadroomD = 1;
+  uint32_t alternateHdrHeadroomN = 1;
+  uint32_t alternateHdrHeadroomD = 1;
 
-  bool backwardDirection;
-  bool useBaseColorSpace;
+  bool backwardDirection = false;
+  bool useBaseColorSpace = true;
 
   static uhdr_error_info_t encodeGainmapMetadata(const uhdr_gainmap_metadata_frac* in_metadata,
                                                  std::vector<uint8_t>& out_data);

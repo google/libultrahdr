@@ -13,6 +13,7 @@
 
 #include "ultrahdr/gainmapmath.h"
 #include "ultrahdr/gainmapmetadata.h"
+#include "ultrahdr/ultrahdrcommon.h"
 
 namespace ultrahdr {
 
@@ -342,7 +343,7 @@ uhdr_error_info_t uhdr_gainmap_metadata_frac::gainmapMetadataFractionToFloat(
   to->hdr_capacity_min = exp2((float)from->baseHdrHeadroomN / from->baseHdrHeadroomD);
   to->use_base_cg = from->useBaseColorSpace;
 
-  return g_no_error;
+  return uhdr_validate_gainmap_metadata_descriptor(to);
 }
 
 uhdr_error_info_t uhdr_gainmap_metadata_frac::gainmapMetadataFloatToFraction(

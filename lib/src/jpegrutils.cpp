@@ -870,7 +870,7 @@ uhdr_error_info_t getMetadataFromXMP(uint8_t* xmp_data, size_t xmp_size, uint8_t
   std::fill_n(metadata->offset_hdr + 1, 2, metadata->offset_hdr[0]);
   std::fill_n(metadata->offset_sdr + 1, 2, metadata->offset_sdr[0]);
 
-  return g_no_error;
+  return uhdr_validate_gainmap_metadata_descriptor(metadata);
 }
 
 string generateXmpForPrimaryImage(size_t secondary_image_length,
