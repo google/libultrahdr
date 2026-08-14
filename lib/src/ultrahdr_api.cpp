@@ -1721,17 +1721,18 @@ uhdr_error_info_t uhdr_dec_probe(uhdr_codec_private_t* dec) {
                 ultrahdr::uhdr_gainmap_metadata_frac frac;
                 if (ultrahdr::uhdr_gainmap_metadata_frac::decodeGainmapMetadata(meta, &frac).error_code == UHDR_CODEC_OK) {
                   ultrahdr::uhdr_gainmap_metadata_ext_t metadata;
-                  ultrahdr::uhdr_gainmap_metadata_frac::gainmapMetadataFractionToFloat(&frac, &metadata);
-                  std::copy(metadata.max_content_boost, metadata.max_content_boost + 3,
-                            handle->m_metadata.max_content_boost);
-                  std::copy(metadata.min_content_boost, metadata.min_content_boost + 3,
-                            handle->m_metadata.min_content_boost);
-                  std::copy(metadata.gamma, metadata.gamma + 3, handle->m_metadata.gamma);
-                  std::copy(metadata.offset_sdr, metadata.offset_sdr + 3, handle->m_metadata.offset_sdr);
-                  std::copy(metadata.offset_hdr, metadata.offset_hdr + 3, handle->m_metadata.offset_hdr);
-                  handle->m_metadata.hdr_capacity_min = metadata.hdr_capacity_min;
-                  handle->m_metadata.hdr_capacity_max = metadata.hdr_capacity_max;
-                  handle->m_metadata.use_base_cg = metadata.use_base_cg;
+                  if (ultrahdr::uhdr_gainmap_metadata_frac::gainmapMetadataFractionToFloat(&frac, &metadata).error_code == UHDR_CODEC_OK) {
+                    std::copy(metadata.max_content_boost, metadata.max_content_boost + 3,
+                              handle->m_metadata.max_content_boost);
+                    std::copy(metadata.min_content_boost, metadata.min_content_boost + 3,
+                              handle->m_metadata.min_content_boost);
+                    std::copy(metadata.gamma, metadata.gamma + 3, handle->m_metadata.gamma);
+                    std::copy(metadata.offset_sdr, metadata.offset_sdr + 3, handle->m_metadata.offset_sdr);
+                    std::copy(metadata.offset_hdr, metadata.offset_hdr + 3, handle->m_metadata.offset_hdr);
+                    handle->m_metadata.hdr_capacity_min = metadata.hdr_capacity_min;
+                    handle->m_metadata.hdr_capacity_max = metadata.hdr_capacity_max;
+                    handle->m_metadata.use_base_cg = metadata.use_base_cg;
+                  }
                 }
               }
               heif_image_handle_release(gainmap_handle);
