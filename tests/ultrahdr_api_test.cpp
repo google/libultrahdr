@@ -274,6 +274,26 @@ TEST_F(UltraHdrApiTest, HeicEncodeApi1AndDecode) {
   uhdr_release_encoder(enc);
 }
 
+TEST_F(UltraHdrApiTest, HeicEncodeRejectsUndersizedDestination) {
+  std::vector<uint8_t> backing_store(6 * kImageWidth * kImageHeight, 0xa5);
+  uhdr_compressed_image_t dest{};
+  dest.data = backing_store.data();
+  dest.capacity = 1;
+
+  HeifUltraHdr codec;
+  uhdr_error_info_t status = codec.encodeHeicUltraHdr(&mHdrRaw, &dest, 85, nullptr);
+  if (status.error_code != UHDR_CODEC_OK && status.has_detail &&
+      (strstr(status.detail, "Unsupported file-type") != nullptr ||
+       strstr(status.detail, "No encoder") != nullptr)) {
+    GTEST_SKIP() << "HEVC encoder plugin not available in environment: " << status.detail;
+  }
+
+  EXPECT_EQ(status.error_code, UHDR_CODEC_MEM_ERROR);
+  EXPECT_EQ(dest.capacity, 1u);
+  EXPECT_EQ(dest.data_sz, 0u);
+  EXPECT_EQ(backing_store.front(), 0xa5);
+}
+
 TEST_F(UltraHdrApiTest, HeicCompressedIntentsUnsupported) {
   uhdr_codec_private_t* enc = uhdr_create_encoder();
   ASSERT_NE(enc, nullptr);
@@ -373,6 +393,26 @@ TEST_F(UltraHdrApiTest, AvifEncodeApi1AndDecode) {
 
   uhdr_release_decoder(dec);
   uhdr_release_encoder(enc);
+}
+
+TEST_F(UltraHdrApiTest, AvifEncodeRejectsUndersizedDestination) {
+  std::vector<uint8_t> backing_store(6 * kImageWidth * kImageHeight, 0xa5);
+  uhdr_compressed_image_t dest{};
+  dest.data = backing_store.data();
+  dest.capacity = 1;
+
+  AvifUltraHdr codec;
+  uhdr_error_info_t status = codec.encodeAvifUltraHdr(&mHdrRaw, &dest, 85, nullptr);
+  if (status.error_code != UHDR_CODEC_OK && status.has_detail &&
+      (strstr(status.detail, "Unsupported file-type") != nullptr ||
+       strstr(status.detail, "No encoder") != nullptr)) {
+    GTEST_SKIP() << "AV1 encoder plugin not available in environment: " << status.detail;
+  }
+
+  EXPECT_EQ(status.error_code, UHDR_CODEC_MEM_ERROR);
+  EXPECT_EQ(dest.capacity, 1u);
+  EXPECT_EQ(dest.data_sz, 0u);
+  EXPECT_EQ(backing_store.front(), 0xa5);
 }
 
 TEST_F(UltraHdrApiTest, AvifCompressedIntentsUnsupported) {
