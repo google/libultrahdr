@@ -324,12 +324,12 @@ uhdr_error_info_t convertYuv_neon(uhdr_raw_image_t* image, uhdr_color_gamut_t sr
 ALIGNED(16)
 const uint16_t kRgb709ToYuv_coeffs_neon[8] = {3484, 11717, 1183, 1877, 6315, 8192, 7441, 751};
 
-// RGB Display P3 -> Yuv Display P3
-// Y = 0.2289746 * R + 0.6917385 * G + 0.0792869 * B
-// U = -0.124346335 * R + -0.375653665 * G + 0.5 * B
-// V = 0.5 * R + -0.448583471 * G + -0.051416529 * B
+// RGB Display P3 -> YUV using BT.601 luma coefficients, matching p3RgbToYuv().
+// Y = 0.299 * R + 0.587 * G + 0.114 * B
+// U = -0.168735892 * R + -0.331264108 * G + 0.5 * B
+// V = 0.5 * R + -0.418687589 * G + -0.081312411 * B
 ALIGNED(16)
-const uint16_t kRgbDispP3ToYuv_coeffs_neon[8] = {3752, 11333, 1299, 2037, 6155, 8192, 7350, 842};
+const uint16_t kRgb601ToYuv_coeffs_neon[8] = {4899, 9617, 1868, 2765, 5427, 8192, 6860, 1332};
 
 // RGB Bt2100 -> Yuv Bt2100
 // Y = 0.2627 * R + 0.677998 * G + 0.059302 * B
@@ -456,9 +456,9 @@ std::unique_ptr<uhdr_raw_image_ext_t> convert_raw_input_to_ycbcr_neon(uhdr_raw_i
     if (src->cg == UHDR_CG_BT_709) {
       coeffs_ptr = kRgb709ToYuv_coeffs_neon;
     } else if (src->cg == UHDR_CG_BT_2100) {
-      coeffs_ptr = kRgbDispP3ToYuv_coeffs_neon;
-    } else if (src->cg == UHDR_CG_DISPLAY_P3) {
       coeffs_ptr = kRgb2100ToYuv_coeffs_neon;
+    } else if (src->cg == UHDR_CG_DISPLAY_P3) {
+      coeffs_ptr = kRgb601ToYuv_coeffs_neon;
     } else {
       return dst;
     }
