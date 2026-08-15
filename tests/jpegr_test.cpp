@@ -1417,6 +1417,43 @@ TEST(JpegRTest, DecodeAPIWithInvalidArgs) {
       << "fail, API allows invalid output format";
 }
 
+TEST(JpegRTest, DecodeLegacyApiWithGainMapOutputKeepsPrimaryDescriptor) {
+  UhdrUnCompressedStructWrapper rawImg(kImageWidth, kImageHeight, YCbCr_p010);
+  ASSERT_TRUE(rawImg.setImageColorGamut(ULTRAHDR_COLORGAMUT_BT2100));
+  ASSERT_TRUE(rawImg.allocateMemory());
+  ASSERT_TRUE(rawImg.loadRawResource(kYCbCrP010FileName));
+
+  UhdrCompressedStructWrapper jpgImg(kImageWidth, kImageHeight);
+  ASSERT_TRUE(jpgImg.allocateMemory());
+
+  JpegR uHdrLib;
+  ASSERT_EQ(JPEGR_NO_ERROR,
+            uHdrLib.encodeJPEGR(rawImg.getImageHandle(), ULTRAHDR_TF_HLG,
+                                jpgImg.getImageHandle(), kQuality, nullptr));
+
+  std::vector<uint8_t> primaryData(kImageWidth * kImageHeight * 8);
+  jpegr_uncompressed_struct primaryImage{};
+  primaryImage.data = primaryData.data();
+
+  std::vector<uint8_t> gainmapData(kImageWidth * kImageHeight * 3);
+  jpegr_uncompressed_struct gainmapImage{};
+  gainmapImage.data = gainmapData.data();
+
+  ultrahdr_metadata_struct metadata{};
+  ASSERT_EQ(JPEGR_NO_ERROR,
+            uHdrLib.decodeJPEGR(jpgImg.getImageHandle(), &primaryImage, FLT_MAX, nullptr,
+                                ULTRAHDR_OUTPUT_HDR_LINEAR, &gainmapImage, &metadata));
+
+  EXPECT_EQ(kImageWidth, primaryImage.width);
+  EXPECT_EQ(kImageHeight, primaryImage.height);
+  EXPECT_EQ(UHDR_IMG_FMT_64bppRGBAHalfFloat, primaryImage.pixelFormat);
+  EXPECT_GT(gainmapImage.width, 0u);
+  EXPECT_GT(gainmapImage.height, 0u);
+  EXPECT_LE(gainmapImage.width, kImageWidth);
+  EXPECT_LE(gainmapImage.height, kImageHeight);
+  EXPECT_GT(metadata.hdrCapacityMax, 1.0f);
+}
+
 class TestJpegR : public JpegR {
  public:
   using JpegR::applyGainMap;
