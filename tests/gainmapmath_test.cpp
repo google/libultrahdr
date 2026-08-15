@@ -11,6 +11,8 @@
 #include <gtest/gtest.h>
 #include <gmock/gmock.h>
 
+#include <vector>
+
 #include "ultrahdr/gainmapmath.h"
 #ifdef UHDR_ENABLE_SMPTE2094_50
 #include "smpte2094_50/smpte2094_50.h"
@@ -890,6 +892,49 @@ TEST_F(GainMapMathTest, YuvConversionNeon) {
     EXPECT_NEAR(result7.y, expected_values.y.at(7), 1);
     EXPECT_NEAR(result7.u, expected_values.u.at(7), 1);
     EXPECT_NEAR(result7.v, expected_values.v.at(7), 1);
+  }
+}
+
+TEST_F(GainMapMathTest, Rgba8888ToYuv444NeonMatchesScalarForWideGamuts) {
+  constexpr size_t kWidth = 16;
+  constexpr size_t kHeight = 1;
+  const std::array<std::array<uint8_t, 4>, 4> colors{{
+      {{255, 0, 0, 255}},
+      {{0, 255, 0, 255}},
+      {{0, 0, 255, 255}},
+      {{37, 149, 233, 255}},
+  }};
+
+  std::vector<uint8_t> rgba(kWidth * kHeight * 4);
+  for (size_t x = 0; x < kWidth; ++x) {
+    std::copy(colors[x % colors.size()].begin(), colors[x % colors.size()].end(),
+              rgba.begin() + x * 4);
+  }
+
+  for (uhdr_color_gamut_t gamut : {UHDR_CG_DISPLAY_P3, UHDR_CG_BT_2100}) {
+    uhdr_raw_image_t source{};
+    source.fmt = UHDR_IMG_FMT_32bppRGBA8888;
+    source.cg = gamut;
+    source.ct = UHDR_CT_SRGB;
+    source.range = UHDR_CR_FULL_RANGE;
+    source.w = kWidth;
+    source.h = kHeight;
+    source.planes[UHDR_PLANE_PACKED] = rgba.data();
+    source.stride[UHDR_PLANE_PACKED] = kWidth;
+
+    auto scalar = convert_raw_input_to_ycbcr(&source);
+    auto neon = convert_raw_input_to_ycbcr_neon(&source);
+    ASSERT_NE(scalar, nullptr);
+    ASSERT_NE(neon, nullptr);
+
+    for (auto plane : {UHDR_PLANE_Y, UHDR_PLANE_U, UHDR_PLANE_V}) {
+      const auto* scalar_data = static_cast<const uint8_t*>(scalar->planes[plane]);
+      const auto* neon_data = static_cast<const uint8_t*>(neon->planes[plane]);
+      for (size_t x = 0; x < kWidth; ++x) {
+        EXPECT_NEAR(scalar_data[x], neon_data[x], 1)
+            << "gamut=" << gamut << ", plane=" << plane << ", x=" << x;
+      }
+    }
   }
 }
 #endif
