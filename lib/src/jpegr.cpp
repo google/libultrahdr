@@ -2837,21 +2837,21 @@ status_t JpegR::decodeJPEGR(jr_compressed_ptr jpegr_image_ptr, jr_uncompressed_p
   output.planes[UHDR_PLANE_V] = nullptr;
   output.stride[UHDR_PLANE_V] = 0;
 
-  uhdr_raw_image_t output_gm;
+  uhdr_raw_image_t output_gm{};
   if (gainmap_image_ptr) {
-    output.fmt =
+    output_gm.fmt =
         gainmap_image.numComponents == 1 ? UHDR_IMG_FMT_8bppYCbCr400 : UHDR_IMG_FMT_24bppRGB888;
-    output.cg = UHDR_CG_UNSPECIFIED;
-    output.ct = UHDR_CT_UNSPECIFIED;
-    output.range = UHDR_CR_UNSPECIFIED;
-    output.w = gainmap_image.width;
-    output.h = gainmap_image.height;
-    output.planes[UHDR_PLANE_PACKED] = gainmap_image_ptr->data;
-    output.stride[UHDR_PLANE_PACKED] = gainmap_image.width;
-    output.planes[UHDR_PLANE_U] = nullptr;
-    output.stride[UHDR_PLANE_U] = 0;
-    output.planes[UHDR_PLANE_V] = nullptr;
-    output.stride[UHDR_PLANE_V] = 0;
+    output_gm.cg = UHDR_CG_UNSPECIFIED;
+    output_gm.ct = UHDR_CT_UNSPECIFIED;
+    output_gm.range = UHDR_CR_UNSPECIFIED;
+    output_gm.w = gainmap_image.width;
+    output_gm.h = gainmap_image.height;
+    output_gm.planes[UHDR_PLANE_PACKED] = gainmap_image_ptr->data;
+    output_gm.stride[UHDR_PLANE_PACKED] = gainmap_image.width;
+    output_gm.planes[UHDR_PLANE_U] = nullptr;
+    output_gm.stride[UHDR_PLANE_U] = 0;
+    output_gm.planes[UHDR_PLANE_V] = nullptr;
+    output_gm.stride[UHDR_PLANE_V] = 0;
   }
 
   uhdr_gainmap_metadata_ext_t meta;
