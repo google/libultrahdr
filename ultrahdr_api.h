@@ -492,10 +492,14 @@ UHDR_EXTERN uhdr_error_info_t uhdr_enc_set_preset(uhdr_codec_private_t* enc,
  * image and gainmap image. Default configuration is #UHDR_CODEC_JPG
  *
  * \param[in]  enc  encoder instance.
- * \param[in]  media_type  output image compression format. Supported values are #UHDR_CODEC_JPG
+ * \param[in]  media_type  output image compression format. #UHDR_CODEC_JPG is always supported.
+ *                         #UHDR_CODEC_HEIF and #UHDR_CODEC_AVIF are supported when the library is
+ *                         built with UHDR_ENABLE_HEIF.
  *
  * \return uhdr_error_info_t #UHDR_CODEC_OK if operation succeeds,
- *                           #UHDR_CODEC_INVALID_PARAM otherwise.
+ *                           #UHDR_CODEC_INVALID_PARAM if enc is not a valid encoder instance,
+ *                           #UHDR_CODEC_INVALID_OPERATION if the encoder is no longer configurable,
+ *                           #UHDR_CODEC_UNSUPPORTED_FEATURE if media_type is not supported.
  */
 UHDR_EXTERN uhdr_error_info_t uhdr_enc_set_output_format(uhdr_codec_private_t* enc,
                                                          uhdr_codec_t media_type);
@@ -536,29 +540,22 @@ UHDR_EXTERN uhdr_error_info_t uhdr_enc_set_output_format(uhdr_codec_private_t* e
  * - On success, the program can access the encoded output with uhdr_get_encoded_stream().
  * - The program finishes the encoding with uhdr_release_encoder().
  *
- * The library allows setting Hdr and/or Sdr intent in compressed format,
- * - uhdr_enc_set_compressed_image(ctxt, img, UHDR_HDR_IMG)
- * - uhdr_enc_set_compressed_image(ctxt, img, UHDR_SDR_IMG)
- * In this mode, the compressed image(s) are first decoded to raw image(s). These raw image(s) go
- * through the aforth mentioned gain map computation and encoding process. In this case, the usage
- * shall be like this:
+ * For JPEG output, API-2 and API-3 allow setting the SDR intent as a compressed JPEG image. A raw
+ * HDR intent is required, and API-2 additionally includes a raw SDR intent. For example, API-3 is:
  * - uhdr_create_encoder()
- * - uhdr_enc_set_compressed_image(ctxt, img, UHDR_HDR_IMG)
+ * - uhdr_enc_set_raw_image(ctxt, img, UHDR_HDR_IMG)
  * - uhdr_enc_set_compressed_image(ctxt, img, UHDR_SDR_IMG)
  * - uhdr_encode()
  * - uhdr_get_encoded_stream()
  * - uhdr_release_encoder()
- * If the set compressed image media type of intent UHDR_SDR_IMG and output media type are
- * identical, then this image is directly used for primary image. No re-encode of raw image is done.
- * This implies base image quality setting is un-used. Only gain map image is encoded at the set
- * quality using codec of choice. On the other hand, if the set compressed image media type and
- * output media type are different, then transcoding is done.
  *
- * The library also allows directly setting base and gain map image in compressed format,
+ * For JPEG output, the library also allows directly setting compressed JPEG base and gain map
+ * images,
  * - uhdr_enc_set_compressed_image(ctxt, img, UHDR_BASE_IMG)
  * - uhdr_enc_set_gainmap_image(ctxt, img, metadata)
- * In this mode, gain map computation is by-passed. The input images are transcoded (if necessary),
- * combined and sent back.
+ * In this mode, gain map computation is bypassed and the input images are combined directly.
+ * HEIF and AVIF output currently support raw-intent API-0 and API-1 only. API-2, API-3, and API-4
+ * return #UHDR_CODEC_UNSUPPORTED_FEATURE for those output formats.
  *
  * It is possible to create a uhdr image solely from Hdr intent. In this case, the usage shall look
  * like this:
