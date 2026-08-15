@@ -8,6 +8,7 @@
 #include <gtest/gtest.h>
 #endif
 #include <fstream>
+#include <limits>
 #include <vector>
 #include <memory>
 
@@ -97,6 +98,37 @@ class UltraHdrApiTest : public ::testing::Test {
   uhdr_raw_image_t mSdrRaw{};
   uhdr_compressed_image_t mSdrCompressed{};
 };
+
+TEST_F(UltraHdrApiTest, InvalidCompressedImageIntentDoesNotMutateEncoder) {
+  uhdr_codec_private_t* enc = uhdr_create_encoder();
+  ASSERT_NE(enc, nullptr);
+  auto* handle = dynamic_cast<uhdr_encoder_private*>(enc);
+  ASSERT_NE(handle, nullptr);
+
+  uhdr_error_info_t status = uhdr_enc_set_compressed_image(
+      enc, &mSdrCompressed, static_cast<uhdr_img_label_t>(999));
+
+  EXPECT_EQ(UHDR_CODEC_INVALID_PARAM, status.error_code) << status.detail;
+  EXPECT_TRUE(handle->m_compressed_images.empty());
+  uhdr_release_encoder(enc);
+}
+
+TEST_F(UltraHdrApiTest, InvalidTargetBrightnessDoesNotMutateEncoder) {
+  uhdr_codec_private_t* enc = uhdr_create_encoder();
+  ASSERT_NE(enc, nullptr);
+  auto* handle = dynamic_cast<uhdr_encoder_private*>(enc);
+  ASSERT_NE(handle, nullptr);
+
+  ASSERT_EQ(UHDR_CODEC_OK, uhdr_enc_set_target_display_peak_brightness(enc, 1000.0f).error_code);
+  ASSERT_FLOAT_EQ(1000.0f, handle->m_target_disp_max_brightness);
+
+  uhdr_error_info_t status = uhdr_enc_set_target_display_peak_brightness(
+      enc, std::numeric_limits<float>::quiet_NaN());
+
+  EXPECT_EQ(UHDR_CODEC_INVALID_PARAM, status.error_code) << status.detail;
+  EXPECT_FLOAT_EQ(1000.0f, handle->m_target_disp_max_brightness);
+  uhdr_release_encoder(enc);
+}
 
 // ============================================================================
 // JPEG Tests (API-0 through API-4)
