@@ -787,6 +787,14 @@ if(UHDR_BUILD_EXAMPLES)
     target_link_options(${UHDR_SAMPLE_APP} PRIVATE -static)
   endif()
   target_link_libraries(${UHDR_SAMPLE_APP} PRIVATE ${UHDR_CORE_LIB_NAME})
+  if(WIN32)
+    if(MSVC)
+      target_sources(${UHDR_SAMPLE_APP} PRIVATE "${EXAMPLES_DIR}/utf8.manifest")
+    elseif(MINGW)
+      # MinGW does not have a manifest tool (mt.exe), so wrap the manifest in a resource script.
+      target_sources(${UHDR_SAMPLE_APP} PRIVATE "${EXAMPLES_DIR}/utf8.rc")
+    endif()
+  endif()
 endif()
 
 if(UHDR_BUILD_TESTS OR UHDR_BUILD_BENCHMARK)
@@ -828,6 +836,16 @@ if(UHDR_BUILD_TESTS)
     set_target_properties(ultrahdr_unit_test PROPERTIES BUILD_RPATH "${LIBHEIF_LIB_PREFIX}")
   endif()
   add_test(NAME UHDRUnitTests COMMAND ultrahdr_unit_test)
+  if(WIN32 AND UHDR_BUILD_EXAMPLES)
+    add_test(
+      NAME UHDRWindowsUnicodeCliPaths
+      COMMAND ${CMAKE_COMMAND}
+        "-DUHDR_APP=$<TARGET_FILE:${UHDR_SAMPLE_APP}>"
+        "-DTEST_INPUT=${TESTS_DIR}/data/raw_p010_image.p010"
+        "-DTEST_OUTPUT_DIR=${CMAKE_CURRENT_BINARY_DIR}/unicode_cli_test"
+        -P "${TESTS_DIR}/windows_unicode_cli_test.cmake"
+    )
+  endif()
 endif()
 
 if(UHDR_BUILD_BENCHMARK)
