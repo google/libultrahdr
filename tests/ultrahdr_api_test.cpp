@@ -7,6 +7,7 @@
 #else
 #include <gtest/gtest.h>
 #endif
+#include <algorithm>
 #include <fstream>
 #include <vector>
 #include <memory>
@@ -187,6 +188,43 @@ TEST_F(UltraHdrApiTest, JpegEncodeApi2AndDecode) {
 // ============================================================================
 
 #if defined(UHDR_ENABLE_HEIF)
+static bool setBackwardDirectionFlag(const uhdr_compressed_image_t* image,
+                                     std::vector<uint8_t>& modified_image) {
+  std::unique_ptr<heif_context, decltype(&heif_context_free)> context(heif_context_alloc(),
+                                                                      heif_context_free);
+  if (context == nullptr) return false;
+  heif_error error = heif_context_read_from_memory_without_copy(context.get(), image->data,
+                                                                image->data_sz, nullptr);
+  if (error.code != heif_error_Ok) return false;
+
+  heif_image_handle* raw_base_handle = nullptr;
+  error = heif_context_get_primary_image_handle(context.get(), &raw_base_handle);
+  std::unique_ptr<heif_image_handle, decltype(&heif_image_handle_release)> base_handle(
+      raw_base_handle, heif_image_handle_release);
+  if (error.code != heif_error_Ok || base_handle == nullptr) return false;
+
+  const size_t metadata_size = heif_image_handle_get_gain_map_metadata_size(base_handle.get());
+  if (metadata_size <= 4) return false;
+  std::vector<uint8_t> metadata(metadata_size);
+  error = heif_image_handle_get_gain_map_metadata(base_handle.get(), metadata.data());
+  if (error.code != heif_error_Ok) return false;
+
+  modified_image.assign(static_cast<const uint8_t*>(image->data),
+                        static_cast<const uint8_t*>(image->data) + image->data_sz);
+  auto metadata_pos =
+      std::search(modified_image.begin(), modified_image.end(), metadata.begin(), metadata.end());
+  if (metadata_pos == modified_image.end()) return false;
+  if (std::search(metadata_pos + metadata.size(), modified_image.end(), metadata.begin(),
+                  metadata.end()) != modified_image.end()) {
+    return false;
+  }
+
+  // ISO 21496-1 metadata stores its flags after two 16-bit version fields.
+  // Set backwardDirection, which this decoder explicitly does not support.
+  metadata_pos[4] |= 4;
+  return true;
+}
+
 TEST_F(UltraHdrApiTest, HeicEncodeApi0AndDecode) {
   uhdr_codec_private_t* enc = uhdr_create_encoder();
   ASSERT_NE(enc, nullptr);
@@ -373,6 +411,70 @@ TEST_F(UltraHdrApiTest, AvifEncodeApi1AndDecode) {
 
   uhdr_release_decoder(dec);
   uhdr_release_encoder(enc);
+}
+
+TEST_F(UltraHdrApiTest, HeifAndAvifPropagateGainMapMetadataErrors) {
+  int tested_formats = 0;
+  for (uhdr_codec_t codec : {UHDR_CODEC_AVIF, UHDR_CODEC_HEIF}) {
+    SCOPED_TRACE(codec == UHDR_CODEC_AVIF ? "AVIF" : "HEIF");
+    uhdr_codec_private_t* enc = uhdr_create_encoder();
+    ASSERT_NE(enc, nullptr);
+
+    ASSERT_EQ(uhdr_enc_set_raw_image(enc, &mHdrRaw, UHDR_HDR_IMG).error_code, UHDR_CODEC_OK);
+    ASSERT_EQ(uhdr_enc_set_output_format(enc, codec).error_code, UHDR_CODEC_OK);
+    uhdr_error_info_t enc_status = uhdr_encode(enc);
+    if (enc_status.error_code != UHDR_CODEC_OK && enc_status.has_detail &&
+        (strstr(enc_status.detail, "Unsupported file-type") != nullptr ||
+         strstr(enc_status.detail, "No encoder") != nullptr)) {
+      uhdr_release_encoder(enc);
+      continue;
+    }
+    ASSERT_EQ(enc_status.error_code, UHDR_CODEC_OK);
+    ++tested_formats;
+
+    uhdr_compressed_image_t* output = uhdr_get_encoded_stream(enc);
+    ASSERT_NE(output, nullptr);
+    std::vector<uint8_t> invalid_data;
+    ASSERT_TRUE(setBackwardDirectionFlag(output, invalid_data));
+
+    uhdr_compressed_image_t invalid_image = *output;
+    invalid_image.data = invalid_data.data();
+    invalid_image.data_sz = invalid_image.capacity = invalid_data.size();
+
+    uhdr_codec_private_t* dec = uhdr_create_decoder();
+    ASSERT_NE(dec, nullptr);
+    ASSERT_EQ(uhdr_dec_set_image(dec, &invalid_image).error_code, UHDR_CODEC_OK);
+    EXPECT_EQ(uhdr_dec_probe(dec).error_code, UHDR_CODEC_UNSUPPORTED_FEATURE);
+    uhdr_release_decoder(dec);
+
+    // Exercise each backend error path directly as well. Sanitizer builds verify that these paths
+    // release the partially decoded libheif objects before returning the metadata error.
+    std::vector<uint8_t> decoded_data(kImageWidth * kImageHeight * 4);
+    uhdr_raw_image_t decoded_image{};
+    decoded_image.fmt = UHDR_IMG_FMT_32bppRGBA8888;
+    decoded_image.cg = UHDR_CG_BT_709;
+    decoded_image.ct = UHDR_CT_SRGB;
+    decoded_image.range = UHDR_CR_FULL_RANGE;
+    decoded_image.w = kImageWidth;
+    decoded_image.h = kImageHeight;
+    decoded_image.planes[UHDR_PLANE_PACKED] = decoded_data.data();
+    decoded_image.stride[UHDR_PLANE_PACKED] = kImageWidth;
+    uhdr_gainmap_metadata_t metadata{};
+    uhdr_error_info_t decode_status;
+    if (codec == UHDR_CODEC_AVIF) {
+      AvifUltraHdr avif;
+      decode_status = avif.decodeAvifUltraHdr(&invalid_image, &decoded_image, FLT_MAX, UHDR_CT_SRGB,
+                                              UHDR_IMG_FMT_32bppRGBA8888, nullptr, &metadata);
+    } else {
+      HeifUltraHdr heif;
+      decode_status = heif.decodeHeicUltraHdr(&invalid_image, &decoded_image, FLT_MAX, UHDR_CT_SRGB,
+                                              UHDR_IMG_FMT_32bppRGBA8888, nullptr, &metadata);
+    }
+    EXPECT_EQ(decode_status.error_code, UHDR_CODEC_UNSUPPORTED_FEATURE);
+
+    uhdr_release_encoder(enc);
+  }
+  if (tested_formats == 0) GTEST_SKIP() << "AV1 and HEVC encoder plugins are unavailable";
 }
 
 TEST_F(UltraHdrApiTest, AvifCompressedIntentsUnsupported) {

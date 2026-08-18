@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 
 #include "ultrahdr/gainmapmath.h"
 #include "ultrahdr/gainmapmetadata.h"
@@ -297,6 +298,14 @@ uhdr_error_info_t uhdr_gainmap_metadata_frac::decodeGainmapMetadata(
     return status;                                                                                 \
   }
 
+static uhdr_error_info_t invalidGainMapMetadata(const char *detail) {
+  uhdr_error_info_t status;
+  status.error_code = UHDR_CODEC_INVALID_PARAM;
+  status.has_detail = 1;
+  snprintf(status.detail, sizeof status.detail, "%s", detail);
+  return status;
+}
+
 uhdr_error_info_t uhdr_gainmap_metadata_frac::gainmapMetadataFractionToFloat(
     const uhdr_gainmap_metadata_frac *from, uhdr_gainmap_metadata_ext_t *to) {
   if (from == nullptr || to == nullptr) {
@@ -316,6 +325,11 @@ uhdr_error_info_t uhdr_gainmap_metadata_frac::gainmapMetadataFractionToFloat(
     UHDR_CHECK_NON_ZERO(from->gainMapMinD[i], "gainMapMin denominator");
     UHDR_CHECK_NON_ZERO(from->baseOffsetD[i], "baseOffset denominator");
     UHDR_CHECK_NON_ZERO(from->alternateOffsetD[i], "alternateOffset denominator");
+    if (static_cast<int64_t>(from->gainMapMaxN[i]) * from->gainMapMinD[i] <
+        static_cast<int64_t>(from->gainMapMinN[i]) * from->gainMapMaxD[i]) {
+      return invalidGainMapMetadata(
+          "decoded gain map maximum content boost is less than its minimum");
+    }
   }
 
   // jpeg supports only 8 bits per component, applying gainmap in inverse direction is unexpected
@@ -342,6 +356,23 @@ uhdr_error_info_t uhdr_gainmap_metadata_frac::gainmapMetadataFractionToFloat(
   to->hdr_capacity_min = exp2((float)from->baseHdrHeadroomN / from->baseHdrHeadroomD);
   to->use_base_cg = from->useBaseColorSpace;
 
+  for (int i = 0; i < 3; ++i) {
+    if (!std::isfinite(to->min_content_boost[i]) || !std::isfinite(to->max_content_boost[i]) ||
+        !std::isfinite(to->gamma[i]) || !std::isfinite(to->offset_sdr[i]) ||
+        !std::isfinite(to->offset_hdr[i])) {
+      return invalidGainMapMetadata("decoded gain map metadata contains a non-finite value");
+    }
+    if (to->min_content_boost[i] <= 0.0f || to->max_content_boost[i] <= 0.0f) {
+      return invalidGainMapMetadata("decoded gain map content boost must be positive");
+    }
+    if (to->gamma[i] <= 0.0f) {
+      return invalidGainMapMetadata("decoded gain map gamma must be positive");
+    }
+  }
+  if (!std::isfinite(to->hdr_capacity_min) || !std::isfinite(to->hdr_capacity_max) ||
+      to->hdr_capacity_min <= 0.0f || to->hdr_capacity_max <= 0.0f) {
+    return invalidGainMapMetadata("decoded HDR capacity must be positive and finite");
+  }
   return g_no_error;
 }
 

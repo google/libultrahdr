@@ -1714,25 +1714,41 @@ uhdr_error_info_t uhdr_dec_probe(uhdr_codec_private_t* dec) {
               handle->m_gainmap_ht = heif_image_handle_get_height(gainmap_handle);
               handle->m_gainmap_num_comp = 1;
 
-              int meta_len = heif_image_handle_get_gain_map_metadata_size(base_handle);
+              size_t meta_len = heif_image_handle_get_gain_map_metadata_size(base_handle);
               if (meta_len > 0) {
                 std::vector<uint8_t> meta(meta_len);
-                heif_image_handle_get_gain_map_metadata(base_handle, meta.data());
-                ultrahdr::uhdr_gainmap_metadata_frac frac;
-                if (ultrahdr::uhdr_gainmap_metadata_frac::decodeGainmapMetadata(meta, &frac).error_code == UHDR_CODEC_OK) {
+                err = heif_image_handle_get_gain_map_metadata(base_handle, meta.data());
+                if (err.code != heif_error_Ok) {
+                  status.error_code = UHDR_CODEC_ERROR;
+                  status.has_detail = 1;
+                  snprintf(status.detail, sizeof status.detail, "%s", err.message);
+                } else {
+                  ultrahdr::uhdr_gainmap_metadata_frac frac;
+                  status = ultrahdr::uhdr_gainmap_metadata_frac::decodeGainmapMetadata(meta, &frac);
                   ultrahdr::uhdr_gainmap_metadata_ext_t metadata;
-                  ultrahdr::uhdr_gainmap_metadata_frac::gainmapMetadataFractionToFloat(&frac, &metadata);
-                  std::copy(metadata.max_content_boost, metadata.max_content_boost + 3,
-                            handle->m_metadata.max_content_boost);
-                  std::copy(metadata.min_content_boost, metadata.min_content_boost + 3,
-                            handle->m_metadata.min_content_boost);
-                  std::copy(metadata.gamma, metadata.gamma + 3, handle->m_metadata.gamma);
-                  std::copy(metadata.offset_sdr, metadata.offset_sdr + 3, handle->m_metadata.offset_sdr);
-                  std::copy(metadata.offset_hdr, metadata.offset_hdr + 3, handle->m_metadata.offset_hdr);
-                  handle->m_metadata.hdr_capacity_min = metadata.hdr_capacity_min;
-                  handle->m_metadata.hdr_capacity_max = metadata.hdr_capacity_max;
-                  handle->m_metadata.use_base_cg = metadata.use_base_cg;
+                  if (status.error_code == UHDR_CODEC_OK) {
+                    status = ultrahdr::uhdr_gainmap_metadata_frac::gainmapMetadataFractionToFloat(
+                        &frac, &metadata);
+                  }
+                  if (status.error_code == UHDR_CODEC_OK) {
+                    std::copy(metadata.max_content_boost, metadata.max_content_boost + 3,
+                              handle->m_metadata.max_content_boost);
+                    std::copy(metadata.min_content_boost, metadata.min_content_boost + 3,
+                              handle->m_metadata.min_content_boost);
+                    std::copy(metadata.gamma, metadata.gamma + 3, handle->m_metadata.gamma);
+                    std::copy(metadata.offset_sdr, metadata.offset_sdr + 3,
+                              handle->m_metadata.offset_sdr);
+                    std::copy(metadata.offset_hdr, metadata.offset_hdr + 3,
+                              handle->m_metadata.offset_hdr);
+                    handle->m_metadata.hdr_capacity_min = metadata.hdr_capacity_min;
+                    handle->m_metadata.hdr_capacity_max = metadata.hdr_capacity_max;
+                    handle->m_metadata.use_base_cg = metadata.use_base_cg;
+                  }
                 }
+              } else {
+                status.error_code = UHDR_CODEC_INVALID_PARAM;
+                status.has_detail = 1;
+                snprintf(status.detail, sizeof status.detail, "gain map metadata is empty");
               }
               heif_image_handle_release(gainmap_handle);
             }
