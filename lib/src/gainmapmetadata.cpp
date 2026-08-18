@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 
 #include "ultrahdr/gainmapmath.h"
 #include "ultrahdr/gainmapmetadata.h"
@@ -298,6 +299,14 @@ uhdr_error_info_t uhdr_gainmap_metadata_frac::decodeGainmapMetadata(
     return status;                                                                                 \
   }
 
+static uhdr_error_info_t invalidGainMapMetadata(const char *detail) {
+  uhdr_error_info_t status;
+  status.error_code = UHDR_CODEC_INVALID_PARAM;
+  status.has_detail = 1;
+  snprintf(status.detail, sizeof status.detail, "%s", detail);
+  return status;
+}
+
 uhdr_error_info_t uhdr_gainmap_metadata_frac::gainmapMetadataFractionToFloat(
     const uhdr_gainmap_metadata_frac *from, uhdr_gainmap_metadata_ext_t *to) {
   if (from == nullptr || to == nullptr) {
@@ -317,6 +326,11 @@ uhdr_error_info_t uhdr_gainmap_metadata_frac::gainmapMetadataFractionToFloat(
     UHDR_CHECK_NON_ZERO(from->gainMapMinD[i], "gainMapMin denominator");
     UHDR_CHECK_NON_ZERO(from->baseOffsetD[i], "baseOffset denominator");
     UHDR_CHECK_NON_ZERO(from->alternateOffsetD[i], "alternateOffset denominator");
+    if (static_cast<int64_t>(from->gainMapMaxN[i]) * from->gainMapMinD[i] <
+        static_cast<int64_t>(from->gainMapMinN[i]) * from->gainMapMaxD[i]) {
+      return invalidGainMapMetadata(
+          "decoded gain map maximum content boost is less than its minimum");
+    }
   }
 
   // jpeg supports only 8 bits per component, applying gainmap in inverse direction is unexpected
