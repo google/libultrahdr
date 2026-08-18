@@ -145,6 +145,17 @@ TEST(GainmapMetadataTest, RejectsMalformedISO21496_1Ratios) {
   frac.baseHdrHeadroomN = 1;      // log2(headroom_min) = 1 -> 2.0
   EXPECT_EQ(uhdr_gainmap_metadata_frac::gainmapMetadataFractionToFloat(&frac, &float_meta).error_code,
             UHDR_CODEC_INVALID_PARAM);
+
+  // These fractions are ordered incorrectly but both round to 1.0f. Validate their exact rational
+  // values so float precision cannot hide the invalid range.
+  frac.alternateHdrHeadroomN = 1;
+  frac.baseHdrHeadroomN = 0;
+  frac.gainMapMinN[0] = 16777217;
+  frac.gainMapMinD[0] = 16777216;
+  frac.gainMapMaxN[0] = 1;
+  frac.gainMapMaxD[0] = 1;
+  EXPECT_EQ(uhdr_gainmap_metadata_frac::gainmapMetadataFractionToFloat(&frac, &float_meta).error_code,
+            UHDR_CODEC_INVALID_PARAM);
 }
 
 }  // namespace ultrahdr
