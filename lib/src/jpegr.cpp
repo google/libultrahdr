@@ -1499,7 +1499,7 @@ uhdr_error_info_t JpegR::decodeJPEGR(uhdr_compressed_image_t* uhdr_compressed_im
         static_cast<uint8_t*>(jpeg_dec_obj_gm.getIsoMetadataPtr()),
         jpeg_dec_obj_gm.getIsoMetadataSize(), static_cast<uint8_t*>(jpeg_dec_obj_gm.getXMPPtr()),
         jpeg_dec_obj_gm.getXMPSize(), static_cast<uint8_t*>(jpeg_dec_obj_sdr.getEXIFPtr()),
-        jpeg_dec_obj_sdr.getEXIFSize(), &uhdr_metadata))
+        static_cast<int>(jpeg_dec_obj_sdr.getEXIFSize()), &uhdr_metadata))
     if (gainmap_metadata != nullptr) {
       std::copy(uhdr_metadata.min_content_boost, uhdr_metadata.min_content_boost + 3,
                 gainmap_metadata->min_content_boost);
