@@ -639,7 +639,7 @@ static bool getExifAppleHeadroom(const uint8_t* exif, size_t size, float* altHea
     }
   }
 
-  *altHeadroom = pow(2.0, stops);
+  *altHeadroom = static_cast<float>(pow(2.0, stops));
   return true;
 }
 

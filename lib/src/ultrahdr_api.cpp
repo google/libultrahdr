@@ -1693,7 +1693,7 @@ uhdr_error_info_t uhdr_dec_probe(uhdr_codec_private_t* dec) {
 #ifdef UHDR_ENABLE_HEIF
     enum heif_filetype_result filetype = heif_check_filetype(
         static_cast<const uint8_t*>(handle->m_uhdr_compressed_img->data),
-        handle->m_uhdr_compressed_img->data_sz);
+        static_cast<int>(handle->m_uhdr_compressed_img->data_sz));
     if (filetype == heif_filetype_yes_supported || filetype == heif_filetype_maybe) {
       struct heif_context* ctx = heif_context_alloc();
       if (ctx) {
@@ -1714,7 +1714,8 @@ uhdr_error_info_t uhdr_dec_probe(uhdr_codec_private_t* dec) {
               handle->m_gainmap_ht = heif_image_handle_get_height(gainmap_handle);
               handle->m_gainmap_num_comp = 1;
 
-              int meta_len = heif_image_handle_get_gain_map_metadata_size(base_handle);
+              int meta_len =
+                  static_cast<int>(heif_image_handle_get_gain_map_metadata_size(base_handle));
               if (meta_len > 0) {
                 std::vector<uint8_t> meta(meta_len);
                 heif_image_handle_get_gain_map_metadata(base_handle, meta.data());
@@ -1761,7 +1762,7 @@ uhdr_error_info_t uhdr_dec_probe(uhdr_codec_private_t* dec) {
     status = jpegr.parseGainMapMetadata(gainmap_image.isoData.data(), gainmap_image.isoData.size(),
                                         gainmap_image.xmpData.data(), gainmap_image.xmpData.size(),
                                         primary_image.exifData.data(),
-                                        primary_image.exifData.size(), &metadata);
+                                        static_cast<int>(primary_image.exifData.size()), &metadata);
     if (status.error_code != UHDR_CODEC_OK) return status;
     std::copy(metadata.max_content_boost, metadata.max_content_boost + 3,
               handle->m_metadata.max_content_boost);
@@ -1960,7 +1961,7 @@ uhdr_error_info_t uhdr_decode(uhdr_codec_private_t* dec) {
 #ifdef UHDR_ENABLE_HEIF
   enum heif_filetype_result filetype = heif_check_filetype(
       static_cast<const uint8_t*>(handle->m_uhdr_compressed_img->data),
-      handle->m_uhdr_compressed_img->data_sz);
+      static_cast<int>(handle->m_uhdr_compressed_img->data_sz));
   if (filetype == heif_filetype_yes_supported || filetype == heif_filetype_maybe) {
     ultrahdr::HeifUltraHdr heifApp;
     status = heifApp.decodeHeicUltraHdr(

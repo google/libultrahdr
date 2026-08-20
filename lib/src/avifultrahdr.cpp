@@ -446,7 +446,8 @@ uhdr_error_info_t AvifUltraHdr::encodeAvifUltraHdr(uhdr_raw_image_t* sdr_intent,
   HEIF_ERR_CHECK(heif_image_set_nclx_color_profile(baseImage, sdrNclx));
   HEIF_ERR_CHECK(heif_context_encode_image(ctx, baseImage, encoder, options, &baseHandle));
   if (exif != nullptr) {
-    HEIF_ERR_CHECK(heif_context_add_exif_metadata(ctx, baseHandle, exif->data, exif->data_sz));
+    HEIF_ERR_CHECK(heif_context_add_exif_metadata(ctx, baseHandle, exif->data,
+                                                  static_cast<int>(exif->data_sz)));
   }
 
   // encode the gain map image
@@ -521,7 +522,8 @@ uhdr_error_info_t AvifUltraHdr::encodeAvifUltraHdr(uhdr_raw_image_t* sdr_intent,
   (void)alternateIcc;
   HEIF_ERR_CHECK(heif_encoder_set_lossy_quality(encoder, mMapCompressQuality));
   HEIF_ERR_CHECK(heif_context_encode_gain_map_image(ctx, baseHandle, encoder, secondaryImage,
-                                                    options, iso_data.data(), iso_data.size(),
+                                                    options, iso_data.data(),
+                                                    static_cast<int>(iso_data.size()),
                                                     hdrNclx, &secondaryHandle));
 
   heif_context_write(ctx, &w, &writer);
