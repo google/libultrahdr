@@ -120,7 +120,7 @@ static const std::map<uhdr_color_transfer_t, heif_transfer_characteristics> map_
     {UHDR_CT_LINEAR, heif_transfer_characteristic_linear},
     {UHDR_CT_PQ, heif_transfer_characteristic_ITU_R_BT_2100_0_PQ},
     {UHDR_CT_HLG, heif_transfer_characteristic_ITU_R_BT_2100_0_HLG},
-    {UHDR_CT_SRGB, heif_transfer_characteristic_ITU_R_BT_709_5},
+    {UHDR_CT_SRGB, heif_transfer_characteristic_IEC_61966_2_1},
     {UHDR_CT_UNSPECIFIED, heif_transfer_characteristic_unspecified},
 };
 
@@ -141,6 +141,8 @@ static uhdr_color_gamut_t map_primaries_inverse(heif_color_primaries primaries) 
 }
 
 static uhdr_color_transfer_t map_transfer_inverse(heif_transfer_characteristics transfer) {
+  // Accept files written by older libultrahdr versions, which signaled sRGB as BT.709.
+  if (transfer == heif_transfer_characteristic_ITU_R_BT_709_5) return UHDR_CT_SRGB;
   for (const auto& [key, value] : map_transfer) {
     if (value == transfer) return key;
   }

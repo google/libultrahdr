@@ -98,6 +98,44 @@ class UltraHdrApiTest : public ::testing::Test {
   uhdr_compressed_image_t mSdrCompressed{};
 };
 
+#if defined(UHDR_ENABLE_HEIF)
+static heif_transfer_characteristics getPrimaryImageTransfer(
+    const uhdr_compressed_image_t* image) {
+  heif_transfer_characteristics transfer = heif_transfer_characteristic_unspecified;
+  heif_context* context = heif_context_alloc();
+  if (context == nullptr) {
+    ADD_FAILURE() << "failed to allocate libheif context";
+    return transfer;
+  }
+
+  heif_image_handle* primary_handle = nullptr;
+  heif_color_profile_nclx* nclx = nullptr;
+  heif_error error =
+      heif_context_read_from_memory_without_copy(context, image->data, image->data_sz, nullptr);
+  if (error.code != heif_error_Ok) {
+    ADD_FAILURE() << "failed to parse encoded image";
+    goto CleanUp;
+  }
+  error = heif_context_get_primary_image_handle(context, &primary_handle);
+  if (error.code != heif_error_Ok) {
+    ADD_FAILURE() << "failed to get primary image";
+    goto CleanUp;
+  }
+  error = heif_image_handle_get_nclx_color_profile(primary_handle, &nclx);
+  if (error.code != heif_error_Ok) {
+    ADD_FAILURE() << "failed to get primary image nclx profile";
+    goto CleanUp;
+  }
+  transfer = nclx->transfer_characteristics;
+
+CleanUp:
+  if (nclx != nullptr) heif_nclx_color_profile_free(nclx);
+  if (primary_handle != nullptr) heif_image_handle_release(primary_handle);
+  heif_context_free(context);
+  return transfer;
+}
+#endif
+
 // ============================================================================
 // JPEG Tests (API-0 through API-4)
 // ============================================================================
@@ -263,6 +301,7 @@ TEST_F(UltraHdrApiTest, HeicEncodeApi1AndDecode) {
   uhdr_compressed_image_t* output = uhdr_get_encoded_stream(enc);
   ASSERT_NE(output, nullptr);
   ASSERT_GT(output->data_sz, 0u);
+  EXPECT_EQ(getPrimaryImageTransfer(output), heif_transfer_characteristic_IEC_61966_2_1);
 
   uhdr_codec_private_t* dec = uhdr_create_decoder();
   ASSERT_NE(dec, nullptr);
@@ -364,6 +403,7 @@ TEST_F(UltraHdrApiTest, AvifEncodeApi1AndDecode) {
   uhdr_compressed_image_t* output = uhdr_get_encoded_stream(enc);
   ASSERT_NE(output, nullptr);
   ASSERT_GT(output->data_sz, 0u);
+  EXPECT_EQ(getPrimaryImageTransfer(output), heif_transfer_characteristic_IEC_61966_2_1);
 
   uhdr_codec_private_t* dec = uhdr_create_decoder();
   ASSERT_NE(dec, nullptr);
