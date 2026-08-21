@@ -1,7 +1,7 @@
 name: Build and Test CI - Windows
 # Build and Test CI for windows-latest
 
-on: [ push, pull_request ]
+on: [ push, pull_request, workflow_dispatch ]
 
 jobs:
   build:
@@ -36,6 +36,12 @@ jobs:
 
     - name: Build
       run: cmake --build build --config ${{ matrix.config.build_type }}
+
+    - name: Upload Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: libultrahdr-windows
+        path: build/
 
     - name: Test
       working-directory: build
