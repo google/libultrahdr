@@ -10,6 +10,9 @@
 
 #ifdef _WIN32
 #include <Windows.h>
+#include <shellapi.h>
+
+#include <filesystem>
 #else
 #include <sys/time.h>
 #endif
@@ -23,6 +26,8 @@
 #include <fstream>
 #include <iostream>
 #include <sstream>
+#include <string>
+#include <vector>
 
 #include "ultrahdr_api.h"
 
@@ -64,6 +69,53 @@ const float BT2020RGBtoYUVMatrix[9] = {0.2627f,
 
 // remove these once introduced in ultrahdr_api.h
 const int UHDR_IMG_FMT_48bppYCbCr444 = 101;
+
+#ifdef _WIN32
+static std::filesystem::path filePath(const char* filename) {
+  return std::filesystem::u8path(filename);
+}
+#else
+static const char* filePath(const char* filename) {
+  return filename;
+}
+#endif
+
+#ifdef _WIN32
+static bool getUtf8Arguments(std::vector<std::string>& argument_storage,
+                             std::vector<char*>& arguments) {
+  int wide_argc = 0;
+  wchar_t** wide_argv = CommandLineToArgvW(GetCommandLineW(), &wide_argc);
+  if (wide_argv == nullptr) return false;
+
+  argument_storage.reserve(wide_argc);
+  for (int index = 0; index < wide_argc; ++index) {
+    const int wide_length = lstrlenW(wide_argv[index]);
+    if (wide_length == 0) {
+      argument_storage.emplace_back();
+      continue;
+    }
+    const int utf8_length = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, wide_argv[index],
+                                                wide_length, nullptr, 0, nullptr, nullptr);
+    if (utf8_length <= 0) {
+      LocalFree(wide_argv);
+      return false;
+    }
+    std::string argument(utf8_length, '\0');
+    if (WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, wide_argv[index], wide_length,
+                            argument.data(), utf8_length, nullptr, nullptr) != utf8_length) {
+      LocalFree(wide_argv);
+      return false;
+    }
+    argument_storage.push_back(std::move(argument));
+  }
+  LocalFree(wide_argv);
+
+  arguments.reserve(argument_storage.size() + 1);
+  for (auto& argument : argument_storage) arguments.push_back(argument.data());
+  arguments.push_back(nullptr);
+  return true;
+}
+#endif
 
 int optind_s = 1;
 int optopt_s = 0;
@@ -153,7 +205,7 @@ static bool loadFile(const char* filename, void*& result, std::streamoff length)
               << " bytes from file : " << filename << std::endl;
     return false;
   }
-  std::ifstream ifd(filename, std::ios::binary | std::ios::ate);
+  std::ifstream ifd(filePath(filename), std::ios::binary | std::ios::ate);
   if (ifd.good()) {
     auto size = ifd.tellg();
     if (size < length) {
@@ -176,7 +228,7 @@ static bool loadFile(const char* filename, void*& result, std::streamoff length)
 }
 
 static bool loadFile(const char* filename, uhdr_raw_image_t* handle) {
-  std::ifstream ifd(filename, std::ios::binary);
+  std::ifstream ifd(filePath(filename), std::ios::binary);
   if (ifd.good()) {
     if (handle->fmt == UHDR_IMG_FMT_24bppYCbCrP010) {
       const size_t bpp = 2;
@@ -205,7 +257,7 @@ static bool loadFile(const char* filename, uhdr_raw_image_t* handle) {
 }
 
 static bool writeFile(const char* filename, void*& result, size_t length) {
-  std::ofstream ofd(filename, std::ios::binary);
+  std::ofstream ofd(filePath(filename), std::ios::binary);
   if (ofd.is_open()) {
     ofd.write(static_cast<char*>(result), length);
     return true;
@@ -215,7 +267,7 @@ static bool writeFile(const char* filename, void*& result, size_t length) {
 }
 
 static bool writeFile(const char* filename, uhdr_raw_image_t* img) {
-  std::ofstream ofd(filename, std::ios::binary);
+  std::ofstream ofd(filePath(filename), std::ios::binary);
   if (ofd.is_open()) {
     if (img->fmt == UHDR_IMG_FMT_32bppRGBA8888 || img->fmt == UHDR_IMG_FMT_64bppRGBAHalfFloat ||
         img->fmt == UHDR_IMG_FMT_32bppRGBA1010102) {
@@ -529,7 +581,7 @@ bool UltraHdrAppInput::fillRGBA8888ImageHandle() {
 }
 
 bool UltraHdrAppInput::fillSdrCompressedImageHandle() {
-  std::ifstream ifd(mSdrIntentCompressedFile, std::ios::binary | std::ios::ate);
+  std::ifstream ifd(filePath(mSdrIntentCompressedFile), std::ios::binary | std::ios::ate);
   if (ifd.good()) {
     auto size = ifd.tellg();
     mSdrIntentCompressedImage.capacity = size;
@@ -545,7 +597,7 @@ bool UltraHdrAppInput::fillSdrCompressedImageHandle() {
 }
 
 bool UltraHdrAppInput::fillGainMapCompressedImageHandle() {
-  std::ifstream ifd(mGainMapCompressedFile, std::ios::binary | std::ios::ate);
+  std::ifstream ifd(filePath(mGainMapCompressedFile), std::ios::binary | std::ios::ate);
   if (ifd.good()) {
     auto size = ifd.tellg();
     mGainMapCompressedImage.capacity = size;
@@ -582,7 +634,7 @@ void parse_argument(uhdr_gainmap_metadata* metadata, char* argument, float* valu
 }
 
 bool UltraHdrAppInput::fillGainMapMetadataDescriptor() {
-  std::ifstream file(mGainMapMetadataCfgFile);
+  std::ifstream file(filePath(mGainMapMetadataCfgFile));
   if (!file.is_open()) {
     return false;
   }
@@ -602,7 +654,7 @@ bool UltraHdrAppInput::fillGainMapMetadataDescriptor() {
 }
 
 bool UltraHdrAppInput::fillExifMemoryBlock() {
-  std::ifstream ifd(mExifFile, std::ios::binary | std::ios::ate);
+  std::ifstream ifd(filePath(mExifFile), std::ios::binary | std::ios::ate);
   if (ifd.good()) {
     auto size = ifd.tellg();
     mExifBlock.data = nullptr;
@@ -650,7 +702,7 @@ void UltraHdrAppInput::writeGainMapMetadataToFile(uhdr_gainmap_metadata_t* metad
 }
 
 bool UltraHdrAppInput::fillUhdrImageHandle() {
-  std::ifstream ifd(mUhdrFile, std::ios::binary | std::ios::ate);
+  std::ifstream ifd(filePath(mUhdrFile), std::ios::binary | std::ios::ate);
   if (ifd.good()) {
     auto size = ifd.tellg();
     mUhdrImage.capacity = size;
@@ -859,7 +911,7 @@ bool UltraHdrAppInput::decode() {
       uhdr_release_decoder(handle);
       return true;
     }
-    std::ofstream file(mGainMapMetadataCfgFile);
+    std::ofstream file(filePath(mGainMapMetadataCfgFile));
     if (file.is_open()) {
       writeGainMapMetadataToFile(metadata, file);
       file.close();
@@ -1594,6 +1646,17 @@ static void usage(const char* name) {
 }
 
 int main(int argc, char* argv[]) {
+#ifdef _WIN32
+  std::vector<std::string> argument_storage;
+  std::vector<char*> arguments;
+  if (!getUtf8Arguments(argument_storage, arguments)) {
+    std::cerr << "failed to read the Windows command line" << std::endl;
+    return -1;
+  }
+  argc = static_cast<int>(argument_storage.size());
+  argv = arguments.data();
+#endif
+
   char opt_string[] = "p:y:i:g:f:w:h:C:c:t:q:o:O:m:j:e:a:b:z:R:s:M:Q:G:x:u:D:k:K:L:P";
   char *hdr_intent_raw_file = nullptr, *sdr_intent_raw_file = nullptr, *uhdr_file = nullptr,
        *sdr_intent_compressed_file = nullptr, *gainmap_compressed_file = nullptr,
