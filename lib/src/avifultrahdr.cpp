@@ -16,6 +16,8 @@
 
 #ifdef UHDR_ENABLE_HEIF
 
+#include <algorithm>
+#include <cmath>
 #include <cstdlib>
 #include <map>
 
@@ -82,6 +84,59 @@ static struct heif_error fill_img_plane(heif_image* img, heif_channel channel, v
     srcRow += srcRowStride;
     dstBuffer += dstStride;
   }
+  return err;
+}
+
+static uint8_t get_alpha_value(const uhdr_raw_image_t* image, size_t x, size_t y) {
+  if (image->fmt == UHDR_IMG_FMT_32bppRGBA8888) {
+    const auto* row = static_cast<const uint32_t*>(image->planes[UHDR_PLANE_PACKED]) +
+                      y * image->stride[UHDR_PLANE_PACKED];
+    return static_cast<uint8_t>(row[x] >> 24);
+  }
+  if (image->fmt == UHDR_IMG_FMT_32bppRGBA1010102) {
+    const auto* row = static_cast<const uint32_t*>(image->planes[UHDR_PLANE_PACKED]) +
+                      y * image->stride[UHDR_PLANE_PACKED];
+    return static_cast<uint8_t>(((row[x] >> 30) & 0x3u) * 85u);
+  }
+  const auto* row = static_cast<const uint16_t*>(image->planes[UHDR_PLANE_PACKED]) +
+                    y * image->stride[UHDR_PLANE_PACKED] * 4;
+  float alpha = halfToFloat(row[x * 4 + 3]);
+  if (std::isnan(alpha)) alpha = 0.0f;
+  alpha = std::clamp(alpha, 0.0f, 1.0f);
+  return static_cast<uint8_t>(alpha * 255.0f + 0.5f);
+}
+
+static struct heif_error add_alpha_plane(heif_image* image, const uhdr_raw_image_t* alpha_source) {
+  if (alpha_source == nullptr || (alpha_source->fmt != UHDR_IMG_FMT_32bppRGBA8888 &&
+                                  alpha_source->fmt != UHDR_IMG_FMT_32bppRGBA1010102 &&
+                                  alpha_source->fmt != UHDR_IMG_FMT_64bppRGBAHalfFloat)) {
+    return {heif_error_Ok, heif_suberror_Unspecified, nullptr};
+  }
+
+  bool has_transparency = false;
+  for (size_t y = 0; y < alpha_source->h && !has_transparency; ++y) {
+    for (size_t x = 0; x < alpha_source->w; ++x) {
+      if (get_alpha_value(alpha_source, x, y) != 255) {
+        has_transparency = true;
+        break;
+      }
+    }
+  }
+  if (!has_transparency) return {heif_error_Ok, heif_suberror_Unspecified, nullptr};
+
+  heif_error err =
+      heif_image_add_plane(image, heif_channel_Alpha, alpha_source->w, alpha_source->h, 8);
+  if (err.code != heif_error_Ok) return err;
+
+  int dst_stride;
+  uint8_t* dst = heif_image_get_plane(image, heif_channel_Alpha, &dst_stride);
+  for (size_t y = 0; y < alpha_source->h; ++y) {
+    for (size_t x = 0; x < alpha_source->w; ++x) {
+      dst[x] = get_alpha_value(alpha_source, x, y);
+    }
+    dst += dst_stride;
+  }
+  heif_image_set_premultiplied_alpha(image, 0);
   return err;
 }
 
@@ -324,8 +379,8 @@ uhdr_error_info_t AvifUltraHdr::encodeAvifUltraHdr(uhdr_raw_image_t* hdr_intent,
   std::shared_ptr<DataStruct> alternateIcc =
       IccHelper::writeIccProfile(gainmap->ct, gainmap->cg);
 
-  return encodeAvifUltraHdr(sdr_intent_yuv, gainmap.get(), &metadata, dest, quality, exif, baseIcc.get(),
-                     alternateIcc.get());
+  return encodeAvifUltraHdr(sdr_intent_yuv, hdr_intent, gainmap.get(), &metadata, dest, quality,
+                            exif, baseIcc.get(), alternateIcc.get());
 }
 
 /* Encode API-1 */
@@ -353,15 +408,17 @@ uhdr_error_info_t AvifUltraHdr::encodeAvifUltraHdr(uhdr_raw_image_t* hdr_intent,
   std::shared_ptr<DataStruct> alternateIcc =
       IccHelper::writeIccProfile(gainmap->ct, gainmap->cg);
 
-  return encodeAvifUltraHdr(sdr_intent_yuv, gainmap.get(), &metadata, dest, quality, exif, baseIcc.get(),
-                     alternateIcc.get());
+  return encodeAvifUltraHdr(sdr_intent_yuv, sdr_intent, gainmap.get(), &metadata, dest, quality,
+                            exif, baseIcc.get(), alternateIcc.get());
 }
 
-uhdr_error_info_t AvifUltraHdr::encodeAvifUltraHdr(uhdr_raw_image_t* sdr_intent, uhdr_raw_image_t* gainmap_img,
-                                     uhdr_gainmap_metadata_ext_t* metadata,
-                                     uhdr_compressed_image_t* dest, int quality,
-                                     uhdr_mem_block_t* exif, DataStruct* baseIcc,
-                                     DataStruct* alternateIcc) {
+uhdr_error_info_t AvifUltraHdr::encodeAvifUltraHdr(uhdr_raw_image_t* sdr_intent,
+                                                   uhdr_raw_image_t* base_alpha_source,
+                                                   uhdr_raw_image_t* gainmap_img,
+                                                   uhdr_gainmap_metadata_ext_t* metadata,
+                                                   uhdr_compressed_image_t* dest, int quality,
+                                                   uhdr_mem_block_t* exif, DataStruct* baseIcc,
+                                                   DataStruct* alternateIcc) {
   uhdr_error_info_t status = g_no_error;
   heif_encoder* encoder = nullptr;
   heif_encoding_options* options = nullptr;
@@ -411,6 +468,7 @@ uhdr_error_info_t AvifUltraHdr::encodeAvifUltraHdr(uhdr_raw_image_t* sdr_intent,
                                 chromaWd, chromaHt, sdr_intent->stride[UHDR_PLANE_U]));
   HEIF_ERR_CHECK(fill_img_plane(baseImage, heif_channel_Cr, sdr_intent->planes[UHDR_PLANE_V],
                                 chromaWd, chromaHt, sdr_intent->stride[UHDR_PLANE_V]));
+  HEIF_ERR_CHECK(add_alpha_plane(baseImage, base_alpha_source));
   if (baseIcc != nullptr) {
     void* ptr = (uint8_t*)baseIcc->getData() + kICCIdentifierSize;
     HEIF_ERR_CHECK(heif_image_set_raw_color_profile(baseImage, "prof", ptr,
@@ -442,6 +500,7 @@ uhdr_error_info_t AvifUltraHdr::encodeAvifUltraHdr(uhdr_raw_image_t* sdr_intent,
     goto CleanUp;
   }
   options->save_two_colr_boxes_when_ICC_and_nclx_available = 1;
+  options->save_alpha_channel = 1;
   options->output_nclx_profile = sdrNclx;
   HEIF_ERR_CHECK(heif_image_set_nclx_color_profile(baseImage, sdrNclx));
   HEIF_ERR_CHECK(heif_context_encode_image(ctx, baseImage, encoder, options, &baseHandle));
