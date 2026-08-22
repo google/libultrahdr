@@ -126,6 +126,14 @@ TEST_F(UltraHdrApiTest, JpegEncodeApi0AndDecode) {
   EXPECT_EQ(uhdr_dec_probe(dec).error_code, UHDR_CODEC_OK);
   EXPECT_EQ(uhdr_dec_get_image_width(dec), static_cast<int>(kImageWidth));
   EXPECT_EQ(uhdr_dec_get_image_height(dec), static_cast<int>(kImageHeight));
+  uhdr_mem_block_t* base_image = uhdr_dec_get_base_image(dec);
+  ASSERT_NE(base_image, nullptr);
+  EXPECT_NE(base_image->data, nullptr);
+  EXPECT_GT(base_image->data_sz, 0u);
+  uhdr_mem_block_t* gainmap_image = uhdr_dec_get_gainmap_image(dec);
+  ASSERT_NE(gainmap_image, nullptr);
+  EXPECT_NE(gainmap_image->data, nullptr);
+  EXPECT_GT(gainmap_image->data_sz, 0u);
 
   ASSERT_EQ(uhdr_decode(dec).error_code, UHDR_CODEC_OK);
   uhdr_raw_image_t* decoded = uhdr_get_decoded_image(dec);
@@ -222,6 +230,8 @@ TEST_F(UltraHdrApiTest, HeicEncodeApi0AndDecode) {
   EXPECT_EQ(uhdr_dec_probe(dec).error_code, UHDR_CODEC_OK);
   EXPECT_EQ(uhdr_dec_get_image_width(dec), static_cast<int>(kImageWidth));
   EXPECT_EQ(uhdr_dec_get_image_height(dec), static_cast<int>(kImageHeight));
+  EXPECT_EQ(uhdr_dec_get_base_image(dec), nullptr);
+  EXPECT_EQ(uhdr_dec_get_gainmap_image(dec), nullptr);
 
   uhdr_gainmap_metadata_t* metadata = uhdr_dec_get_gainmap_metadata(dec);
   EXPECT_NE(metadata, nullptr);
@@ -327,6 +337,8 @@ TEST_F(UltraHdrApiTest, AvifEncodeApi0AndDecode) {
   EXPECT_EQ(uhdr_dec_probe(dec).error_code, UHDR_CODEC_OK);
   EXPECT_EQ(uhdr_dec_get_image_width(dec), static_cast<int>(kImageWidth));
   EXPECT_EQ(uhdr_dec_get_image_height(dec), static_cast<int>(kImageHeight));
+  EXPECT_EQ(uhdr_dec_get_base_image(dec), nullptr);
+  EXPECT_EQ(uhdr_dec_get_gainmap_image(dec), nullptr);
 
   uhdr_error_info_t dec_status = uhdr_decode(dec);
   if (dec_status.error_code != UHDR_CODEC_OK) {

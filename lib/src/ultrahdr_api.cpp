@@ -1882,7 +1882,8 @@ uhdr_mem_block_t* uhdr_dec_get_base_image(uhdr_codec_private_t* dec) {
   }
 
   uhdr_decoder_private* handle = dynamic_cast<uhdr_decoder_private*>(dec);
-  if (!handle->m_probed || handle->m_probe_call_status.error_code != UHDR_CODEC_OK) {
+  if (!handle->m_probed || handle->m_probe_call_status.error_code != UHDR_CODEC_OK ||
+      handle->m_base_img_block.data == nullptr || handle->m_base_img_block.data_sz == 0) {
     return nullptr;
   }
 
@@ -1895,7 +1896,8 @@ uhdr_mem_block_t* uhdr_dec_get_gainmap_image(uhdr_codec_private_t* dec) {
   }
 
   uhdr_decoder_private* handle = dynamic_cast<uhdr_decoder_private*>(dec);
-  if (!handle->m_probed || handle->m_probe_call_status.error_code != UHDR_CODEC_OK) {
+  if (!handle->m_probed || handle->m_probe_call_status.error_code != UHDR_CODEC_OK ||
+      handle->m_gainmap_img_block.data == nullptr || handle->m_gainmap_img_block.data_sz == 0) {
     return nullptr;
   }
 
