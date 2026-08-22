@@ -624,10 +624,10 @@ uhdr_error_info_t AvifUltraHdr::decodeAvifUltraHdr(uhdr_compressed_image_t* uhdr
   HEIF_ERR_CHECK(copy_img_plane(sdr_image, heif_channel_interleaved,
                                 sdr_intent->planes[UHDR_PLANE_PACKED], sdr_width, sdr_height,
                                 sdr_intent->stride[UHDR_PLANE_PACKED] * 4, 4))
-  if (gainmap_metadata != nullptr || output_ct != UHDR_CT_SRGB) {
+  if (gainmap_img != nullptr || gainmap_metadata != nullptr || output_ct != UHDR_CT_SRGB) {
     HEIF_ERR_CHECK(heif_image_handle_get_gain_map_image_handle(base_handle, &gainmap_handle))
     status = heif_get_gainmap_metadata(base_handle, &metadata);
-    if (status.error_code != UHDR_CODEC_OK) return status;
+    if (status.error_code != UHDR_CODEC_OK) goto CleanUp;
     if (gainmap_metadata != nullptr) {
       std::copy(metadata.min_content_boost, metadata.min_content_boost + 3,
                 gainmap_metadata->min_content_boost);

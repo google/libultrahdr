@@ -8,8 +8,9 @@
 #include <gtest/gtest.h>
 #endif
 #include <fstream>
-#include <vector>
+#include <cstring>
 #include <memory>
+#include <vector>
 
 #include "ultrahdr_api.h"
 #include "ultrahdr/ultrahdrcommon.h"
@@ -46,6 +47,27 @@ static bool loadFile(const char* filename, std::vector<uint8_t>& buffer) {
     }
   }
   return false;
+}
+
+static void expectGainMapsEqual(const uhdr_raw_image_t* expected,
+                                const uhdr_raw_image_t* actual) {
+  ASSERT_NE(expected, nullptr);
+  ASSERT_NE(actual, nullptr);
+  ASSERT_EQ(actual->fmt, expected->fmt);
+  ASSERT_EQ(actual->w, expected->w);
+  ASSERT_EQ(actual->h, expected->h);
+
+  const size_t bytes_per_pixel =
+      expected->fmt == UHDR_IMG_FMT_8bppYCbCr400 ? 1 : 4;
+  const size_t row_bytes = expected->w * bytes_per_pixel;
+  const auto* expected_data = static_cast<const uint8_t*>(expected->planes[UHDR_PLANE_PACKED]);
+  const auto* actual_data = static_cast<const uint8_t*>(actual->planes[UHDR_PLANE_PACKED]);
+  for (unsigned row = 0; row < expected->h; ++row) {
+    ASSERT_EQ(0, memcmp(expected_data + row * expected->stride[UHDR_PLANE_PACKED] * bytes_per_pixel,
+                        actual_data + row * actual->stride[UHDR_PLANE_PACKED] * bytes_per_pixel,
+                        row_bytes))
+        << "gain map differs at row " << row;
+  }
 }
 
 class UltraHdrApiTest : public ::testing::Test {
@@ -235,7 +257,20 @@ TEST_F(UltraHdrApiTest, HeicEncodeApi0AndDecode) {
   ASSERT_NE(decoded, nullptr);
   EXPECT_EQ(decoded->w, kImageWidth);
   EXPECT_EQ(decoded->h, kImageHeight);
+  uhdr_raw_image_t* hdr_gainmap = uhdr_get_decoded_gainmap_image(dec);
+  ASSERT_NE(hdr_gainmap, nullptr);
 
+  uhdr_codec_private_t* sdr_dec = uhdr_create_decoder();
+  ASSERT_NE(sdr_dec, nullptr);
+  EXPECT_EQ(uhdr_dec_set_image(sdr_dec, output).error_code, UHDR_CODEC_OK);
+  EXPECT_EQ(uhdr_dec_set_out_color_transfer(sdr_dec, UHDR_CT_SRGB).error_code, UHDR_CODEC_OK);
+  EXPECT_EQ(uhdr_dec_set_out_img_format(sdr_dec, UHDR_IMG_FMT_32bppRGBA8888).error_code,
+            UHDR_CODEC_OK);
+  EXPECT_EQ(uhdr_dec_probe(sdr_dec).error_code, UHDR_CODEC_OK);
+  ASSERT_EQ(uhdr_decode(sdr_dec).error_code, UHDR_CODEC_OK);
+  expectGainMapsEqual(hdr_gainmap, uhdr_get_decoded_gainmap_image(sdr_dec));
+
+  uhdr_release_decoder(sdr_dec);
   uhdr_release_decoder(dec);
   uhdr_release_encoder(enc);
 }
@@ -337,7 +372,20 @@ TEST_F(UltraHdrApiTest, AvifEncodeApi0AndDecode) {
   ASSERT_NE(decoded, nullptr);
   EXPECT_EQ(decoded->w, kImageWidth);
   EXPECT_EQ(decoded->h, kImageHeight);
+  uhdr_raw_image_t* hdr_gainmap = uhdr_get_decoded_gainmap_image(dec);
+  ASSERT_NE(hdr_gainmap, nullptr);
 
+  uhdr_codec_private_t* sdr_dec = uhdr_create_decoder();
+  ASSERT_NE(sdr_dec, nullptr);
+  EXPECT_EQ(uhdr_dec_set_image(sdr_dec, output).error_code, UHDR_CODEC_OK);
+  EXPECT_EQ(uhdr_dec_set_out_color_transfer(sdr_dec, UHDR_CT_SRGB).error_code, UHDR_CODEC_OK);
+  EXPECT_EQ(uhdr_dec_set_out_img_format(sdr_dec, UHDR_IMG_FMT_32bppRGBA8888).error_code,
+            UHDR_CODEC_OK);
+  EXPECT_EQ(uhdr_dec_probe(sdr_dec).error_code, UHDR_CODEC_OK);
+  ASSERT_EQ(uhdr_decode(sdr_dec).error_code, UHDR_CODEC_OK);
+  expectGainMapsEqual(hdr_gainmap, uhdr_get_decoded_gainmap_image(sdr_dec));
+
+  uhdr_release_decoder(sdr_dec);
   uhdr_release_decoder(dec);
   uhdr_release_encoder(enc);
 }
