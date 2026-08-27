@@ -462,8 +462,11 @@ TEST_F(UltraHdrApiTest, JpegEncodeApi0AndDecode) {
   uint16_t app2_length = 0;
   ASSERT_TRUE(readMpfU16ForTest(displaced_signature, locations.signature - 2, true, &app2_length));
   displaced_signature[locations.signature + 3] = 'x';
-  displaced_signature.insert(displaced_signature.begin() + locations.signature + 4,
-                             {'M', 'P', 'F', 0});
+  const size_t displaced_mpf_offset = locations.signature + 4;
+  displaced_signature.insert(displaced_signature.begin() + displaced_mpf_offset, 4, uint8_t{0});
+  displaced_signature[displaced_mpf_offset] = 'M';
+  displaced_signature[displaced_mpf_offset + 1] = 'P';
+  displaced_signature[displaced_mpf_offset + 2] = 'F';
   writeMpfU16ForTest(displaced_signature, locations.signature - 2, true, app2_length + 4);
   EXPECT_EQ(is_uhdr_image(displaced_signature.data(), static_cast<int>(displaced_signature.size())),
             0);
