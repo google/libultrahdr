@@ -1545,13 +1545,22 @@ uhdr_error_info_t UltraHdr::applyGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_
              "apply gainmap method received nullptr for destination image or plane pointer");
     return status;
   }
-  if (dest->stride[UHDR_PLANE_PACKED] < dest->w) {
+  if (dest->w != sdr_intent->w || dest->h != sdr_intent->h) {
     uhdr_error_info_t status;
     status.error_code = UHDR_CODEC_INVALID_PARAM;
     status.has_detail = 1;
     snprintf(status.detail, sizeof status.detail,
-             "destination stride (%u) cannot be less than image width (%u)",
-             dest->stride[UHDR_PLANE_PACKED], dest->w);
+             "destination image dimensions %ux%u do not match output dimensions %ux%u", dest->w,
+             dest->h, sdr_intent->w, sdr_intent->h);
+    return status;
+  }
+  if (dest->stride[UHDR_PLANE_PACKED] < sdr_intent->w) {
+    uhdr_error_info_t status;
+    status.error_code = UHDR_CODEC_INVALID_PARAM;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "destination stride (%u) cannot be less than output width (%u)",
+             dest->stride[UHDR_PLANE_PACKED], sdr_intent->w);
     return status;
   }
   if (output_ct != UHDR_CT_LINEAR && output_ct != UHDR_CT_HLG && output_ct != UHDR_CT_PQ) {

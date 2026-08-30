@@ -1617,7 +1617,7 @@ TEST(JpegRTest, ApplyGainMapInvalidArgs) {
   dest.w = 16;
   dest.h = 16;
   dest.stride[0] = 16;
-  std::vector<uint8_t> dest_buf(16 * 16 * 8);
+  std::vector<uint8_t> dest_buf(32 * 16 * 8);
   dest.planes[0] = dest_buf.data();
 
   // Test nullptr dest or plane pointer
@@ -1630,6 +1630,40 @@ TEST(JpegRTest, ApplyGainMapInvalidArgs) {
   // Test stride < width
   dest.stride[0] = 8;
   EXPECT_EQ(uHdrLib.applyGainMap(&sdr_intent, &gainmap_img, &metadata, UHDR_CT_LINEAR, dest.fmt, 2.0f, &dest).error_code, UHDR_CODEC_INVALID_PARAM);
+  dest.stride[0] = 16;
+
+  // Test destination dimensions that do not match the output dimensions
+  dest.w = 8;
+  EXPECT_EQ(
+      uHdrLib
+          .applyGainMap(&sdr_intent, &gainmap_img, &metadata, UHDR_CT_LINEAR, dest.fmt, 2.0f, &dest)
+          .error_code,
+      UHDR_CODEC_INVALID_PARAM);
+  dest.w = 16;
+
+  dest.h = 8;
+  EXPECT_EQ(
+      uHdrLib
+          .applyGainMap(&sdr_intent, &gainmap_img, &metadata, UHDR_CT_LINEAR, dest.fmt, 2.0f, &dest)
+          .error_code,
+      UHDR_CODEC_INVALID_PARAM);
+  dest.h = 16;
+
+  dest.w = 32;
+  dest.stride[0] = 32;
+  EXPECT_EQ(
+      uHdrLib
+          .applyGainMap(&sdr_intent, &gainmap_img, &metadata, UHDR_CT_LINEAR, dest.fmt, 2.0f, &dest)
+          .error_code,
+      UHDR_CODEC_INVALID_PARAM);
+  dest.w = 16;
+
+  // Test valid row padding
+  EXPECT_EQ(
+      uHdrLib
+          .applyGainMap(&sdr_intent, &gainmap_img, &metadata, UHDR_CT_LINEAR, dest.fmt, 2.0f, &dest)
+          .error_code,
+      UHDR_CODEC_OK);
   dest.stride[0] = 16;
 
   // Test invalid output_ct

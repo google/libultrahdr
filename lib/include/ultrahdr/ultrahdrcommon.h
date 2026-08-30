@@ -515,6 +515,9 @@ class UltraHdr {
    * same color gamut as sdr intent.
    *
    * NOTE: The SDR input is assumed to use the sRGB transfer function.
+   * NOTE: `dest->w` and `dest->h` must equal `sdr_intent->w` and `sdr_intent->h`. Row padding is
+   * supported by setting the destination packed stride to a value greater than or equal to
+   * `dest->w`.
    *
    * \param[in]       sdr_intent               sdr intent raw input image descriptor
    * \param[in]       gainmap_img              gainmap image descriptor
