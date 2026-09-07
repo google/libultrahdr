@@ -16,6 +16,8 @@
 #include <gtest/gtest.h>
 
 #include <cmath>
+#include <cstdint>
+#include <cstring>
 #include <fstream>
 #include <iostream>
 
@@ -320,6 +322,58 @@ static bool readFile(const char* fileName, void*& result, size_t maxLength, size
   }
   std::cerr << "unable to read file : " << fileName << std::endl;
   return false;
+}
+
+static std::vector<std::vector<uint8_t>> getApp13Payloads(const void* image, size_t length) {
+  const auto* data = static_cast<const uint8_t*>(image);
+  std::vector<std::vector<uint8_t>> payloads;
+  size_t pos = 2;  // skip SOI
+  while (pos + 1 < length && data[pos] == 0xff) {
+    const uint8_t marker = data[pos + 1];
+    if (marker == 0xda || marker == 0xd9) break;
+    if (marker == 0xd8 || marker == 0x01 || (marker >= 0xd0 && marker <= 0xd7)) {
+      pos += 2;
+      continue;
+    }
+    if (pos + 4 > length) break;
+    const size_t segment_length = (static_cast<size_t>(data[pos + 2]) << 8) | data[pos + 3];
+    if (segment_length < 2 || segment_length > length - pos - 2) break;
+    if (marker == 0xed) {
+      payloads.emplace_back(data + pos + 4, data + pos + 2 + segment_length);
+    }
+    pos += 2 + segment_length;
+  }
+  return payloads;
+}
+
+static std::vector<uint8_t> insertApp13Payloads(const std::vector<uint8_t>& image,
+                                                const std::vector<std::vector<uint8_t>>& payloads,
+                                                bool before_exif) {
+  if (image.size() < 4 || image[0] != 0xff || image[1] != 0xd8) return {};
+  size_t insert_pos = 2;
+  while (insert_pos + 4 <= image.size() && image[insert_pos] == 0xff &&
+         image[insert_pos + 1] >= 0xe0 && image[insert_pos + 1] <= 0xef) {
+    const size_t segment_length = (static_cast<size_t>(image[insert_pos + 2]) << 8) |
+                                  image[insert_pos + 3];
+    if (segment_length < 2 || segment_length > image.size() - insert_pos - 2) return {};
+    insert_pos += 2 + segment_length;
+    if (before_exif) break;
+  }
+
+  std::vector<uint8_t> result;
+  result.reserve(image.size());
+  result.insert(result.end(), image.begin(), image.begin() + insert_pos);
+  for (const auto& payload : payloads) {
+    const size_t segment_length = payload.size() + 2;
+    if (segment_length > 0xffff) return {};
+    result.push_back(0xff);
+    result.push_back(0xed);  // APP13
+    result.push_back(static_cast<uint8_t>(segment_length >> 8));
+    result.push_back(static_cast<uint8_t>(segment_length));
+    result.insert(result.end(), payload.begin(), payload.end());
+  }
+  result.insert(result.end(), image.begin() + insert_pos, image.end());
+  return result;
 }
 
 uhdr_color_gamut_t map_internal_cg_to_cg(ultrahdr::ultrahdr_color_gamut cg) {
@@ -1375,6 +1429,78 @@ TEST(JpegRTest, EncodeAPI4WithInvalidArgs) {
                                 jpgImg.getImageHandle()),
             JPEGR_NO_ERROR)
       << "fail, API allows bad metadata hdr capacity min";
+}
+
+TEST(JpegRTest, EncodeAPI4PreservesApp13Payloads) {
+  std::ifstream ifd;
+  ASSERT_TRUE(openFileHelper(kSdrJpgFileName, ifd, std::ios::binary | std::ios::ate));
+  const size_t source_size = static_cast<size_t>(ifd.tellg());
+  ASSERT_GT(source_size, 0u);
+  ifd.seekg(0, std::ios::beg);
+  std::vector<uint8_t> source(source_size);
+  ASSERT_TRUE(ifd.read(reinterpret_cast<char*>(source.data()), source_size));
+
+  // Photoshop IPTC resource: "APP13 caption" in dataset 0x0278.
+  const std::vector<uint8_t> iptc_payload = {
+      'P', 'h', 'o', 't', 'o', 's', 'h', 'o', 'p', ' ', '3', '.', '0', 0,
+      '8', 'B', 'I', 'M', 0x04, 0x04, 0, 0, 0, 0, 0, 18, 0x1c, 0x02, 0x78, 0, 13,
+      'A', 'P', 'P', '1', '3', ' ', 'c', 'a', 'p', 't', 'i', 'o', 'n'};
+
+  std::vector<uint8_t> opaque_payload(4097);
+  for (size_t i = 0; i < opaque_payload.size(); ++i) {
+    opaque_payload[i] = static_cast<uint8_t>((i * 17 + 3) % 253);
+  }
+  const std::vector<std::vector<uint8_t>> expected_payloads = {iptc_payload, opaque_payload};
+  ASSERT_TRUE(getApp13Payloads(source.data(), source.size()).empty());
+  JpegDecoderHelper source_decoder;
+  ASSERT_EQ(source_decoder.parseImage(source.data(), source.size()).error_code, UHDR_CODEC_OK);
+  ASSERT_GT(source_decoder.getEXIFSize(), 0u);
+  const auto* source_exif = static_cast<const uint8_t*>(source_decoder.getEXIFPtr());
+  const size_t source_exif_size = source_decoder.getEXIFSize();
+
+  UhdrCompressedStructWrapper dest(kImageWidth, kImageHeight);
+  ASSERT_TRUE(dest.allocateMemory());
+  auto* dest_image = dest.getImageHandle();
+  uhdr_compressed_image_t gainmap_input{
+      source.data(), source.size(), source.size(), UHDR_CG_BT_709, UHDR_CT_UNSPECIFIED,
+      UHDR_CR_UNSPECIFIED};
+
+  uhdr_compressed_image_t output{dest_image->data, 0, dest_image->maxLength, UHDR_CG_UNSPECIFIED,
+                                 UHDR_CT_UNSPECIFIED, UHDR_CR_UNSPECIFIED};
+  uhdr_gainmap_metadata_ext_t metadata("1.0");
+  std::fill_n(metadata.max_content_boost, 3, 2.0f);
+  std::fill_n(metadata.min_content_boost, 3, 1.0f);
+  std::fill_n(metadata.gamma, 3, 1.0f);
+  std::fill_n(metadata.offset_sdr, 3, 0.0f);
+  std::fill_n(metadata.offset_hdr, 3, 0.0f);
+  metadata.hdr_capacity_min = 1.0f;
+  metadata.hdr_capacity_max = 2.0f;
+  metadata.use_base_cg = true;
+  JpegR uHdrLib;
+
+  for (const bool before_exif : {false, true}) {
+    std::vector<uint8_t> source_with_app13 =
+        insertApp13Payloads(source, expected_payloads, before_exif);
+    ASSERT_FALSE(source_with_app13.empty());
+    ASSERT_EQ(getApp13Payloads(source_with_app13.data(), source_with_app13.size()),
+              expected_payloads);
+    uhdr_compressed_image_t base_input{
+        source_with_app13.data(), source_with_app13.size(), source_with_app13.size(),
+        UHDR_CG_BT_709, UHDR_CT_UNSPECIFIED, UHDR_CR_UNSPECIFIED};
+    output.data_sz = 0;
+    const uhdr_error_info_t status =
+        uHdrLib.encodeJPEGR(&base_input, &gainmap_input, &metadata, &output);
+    ASSERT_EQ(status.error_code, UHDR_CODEC_OK) << status.detail;
+    dest_image->length = output.data_sz;
+    EXPECT_EQ(getApp13Payloads(dest_image->data, dest_image->length), expected_payloads);
+    JpegDecoderHelper output_decoder;
+    ASSERT_EQ(output_decoder.parseImage(dest_image->data, dest_image->length).error_code,
+              UHDR_CODEC_OK);
+    ASSERT_GT(output_decoder.getEXIFSize(), 0u);
+    ASSERT_EQ(output_decoder.getEXIFSize(), source_exif_size);
+    ASSERT_EQ(memcmp(output_decoder.getEXIFPtr(), source_exif, source_exif_size), 0);
+    ASSERT_NO_FATAL_FAILURE(decodeJpegRImg(dest_image, "decode_api4_app13_output.rgb"));
+  }
 }
 
 /* Test Decode API invalid arguments */
