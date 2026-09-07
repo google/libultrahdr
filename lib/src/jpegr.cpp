@@ -1328,9 +1328,11 @@ uhdr_error_info_t JpegR::appendGainMap(uhdr_compressed_image_t* sdr_intent_compr
       int seg_len = (base_data[base_pos+2] << 8) | base_data[base_pos+3];
       // OOB check: the segment must fit within the remaining data
       if (base_pos + 2 + static_cast<size_t>(seg_len) > base_size) break;
-      // Skip APP markers (0xE0-0xEF) to avoid duplicating metadata
-      // (JFIF/XMP/ICC/ISO) that was already written above
-      if (marker >= 0xE0 && marker <= 0xEF) { base_pos += 2 + seg_len; continue; }
+      // Preserve APP13 resources; unlike JFIF/XMP/ICC/ISO, they are not regenerated.
+      if (marker >= 0xE0 && marker <= 0xEF && marker != 0xED) {
+        base_pos += 2 + seg_len;
+        continue;
+      }
       UHDR_ERR_CHECK(Write(dest, &base_data[base_pos], 2 + seg_len, pos));
       base_pos += 2 + seg_len;
   }

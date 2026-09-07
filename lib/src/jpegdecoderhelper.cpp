@@ -24,6 +24,7 @@ namespace ultrahdr {
 static const uint32_t kAPP0Marker = JPEG_APP0;      // JFIF
 static const uint32_t kAPP1Marker = JPEG_APP0 + 1;  // EXIF, XMP
 static const uint32_t kAPP2Marker = JPEG_APP0 + 2;  // ICC, ISO Metadata
+static const uint32_t kAPP13Marker = JPEG_APP0 + 13;  // Photoshop/IPTC resources
 
 static constexpr uint8_t kICCSig[] = {
     'I', 'C', 'C', '_', 'P', 'R', 'O', 'F', 'I', 'L', 'E', '\0',
@@ -219,6 +220,8 @@ uhdr_error_info_t JpegDecoderHelper::decode(const void* image, size_t length, de
     jpeg_save_markers(&cinfo, kAPP0Marker, 0xFFFF);
     jpeg_save_markers(&cinfo, kAPP1Marker, 0xFFFF);
     jpeg_save_markers(&cinfo, kAPP2Marker, 0xFFFF);
+    // Keep APP13 in libjpeg's marker list so EXIF offsets remain correct when APP13 precedes it.
+    jpeg_save_markers(&cinfo, kAPP13Marker, 0xFFFF);
     int ret_val = jpeg_read_header(&cinfo, TRUE /* require an image to be present */);
     if (JPEG_HEADER_OK != ret_val) {
       status.error_code = UHDR_CODEC_ERROR;
