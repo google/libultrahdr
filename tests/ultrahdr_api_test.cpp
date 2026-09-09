@@ -8,11 +8,13 @@
 #include <gtest/gtest.h>
 #endif
 #include <algorithm>
+#include <cstdlib>
 #include <fstream>
 #include <cstring>
 #include <limits>
-#include <vector>
 #include <memory>
+#include <type_traits>
+#include <utility>
 #include <vector>
 
 #include "ultrahdr_api.h"
@@ -326,6 +328,177 @@ static bool setBackwardDirectionFlag(const uhdr_compressed_image_t* image,
   return true;
 }
 
+using AvifApi0NullDestResult = decltype(std::declval<AvifUltraHdr&>().encodeAvifUltraHdr(
+    std::declval<uhdr_raw_image_t*>(), nullptr, 85, nullptr));
+using AvifApi1NullDestResult = decltype(std::declval<AvifUltraHdr&>().encodeAvifUltraHdr(
+    std::declval<uhdr_raw_image_t*>(), std::declval<uhdr_raw_image_t*>(), nullptr, 85, nullptr));
+using HeicApi0NullDestResult = decltype(std::declval<HeifUltraHdr&>().encodeHeicUltraHdr(
+    std::declval<uhdr_raw_image_t*>(), nullptr, 85, nullptr));
+using HeicApi1NullDestResult = decltype(std::declval<HeifUltraHdr&>().encodeHeicUltraHdr(
+    std::declval<uhdr_raw_image_t*>(), std::declval<uhdr_raw_image_t*>(), nullptr, 85, nullptr));
+
+static_assert(std::is_same_v<AvifApi0NullDestResult, uhdr_error_info_t>);
+static_assert(std::is_same_v<AvifApi1NullDestResult, uhdr_error_info_t>);
+static_assert(std::is_same_v<HeicApi0NullDestResult, uhdr_error_info_t>);
+static_assert(std::is_same_v<HeicApi1NullDestResult, uhdr_error_info_t>);
+
+template <typename EncodeFn>
+static void expectNullDataDestinationRejected(EncodeFn encode) {
+  uhdr_compressed_image_t dest{};
+  dest.capacity = 32;
+  dest.data_sz = 9;
+
+  uhdr_error_info_t status = encode(&dest);
+  EXPECT_EQ(status.error_code, UHDR_CODEC_INVALID_PARAM);
+  EXPECT_EQ(status.has_detail, 1);
+  EXPECT_STREQ(status.detail, "output destination is null");
+  EXPECT_EQ(dest.data, nullptr);
+  EXPECT_EQ(dest.capacity, 32u);
+  EXPECT_EQ(dest.data_sz, 9u);
+}
+
+TEST(UltraHdrOutputValidationTest, HeicApi0RejectsNullDataDestination) {
+  HeifUltraHdr codec;
+  expectNullDataDestinationRejected([&codec](uhdr_compressed_image_t* dest) {
+    return codec.encodeHeicUltraHdr(nullptr, dest, 85, nullptr);
+  });
+}
+
+TEST(UltraHdrOutputValidationTest, HeicApi1RejectsNullDataDestination) {
+  HeifUltraHdr codec;
+  expectNullDataDestinationRejected([&codec](uhdr_compressed_image_t* dest) {
+    return codec.encodeHeicUltraHdr(nullptr, nullptr, dest, 85, nullptr);
+  });
+}
+
+TEST(UltraHdrOutputValidationTest, AvifApi0RejectsNullDataDestination) {
+  AvifUltraHdr codec;
+  expectNullDataDestinationRejected([&codec](uhdr_compressed_image_t* dest) {
+    return codec.encodeAvifUltraHdr(nullptr, dest, 85, nullptr);
+  });
+}
+
+TEST(UltraHdrOutputValidationTest, AvifApi1RejectsNullDataDestination) {
+  AvifUltraHdr codec;
+  expectNullDataDestinationRejected([&codec](uhdr_compressed_image_t* dest) {
+    return codec.encodeAvifUltraHdr(nullptr, nullptr, dest, 85, nullptr);
+  });
+}
+
+static void expectLargeExifEncodeSucceeds(uhdr_codec_t codec) {
+  constexpr size_t kWidth = 64;
+  constexpr size_t kHeight = 64;
+  constexpr size_t kOldMinimumOutputCapacity = 64u * 1024u;
+  constexpr size_t kExifSize = 80u * 1024u;
+
+  std::vector<uint16_t> p010(kWidth * kHeight * 3 / 2, 512u << 6);
+  uhdr_raw_image_t hdr{};
+  hdr.fmt = UHDR_IMG_FMT_24bppYCbCrP010;
+  hdr.cg = UHDR_CG_BT_2100;
+  hdr.ct = UHDR_CT_HLG;
+  hdr.range = UHDR_CR_FULL_RANGE;
+  hdr.w = kWidth;
+  hdr.h = kHeight;
+  hdr.planes[UHDR_PLANE_Y] = p010.data();
+  hdr.planes[UHDR_PLANE_UV] = p010.data() + kWidth * kHeight;
+  hdr.stride[UHDR_PLANE_Y] = kWidth;
+  hdr.stride[UHDR_PLANE_UV] = kWidth;
+
+  // Little-endian TIFF with one large UserComment entry. This makes the encoded output larger
+  // than the former 64 KiB minimum allocation without relying on encoder-specific image entropy.
+  std::vector<uint8_t> exif(kExifSize, 0x5a);
+  const uint8_t tiff_header[] = {
+      'I',  'I',  0x2a, 0x00, 0x08, 0x00, 0x00, 0x00,  // TIFF header
+      0x01, 0x00,                                      // one IFD entry
+      0x86, 0x92,                                      // UserComment
+      0x07, 0x00,                                      // undefined data
+      0xe6, 0x3f, 0x01, 0x00,                          // 81,894 bytes
+      0x1a, 0x00, 0x00, 0x00,                          // data offset
+      0x00, 0x00, 0x00, 0x00                           // no next IFD
+  };
+  memcpy(exif.data(), tiff_header, sizeof tiff_header);
+  uhdr_mem_block_t exif_block{exif.data(), exif.size(), exif.size()};
+
+  uhdr_codec_private_t* enc = uhdr_create_encoder();
+  ASSERT_NE(enc, nullptr);
+  ASSERT_EQ(uhdr_enc_set_raw_image(enc, &hdr, UHDR_HDR_IMG).error_code, UHDR_CODEC_OK);
+  ASSERT_EQ(uhdr_enc_set_output_format(enc, codec).error_code, UHDR_CODEC_OK);
+  ASSERT_EQ(uhdr_enc_set_exif_data(enc, &exif_block).error_code, UHDR_CODEC_OK);
+
+  uhdr_error_info_t status = uhdr_encode(enc);
+  if (status.error_code != UHDR_CODEC_OK && status.has_detail &&
+      (strstr(status.detail, "Unsupported file-type") != nullptr ||
+       strstr(status.detail, "No encoder") != nullptr)) {
+    std::string detail = status.detail;
+    uhdr_release_encoder(enc);
+    GTEST_SKIP() << "encoder plugin not available in environment: " << detail;
+  }
+  ASSERT_EQ(status.error_code, UHDR_CODEC_OK) << (status.has_detail ? status.detail : "");
+
+  uhdr_compressed_image_t* output = uhdr_get_encoded_stream(enc);
+  ASSERT_NE(output, nullptr);
+  EXPECT_GT(output->data_sz, kOldMinimumOutputCapacity);
+  EXPECT_EQ(output->capacity, output->data_sz);
+
+  uhdr_codec_private_t* dec = uhdr_create_decoder();
+  ASSERT_NE(dec, nullptr);
+  ASSERT_EQ(uhdr_dec_set_image(dec, output).error_code, UHDR_CODEC_OK);
+  ASSERT_EQ(uhdr_dec_probe(dec).error_code, UHDR_CODEC_OK);
+  ASSERT_EQ(uhdr_decode(dec).error_code, UHDR_CODEC_OK);
+
+  uhdr_release_decoder(dec);
+  uhdr_release_encoder(enc);
+}
+
+template <typename EncodeFn>
+static void expectOwnedOutputResetsAcrossReuse(const uhdr_raw_image_t& hdr, EncodeFn encode) {
+  uhdr_owned_buffer_t output;
+  auto* seed = static_cast<uint8_t*>(malloc(1));
+  ASSERT_NE(seed, nullptr);
+  output.reset(seed, 1);
+
+  uhdr_raw_image_t valid_hdr = hdr;
+  uhdr_error_info_t status = encode(&valid_hdr, &output);
+  if (status.error_code != UHDR_CODEC_OK && status.has_detail &&
+      (strstr(status.detail, "Unsupported file-type") != nullptr ||
+       strstr(status.detail, "No encoder") != nullptr)) {
+    GTEST_SKIP() << "encoder plugin not available in environment: " << status.detail;
+  }
+  ASSERT_EQ(status.error_code, UHDR_CODEC_OK) << (status.has_detail ? status.detail : "");
+  ASSERT_NE(output.data(), nullptr);
+  ASSERT_GT(output.size(), 0u);
+
+  uhdr_raw_image_t invalid_hdr = hdr;
+  invalid_hdr.fmt = UHDR_IMG_FMT_UNSPECIFIED;
+  status = encode(&invalid_hdr, &output);
+  EXPECT_EQ(status.error_code, UHDR_CODEC_INVALID_PARAM);
+  EXPECT_EQ(output.data(), nullptr);
+  EXPECT_EQ(output.size(), 0u);
+}
+
+template <typename EncodeFn>
+static void expectFixedDestinationCopies(EncodeFn encode, const char* unavailable_encoder) {
+  std::vector<uint8_t> backing_store(6 * kImageWidth * kImageHeight, 0xa5);
+  uhdr_compressed_image_t dest{};
+  dest.data = backing_store.data();
+  dest.capacity = backing_store.size();
+
+  uhdr_error_info_t status = encode(&dest);
+  if (status.error_code != UHDR_CODEC_OK && status.has_detail &&
+      (strstr(status.detail, "Unsupported file-type") != nullptr ||
+       strstr(status.detail, "No encoder") != nullptr)) {
+    GTEST_SKIP() << unavailable_encoder << ": " << status.detail;
+  }
+
+  ASSERT_EQ(status.error_code, UHDR_CODEC_OK) << (status.has_detail ? status.detail : "");
+  ASSERT_GT(dest.data_sz, 0u);
+  uhdr_codec_private_t* dec = uhdr_create_decoder();
+  ASSERT_NE(dec, nullptr);
+  EXPECT_EQ(uhdr_dec_set_image(dec, &dest).error_code, UHDR_CODEC_OK);
+  EXPECT_EQ(uhdr_dec_probe(dec).error_code, UHDR_CODEC_OK);
+  uhdr_release_decoder(dec);
+}
+
 TEST_F(UltraHdrApiTest, HeicEncodeApi0AndDecode) {
   uhdr_codec_private_t* enc = uhdr_create_encoder();
   ASSERT_NE(enc, nullptr);
@@ -350,6 +523,7 @@ TEST_F(UltraHdrApiTest, HeicEncodeApi0AndDecode) {
   uhdr_compressed_image_t* output = uhdr_get_encoded_stream(enc);
   ASSERT_NE(output, nullptr);
   ASSERT_GT(output->data_sz, 0u);
+  EXPECT_EQ(output->capacity, output->data_sz);
 
   // Decode HEIC stream
   uhdr_codec_private_t* dec = uhdr_create_decoder();
@@ -418,6 +592,7 @@ TEST_F(UltraHdrApiTest, HeicEncodeApi1AndDecode) {
   ASSERT_NE(output, nullptr);
   ASSERT_GT(output->data_sz, 0u);
   EXPECT_EQ(getPrimaryImageTransfer(output), heif_transfer_characteristic_IEC_61966_2_1);
+  EXPECT_EQ(output->capacity, output->data_sz);
 
   uhdr_codec_private_t* dec = uhdr_create_decoder();
   ASSERT_NE(dec, nullptr);
@@ -429,11 +604,43 @@ TEST_F(UltraHdrApiTest, HeicEncodeApi1AndDecode) {
   uhdr_release_encoder(enc);
 }
 
+TEST_F(UltraHdrApiTest, HeicEncodeSupportsOutputLargerThanSizeEstimate) {
+  expectLargeExifEncodeSucceeds(UHDR_CODEC_HEIF);
+}
+
+TEST_F(UltraHdrApiTest, HeicFixedDestinationCopiesOutput) {
+  HeifUltraHdr codec;
+  expectFixedDestinationCopies(
+      [&codec, this](uhdr_compressed_image_t* dest) {
+        return codec.encodeHeicUltraHdr(&mHdrRaw, dest, 85, nullptr);
+      },
+      "HEVC encoder plugin not available in environment");
+}
+
+TEST_F(UltraHdrApiTest, HeicApi1FixedDestinationCopiesOutput) {
+  HeifUltraHdr codec;
+  expectFixedDestinationCopies(
+      [&codec, this](uhdr_compressed_image_t* dest) {
+        return codec.encodeHeicUltraHdr(&mHdrRaw, &mSdrRaw, dest, 85, nullptr);
+      },
+      "HEVC encoder plugin not available in environment");
+}
+
+TEST_F(UltraHdrApiTest, HeicOwnedOutputResetsAcrossReuse) {
+  HeifUltraHdr codec;
+  expectOwnedOutputResetsAcrossReuse(
+      mHdrRaw, [&codec](uhdr_raw_image_t* hdr, uhdr_owned_buffer_t* output) {
+        return codec.encodeHeicUltraHdrToOwnedBuffer(hdr, output, 85, nullptr);
+      });
+}
+
 TEST_F(UltraHdrApiTest, HeicEncodeRejectsUndersizedDestination) {
   std::vector<uint8_t> backing_store(6 * kImageWidth * kImageHeight, 0xa5);
+  const std::vector<uint8_t> original = backing_store;
   uhdr_compressed_image_t dest{};
   dest.data = backing_store.data();
   dest.capacity = 1;
+  dest.data_sz = 7;
 
   HeifUltraHdr codec;
   uhdr_error_info_t status = codec.encodeHeicUltraHdr(&mHdrRaw, &dest, 85, nullptr);
@@ -445,8 +652,11 @@ TEST_F(UltraHdrApiTest, HeicEncodeRejectsUndersizedDestination) {
 
   EXPECT_EQ(status.error_code, UHDR_CODEC_MEM_ERROR);
   EXPECT_EQ(dest.capacity, 1u);
-  EXPECT_EQ(dest.data_sz, 0u);
-  EXPECT_EQ(backing_store.front(), 0xa5);
+  EXPECT_EQ(dest.data_sz, 7u);
+  EXPECT_EQ(backing_store, original);
+  EXPECT_NE(strstr(status.detail,
+                   "destination buffer is too small, capacity is 1, required size is "),
+            nullptr);
 }
 
 TEST_F(UltraHdrApiTest, HeicCompressedIntentsUnsupported) {
@@ -491,6 +701,7 @@ TEST_F(UltraHdrApiTest, AvifEncodeApi0AndDecode) {
   uhdr_compressed_image_t* output = uhdr_get_encoded_stream(enc);
   ASSERT_NE(output, nullptr);
   ASSERT_GT(output->data_sz, 0u);
+  EXPECT_EQ(output->capacity, output->data_sz);
 
   // Decode AVIF stream
   uhdr_codec_private_t* dec = uhdr_create_decoder();
@@ -555,6 +766,7 @@ TEST_F(UltraHdrApiTest, AvifEncodeApi1AndDecode) {
   ASSERT_NE(output, nullptr);
   ASSERT_GT(output->data_sz, 0u);
   EXPECT_EQ(getPrimaryImageTransfer(output), heif_transfer_characteristic_IEC_61966_2_1);
+  EXPECT_EQ(output->capacity, output->data_sz);
 
   uhdr_codec_private_t* dec = uhdr_create_decoder();
   ASSERT_NE(dec, nullptr);
@@ -566,11 +778,43 @@ TEST_F(UltraHdrApiTest, AvifEncodeApi1AndDecode) {
   uhdr_release_encoder(enc);
 }
 
+TEST_F(UltraHdrApiTest, AvifEncodeSupportsOutputLargerThanSizeEstimate) {
+  expectLargeExifEncodeSucceeds(UHDR_CODEC_AVIF);
+}
+
+TEST_F(UltraHdrApiTest, AvifFixedDestinationCopiesOutput) {
+  AvifUltraHdr codec;
+  expectFixedDestinationCopies(
+      [&codec, this](uhdr_compressed_image_t* dest) {
+        return codec.encodeAvifUltraHdr(&mHdrRaw, dest, 85, nullptr);
+      },
+      "AV1 encoder plugin not available in environment");
+}
+
+TEST_F(UltraHdrApiTest, AvifApi1FixedDestinationCopiesOutput) {
+  AvifUltraHdr codec;
+  expectFixedDestinationCopies(
+      [&codec, this](uhdr_compressed_image_t* dest) {
+        return codec.encodeAvifUltraHdr(&mHdrRaw, &mSdrRaw, dest, 85, nullptr);
+      },
+      "AV1 encoder plugin not available in environment");
+}
+
+TEST_F(UltraHdrApiTest, AvifOwnedOutputResetsAcrossReuse) {
+  AvifUltraHdr codec;
+  expectOwnedOutputResetsAcrossReuse(
+      mHdrRaw, [&codec](uhdr_raw_image_t* hdr, uhdr_owned_buffer_t* output) {
+        return codec.encodeAvifUltraHdrToOwnedBuffer(hdr, output, 85, nullptr);
+      });
+}
+
 TEST_F(UltraHdrApiTest, AvifEncodeRejectsUndersizedDestination) {
   std::vector<uint8_t> backing_store(6 * kImageWidth * kImageHeight, 0xa5);
+  const std::vector<uint8_t> original = backing_store;
   uhdr_compressed_image_t dest{};
   dest.data = backing_store.data();
   dest.capacity = 1;
+  dest.data_sz = 7;
 
   AvifUltraHdr codec;
   uhdr_error_info_t status = codec.encodeAvifUltraHdr(&mHdrRaw, &dest, 85, nullptr);
@@ -582,8 +826,11 @@ TEST_F(UltraHdrApiTest, AvifEncodeRejectsUndersizedDestination) {
 
   EXPECT_EQ(status.error_code, UHDR_CODEC_MEM_ERROR);
   EXPECT_EQ(dest.capacity, 1u);
-  EXPECT_EQ(dest.data_sz, 0u);
-  EXPECT_EQ(backing_store.front(), 0xa5);
+  EXPECT_EQ(dest.data_sz, 7u);
+  EXPECT_EQ(backing_store, original);
+  EXPECT_NE(strstr(status.detail,
+                   "destination buffer is too small, capacity is 1, required size is "),
+            nullptr);
 }
 
 TEST_F(UltraHdrApiTest, HeifAndAvifPropagateGainMapMetadataErrors) {

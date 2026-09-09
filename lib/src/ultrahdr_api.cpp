@@ -9,7 +9,9 @@
  */
 
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
+#include <utility>
 
 #include "ultrahdr_api.h"
 #include "ultrahdr/ultrahdrcommon.h"
@@ -41,6 +43,60 @@
 using namespace photos_editing_formats::image_io;
 
 namespace ultrahdr {
+
+uhdr_owned_buffer::uhdr_owned_buffer() noexcept : m_data(nullptr), m_size(0) {}
+
+uhdr_owned_buffer::~uhdr_owned_buffer() { free(m_data); }
+
+uhdr_owned_buffer::uhdr_owned_buffer(uhdr_owned_buffer&& other) noexcept
+    : m_data(other.m_data), m_size(other.m_size) {
+  other.m_data = nullptr;
+  other.m_size = 0;
+}
+
+uhdr_owned_buffer& uhdr_owned_buffer::operator=(uhdr_owned_buffer&& other) noexcept {
+  if (this != &other) {
+    free(m_data);
+    m_data = other.m_data;
+    m_size = other.m_size;
+    other.m_data = nullptr;
+    other.m_size = 0;
+  }
+  return *this;
+}
+
+void uhdr_owned_buffer::reset(uint8_t* data, size_t size) noexcept {
+  if (m_data != data) free(m_data);
+  m_data = data;
+  m_size = size;
+}
+
+uhdr_error_info_t invalidOutputDestination() {
+  uhdr_error_info_t status = g_no_error;
+  status.error_code = UHDR_CODEC_INVALID_PARAM;
+  status.has_detail = 1;
+  snprintf(status.detail, sizeof status.detail, "output destination is null");
+  return status;
+}
+
+uhdr_error_info_t copyOwnedBufferToCompressedImage(const uhdr_owned_buffer_t& source,
+                                                    uhdr_compressed_image_t* dest) {
+  uhdr_error_info_t status = g_no_error;
+  if (dest == nullptr || dest->data == nullptr) {
+    return invalidOutputDestination();
+  }
+  if (source.size() > dest->capacity) {
+    status.error_code = UHDR_CODEC_MEM_ERROR;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "destination buffer is too small, capacity is %zu, required size is %zu",
+             dest->capacity, source.size());
+    return status;
+  }
+  if (source.size() != 0) memcpy(dest->data, source.data(), source.size());
+  dest->data_sz = source.size();
+  return status;
+}
 
 uhdr_memory_block::uhdr_memory_block(size_t capacity) {
   m_buffer = std::make_unique<uint8_t[]>(capacity);
@@ -123,6 +179,19 @@ uhdr_compressed_image_ext::uhdr_compressed_image_ext(uhdr_color_gamut_t cg_,
   this->data = this->m_block->m_buffer.get();
   this->capacity = size;
   this->data_sz = 0;
+  this->cg = cg_;
+  this->ct = ct_;
+  this->range = range_;
+}
+
+uhdr_compressed_image_ext::uhdr_compressed_image_ext(uhdr_color_gamut_t cg_,
+                                                     uhdr_color_transfer_t ct_,
+                                                     uhdr_color_range_t range_,
+                                                     uhdr_owned_buffer_t&& buffer)
+    : m_owned_buffer(std::move(buffer)) {
+  this->data = this->m_owned_buffer.data();
+  this->capacity = this->m_owned_buffer.size();
+  this->data_sz = this->m_owned_buffer.size();
   this->cg = cg_;
   this->ct = ct_;
   this->range = range_;
@@ -1350,16 +1419,14 @@ uhdr_error_info_t uhdr_encode(uhdr_codec_private_t* enc) {
     } else if (handle->m_raw_images.find(UHDR_HDR_IMG) != handle->m_raw_images.end()) {
       auto& hdr_raw_entry = handle->m_raw_images.find(UHDR_HDR_IMG)->second;
 
-      size_t size = (std::max)((64u * 1024), hdr_raw_entry->w * hdr_raw_entry->h * 3 * 2);
-      handle->m_compressed_output_buffer = std::make_unique<ultrahdr::uhdr_compressed_image_ext_t>(
-          UHDR_CG_UNSPECIFIED, UHDR_CT_UNSPECIFIED, UHDR_CR_UNSPECIFIED, size);
+      ultrahdr::uhdr_owned_buffer_t output;
 
       if (handle->m_compressed_images.find(UHDR_SDR_IMG) == handle->m_compressed_images.end() &&
           handle->m_raw_images.find(UHDR_SDR_IMG) == handle->m_raw_images.end()) {
         // api - 0
-        status = avifultrahdr.encodeAvifUltraHdr(hdr_raw_entry.get(), handle->m_compressed_output_buffer.get(),
-                                   handle->m_quality.find(UHDR_BASE_IMG)->second,
-                                   handle->m_exif.size() > 0 ? &exif : nullptr);
+        status = avifultrahdr.encodeAvifUltraHdrToOwnedBuffer(
+            hdr_raw_entry.get(), &output, handle->m_quality.find(UHDR_BASE_IMG)->second,
+            handle->m_exif.size() > 0 ? &exif : nullptr);
       } else if (handle->m_compressed_images.find(UHDR_SDR_IMG) !=
                      handle->m_compressed_images.end() &&
                  handle->m_raw_images.find(UHDR_SDR_IMG) == handle->m_raw_images.end()) {
@@ -1371,16 +1438,22 @@ uhdr_error_info_t uhdr_encode(uhdr_codec_private_t* enc) {
         auto& sdr_raw_entry = handle->m_raw_images.find(UHDR_SDR_IMG)->second;
         if (handle->m_compressed_images.find(UHDR_SDR_IMG) == handle->m_compressed_images.end()) {
           // api - 1
-          status = avifultrahdr.encodeAvifUltraHdr(hdr_raw_entry.get(), sdr_raw_entry.get(),
-                                     handle->m_compressed_output_buffer.get(),
-                                     handle->m_quality.find(UHDR_BASE_IMG)->second,
-                                     handle->m_exif.size() > 0 ? &exif : nullptr);
+          status = avifultrahdr.encodeAvifUltraHdrToOwnedBuffer(
+              hdr_raw_entry.get(), sdr_raw_entry.get(), &output,
+              handle->m_quality.find(UHDR_BASE_IMG)->second,
+              handle->m_exif.size() > 0 ? &exif : nullptr);
         } else {
           status.error_code = UHDR_CODEC_UNSUPPORTED_FEATURE;
           status.has_detail = 1;
           snprintf(status.detail, sizeof status.detail,
                    "heif/avif encoding is supported only with raw intents");
         }
+      }
+      if (status.error_code == UHDR_CODEC_OK) {
+        handle->m_compressed_output_buffer =
+            std::make_unique<ultrahdr::uhdr_compressed_image_ext_t>(
+                UHDR_CG_UNSPECIFIED, UHDR_CT_UNSPECIFIED, UHDR_CR_UNSPECIFIED,
+                std::move(output));
       }
     }
   }
@@ -1399,16 +1472,14 @@ uhdr_error_info_t uhdr_encode(uhdr_codec_private_t* enc) {
     } else if (handle->m_raw_images.find(UHDR_HDR_IMG) != handle->m_raw_images.end()) {
       auto& hdr_raw_entry = handle->m_raw_images.find(UHDR_HDR_IMG)->second;
 
-      size_t size = (std::max)((64u * 1024), hdr_raw_entry->w * hdr_raw_entry->h * 3 * 2);
-      handle->m_compressed_output_buffer = std::make_unique<ultrahdr::uhdr_compressed_image_ext_t>(
-          UHDR_CG_UNSPECIFIED, UHDR_CT_UNSPECIFIED, UHDR_CR_UNSPECIFIED, size);
+      ultrahdr::uhdr_owned_buffer_t output;
 
       if (handle->m_compressed_images.find(UHDR_SDR_IMG) == handle->m_compressed_images.end() &&
           handle->m_raw_images.find(UHDR_SDR_IMG) == handle->m_raw_images.end()) {
         // api - 0
-        status = heifultrahdr.encodeHeicUltraHdr(hdr_raw_entry.get(), handle->m_compressed_output_buffer.get(),
-                                   handle->m_quality.find(UHDR_BASE_IMG)->second,
-                                   handle->m_exif.size() > 0 ? &exif : nullptr);
+        status = heifultrahdr.encodeHeicUltraHdrToOwnedBuffer(
+            hdr_raw_entry.get(), &output, handle->m_quality.find(UHDR_BASE_IMG)->second,
+            handle->m_exif.size() > 0 ? &exif : nullptr);
       } else if (handle->m_compressed_images.find(UHDR_SDR_IMG) !=
                      handle->m_compressed_images.end() &&
                  handle->m_raw_images.find(UHDR_SDR_IMG) == handle->m_raw_images.end()) {
@@ -1420,16 +1491,22 @@ uhdr_error_info_t uhdr_encode(uhdr_codec_private_t* enc) {
         auto& sdr_raw_entry = handle->m_raw_images.find(UHDR_SDR_IMG)->second;
         if (handle->m_compressed_images.find(UHDR_SDR_IMG) == handle->m_compressed_images.end()) {
           // api - 1
-          status = heifultrahdr.encodeHeicUltraHdr(hdr_raw_entry.get(), sdr_raw_entry.get(),
-                                     handle->m_compressed_output_buffer.get(),
-                                     handle->m_quality.find(UHDR_BASE_IMG)->second,
-                                     handle->m_exif.size() > 0 ? &exif : nullptr);
+          status = heifultrahdr.encodeHeicUltraHdrToOwnedBuffer(
+              hdr_raw_entry.get(), sdr_raw_entry.get(), &output,
+              handle->m_quality.find(UHDR_BASE_IMG)->second,
+              handle->m_exif.size() > 0 ? &exif : nullptr);
         } else {
           status.error_code = UHDR_CODEC_UNSUPPORTED_FEATURE;
           status.has_detail = 1;
           snprintf(status.detail, sizeof status.detail,
                    "heif/avif encoding is supported only with raw intents");
         }
+      }
+      if (status.error_code == UHDR_CODEC_OK) {
+        handle->m_compressed_output_buffer =
+            std::make_unique<ultrahdr::uhdr_compressed_image_ext_t>(
+                UHDR_CG_UNSPECIFIED, UHDR_CT_UNSPECIFIED, UHDR_CR_UNSPECIFIED,
+                std::move(output));
       }
     }
   }
