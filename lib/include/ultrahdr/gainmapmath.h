@@ -167,9 +167,10 @@ inline uint16_t floatToHalf(float f) {
   const uint32_t m = b & 0x007FFFFF;         // mantissa
 
   // sign : normalized : denormalized : saturate
-  return (b & 0x80000000) >> 16 | (e > 112) * ((((e - 112) << 10) & 0x7C00) | m >> 13) |
-         ((e < 113) & (e > 101)) * ((((0x007FF000 + m) >> (125 - e)) + 1) >> 1) |
-         (e > 143) * 0x7FFF;
+  return static_cast<uint16_t>(
+      (b & 0x80000000) >> 16 | (e > 112) * ((((e - 112) << 10) & 0x7C00) | m >> 13) |
+      ((e < 113) & (e > 101)) * ((((0x007FF000 + m) >> (125 - e)) + 1) >> 1) |
+      (e > 143) * 0x7FFF);
 }
 
 // Taken from frameworks/base/libs/hwui/jni/android_graphics_ColorSpace.cpp
