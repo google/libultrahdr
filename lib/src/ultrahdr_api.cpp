@@ -808,6 +808,7 @@ uhdr_error_info_t uhdr_enc_set_target_display_peak_brightness(uhdr_codec_private
         status.detail, sizeof status.detail,
         "unexpected target display peak brightness nits %f, expects to be with in range [%f, %f]",
         nits, ultrahdr::kSdrWhiteNits, ultrahdr::kPqMaxNits);
+    return status;
   }
 
   uhdr_encoder_private* handle = dynamic_cast<uhdr_encoder_private*>(enc);
@@ -1055,6 +1056,7 @@ uhdr_error_info_t uhdr_enc_set_compressed_image(uhdr_codec_private_t* enc,
     snprintf(status.detail, sizeof status.detail,
              "invalid intent %d, expects one of {UHDR_HDR_IMG, UHDR_SDR_IMG, UHDR_BASE_IMG}",
              intent);
+    return status;
   }
 
   return uhdr_enc_validate_and_set_compressed_img(enc, img, intent);

@@ -9,6 +9,8 @@
 #endif
 #include <fstream>
 #include <cstring>
+#include <limits>
+#include <vector>
 #include <memory>
 #include <vector>
 
@@ -119,6 +121,37 @@ class UltraHdrApiTest : public ::testing::Test {
   uhdr_raw_image_t mSdrRaw{};
   uhdr_compressed_image_t mSdrCompressed{};
 };
+
+TEST_F(UltraHdrApiTest, InvalidCompressedImageIntentDoesNotMutateEncoder) {
+  uhdr_codec_private_t* enc = uhdr_create_encoder();
+  ASSERT_NE(enc, nullptr);
+  auto* handle = dynamic_cast<uhdr_encoder_private*>(enc);
+  ASSERT_NE(handle, nullptr);
+
+  uhdr_error_info_t status = uhdr_enc_set_compressed_image(
+      enc, &mSdrCompressed, static_cast<uhdr_img_label_t>(999));
+
+  EXPECT_EQ(UHDR_CODEC_INVALID_PARAM, status.error_code) << status.detail;
+  EXPECT_TRUE(handle->m_compressed_images.empty());
+  uhdr_release_encoder(enc);
+}
+
+TEST_F(UltraHdrApiTest, InvalidTargetBrightnessDoesNotMutateEncoder) {
+  uhdr_codec_private_t* enc = uhdr_create_encoder();
+  ASSERT_NE(enc, nullptr);
+  auto* handle = dynamic_cast<uhdr_encoder_private*>(enc);
+  ASSERT_NE(handle, nullptr);
+
+  ASSERT_EQ(UHDR_CODEC_OK, uhdr_enc_set_target_display_peak_brightness(enc, 1000.0f).error_code);
+  ASSERT_FLOAT_EQ(1000.0f, handle->m_target_disp_max_brightness);
+
+  uhdr_error_info_t status = uhdr_enc_set_target_display_peak_brightness(
+      enc, std::numeric_limits<float>::quiet_NaN());
+
+  EXPECT_EQ(UHDR_CODEC_INVALID_PARAM, status.error_code) << status.detail;
+  EXPECT_FLOAT_EQ(1000.0f, handle->m_target_disp_max_brightness);
+  uhdr_release_encoder(enc);
+}
 
 // ============================================================================
 // JPEG Tests (API-0 through API-4)
@@ -309,6 +342,26 @@ TEST_F(UltraHdrApiTest, HeicEncodeApi1AndDecode) {
   uhdr_release_encoder(enc);
 }
 
+TEST_F(UltraHdrApiTest, HeicEncodeRejectsUndersizedDestination) {
+  std::vector<uint8_t> backing_store(6 * kImageWidth * kImageHeight, 0xa5);
+  uhdr_compressed_image_t dest{};
+  dest.data = backing_store.data();
+  dest.capacity = 1;
+
+  HeifUltraHdr codec;
+  uhdr_error_info_t status = codec.encodeHeicUltraHdr(&mHdrRaw, &dest, 85, nullptr);
+  if (status.error_code != UHDR_CODEC_OK && status.has_detail &&
+      (strstr(status.detail, "Unsupported file-type") != nullptr ||
+       strstr(status.detail, "No encoder") != nullptr)) {
+    GTEST_SKIP() << "HEVC encoder plugin not available in environment: " << status.detail;
+  }
+
+  EXPECT_EQ(status.error_code, UHDR_CODEC_MEM_ERROR);
+  EXPECT_EQ(dest.capacity, 1u);
+  EXPECT_EQ(dest.data_sz, 0u);
+  EXPECT_EQ(backing_store.front(), 0xa5);
+}
+
 TEST_F(UltraHdrApiTest, HeicCompressedIntentsUnsupported) {
   uhdr_codec_private_t* enc = uhdr_create_encoder();
   ASSERT_NE(enc, nullptr);
@@ -421,6 +474,26 @@ TEST_F(UltraHdrApiTest, AvifEncodeApi1AndDecode) {
 
   uhdr_release_decoder(dec);
   uhdr_release_encoder(enc);
+}
+
+TEST_F(UltraHdrApiTest, AvifEncodeRejectsUndersizedDestination) {
+  std::vector<uint8_t> backing_store(6 * kImageWidth * kImageHeight, 0xa5);
+  uhdr_compressed_image_t dest{};
+  dest.data = backing_store.data();
+  dest.capacity = 1;
+
+  AvifUltraHdr codec;
+  uhdr_error_info_t status = codec.encodeAvifUltraHdr(&mHdrRaw, &dest, 85, nullptr);
+  if (status.error_code != UHDR_CODEC_OK && status.has_detail &&
+      (strstr(status.detail, "Unsupported file-type") != nullptr ||
+       strstr(status.detail, "No encoder") != nullptr)) {
+    GTEST_SKIP() << "AV1 encoder plugin not available in environment: " << status.detail;
+  }
+
+  EXPECT_EQ(status.error_code, UHDR_CODEC_MEM_ERROR);
+  EXPECT_EQ(dest.capacity, 1u);
+  EXPECT_EQ(dest.data_sz, 0u);
+  EXPECT_EQ(backing_store.front(), 0xa5);
 }
 
 TEST_F(UltraHdrApiTest, AvifCompressedIntentsUnsupported) {

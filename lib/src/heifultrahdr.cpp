@@ -17,6 +17,7 @@
 #ifdef UHDR_ENABLE_HEIF
 
 #include <cstdlib>
+#include <limits>
 #include <map>
 
 #include "ultrahdr/heifultrahdr.h"
@@ -37,19 +38,30 @@ class MemoryWriter {
 
   size_t size() const { return size_; }
 
-  void write(const void* data, size_t size) {
-    if (capacity_ - size_ < size) {
-      size_t new_capacity = capacity_ + size;
-      uint8_t* new_data = static_cast<uint8_t*>(malloc(new_capacity));
-      if (data_) {
-        memcpy(new_data, data_, size_);
-        free(data_);
+  struct heif_error write(const void* data, size_t size) {
+    if (size == 0) return {heif_error_Ok, heif_suberror_Unspecified, nullptr};
+    if (data == nullptr) {
+      return {heif_error_Usage_error, heif_suberror_Null_pointer_argument,
+              "output writer received null data"};
+    }
+    if (size > std::numeric_limits<size_t>::max() - size_) {
+      return {heif_error_Memory_allocation_error, heif_suberror_Unspecified,
+              "output size overflow"};
+    }
+
+    const size_t new_size = size_ + size;
+    if (new_size > capacity_) {
+      uint8_t* new_data = static_cast<uint8_t*>(realloc(data_, new_size));
+      if (new_data == nullptr) {
+        return {heif_error_Memory_allocation_error, heif_suberror_Unspecified,
+                "failed to allocate output buffer"};
       }
       data_ = new_data;
-      capacity_ = new_capacity;
+      capacity_ = new_size;
     }
     memcpy(&data_[size_], data, size);
-    size_ += size;
+    size_ = new_size;
+    return {heif_error_Ok, heif_suberror_Unspecified, nullptr};
   }
 
  public:
@@ -60,12 +72,12 @@ class MemoryWriter {
 
 static struct heif_error writer_write([[maybe_unused]] struct heif_context* ctx, const void* data,
                                       size_t size, void* userdata) {
+  if (userdata == nullptr) {
+    return {heif_error_Usage_error, heif_suberror_Null_pointer_argument,
+            "output writer is null"};
+  }
   MemoryWriter* writer = static_cast<MemoryWriter*>(userdata);
-  writer->write(data, size);
-  struct heif_error err {
-    heif_error_Ok, heif_suberror_Unspecified, nullptr
-  };
-  return err;
+  return writer->write(data, size);
 }
 
 static struct heif_error fill_img_plane(heif_image* img, heif_channel channel, void* srcBuffer,
@@ -381,6 +393,7 @@ uhdr_error_info_t HeifUltraHdr::encodeHeicUltraHdr(uhdr_raw_image_t* sdr_intent,
 
   MemoryWriter writer;
   struct heif_writer w;
+  heif_error write_err;
   w.writer_api_version = 1;
   w.write = writer_write;
 
@@ -524,9 +537,25 @@ uhdr_error_info_t HeifUltraHdr::encodeHeicUltraHdr(uhdr_raw_image_t* sdr_intent,
                                                     options, iso_data.data(), iso_data.size(),
                                                     hdrNclx, &secondaryHandle));
 
-  heif_context_write(ctx, &w, &writer);
+  write_err = heif_context_write(ctx, &w, &writer);
+  if (write_err.code != heif_error_Ok) {
+    status.error_code = write_err.code == heif_error_Memory_allocation_error
+                            ? UHDR_CODEC_MEM_ERROR
+                            : UHDR_CODEC_ERROR;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail, "%s", write_err.message);
+    goto CleanUp;
+  }
+  if (writer.size() > dest->capacity) {
+    status.error_code = UHDR_CODEC_MEM_ERROR;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "destination buffer is too small, capacity is %zu, required size is %zu",
+             dest->capacity, writer.size());
+    goto CleanUp;
+  }
   memcpy(dest->data, writer.data(), writer.size());
-  dest->data_sz = dest->capacity = writer.size();
+  dest->data_sz = writer.size();
 
 CleanUp:
   if (baseImage) heif_image_release(baseImage);
