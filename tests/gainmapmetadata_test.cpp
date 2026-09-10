@@ -9,6 +9,7 @@
  */
 
 #include <gtest/gtest.h>
+#include <cstdint>
 #include <vector>
 
 #include "ultrahdr/gainmapmetadata.h"
@@ -34,6 +35,256 @@ void GainMapMetadataTest::SetUp() {}
 void GainMapMetadataTest::TearDown() {}
 
 const std::string kIso = "urn:iso:std:iso:ts:21496:-1";
+
+namespace {
+
+void setChannel(uhdr_gainmap_metadata_frac& metadata, int channel, int32_t gain_min_n,
+                int32_t gain_max_n, uint32_t gamma_n, int32_t base_offset_n,
+                int32_t alternate_offset_n, uint32_t denominator) {
+  metadata.gainMapMinN[channel] = gain_min_n;
+  metadata.gainMapMinD[channel] = denominator;
+  metadata.gainMapMaxN[channel] = gain_max_n;
+  metadata.gainMapMaxD[channel] = denominator;
+  metadata.gainMapGammaN[channel] = gamma_n;
+  metadata.gainMapGammaD[channel] = denominator;
+  metadata.baseOffsetN[channel] = base_offset_n;
+  metadata.baseOffsetD[channel] = denominator;
+  metadata.alternateOffsetN[channel] = alternate_offset_n;
+  metadata.alternateOffsetD[channel] = denominator;
+}
+
+uhdr_gainmap_metadata_frac singleEqualDenominators() {
+  uhdr_gainmap_metadata_frac metadata;
+  metadata.baseHdrHeadroomN = 0;
+  metadata.baseHdrHeadroomD = 64;
+  metadata.alternateHdrHeadroomN = 192;
+  metadata.alternateHdrHeadroomD = 64;
+  for (int channel = 0; channel < 3; ++channel) {
+    setChannel(metadata, channel, -64, 128, 64, 1, 2, 64);
+  }
+  metadata.useBaseColorSpace = true;
+  return metadata;
+}
+
+uhdr_gainmap_metadata_frac singleMixedDenominators() {
+  uhdr_gainmap_metadata_frac metadata;
+  metadata.baseHdrHeadroomN = 0;
+  metadata.baseHdrHeadroomD = 1;
+  metadata.alternateHdrHeadroomN = 7;
+  metadata.alternateHdrHeadroomD = 2;
+  for (int channel = 0; channel < 3; ++channel) {
+    metadata.gainMapMinN[channel] = -1;
+    metadata.gainMapMinD[channel] = 3;
+    metadata.gainMapMaxN[channel] = 5;
+    metadata.gainMapMaxD[channel] = 4;
+    metadata.gainMapGammaN[channel] = 6;
+    metadata.gainMapGammaD[channel] = 5;
+    metadata.baseOffsetN[channel] = -1;
+    metadata.baseOffsetD[channel] = 7;
+    metadata.alternateOffsetN[channel] = 2;
+    metadata.alternateOffsetD[channel] = 9;
+  }
+  metadata.useBaseColorSpace = false;
+  return metadata;
+}
+
+uhdr_gainmap_metadata_frac threeEqualDenominators() {
+  uhdr_gainmap_metadata_frac metadata = singleEqualDenominators();
+  setChannel(metadata, 1, -32, 160, 72, 3, 4, 64);
+  setChannel(metadata, 2, -16, 192, 80, 5, 6, 64);
+  return metadata;
+}
+
+uhdr_gainmap_metadata_frac threeMixedDenominators() {
+  uhdr_gainmap_metadata_frac metadata = singleMixedDenominators();
+  metadata.useBaseColorSpace = true;
+  metadata.gainMapMaxN[1] = 6;
+  metadata.gainMapMaxD[1] = 5;
+  metadata.gainMapGammaN[2] = 8;
+  metadata.gainMapGammaD[2] = 7;
+  metadata.baseOffsetN[2] = -2;
+  metadata.baseOffsetD[2] = 11;
+  return metadata;
+}
+
+void expectEncodedBytes(const uhdr_gainmap_metadata_frac& metadata,
+                        const std::vector<uint8_t>& expected) {
+  std::vector<uint8_t> encoded;
+  EXPECT_EQ(uhdr_gainmap_metadata_frac::encodeGainmapMetadata(&metadata, encoded).error_code,
+            UHDR_CODEC_OK);
+  EXPECT_EQ(encoded.size(), expected.size());
+  EXPECT_EQ(encoded, expected);
+}
+
+const std::vector<uint8_t> kSingleEqualDenominators = {
+    0x00, 0x00, 0x00, 0x00, 0x40, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x40, 0x00, 0x00, 0x00, 0xc0, 0x00, 0x00, 0x00, 0x40, 0xff, 0xff, 0xff,
+    0xc0, 0x00, 0x00, 0x00, 0x40, 0x00, 0x00, 0x00, 0x80, 0x00, 0x00, 0x00,
+    0x40, 0x00, 0x00, 0x00, 0x40, 0x00, 0x00, 0x00, 0x40, 0x00, 0x00, 0x00,
+    0x01, 0x00, 0x00, 0x00, 0x40, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00,
+    0x40,
+};
+
+const std::vector<uint8_t> kSingleMixedDenominators = {
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x01, 0x00, 0x00, 0x00, 0x07, 0x00, 0x00, 0x00, 0x02, 0xff, 0xff, 0xff,
+    0xff, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x05, 0x00, 0x00, 0x00,
+    0x04, 0x00, 0x00, 0x00, 0x06, 0x00, 0x00, 0x00, 0x05, 0xff, 0xff, 0xff,
+    0xff, 0x00, 0x00, 0x00, 0x07, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00,
+    0x09,
+};
+
+const std::vector<uint8_t> kThreeEqualDenominators = {
+    0x00, 0x00, 0x00, 0x00, 0xc0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x40, 0x00, 0x00, 0x00, 0xc0, 0x00, 0x00, 0x00, 0x40, 0xff, 0xff, 0xff,
+    0xc0, 0x00, 0x00, 0x00, 0x40, 0x00, 0x00, 0x00, 0x80, 0x00, 0x00, 0x00,
+    0x40, 0x00, 0x00, 0x00, 0x40, 0x00, 0x00, 0x00, 0x40, 0x00, 0x00, 0x00,
+    0x01, 0x00, 0x00, 0x00, 0x40, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00,
+    0x40, 0xff, 0xff, 0xff, 0xe0, 0x00, 0x00, 0x00, 0x40, 0x00, 0x00, 0x00,
+    0xa0, 0x00, 0x00, 0x00, 0x40, 0x00, 0x00, 0x00, 0x48, 0x00, 0x00, 0x00,
+    0x40, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x40, 0x00, 0x00, 0x00,
+    0x04, 0x00, 0x00, 0x00, 0x40, 0xff, 0xff, 0xff, 0xf0, 0x00, 0x00, 0x00,
+    0x40, 0x00, 0x00, 0x00, 0xc0, 0x00, 0x00, 0x00, 0x40, 0x00, 0x00, 0x00,
+    0x50, 0x00, 0x00, 0x00, 0x40, 0x00, 0x00, 0x00, 0x05, 0x00, 0x00, 0x00,
+    0x40, 0x00, 0x00, 0x00, 0x06, 0x00, 0x00, 0x00, 0x40,
+};
+
+const std::vector<uint8_t> kThreeMixedDenominators = {
+    0x00, 0x00, 0x00, 0x00, 0xc0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x01, 0x00, 0x00, 0x00, 0x07, 0x00, 0x00, 0x00, 0x02, 0xff, 0xff, 0xff,
+    0xff, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x05, 0x00, 0x00, 0x00,
+    0x04, 0x00, 0x00, 0x00, 0x06, 0x00, 0x00, 0x00, 0x05, 0xff, 0xff, 0xff,
+    0xff, 0x00, 0x00, 0x00, 0x07, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00,
+    0x09, 0xff, 0xff, 0xff, 0xff, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00,
+    0x06, 0x00, 0x00, 0x00, 0x05, 0x00, 0x00, 0x00, 0x06, 0x00, 0x00, 0x00,
+    0x05, 0xff, 0xff, 0xff, 0xff, 0x00, 0x00, 0x00, 0x07, 0x00, 0x00, 0x00,
+    0x02, 0x00, 0x00, 0x00, 0x09, 0xff, 0xff, 0xff, 0xff, 0x00, 0x00, 0x00,
+    0x03, 0x00, 0x00, 0x00, 0x05, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00,
+    0x08, 0x00, 0x00, 0x00, 0x07, 0xff, 0xff, 0xff, 0xfe, 0x00, 0x00, 0x00,
+    0x0b, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x09,
+};
+
+const std::vector<uint8_t> kLegacySingleEqualDenominators = {
+    0x00, 0x00, 0x00, 0x00, 0x48, 0x00, 0x00, 0x00, 0x40, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0xc0, 0xff, 0xff, 0xff, 0xc0, 0x00, 0x00, 0x00,
+    0x80, 0x00, 0x00, 0x00, 0x40, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00,
+    0x02,
+};
+
+const std::vector<uint8_t> kLegacyThreeEqualDenominators = {
+    0x00, 0x00, 0x00, 0x00, 0xc8, 0x00, 0x00, 0x00, 0x40, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0xc0, 0xff, 0xff, 0xff, 0xc0, 0x00, 0x00, 0x00,
+    0x80, 0x00, 0x00, 0x00, 0x40, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00,
+    0x02, 0xff, 0xff, 0xff, 0xe0, 0x00, 0x00, 0x00, 0xa0, 0x00, 0x00, 0x00,
+    0x48, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x04, 0xff, 0xff, 0xff,
+    0xf0, 0x00, 0x00, 0x00, 0xc0, 0x00, 0x00, 0x00, 0x50, 0x00, 0x00, 0x00,
+    0x05, 0x00, 0x00, 0x00, 0x06,
+};
+
+}  // namespace
+
+TEST(GainmapMetadataTest, EncodesSingleChannelEqualDenominatorsWithFinalLayout) {
+  EXPECT_EQ(kSingleEqualDenominators.size(), 61u);
+  expectEncodedBytes(singleEqualDenominators(), kSingleEqualDenominators);
+}
+
+TEST(GainmapMetadataTest, EncodesSingleChannelMixedDenominatorsWithFinalLayout) {
+  EXPECT_EQ(kSingleMixedDenominators.size(), 61u);
+  expectEncodedBytes(singleMixedDenominators(), kSingleMixedDenominators);
+}
+
+TEST(GainmapMetadataTest, EncodesThreeChannelsEqualDenominatorsWithFinalLayout) {
+  EXPECT_EQ(kThreeEqualDenominators.size(), 141u);
+  expectEncodedBytes(threeEqualDenominators(), kThreeEqualDenominators);
+}
+
+TEST(GainmapMetadataTest, EncodesThreeChannelsMixedDenominatorsWithFinalLayout) {
+  EXPECT_EQ(kThreeMixedDenominators.size(), 141u);
+  expectEncodedBytes(threeMixedDenominators(), kThreeMixedDenominators);
+}
+
+TEST(GainmapMetadataTest, DecodesLegacyCompactSingleChannelMetadata) {
+  uhdr_gainmap_metadata_frac decoded;
+  EXPECT_EQ(uhdr_gainmap_metadata_frac::decodeGainmapMetadata(kLegacySingleEqualDenominators,
+                                                               &decoded)
+                .error_code,
+            UHDR_CODEC_OK);
+  EXPECT_TRUE(decoded.useBaseColorSpace);
+  EXPECT_FALSE(decoded.backwardDirection);
+  EXPECT_EQ(decoded.baseHdrHeadroomN, 0u);
+  EXPECT_EQ(decoded.baseHdrHeadroomD, 64u);
+  EXPECT_EQ(decoded.alternateHdrHeadroomN, 192u);
+  EXPECT_EQ(decoded.alternateHdrHeadroomD, 64u);
+  for (int channel = 0; channel < 3; ++channel) {
+    EXPECT_EQ(decoded.gainMapMinN[channel], -64);
+    EXPECT_EQ(decoded.gainMapMinD[channel], 64u);
+    EXPECT_EQ(decoded.gainMapMaxN[channel], 128);
+    EXPECT_EQ(decoded.gainMapMaxD[channel], 64u);
+    EXPECT_EQ(decoded.gainMapGammaN[channel], 64u);
+    EXPECT_EQ(decoded.gainMapGammaD[channel], 64u);
+    EXPECT_EQ(decoded.baseOffsetN[channel], 1);
+    EXPECT_EQ(decoded.baseOffsetD[channel], 64u);
+    EXPECT_EQ(decoded.alternateOffsetN[channel], 2);
+    EXPECT_EQ(decoded.alternateOffsetD[channel], 64u);
+  }
+}
+
+TEST(GainmapMetadataTest, DecodesLegacyCompactThreeChannelMetadata) {
+  uhdr_gainmap_metadata_frac decoded;
+  EXPECT_EQ(uhdr_gainmap_metadata_frac::decodeGainmapMetadata(kLegacyThreeEqualDenominators,
+                                                               &decoded)
+                .error_code,
+            UHDR_CODEC_OK);
+  EXPECT_TRUE(decoded.useBaseColorSpace);
+  EXPECT_FALSE(decoded.backwardDirection);
+  EXPECT_EQ(decoded.baseHdrHeadroomN, 0u);
+  EXPECT_EQ(decoded.baseHdrHeadroomD, 64u);
+  EXPECT_EQ(decoded.alternateHdrHeadroomN, 192u);
+  EXPECT_EQ(decoded.alternateHdrHeadroomD, 64u);
+  const int32_t gain_min_n[] = {-64, -32, -16};
+  const int32_t gain_max_n[] = {128, 160, 192};
+  const uint32_t gamma_n[] = {64, 72, 80};
+  const int32_t base_offset_n[] = {1, 3, 5};
+  const int32_t alternate_offset_n[] = {2, 4, 6};
+  for (int channel = 0; channel < 3; ++channel) {
+    EXPECT_EQ(decoded.gainMapMinN[channel], gain_min_n[channel]);
+    EXPECT_EQ(decoded.gainMapMinD[channel], 64u);
+    EXPECT_EQ(decoded.gainMapMaxN[channel], gain_max_n[channel]);
+    EXPECT_EQ(decoded.gainMapMaxD[channel], 64u);
+    EXPECT_EQ(decoded.gainMapGammaN[channel], gamma_n[channel]);
+    EXPECT_EQ(decoded.gainMapGammaD[channel], 64u);
+    EXPECT_EQ(decoded.baseOffsetN[channel], base_offset_n[channel]);
+    EXPECT_EQ(decoded.baseOffsetD[channel], 64u);
+    EXPECT_EQ(decoded.alternateOffsetN[channel], alternate_offset_n[channel]);
+    EXPECT_EQ(decoded.alternateOffsetD[channel], 64u);
+  }
+}
+
+TEST(GainmapMetadataTest, RejectsBackwardDirectionBeforeWriting) {
+  uhdr_gainmap_metadata_frac metadata = singleEqualDenominators();
+  metadata.backwardDirection = true;
+  const std::vector<uint8_t> expected = {0xa5, 0x5a};
+  std::vector<uint8_t> output = expected;
+
+  const uhdr_error_info_t status =
+      uhdr_gainmap_metadata_frac::encodeGainmapMetadata(&metadata, output);
+  EXPECT_EQ(status.error_code, UHDR_CODEC_UNSUPPORTED_FEATURE);
+  EXPECT_EQ(output, expected);
+}
+
+TEST(GainmapMetadataTest, LegacyBackwardDirectionStillRejectsFloatConversion) {
+  std::vector<uint8_t> legacy = kLegacySingleEqualDenominators;
+  legacy[4] |= 4;
+  uhdr_gainmap_metadata_frac decoded;
+  EXPECT_EQ(uhdr_gainmap_metadata_frac::decodeGainmapMetadata(legacy, &decoded).error_code,
+            UHDR_CODEC_OK);
+  EXPECT_TRUE(decoded.backwardDirection);
+
+  uhdr_gainmap_metadata_ext_t float_metadata;
+  EXPECT_EQ(uhdr_gainmap_metadata_frac::gainmapMetadataFractionToFloat(&decoded, &float_metadata)
+                .error_code,
+            UHDR_CODEC_UNSUPPORTED_FEATURE);
+}
 
 TEST_F(GainMapMetadataTest, encodeMetadataThenDecode) {
   uhdr_gainmap_metadata_ext_t expected("1.0");
