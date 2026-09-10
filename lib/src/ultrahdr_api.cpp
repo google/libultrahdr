@@ -74,15 +74,17 @@ uhdr_raw_image_ext::uhdr_raw_image_ext(uhdr_img_fmt_t fmt_, uhdr_color_gamut_t c
   size_t plane_1_sz = bpp * aligned_width * h_;
   size_t plane_2_sz;
   size_t plane_3_sz;
+  const size_t chroma_width = aligned_width / 2 + aligned_width % 2;
+  const size_t chroma_height = h_ / 2 + h_ % 2;
   if (fmt_ == UHDR_IMG_FMT_24bppYCbCrP010) {
-    plane_2_sz = (2 /* planes */ * bpp * (aligned_width / 2) * (h_ / 2));
+    plane_2_sz = (2 /* planes */ * bpp * chroma_width * chroma_height);
     plane_3_sz = 0;
   } else if (fmt_ == UHDR_IMG_FMT_30bppYCbCr444 || fmt_ == UHDR_IMG_FMT_24bppYCbCr444) {
     plane_2_sz = bpp * aligned_width * h_;
     plane_3_sz = bpp * aligned_width * h_;
   } else if (fmt_ == UHDR_IMG_FMT_12bppYCbCr420) {
-    plane_2_sz = (bpp * (aligned_width / 2) * (h_ / 2));
-    plane_3_sz = (bpp * (aligned_width / 2) * (h_ / 2));
+    plane_2_sz = (bpp * chroma_width * chroma_height);
+    plane_3_sz = (bpp * chroma_width * chroma_height);
   } else {
     plane_2_sz = 0;
     plane_3_sz = 0;
@@ -95,7 +97,7 @@ uhdr_raw_image_ext::uhdr_raw_image_ext(uhdr_img_fmt_t fmt_, uhdr_color_gamut_t c
   this->stride[UHDR_PLANE_Y] = aligned_width;
   if (fmt_ == UHDR_IMG_FMT_24bppYCbCrP010) {
     this->planes[UHDR_PLANE_UV] = data + plane_1_sz;
-    this->stride[UHDR_PLANE_UV] = aligned_width;
+    this->stride[UHDR_PLANE_UV] = 2 * chroma_width;
     this->planes[UHDR_PLANE_V] = nullptr;
     this->stride[UHDR_PLANE_V] = 0;
   } else if (fmt_ == UHDR_IMG_FMT_30bppYCbCr444 || fmt_ == UHDR_IMG_FMT_24bppYCbCr444) {
@@ -105,9 +107,9 @@ uhdr_raw_image_ext::uhdr_raw_image_ext(uhdr_img_fmt_t fmt_, uhdr_color_gamut_t c
     this->stride[UHDR_PLANE_V] = aligned_width;
   } else if (fmt_ == UHDR_IMG_FMT_12bppYCbCr420) {
     this->planes[UHDR_PLANE_U] = data + plane_1_sz;
-    this->stride[UHDR_PLANE_U] = aligned_width / 2;
+    this->stride[UHDR_PLANE_U] = chroma_width;
     this->planes[UHDR_PLANE_V] = data + plane_1_sz + plane_2_sz;
-    this->stride[UHDR_PLANE_V] = aligned_width / 2;
+    this->stride[UHDR_PLANE_V] = chroma_width;
   } else {
     this->planes[UHDR_PLANE_U] = nullptr;
     this->stride[UHDR_PLANE_U] = 0;

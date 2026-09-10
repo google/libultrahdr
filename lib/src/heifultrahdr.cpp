@@ -173,8 +173,8 @@ static heif_error map_fmt_to_heif_chroma_vars(uhdr_img_fmt_t fmt, unsigned int w
                                               int& chromaHt) {
   if (fmt == UHDR_IMG_FMT_12bppYCbCr420) {
     heif_img_fmt = heif_chroma_420;
-    chromaWd = w / 2;
-    chromaHt = h / 2;
+    chromaWd = w / 2 + w % 2;
+    chromaHt = h / 2 + h % 2;
   } else if (fmt == UHDR_IMG_FMT_16bppYCbCr422) {
     heif_img_fmt = heif_chroma_422;
     chromaWd = w;
@@ -466,7 +466,7 @@ uhdr_error_info_t HeifUltraHdr::encodeHeicUltraHdr(uhdr_raw_image_t* sdr_intent,
 
   // encode the gain map image
   if (isUsingMultiChannelGainMap()) {
-    gainmap_yuv_ext = convert_raw_input_to_ycbcr(gainmap_img, true /* use bt601 */);
+    gainmap_yuv_ext = convert_raw_input_to_ycbcr(gainmap_img, true /* chroma sampling enabled */);
     gainmap_img_yuv = gainmap_yuv_ext.get();
   }
   if (isUsingMultiChannelGainMap()) {
