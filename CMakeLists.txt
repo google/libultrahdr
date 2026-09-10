@@ -475,7 +475,7 @@ if(UHDR_ENABLE_GLES)
 endif()
 
 # libjpeg-turbo
-if(NOT UHDR_BUILD_DEPS)
+if(NOT UHDR_BUILD_DEPS AND NOT JPEG_FOUND)
   find_package(JPEG QUIET)
   if(NOT JPEG_FOUND)
     message(FATAL_ERROR "Could NOT find JPEG (missing: JPEG_LIBRARIES JPEG_INCLUDE_DIRS),\
