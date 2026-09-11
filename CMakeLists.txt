@@ -731,6 +731,12 @@ if(UHDR_ENABLE_HEIF)
   endif()
   if(LIBHEIF_FOUND)
     message(STATUS "Found libheif: ${LIBHEIF_LIBRARIES}")
+    get_target_property(LIBHEIF_INCLUDE_DIRS libheif::heif INTERFACE_INCLUDE_DIRECTORIES)
+    if(LIBHEIF_INCLUDE_DIRS)
+      # Prepending fixes ordering, but does not remove imported-target system
+      # classification.
+      list(PREPEND PRIVATE_INCLUDE_DIR ${LIBHEIF_INCLUDE_DIRS})
+    endif()
     add_compile_options(-DUHDR_ENABLE_HEIF)
     list(APPEND PRIVATE_LINK_LIBS libheif::heif)
   else()
@@ -752,6 +758,9 @@ target_include_directories(${IMAGEIO_TARGET_NAME} PRIVATE
 set(UHDR_CORE_LIB_NAME core)
 add_library(${UHDR_CORE_LIB_NAME} STATIC ${UHDR_CORE_SRCS_LIST})
 target_compile_options(${UHDR_CORE_LIB_NAME} PRIVATE ${UHDR_WERROR_FLAGS})
+if(UHDR_ENABLE_HEIF AND LIBHEIF_FOUND)
+  set_target_properties(${UHDR_CORE_LIB_NAME} PROPERTIES NO_SYSTEM_FROM_IMPORTED TRUE)
+endif()
 if(NOT JPEG_FOUND)
   add_dependencies(${UHDR_CORE_LIB_NAME} ${JPEGTURBO_TARGET_NAME})
 endif()
@@ -820,6 +829,9 @@ if(UHDR_BUILD_TESTS)
     add_dependencies(ultrahdr_unit_test ${LIBHEIF_TARGET_NAME})
   endif()
   target_compile_options(ultrahdr_unit_test PRIVATE ${UHDR_WERROR_FLAGS})
+  if(UHDR_ENABLE_HEIF AND LIBHEIF_FOUND)
+    set_target_properties(ultrahdr_unit_test PROPERTIES NO_SYSTEM_FROM_IMPORTED TRUE)
+  endif()
   target_include_directories(ultrahdr_unit_test PRIVATE
     ${PRIVATE_INCLUDE_DIR}
     ${GTEST_INCLUDE_DIRS}
