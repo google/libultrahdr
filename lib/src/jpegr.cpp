@@ -177,7 +177,8 @@ static void copyJpegWithoutExif(uhdr_compressed_image_t* pDest, uhdr_compressed_
 
 /* Encode API-0 */
 uhdr_error_info_t JpegR::encodeJPEGR(uhdr_raw_image_t* hdr_intent, uhdr_compressed_image_t* dest,
-                                     int quality, uhdr_mem_block_t* exif) {
+                                     int quality, uhdr_mem_block_t* exif,
+                                     uhdr_mem_block_t* xmp) {
   uhdr_img_fmt_t sdr_intent_fmt;
   if (hdr_intent->fmt == UHDR_IMG_FMT_24bppYCbCrP010) {
     sdr_intent_fmt = UHDR_IMG_FMT_12bppYCbCr420;
@@ -239,14 +240,15 @@ uhdr_error_info_t JpegR::encodeJPEGR(uhdr_raw_image_t* hdr_intent, uhdr_compress
 
   // append gain map, no ICC since JPEG encode already did it
   UHDR_ERR_CHECK(appendGainMap(&sdr_intent_compressed, &gainmap_compressed, exif, /* icc */ nullptr,
-                               /* icc size */ 0, &metadata, dest));
+                               /* icc size */ 0, &metadata, dest, xmp));
   return g_no_error;
 }
 
 /* Encode API-1 */
 uhdr_error_info_t JpegR::encodeJPEGR(uhdr_raw_image_t* hdr_intent, uhdr_raw_image_t* sdr_intent,
                                      uhdr_compressed_image_t* dest, int quality,
-                                     uhdr_mem_block_t* exif) {
+                                     uhdr_mem_block_t* exif,
+                                     uhdr_mem_block_t* xmp) {
   // generate gain map
   uhdr_gainmap_metadata_ext_t metadata(kJpegrVersion);
   std::unique_ptr<uhdr_raw_image_ext_t> gainmap;
@@ -286,14 +288,15 @@ uhdr_error_info_t JpegR::encodeJPEGR(uhdr_raw_image_t* hdr_intent, uhdr_raw_imag
 
   // append gain map, no ICC since JPEG encode already did it
   UHDR_ERR_CHECK(appendGainMap(&sdr_intent_compressed, &gainmap_compressed, exif, /* icc */ nullptr,
-                               /* icc size */ 0, &metadata, dest));
+                               /* icc size */ 0, &metadata, dest, xmp));
   return g_no_error;
 }
 
 /* Encode API-2 */
 uhdr_error_info_t JpegR::encodeJPEGR(uhdr_raw_image_t* hdr_intent, uhdr_raw_image_t* sdr_intent,
                                      uhdr_compressed_image_t* sdr_intent_compressed,
-                                     uhdr_compressed_image_t* dest) {
+                                     uhdr_compressed_image_t* dest,
+                                     uhdr_mem_block_t* xmp) {
   JpegDecoderHelper jpeg_dec_obj_sdr;
   UHDR_ERR_CHECK(jpeg_dec_obj_sdr.decompressImage(sdr_intent_compressed->data,
                                                   sdr_intent_compressed->data_sz, PARSE_STREAM));
@@ -320,13 +323,14 @@ uhdr_error_info_t JpegR::encodeJPEGR(uhdr_raw_image_t* hdr_intent, uhdr_raw_imag
   UHDR_ERR_CHECK(compressGainMap(gainmap.get(), &jpeg_enc_obj_gm));
   uhdr_compressed_image_t gainmap_compressed = jpeg_enc_obj_gm.getCompressedImage();
 
-  return encodeJPEGR(sdr_intent_compressed, &gainmap_compressed, &metadata, dest);
+  return encodeJPEGR(sdr_intent_compressed, &gainmap_compressed, &metadata, dest, xmp);
 }
 
 /* Encode API-3 */
 uhdr_error_info_t JpegR::encodeJPEGR(uhdr_raw_image_t* hdr_intent,
                                      uhdr_compressed_image_t* sdr_intent_compressed,
-                                     uhdr_compressed_image_t* dest) {
+                                     uhdr_compressed_image_t* dest,
+                                     uhdr_mem_block_t* xmp) {
   // decode input jpeg, gamut is going to be bt601.
   JpegDecoderHelper jpeg_dec_obj_sdr;
   UHDR_ERR_CHECK(jpeg_dec_obj_sdr.decompressImage(sdr_intent_compressed->data,
@@ -365,8 +369,8 @@ uhdr_error_info_t JpegR::encodeJPEGR(uhdr_raw_image_t* hdr_intent,
     status.error_code = UHDR_CODEC_INVALID_PARAM;
     status.has_detail = 1;
     snprintf(status.detail, sizeof status.detail,
-             "sdr intent resolution %dx%d and hdr intent resolution %dx%d do not match",
-             sdr_intent.w, sdr_intent.h, hdr_intent->w, hdr_intent->h);
+               "sdr intent resolution %dx%d and hdr intent resolution %dx%d do not match",
+               sdr_intent.w, sdr_intent.h, hdr_intent->w, hdr_intent->h);
     return status;
   }
 
@@ -381,14 +385,15 @@ uhdr_error_info_t JpegR::encodeJPEGR(uhdr_raw_image_t* hdr_intent,
   UHDR_ERR_CHECK(compressGainMap(gainmap.get(), &jpeg_enc_obj_gm));
   uhdr_compressed_image_t gainmap_compressed = jpeg_enc_obj_gm.getCompressedImage();
 
-  return encodeJPEGR(sdr_intent_compressed, &gainmap_compressed, &metadata, dest);
+  return encodeJPEGR(sdr_intent_compressed, &gainmap_compressed, &metadata, dest, xmp);
 }
 
 /* Encode API-4 */
 uhdr_error_info_t JpegR::encodeJPEGR(uhdr_compressed_image_t* base_img_compressed,
                                      uhdr_compressed_image_t* gainmap_img_compressed,
                                      uhdr_gainmap_metadata_ext_t* metadata,
-                                     uhdr_compressed_image_t* dest) {
+                                     uhdr_compressed_image_t* dest,
+                                     uhdr_mem_block_t* xmp) {
   // We just want to check if ICC is present, so don't do a full decode. Note,
   // this doesn't verify that the ICC is valid.
   JpegDecoderHelper decoder;
@@ -413,7 +418,7 @@ uhdr_error_info_t JpegR::encodeJPEGR(uhdr_compressed_image_t* base_img_compresse
   // Add ICC if not already present.
   if (decoder.getICCSize() > 0) {
     UHDR_ERR_CHECK(appendGainMap(base_img_compressed, gainmap_img_compressed, /* exif */ nullptr,
-                                 /* icc */ nullptr, /* icc size */ 0, metadata, dest));
+                                 /* icc */ nullptr, /* icc size */ 0, metadata, dest, xmp));
   } else {
     if (base_img_compressed->cg <= UHDR_CG_UNSPECIFIED ||
         base_img_compressed->cg > UHDR_CG_BT_2100) {
@@ -427,7 +432,7 @@ uhdr_error_info_t JpegR::encodeJPEGR(uhdr_compressed_image_t* base_img_compresse
     std::shared_ptr<DataStruct> newIcc =
         IccHelper::writeIccProfile(UHDR_CT_SRGB, base_img_compressed->cg);
     UHDR_ERR_CHECK(appendGainMap(base_img_compressed, gainmap_img_compressed, /* exif */ nullptr,
-                                 newIcc->getData(), newIcc->getLength(), metadata, dest));
+                                 newIcc->getData(), newIcc->getLength(), metadata, dest, xmp));
   }
 
   return g_no_error;
@@ -1106,7 +1111,8 @@ uhdr_error_info_t JpegR::appendGainMap(uhdr_compressed_image_t* sdr_intent_compr
                                        uhdr_compressed_image_t* gainmap_compressed,
                                        uhdr_mem_block_t* pExif, void* pIcc, size_t icc_size,
                                        uhdr_gainmap_metadata_ext_t* metadata,
-                                       uhdr_compressed_image_t* dest) {
+                                       uhdr_compressed_image_t* dest,
+                                       uhdr_mem_block_t* pXmp) {
   if (kWriteXmpMetadata && !metadata->use_base_cg) {
     uhdr_error_info_t status;
     status.error_code = UHDR_CODEC_UNSUPPORTED_FEATURE;
@@ -1216,6 +1222,18 @@ uhdr_error_info_t JpegR::appendGainMap(uhdr_compressed_image_t* sdr_intent_compr
     icc_size = decoder.getICCSize();
   }
 
+  // If the primary JPEG already carries XMP and none was passed in, reuse it so the
+  // "Write XMP" block below emits/merges it; the APP marker skip in the reorder loop would otherwise
+  // silently drop it from the output.
+  uhdr_mem_block_t xmp_from_jpg;
+  xmp_from_jpg.data = nullptr;
+  xmp_from_jpg.data_sz = 0;
+  if (pXmp == nullptr && decoder.getXMPSize() > 0) {
+    xmp_from_jpg.data = decoder.getXMPPtr();
+    xmp_from_jpg.data_sz = decoder.getXMPSize();
+    pXmp = &xmp_from_jpg;
+  }
+
   size_t pos = 0;
   // Begin primary image
   // Write SOI
@@ -1249,17 +1267,36 @@ uhdr_error_info_t JpegR::appendGainMap(uhdr_compressed_image_t* sdr_intent_compr
   }
 
   // Prepare and write XMP
+  std::string xmp_primary_str;
   if (kWriteXmpMetadata) {
-    const string xmp_primary = generateXmpForPrimaryImage(secondary_image_size, *metadata);
-    const size_t length = 2 + xmpNameSpaceLength + xmp_primary.size();
-    const uint8_t lengthH = ((length >> 8) & 0xff);
-    const uint8_t lengthL = (length & 0xff);
-    UHDR_ERR_CHECK(Write(dest, &photos_editing_formats::image_io::JpegMarker::kStart, 1, pos));
-    UHDR_ERR_CHECK(Write(dest, &photos_editing_formats::image_io::JpegMarker::kAPP1, 1, pos));
-    UHDR_ERR_CHECK(Write(dest, &lengthH, 1, pos));
-    UHDR_ERR_CHECK(Write(dest, &lengthL, 1, pos));
-    UHDR_ERR_CHECK(Write(dest, (void*)kXmpNameSpace.c_str(), xmpNameSpaceLength, pos));
-    UHDR_ERR_CHECK(Write(dest, (void*)xmp_primary.c_str(), xmp_primary.size(), pos));
+    xmp_primary_str = generateXmpForPrimaryImage(secondary_image_size, *metadata, pXmp);
+  } else if (pXmp != nullptr && pXmp->data != nullptr && pXmp->data_sz > 0) {
+    const std::string kXmpHeader = "http://ns.adobe.com/xap/1.0/";
+    if (pXmp->data_sz > kXmpHeader.size() &&
+        memcmp(pXmp->data, kXmpHeader.c_str(), kXmpHeader.size()) == 0) {
+      size_t offset = kXmpHeader.size();
+      if (static_cast<const char*>(pXmp->data)[offset] == '\0') {
+        offset++;
+      }
+      xmp_primary_str = std::string(static_cast<const char*>(pXmp->data) + offset,
+                                    pXmp->data_sz - offset);
+    } else {
+      xmp_primary_str = std::string(static_cast<const char*>(pXmp->data), pXmp->data_sz);
+    }
+  }
+
+  if (!xmp_primary_str.empty()) {
+    const size_t length = 2 + xmpNameSpaceLength + xmp_primary_str.size();
+    if (length <= 65535) {
+      const uint8_t lengthH = ((length >> 8) & 0xff);
+      const uint8_t lengthL = (length & 0xff);
+      UHDR_ERR_CHECK(Write(dest, &photos_editing_formats::image_io::JpegMarker::kStart, 1, pos));
+      UHDR_ERR_CHECK(Write(dest, &photos_editing_formats::image_io::JpegMarker::kAPP1, 1, pos));
+      UHDR_ERR_CHECK(Write(dest, &lengthH, 1, pos));
+      UHDR_ERR_CHECK(Write(dest, &lengthL, 1, pos));
+      UHDR_ERR_CHECK(Write(dest, (void*)kXmpNameSpace.c_str(), xmpNameSpaceLength, pos));
+      UHDR_ERR_CHECK(Write(dest, (void*)xmp_primary_str.c_str(), xmp_primary_str.size(), pos));
+    }
   }
 
   // Write ICC

@@ -404,6 +404,19 @@ UHDR_EXTERN uhdr_error_info_t uhdr_enc_set_quality(uhdr_codec_private_t* enc, in
 UHDR_EXTERN uhdr_error_info_t uhdr_enc_set_exif_data(uhdr_codec_private_t* enc,
                                                      uhdr_mem_block_t* exif);
 
+/*!\brief Set XMP data that needs to be inserted in the output compressed stream. This function
+ * does not generate or validate xmp data on its own. It merely copies the supplied information
+ * into the bitstream (or merges with gain map metadata in xmp mode).
+ *
+ * \param[in]  enc  encoder instance
+ * \param[in]  xmp  xmp data memory block.
+ *
+ * \return uhdr_error_info_t #UHDR_CODEC_OK if operation succeeds,
+ *                           #UHDR_CODEC_INVALID_PARAM otherwise.
+ */
+UHDR_EXTERN uhdr_error_info_t uhdr_enc_set_xmp_data(uhdr_codec_private_t* enc,
+                                                     uhdr_mem_block_t* xmp);
+
 /*!\brief Enable/Disable multi-channel gainmap. By default multi-channel gainmap is enabled.
  *
  * \param[in]  enc  encoder instance.
@@ -745,6 +758,14 @@ UHDR_EXTERN uhdr_mem_block_t* uhdr_dec_get_exif(uhdr_codec_private_t* dec);
  * \return nullptr if probe call is unsuccessful, memory block with icc data otherwise
  */
 UHDR_EXTERN uhdr_mem_block_t* uhdr_dec_get_icc(uhdr_codec_private_t* dec);
+
+/*!\brief Get xmp information
+ *
+ * \param[in]  dec  decoder instance.
+ *
+ * \return nullptr if probe call is unsuccessful, memory block with xmp data otherwise
+ */
+UHDR_EXTERN uhdr_mem_block_t* uhdr_dec_get_xmp(uhdr_codec_private_t* dec);
 
 /*!\brief Get base image (compressed)
  *

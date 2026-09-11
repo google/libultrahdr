@@ -874,9 +874,60 @@ uhdr_error_info_t getMetadataFromXMP(uint8_t* xmp_data, size_t xmp_size, uint8_t
 }
 
 string generateXmpForPrimaryImage(size_t secondary_image_length,
-                                  uhdr_gainmap_metadata_ext_t& metadata) {
+                                  uhdr_gainmap_metadata_ext_t& metadata,
+                                  uhdr_mem_block_t* user_xmp) {
   const vector<string> kConDirSeq({kConDirectory, string("rdf:Seq")});
   const vector<string> kLiItem({string("rdf:li"), kConItem});
+
+  if (user_xmp != nullptr && user_xmp->data != nullptr && user_xmp->data_sz > 0) {
+    const std::string kXmpHeader = "http://ns.adobe.com/xap/1.0/";
+    std::string existing_xmp;
+    if (user_xmp->data_sz > kXmpHeader.size() &&
+        memcmp(user_xmp->data, kXmpHeader.c_str(), kXmpHeader.size()) == 0) {
+      size_t offset = kXmpHeader.size();
+      if (static_cast<const char*>(user_xmp->data)[offset] == '\0') {
+        offset++;
+      }
+      existing_xmp = std::string(static_cast<const char*>(user_xmp->data) + offset,
+                                 user_xmp->data_sz - offset);
+    } else {
+      existing_xmp = std::string(static_cast<const char*>(user_xmp->data), user_xmp->data_sz);
+    }
+
+    std::stringstream desc_ss;
+    photos_editing_formats::image_io::XmlWriter writer(desc_ss);
+    writer.StartWritingElement("rdf:Description");
+    writer.WriteXmlns(kContainerPrefix, kContainerUri);
+    writer.WriteXmlns(kItemPrefix, kItemUri);
+    writer.WriteXmlns(kGainMapPrefix, kGainMapUri);
+    writer.WriteAttributeNameAndValue(kMapVersion, metadata.version);
+
+    writer.StartWritingElements(kConDirSeq);
+
+    size_t item_depth = writer.StartWritingElement("rdf:li");
+    writer.WriteAttributeNameAndValue("rdf:parseType", "Resource");
+    writer.StartWritingElement(kConItem);
+    writer.WriteAttributeNameAndValue(kItemSemantic, kSemanticPrimary);
+    writer.WriteAttributeNameAndValue(kItemMime, kMimeImageJpeg);
+    writer.FinishWritingElementsToDepth(item_depth);
+
+    writer.StartWritingElement("rdf:li");
+    writer.WriteAttributeNameAndValue("rdf:parseType", "Resource");
+    writer.StartWritingElement(kConItem);
+    writer.WriteAttributeNameAndValue(kItemSemantic, kSemanticGainMap);
+    writer.WriteAttributeNameAndValue(kItemMime, kMimeImageJpeg);
+    writer.WriteAttributeNameAndValue(kItemLength, secondary_image_length);
+
+    writer.FinishWriting();
+
+    std::string desc_str = desc_ss.str();
+    size_t rdf_close_pos = existing_xmp.rfind("</rdf:RDF>");
+    if (rdf_close_pos != std::string::npos) {
+      std::string merged = existing_xmp;
+      merged.insert(rdf_close_pos, desc_str + "\n");
+      return merged;
+    }
+  }
 
   std::stringstream ss;
   photos_editing_formats::image_io::XmlWriter writer(ss);

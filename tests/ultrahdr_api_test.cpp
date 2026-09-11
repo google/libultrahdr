@@ -284,6 +284,141 @@ TEST_F(UltraHdrApiTest, JpegEncodeApi2AndDecode) {
   uhdr_release_encoder(enc);
 }
 
+TEST_F(UltraHdrApiTest, JpegEncodeWithXmpAndDecode) {
+  uhdr_codec_private_t* enc = uhdr_create_encoder();
+  ASSERT_NE(enc, nullptr);
+
+  EXPECT_EQ(uhdr_enc_set_raw_image(enc, &mHdrRaw, UHDR_HDR_IMG).error_code, UHDR_CODEC_OK);
+  EXPECT_EQ(uhdr_enc_set_output_format(enc, UHDR_CODEC_JPG).error_code, UHDR_CODEC_OK);
+  EXPECT_EQ(uhdr_enc_set_quality(enc, 85, UHDR_BASE_IMG).error_code, UHDR_CODEC_OK);
+  EXPECT_EQ(uhdr_enc_set_quality(enc, 85, UHDR_GAIN_MAP_IMG).error_code, UHDR_CODEC_OK);
+
+  const std::string kUserXmp =
+      "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\" x:xmptk=\"Adobe XMP Core 5.1.2\">\n"
+      "  <rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\n"
+      "    <rdf:Description rdf:about=\"\" xmlns:dc=\"http://purl.org/dc/elements/1.1/\">\n"
+      "      <dc:creator>\n"
+      "        <rdf:Seq>\n"
+      "          <rdf:li>Greg Benz</rdf:li>\n"
+      "        </rdf:Seq>\n"
+      "      </dc:creator>\n"
+      "      <dc:rights>\n"
+      "        <rdf:Alt>\n"
+      "          <rdf:li xml:lang=\"x-default\">Copyright 2026 Greg Benz</rdf:li>\n"
+      "        </rdf:Alt>\n"
+      "      </dc:rights>\n"
+      "    </rdf:Description>\n"
+      "  </rdf:RDF>\n"
+      "</x:xmpmeta>\n";
+
+  uhdr_mem_block_t xmp_block{};
+  xmp_block.data = const_cast<char*>(kUserXmp.data());
+  xmp_block.data_sz = xmp_block.capacity = kUserXmp.size();
+
+  EXPECT_EQ(uhdr_enc_set_xmp_data(enc, &xmp_block).error_code, UHDR_CODEC_OK);
+
+  ASSERT_EQ(uhdr_encode(enc).error_code, UHDR_CODEC_OK);
+  uhdr_compressed_image_t* output = uhdr_get_encoded_stream(enc);
+  ASSERT_NE(output, nullptr);
+  ASSERT_GT(output->data_sz, 0u);
+
+  // Decode and verify XMP preservation
+  uhdr_codec_private_t* dec = uhdr_create_decoder();
+  ASSERT_NE(dec, nullptr);
+  EXPECT_EQ(uhdr_dec_set_image(dec, output).error_code, UHDR_CODEC_OK);
+  EXPECT_EQ(uhdr_dec_probe(dec).error_code, UHDR_CODEC_OK);
+
+  uhdr_mem_block_t* decoded_xmp = uhdr_dec_get_xmp(dec);
+  ASSERT_NE(decoded_xmp, nullptr);
+  ASSERT_NE(decoded_xmp->data, nullptr);
+  ASSERT_GT(decoded_xmp->data_sz, 0u);
+
+  std::string decoded_xmp_str(static_cast<const char*>(decoded_xmp->data), decoded_xmp->data_sz);
+
+  // Verify that user custom metadata was preserved
+  EXPECT_NE(decoded_xmp_str.find("Greg Benz"), std::string::npos);
+  EXPECT_NE(decoded_xmp_str.find("Copyright 2026 Greg Benz"), std::string::npos);
+
+  // Verify gain map metadata was decoded and valid
+  uhdr_gainmap_metadata_t* gm_meta = uhdr_dec_get_gainmap_metadata(dec);
+  ASSERT_NE(gm_meta, nullptr);
+
+  EXPECT_EQ(uhdr_decode(dec).error_code, UHDR_CODEC_OK);
+
+  uhdr_release_decoder(dec);
+  uhdr_release_encoder(enc);
+}
+
+TEST_F(UltraHdrApiTest, JpegEncodeApi2WithXmpAndDecode) {
+  // First, produce a base JPEG that carries XMP
+  uhdr_codec_private_t* enc1 = uhdr_create_encoder();
+  ASSERT_NE(enc1, nullptr);
+  EXPECT_EQ(uhdr_enc_set_raw_image(enc1, &mHdrRaw, UHDR_HDR_IMG).error_code, UHDR_CODEC_OK);
+  EXPECT_EQ(uhdr_enc_set_output_format(enc1, UHDR_CODEC_JPG).error_code, UHDR_CODEC_OK);
+
+  const std::string kUserXmp =
+      "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\">\n"
+      "  <rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\n"
+      "    <rdf:Description rdf:about=\"\" xmlns:dc=\"http://purl.org/dc/elements/1.1/\">\n"
+      "      <dc:title><rdf:Alt><rdf:li xml:lang=\"x-default\">Base Image With XMP</rdf:li></rdf:Alt></dc:title>\n"
+      "    </rdf:Description>\n"
+      "  </rdf:RDF>\n"
+      "</x:xmpmeta>\n";
+
+  uhdr_mem_block_t xmp_block{};
+  xmp_block.data = const_cast<char*>(kUserXmp.data());
+  xmp_block.data_sz = xmp_block.capacity = kUserXmp.size();
+  EXPECT_EQ(uhdr_enc_set_xmp_data(enc1, &xmp_block).error_code, UHDR_CODEC_OK);
+
+  ASSERT_EQ(uhdr_encode(enc1).error_code, UHDR_CODEC_OK);
+  uhdr_compressed_image_t* enc1_out = uhdr_get_encoded_stream(enc1);
+  ASSERT_NE(enc1_out, nullptr);
+
+  // Probe and extract the base image with its embedded XMP
+  uhdr_codec_private_t* dec1 = uhdr_create_decoder();
+  ASSERT_NE(dec1, nullptr);
+  EXPECT_EQ(uhdr_dec_set_image(dec1, enc1_out).error_code, UHDR_CODEC_OK);
+  EXPECT_EQ(uhdr_dec_probe(dec1).error_code, UHDR_CODEC_OK);
+  uhdr_mem_block_t* base_img = uhdr_dec_get_base_image(dec1);
+  ASSERT_NE(base_img, nullptr);
+
+  uhdr_compressed_image_t sdr_compressed_with_xmp{};
+  sdr_compressed_with_xmp.data = base_img->data;
+  sdr_compressed_with_xmp.data_sz = base_img->data_sz;
+  sdr_compressed_with_xmp.capacity = base_img->capacity;
+  sdr_compressed_with_xmp.cg = UHDR_CG_DISPLAY_P3;
+  sdr_compressed_with_xmp.ct = UHDR_CT_SRGB;
+  sdr_compressed_with_xmp.range = UHDR_CR_FULL_RANGE;
+
+  // Now use API-2 with this compressed SDR image carrying XMP, WITHOUT explicitly setting XMP
+  uhdr_codec_private_t* enc2 = uhdr_create_encoder();
+  ASSERT_NE(enc2, nullptr);
+  EXPECT_EQ(uhdr_enc_set_raw_image(enc2, &mHdrRaw, UHDR_HDR_IMG).error_code, UHDR_CODEC_OK);
+  EXPECT_EQ(uhdr_enc_set_compressed_image(enc2, &sdr_compressed_with_xmp, UHDR_SDR_IMG).error_code,
+            UHDR_CODEC_OK);
+  EXPECT_EQ(uhdr_enc_set_output_format(enc2, UHDR_CODEC_JPG).error_code, UHDR_CODEC_OK);
+
+  ASSERT_EQ(uhdr_encode(enc2).error_code, UHDR_CODEC_OK);
+  uhdr_compressed_image_t* enc2_out = uhdr_get_encoded_stream(enc2);
+  ASSERT_NE(enc2_out, nullptr);
+
+  // Decode and verify that the base image's XMP was preserved automatically
+  uhdr_codec_private_t* dec2 = uhdr_create_decoder();
+  ASSERT_NE(dec2, nullptr);
+  EXPECT_EQ(uhdr_dec_set_image(dec2, enc2_out).error_code, UHDR_CODEC_OK);
+  EXPECT_EQ(uhdr_dec_probe(dec2).error_code, UHDR_CODEC_OK);
+
+  uhdr_mem_block_t* dec2_xmp = uhdr_dec_get_xmp(dec2);
+  ASSERT_NE(dec2_xmp, nullptr);
+  std::string dec2_xmp_str(static_cast<const char*>(dec2_xmp->data), dec2_xmp->data_sz);
+  EXPECT_NE(dec2_xmp_str.find("Base Image With XMP"), std::string::npos);
+
+  uhdr_release_decoder(dec2);
+  uhdr_release_encoder(enc2);
+  uhdr_release_decoder(dec1);
+  uhdr_release_encoder(enc1);
+}
+
 // ============================================================================
 // HEIF / HEIC Tests (API-0, API-1, and Unsupported APIs)
 // ============================================================================

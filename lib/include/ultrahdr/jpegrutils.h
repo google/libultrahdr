@@ -127,7 +127,8 @@ uhdr_error_info_t getMetadataFromXMP(uint8_t* xmp_data, size_t xmp_size, uint8_t
  * @return XMP metadata in type of string
  */
 std::string generateXmpForPrimaryImage(size_t secondary_image_length,
-                                       uhdr_gainmap_metadata_ext_t& metadata);
+                                       uhdr_gainmap_metadata_ext_t& metadata,
+                                       uhdr_mem_block_t* user_xmp = nullptr);
 
 /*
  * This method generates XMP metadata for the recovery map image.

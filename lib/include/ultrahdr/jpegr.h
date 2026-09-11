@@ -78,7 +78,8 @@ class JpegR : public UltraHdr {
    * \return uhdr_error_info_t #UHDR_CODEC_OK if operation succeeds, uhdr_codec_err_t otherwise.
    */
   uhdr_error_info_t encodeJPEGR(uhdr_raw_image_t* hdr_intent, uhdr_compressed_image_t* dest,
-                                int quality, uhdr_mem_block_t* exif);
+                                int quality, uhdr_mem_block_t* exif,
+                                uhdr_mem_block_t* xmp = nullptr);
 
   /*!\brief Encode API-1.
    *
@@ -95,11 +96,14 @@ class JpegR : public UltraHdr {
    * \param[in]       quality           quality factor for sdr intent jpeg compression
    * \param[in]       exif              optional exif metadata that needs to be inserted in
    *                                    compressed output
+   * \param[in]       xmp               optional xmp metadata that needs to be inserted in
+   *                                    compressed output
    *
    * \return uhdr_error_info_t #UHDR_CODEC_OK if operation succeeds, uhdr_codec_err_t otherwise.
    */
   uhdr_error_info_t encodeJPEGR(uhdr_raw_image_t* hdr_intent, uhdr_raw_image_t* sdr_intent,
-                                uhdr_compressed_image_t* dest, int quality, uhdr_mem_block_t* exif);
+                                uhdr_compressed_image_t* dest, int quality, uhdr_mem_block_t* exif,
+                                uhdr_mem_block_t* xmp = nullptr);
 
   /*!\brief Encode API-2.
    *
@@ -117,12 +121,15 @@ class JpegR : public UltraHdr {
    * \param[in]       sdr_intent_compressed    sdr intent compressed input image descriptor
    * \param[in, out]  dest                     output image descriptor to store compressed ultrahdr
    *                                           image
+   * \param[in]       xmp                      optional xmp metadata that needs to be inserted in
+   *                                           compressed output
    *
    * \return uhdr_error_info_t #UHDR_CODEC_OK if operation succeeds, uhdr_codec_err_t otherwise.
    */
   uhdr_error_info_t encodeJPEGR(uhdr_raw_image_t* hdr_intent, uhdr_raw_image_t* sdr_intent,
                                 uhdr_compressed_image_t* sdr_intent_compressed,
-                                uhdr_compressed_image_t* dest);
+                                uhdr_compressed_image_t* dest,
+                                uhdr_mem_block_t* xmp = nullptr);
 
   /*!\brief Encode API-3.
    *
@@ -138,12 +145,15 @@ class JpegR : public UltraHdr {
    * \param[in]       sdr_intent_compressed    sdr intent compressed input image descriptor
    * \param[in, out]  dest                     output image descriptor to store compressed ultrahdr
    *                                           image
+   * \param[in]       xmp                      optional xmp metadata that needs to be inserted in
+   *                                           compressed output
    *
    * \return uhdr_error_info_t #UHDR_CODEC_OK if operation succeeds, uhdr_codec_err_t otherwise.
    */
   uhdr_error_info_t encodeJPEGR(uhdr_raw_image_t* hdr_intent,
                                 uhdr_compressed_image_t* sdr_intent_compressed,
-                                uhdr_compressed_image_t* dest);
+                                uhdr_compressed_image_t* dest,
+                                uhdr_mem_block_t* xmp = nullptr);
 
   /*!\brief Encode API-4.
    *
@@ -157,13 +167,16 @@ class JpegR : public UltraHdr {
    * \param[in]       metadata                 gainmap metadata descriptor
    * \param[in, out]  dest                     output image descriptor to store compressed ultrahdr
    *                                           image
+   * \param[in]       xmp                      optional xmp metadata that needs to be inserted in
+   *                                           compressed output
    *
    * \return uhdr_error_info_t #UHDR_CODEC_OK if operation succeeds, uhdr_codec_err_t otherwise.
    */
   uhdr_error_info_t encodeJPEGR(uhdr_compressed_image_t* base_img_compressed,
                                 uhdr_compressed_image_t* gainmap_img_compressed,
                                 uhdr_gainmap_metadata_ext_t* metadata,
-                                uhdr_compressed_image_t* dest);
+                                uhdr_compressed_image_t* dest,
+                                uhdr_mem_block_t* xmp = nullptr);
 
   /*!\brief Decode API.
    *
@@ -340,7 +353,8 @@ class JpegR : public UltraHdr {
                                   uhdr_compressed_image_t* gainmap_compressed,
                                   uhdr_mem_block_t* pExif, void* pIcc, size_t icc_size,
                                   uhdr_gainmap_metadata_ext_t* metadata,
-                                  uhdr_compressed_image_t* dest);
+                                  uhdr_compressed_image_t* dest,
+                                  uhdr_mem_block_t* pXmp = nullptr);
 
   /*
    * This method will check the validity of the input arguments.
