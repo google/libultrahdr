@@ -1722,6 +1722,7 @@ TEST(JpegRTest, decodeApple) {
     std::string content((std::istreambuf_iterator<char>(ifs)), (std::istreambuf_iterator<char>()));
     ASSERT_GT(content.size(), 4u);
     ASSERT_EQ(is_uhdr_image(content.data(), content.size()), 1);
+    ASSERT_EQ(uhdr_is_supported_gainmap_image(content.data(), content.size()), 1);
 
     uhdrCompressedImg.data = content.data();
     uhdrCompressedImg.data_sz = content.size();

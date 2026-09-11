@@ -83,12 +83,14 @@
  *   2.0.2           2.0.2                       fix static libheif feature probing in Findlibheif.cmake;
  *                                               make core target linking PRIVATE to prevent overlinking
  *                                               downstream consumers.
+ *   2.1.0           2.1.0                       add a runtime-aware gain-map routing predicate and
+ *                                               correct structural gain-map recognition.
  */
 
 // This needs to be kept in sync with version in CMakeLists.txt
 #define UHDR_LIB_VER_MAJOR 2
-#define UHDR_LIB_VER_MINOR 0
-#define UHDR_LIB_VER_PATCH 2
+#define UHDR_LIB_VER_MINOR 1
+#define UHDR_LIB_VER_PATCH 0
 
 #define UHDR_LIB_VERSION \
   ((UHDR_LIB_VER_MAJOR * 10000) + (UHDR_LIB_VER_MINOR * 100) + UHDR_LIB_VER_PATCH)
@@ -614,8 +616,39 @@ UHDR_EXTERN void uhdr_reset_encoder(uhdr_codec_private_t* enc);
  * @returns 1 if the input data has a primary image, gain map image and gain map metadata. 0 if any
  *          errors are encountered during parsing process or if the image does not have primary
  *          image or gainmap image or gainmap metadata
+ *
+ * This is a structural check and does not guarantee that the current runtime can decode the image.
  */
 UHDR_EXTERN int is_uhdr_image(void* data, int size);
+
+/*!\brief Check whether this runtime supports routing a complete gain-map image to libultrahdr.
+ *
+ * This function validates the gain-map structure and metadata without decoding pixels. For
+ * HEIF/AVIF inputs, the current runtime-support policy is conservative: the primary and gain-map
+ * items must each be directly coded as AV1 (av01) or HEVC (hvc1/hev1), without alpha channels or
+ * derived-image layouts, and must use dimensions and color layouts supported by libultrahdr. The
+ * decoder families required by both items must also be currently available. Other structurally
+ * valid HEIF/AVIF gain-map structures may return 0. A positive result is a routing hint, not a
+ * guarantee that the compressed payload is complete or that every payload or codec profile will
+ * decode successfully.
+ *
+ * Because this function includes runtime and layout checks, a structurally recognized image may
+ * return 1 from is_uhdr_image() but 0 here.
+ * JPEG validation covers the MPF fields needed to associate the exact secondary image; unrelated
+ * primary-image size bookkeeping is tolerated for compatibility with existing Apple-authored files.
+ *
+ * The input buffer is borrowed for the duration of the call and is not modified or retained. The
+ * complete encoded stream and embedded JPEG payloads are not duplicated; parsers may allocate
+ * storage for container structures and metadata.
+ *
+ * @param[in]  data  pointer to a complete input compressed stream
+ * @param[in]  size  size of the compressed stream
+ *
+ * @returns 1 if the image has a supported gain-map structure and the required decoder families are
+ *          available. 0 for ordinary images, malformed gain-map structure or metadata, unsupported
+ *          HEIF/AVIF item or layout forms, unavailable decoder families, or parsing errors.
+ */
+UHDR_EXTERN int uhdr_is_supported_gainmap_image(const void* data, size_t size);
 
 /*!\brief Create a new decoder instance. The instance is initialized with default settings.
  * To override the settings use uhdr_dec_set_*()

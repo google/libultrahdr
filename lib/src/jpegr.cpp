@@ -1418,14 +1418,27 @@ uhdr_error_info_t JpegR::appendGainMap(uhdr_compressed_image_t* sdr_intent_compr
 
 uhdr_error_info_t JpegR::getJPEGRInfo(uhdr_compressed_image_t* uhdr_compressed_img,
                                       jr_info_ptr uhdr_image_info) {
+  return getJPEGRInfo(uhdr_compressed_img, uhdr_image_info, true, false);
+}
+
+uhdr_error_info_t JpegR::getJPEGRInfoForProbe(uhdr_compressed_image_t* uhdr_compressed_img,
+                                              jr_info_ptr uhdr_image_info) {
+  return getJPEGRInfo(uhdr_compressed_img, uhdr_image_info, false, true);
+}
+
+uhdr_error_info_t JpegR::getJPEGRInfo(uhdr_compressed_image_t* uhdr_compressed_img,
+                                      jr_info_ptr uhdr_image_info, bool copy_image_data,
+                                      bool require_mpf_association) {
   uhdr_compressed_image_t primary_image, gainmap;
 
-  UHDR_ERR_CHECK(extractPrimaryImageAndGainMap(uhdr_compressed_img, &primary_image, &gainmap))
+  UHDR_ERR_CHECK(extractPrimaryImageAndGainMap(uhdr_compressed_img, &primary_image, &gainmap,
+                                               require_mpf_association))
 
   UHDR_ERR_CHECK(parseJpegInfo(&primary_image, uhdr_image_info->primaryImgInfo,
-                               &uhdr_image_info->width, &uhdr_image_info->height))
+                               &uhdr_image_info->width, &uhdr_image_info->height, copy_image_data))
   if (uhdr_image_info->gainmapImgInfo != nullptr) {
-    UHDR_ERR_CHECK(parseJpegInfo(&gainmap, uhdr_image_info->gainmapImgInfo))
+    UHDR_ERR_CHECK(
+        parseJpegInfo(&gainmap, uhdr_image_info->gainmapImgInfo, nullptr, nullptr, copy_image_data))
   }
 
   return g_no_error;
@@ -1841,9 +1854,137 @@ uhdr_error_info_t UltraHdr::applyGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_
   return g_no_error;
 }
 
+namespace {
+
+bool readMpfU16(const uint8_t* data, size_t size, size_t offset, bool big_endian, uint16_t* value) {
+  if (offset > size || size - offset < sizeof(uint16_t)) return false;
+  *value = big_endian ? static_cast<uint16_t>((data[offset] << 8) | data[offset + 1])
+                      : static_cast<uint16_t>(data[offset] | (data[offset + 1] << 8));
+  return true;
+}
+
+bool readMpfU32(const uint8_t* data, size_t size, size_t offset, bool big_endian, uint32_t* value) {
+  if (offset > size || size - offset < sizeof(uint32_t)) return false;
+  if (big_endian) {
+    *value = (static_cast<uint32_t>(data[offset]) << 24) |
+             (static_cast<uint32_t>(data[offset + 1]) << 16) |
+             (static_cast<uint32_t>(data[offset + 2]) << 8) | data[offset + 3];
+  } else {
+    *value = data[offset] | (static_cast<uint32_t>(data[offset + 1]) << 8) |
+             (static_cast<uint32_t>(data[offset + 2]) << 16) |
+             (static_cast<uint32_t>(data[offset + 3]) << 24);
+  }
+  return true;
+}
+
+bool hasValidMpfAssociation(const uhdr_compressed_image_t* image, const JpegInfo& info) {
+  const auto& image_ranges = info.GetImageRanges();
+  if (image_ranges.size() != 2) return false;
+  const JpegSegmentInfo mpf = info.GetSegmentInfo(0, kMpf);
+  if (!mpf.IsValid() || image->data == nullptr) return false;
+  const DataRange& mpf_range = mpf.GetDataRange();
+  if (mpf_range.GetEnd() > image->data_sz || mpf_range.GetBegin() > mpf_range.GetEnd())
+    return false;
+  const size_t mpf_end = mpf_range.GetEnd();
+
+  const uint8_t* bytes = static_cast<const uint8_t*>(image->data);
+  constexpr size_t kJpegSegmentHeaderSize = 4;
+  if (mpf_range.GetBegin() > mpf_end ||
+      mpf_end - mpf_range.GetBegin() < kJpegSegmentHeaderSize + sizeof(kMpfSig)) {
+    return false;
+  }
+  const size_t signature = mpf_range.GetBegin() + kJpegSegmentHeaderSize;
+  if (memcmp(bytes + signature, kMpfSig, sizeof(kMpfSig)) != 0) return false;
+
+  const size_t tiff = signature + sizeof(kMpfSig);
+  if (tiff > mpf_end || mpf_end - tiff < kMpEndianSize + sizeof(uint32_t)) {
+    return false;
+  }
+  const bool big_endian = memcmp(bytes + tiff, kMpBigEndian, kMpEndianSize) == 0;
+  if (!big_endian && memcmp(bytes + tiff, kMpLittleEndian, kMpEndianSize) != 0) return false;
+
+  uint32_t ifd_offset = 0;
+  if (!readMpfU32(bytes, mpf_end, tiff + kMpEndianSize, big_endian, &ifd_offset) ||
+      ifd_offset > mpf_end - tiff) {
+    return false;
+  }
+  const size_t ifd = tiff + ifd_offset;
+  uint16_t tag_count = 0;
+  if (!readMpfU16(bytes, mpf_end, ifd, big_endian, &tag_count) || tag_count > 64) {
+    return false;
+  }
+
+  size_t entries_offset = 0;
+  uint32_t entries_size = 0;
+  uint32_t image_count = 0;
+  bool has_valid_version = false;
+  bool has_image_count = false;
+  bool has_mp_entries = false;
+  size_t tag = ifd + sizeof(uint16_t);
+  for (uint16_t i = 0; i < tag_count; ++i, tag += kTagSize) {
+    uint16_t id = 0;
+    uint16_t type = 0;
+    uint32_t count = 0;
+    uint32_t value = 0;
+    if (!readMpfU16(bytes, mpf_end, tag, big_endian, &id) ||
+        !readMpfU16(bytes, mpf_end, tag + 2, big_endian, &type) ||
+        !readMpfU32(bytes, mpf_end, tag + 4, big_endian, &count) ||
+        !readMpfU32(bytes, mpf_end, tag + 8, big_endian, &value)) {
+      return false;
+    }
+    if (id == kVersionTag) {
+      if (has_valid_version || type != kVersionType || count != kVersionCount ||
+          memcmp(bytes + tag + 8, kVersionExpected, kVersionSize) != 0) {
+        return false;
+      }
+      has_valid_version = true;
+    } else if (id == kNumberOfImagesTag) {
+      if (has_image_count || type != kTypeLong || count != kNumberOfImagesCount) return false;
+      has_image_count = true;
+      image_count = value;
+    } else if (id == kMPEntryTag) {
+      if (has_mp_entries || type != kTypeUndefined || count < 2 * kMPEntrySize) return false;
+      has_mp_entries = true;
+      entries_offset = value;
+      entries_size = count;
+    }
+  }
+  if (!has_valid_version || !has_image_count || !has_mp_entries || image_count != 2 ||
+      entries_size != image_count * kMPEntrySize ||
+      entries_offset > mpf_end - tiff || mpf_end - (tiff + entries_offset) < entries_size) {
+    return false;
+  }
+
+  const size_t primary_entry = tiff + entries_offset;
+  const size_t secondary_entry = tiff + entries_offset + kMPEntrySize;
+  uint32_t primary_attributes = 0;
+  uint32_t primary_offset = 0;
+  uint32_t secondary_attributes = 0;
+  uint32_t secondary_size = 0;
+  uint32_t secondary_offset = 0;
+  constexpr uint32_t kMpfFormatAndTypeMask = 0x0fffffff;
+  if (!readMpfU32(bytes, mpf_end, primary_entry, big_endian, &primary_attributes) ||
+      !readMpfU32(bytes, mpf_end, primary_entry + 8, big_endian, &primary_offset) ||
+      !readMpfU32(bytes, mpf_end, secondary_entry, big_endian, &secondary_attributes) ||
+      !readMpfU32(bytes, mpf_end, secondary_entry + 4, big_endian, &secondary_size) ||
+      !readMpfU32(bytes, mpf_end, secondary_entry + 8, big_endian, &secondary_offset) ||
+      (primary_attributes & kMpfFormatAndTypeMask) != kMPEntryAttributeTypePrimary ||
+      (secondary_attributes & kMpfFormatAndTypeMask) != kMPEntryAttributeFormatJpeg ||
+      primary_offset != 0 || secondary_offset > image->data_sz - tiff) {
+    return false;
+  }
+  // Only the secondary entry is needed to associate the gain-map JPEG. Some Apple-authored files
+  // use legacy primary-size bookkeeping, so do not reject an otherwise exact association for it.
+  return tiff + secondary_offset == image_ranges[1].GetBegin() &&
+         secondary_size == image_ranges[1].GetLength();
+}
+
+}  // namespace
+
 uhdr_error_info_t JpegR::extractPrimaryImageAndGainMap(uhdr_compressed_image_t* jpegr_image,
                                                        uhdr_compressed_image_t* primary_image,
-                                                       uhdr_compressed_image_t* gainmap_image) {
+                                                       uhdr_compressed_image_t* gainmap_image,
+                                                       bool require_mpf_association) {
   MessageHandler msg_handler;
   msg_handler.SetMessageWriter(make_unique<AlogMessageWriter>(AlogMessageWriter()));
 
@@ -1896,6 +2037,15 @@ uhdr_error_info_t JpegR::extractPrimaryImageAndGainMap(uhdr_compressed_image_t* 
     return status;
   }
 
+  if (require_mpf_association && !hasValidMpfAssociation(jpegr_image, jpeg_info)) {
+    uhdr_error_info_t status;
+    status.error_code = UHDR_CODEC_INVALID_PARAM;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "input uhdr image does not contain a valid MPF gain map association");
+    return status;
+  }
+
   if (gainmap_image != nullptr) {
     gainmap_image->data = static_cast<uint8_t*>(jpegr_image->data) + image_ranges[1].GetBegin();
     gainmap_image->data_sz = image_ranges[1].GetLength();
@@ -1911,7 +2061,8 @@ uhdr_error_info_t JpegR::extractPrimaryImageAndGainMap(uhdr_compressed_image_t* 
 }
 
 uhdr_error_info_t JpegR::parseJpegInfo(uhdr_compressed_image_t* jpeg_image, j_info_ptr image_info,
-                                       unsigned int* img_width, unsigned int* img_height) {
+                                       unsigned int* img_width, unsigned int* img_height,
+                                       bool copy_image_data) {
   JpegDecoderHelper jpeg_dec_obj;
   UHDR_ERR_CHECK(jpeg_dec_obj.parseImage(jpeg_image->data, jpeg_image->data_sz))
   unsigned int imgWidth, imgHeight, numComponents;
@@ -1923,8 +2074,10 @@ uhdr_error_info_t JpegR::parseJpegInfo(uhdr_compressed_image_t* jpeg_image, j_in
     image_info->width = imgWidth;
     image_info->height = imgHeight;
     image_info->numComponents = numComponents;
-    image_info->imgData.resize(jpeg_image->data_sz, 0);
-    memcpy(static_cast<void*>(image_info->imgData.data()), jpeg_image->data, jpeg_image->data_sz);
+    if (copy_image_data) {
+      image_info->imgData.resize(jpeg_image->data_sz, 0);
+      memcpy(static_cast<void*>(image_info->imgData.data()), jpeg_image->data, jpeg_image->data_sz);
+    }
     if (jpeg_dec_obj.getICCSize() != 0) {
       image_info->iccData.resize(jpeg_dec_obj.getICCSize(), 0);
       memcpy(static_cast<void*>(image_info->iccData.data()), jpeg_dec_obj.getICCPtr(),
