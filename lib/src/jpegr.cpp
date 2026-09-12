@@ -1286,17 +1286,26 @@ uhdr_error_info_t JpegR::appendGainMap(uhdr_compressed_image_t* sdr_intent_compr
   }
 
   if (!xmp_primary_str.empty()) {
-    const size_t length = 2 + xmpNameSpaceLength + xmp_primary_str.size();
-    if (length <= 65535) {
-      const uint8_t lengthH = ((length >> 8) & 0xff);
-      const uint8_t lengthL = (length & 0xff);
-      UHDR_ERR_CHECK(Write(dest, &photos_editing_formats::image_io::JpegMarker::kStart, 1, pos));
-      UHDR_ERR_CHECK(Write(dest, &photos_editing_formats::image_io::JpegMarker::kAPP1, 1, pos));
-      UHDR_ERR_CHECK(Write(dest, &lengthH, 1, pos));
-      UHDR_ERR_CHECK(Write(dest, &lengthL, 1, pos));
-      UHDR_ERR_CHECK(Write(dest, (void*)kXmpNameSpace.c_str(), xmpNameSpaceLength, pos));
-      UHDR_ERR_CHECK(Write(dest, (void*)xmp_primary_str.c_str(), xmp_primary_str.size(), pos));
+    constexpr size_t kJpegSegmentMaxLength = 0xffff;
+    if (xmpNameSpaceLength > kJpegSegmentMaxLength - 2 ||
+        xmp_primary_str.size() > kJpegSegmentMaxLength - 2 - xmpNameSpaceLength) {
+      uhdr_error_info_t status;
+      status.error_code = UHDR_CODEC_INVALID_PARAM;
+      status.has_detail = 1;
+      snprintf(status.detail, sizeof status.detail,
+               "serialized XMP metadata exceeds the JPEG APP1 segment size limit");
+      return status;
     }
+
+    const size_t length = 2 + xmpNameSpaceLength + xmp_primary_str.size();
+    const uint8_t lengthH = ((length >> 8) & 0xff);
+    const uint8_t lengthL = (length & 0xff);
+    UHDR_ERR_CHECK(Write(dest, &photos_editing_formats::image_io::JpegMarker::kStart, 1, pos));
+    UHDR_ERR_CHECK(Write(dest, &photos_editing_formats::image_io::JpegMarker::kAPP1, 1, pos));
+    UHDR_ERR_CHECK(Write(dest, &lengthH, 1, pos));
+    UHDR_ERR_CHECK(Write(dest, &lengthL, 1, pos));
+    UHDR_ERR_CHECK(Write(dest, (void*)kXmpNameSpace.c_str(), xmpNameSpaceLength, pos));
+    UHDR_ERR_CHECK(Write(dest, (void*)xmp_primary_str.c_str(), xmp_primary_str.size(), pos));
   }
 
   // Write ICC

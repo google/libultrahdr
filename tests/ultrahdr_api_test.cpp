@@ -8,9 +8,11 @@
 #include <gtest/gtest.h>
 #endif
 #include <algorithm>
+#include <cstdint>
 #include <fstream>
 #include <cstring>
 #include <limits>
+#include <string>
 #include <vector>
 #include <memory>
 #include <vector>
@@ -28,6 +30,39 @@ static const char* kYCbCr420FileName = "raw_yuv420_image.yuv420";
 static const char* kSdrJpgFileName = "jpeg_image.jpg";
 static const size_t kImageWidth = 1280;
 static const size_t kImageHeight = 720;
+
+static std::string makeLargeXmp(size_t size) {
+  const std::string prefix =
+      "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF "
+      "xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description "
+      "rdf:about=\"\"><dc:Pad xmlns:dc=\"urn:test\"><!--";
+  const std::string suffix = "--></dc:Pad></rdf:Description></rdf:RDF></x:xmpmeta>";
+  EXPECT_GE(size, prefix.size() + suffix.size());
+  return prefix + std::string(size - prefix.size() - suffix.size(), 'X') + suffix;
+}
+
+static std::vector<uint8_t> makeSmallHdrData() {
+  const uint16_t pixel[] = {0x3c00, 0x4000, 0x3800, 0x3c00};
+  std::vector<uint8_t> data(8 * 8 * sizeof(pixel));
+  for (size_t i = 0; i < 8 * 8; ++i) {
+    memcpy(data.data() + i * sizeof(pixel), pixel, sizeof(pixel));
+  }
+  return data;
+}
+
+static void expectEncodedXmpDecodes(uhdr_compressed_image_t* output, size_t min_xmp_size) {
+  ASSERT_NE(output, nullptr);
+  uhdr_codec_private_t* dec = uhdr_create_decoder();
+  ASSERT_NE(dec, nullptr);
+  ASSERT_EQ(uhdr_dec_set_image(dec, output).error_code, UHDR_CODEC_OK);
+  ASSERT_EQ(uhdr_dec_probe(dec).error_code, UHDR_CODEC_OK);
+  uhdr_mem_block_t* decoded_xmp = uhdr_dec_get_xmp(dec);
+  ASSERT_NE(decoded_xmp, nullptr);
+  ASSERT_NE(decoded_xmp->data, nullptr);
+  EXPECT_GE(decoded_xmp->data_sz, min_xmp_size);
+  ASSERT_EQ(uhdr_decode(dec).error_code, UHDR_CODEC_OK);
+  uhdr_release_decoder(dec);
+}
 
 static bool loadFile(const char* filename, std::vector<uint8_t>& buffer) {
   std::vector<std::string> candidates = {
@@ -417,6 +452,108 @@ TEST_F(UltraHdrApiTest, JpegEncodeApi2WithXmpAndDecode) {
   uhdr_release_encoder(enc2);
   uhdr_release_decoder(dec1);
   uhdr_release_encoder(enc1);
+}
+
+TEST_F(UltraHdrApiTest, LargeXmpFitsSmallRawApiOutput) {
+#ifdef UHDR_WRITE_XMP
+  // The dual writer adds its container directory to the supplied packet.
+  constexpr size_t kXmpSize = 64000;
+#else
+  constexpr size_t kXmpSize = 65504;
+#endif
+  const std::vector<uint8_t> hdr_data = makeSmallHdrData();
+  uhdr_raw_image_t hdr{};
+  hdr.fmt = UHDR_IMG_FMT_64bppRGBAHalfFloat;
+  hdr.cg = UHDR_CG_DISPLAY_P3;
+  hdr.ct = UHDR_CT_LINEAR;
+  hdr.range = UHDR_CR_FULL_RANGE;
+  hdr.w = hdr.h = 8;
+  hdr.planes[UHDR_PLANE_PACKED] = const_cast<uint8_t*>(hdr_data.data());
+  hdr.stride[UHDR_PLANE_PACKED] = 8;
+
+  uhdr_codec_private_t* enc = uhdr_create_encoder();
+  ASSERT_NE(enc, nullptr);
+  ASSERT_EQ(uhdr_enc_set_raw_image(enc, &hdr, UHDR_HDR_IMG).error_code, UHDR_CODEC_OK);
+  const std::string xmp = makeLargeXmp(kXmpSize);
+  uhdr_mem_block_t xmp_block{const_cast<char*>(xmp.data()), xmp.size(), xmp.size()};
+  ASSERT_EQ(uhdr_enc_set_xmp_data(enc, &xmp_block).error_code, UHDR_CODEC_OK);
+  ASSERT_EQ(uhdr_enc_set_output_format(enc, UHDR_CODEC_JPG).error_code, UHDR_CODEC_OK);
+
+  const uhdr_error_info_t status = uhdr_encode(enc);
+  ASSERT_EQ(status.error_code, UHDR_CODEC_OK) << status.detail;
+  uhdr_compressed_image_t* output = uhdr_get_encoded_stream(enc);
+  ASSERT_NE(output, nullptr);
+  EXPECT_GT(output->data_sz, static_cast<size_t>(64 * 1024));
+  expectEncodedXmpDecodes(output, kXmpSize);
+  uhdr_release_encoder(enc);
+}
+
+TEST_F(UltraHdrApiTest, LargeXmpFitsCompressedBaseGainmapApiOutput) {
+#ifdef UHDR_WRITE_XMP
+  constexpr size_t kXmpSize = 64000;
+#else
+  constexpr size_t kXmpSize = 65504;
+#endif
+  uhdr_gainmap_metadata_t metadata{};
+  for (int channel = 0; channel < 3; ++channel) {
+    metadata.max_content_boost[channel] = 2.0f;
+    metadata.min_content_boost[channel] = 1.0f;
+    metadata.gamma[channel] = 1.0f;
+  }
+  metadata.hdr_capacity_min = 1.0f;
+  metadata.hdr_capacity_max = 2.0f;
+  metadata.use_base_cg = 1;
+
+  uhdr_codec_private_t* enc = uhdr_create_encoder();
+  ASSERT_NE(enc, nullptr);
+  ASSERT_EQ(uhdr_enc_set_compressed_image(enc, &mSdrCompressed, UHDR_BASE_IMG).error_code,
+            UHDR_CODEC_OK);
+  ASSERT_EQ(uhdr_enc_set_gainmap_image(enc, &mSdrCompressed, &metadata).error_code,
+            UHDR_CODEC_OK);
+  const std::string xmp = makeLargeXmp(kXmpSize);
+  uhdr_mem_block_t xmp_block{const_cast<char*>(xmp.data()), xmp.size(), xmp.size()};
+  ASSERT_EQ(uhdr_enc_set_xmp_data(enc, &xmp_block).error_code, UHDR_CODEC_OK);
+  ASSERT_EQ(uhdr_enc_set_output_format(enc, UHDR_CODEC_JPG).error_code, UHDR_CODEC_OK);
+
+  const uhdr_error_info_t status = uhdr_encode(enc);
+  ASSERT_EQ(status.error_code, UHDR_CODEC_OK) << status.detail;
+  uhdr_compressed_image_t* output = uhdr_get_encoded_stream(enc);
+  ASSERT_NE(output, nullptr);
+  EXPECT_GT(output->data_sz, static_cast<size_t>(64 * 1024));
+  expectEncodedXmpDecodes(output, kXmpSize);
+  uhdr_release_encoder(enc);
+}
+
+TEST_F(UltraHdrApiTest, OversizedFinalXmpIsRejected) {
+  uhdr_gainmap_metadata_t metadata{};
+  for (int channel = 0; channel < 3; ++channel) {
+    metadata.max_content_boost[channel] = 2.0f;
+    metadata.min_content_boost[channel] = 1.0f;
+    metadata.gamma[channel] = 1.0f;
+  }
+  metadata.hdr_capacity_min = 1.0f;
+  metadata.hdr_capacity_max = 2.0f;
+  metadata.use_base_cg = 1;
+
+  uhdr_codec_private_t* enc = uhdr_create_encoder();
+  ASSERT_NE(enc, nullptr);
+  ASSERT_EQ(uhdr_enc_set_compressed_image(enc, &mSdrCompressed, UHDR_BASE_IMG).error_code,
+            UHDR_CODEC_OK);
+  ASSERT_EQ(uhdr_enc_set_gainmap_image(enc, &mSdrCompressed, &metadata).error_code,
+            UHDR_CODEC_OK);
+#ifdef UHDR_WRITE_XMP
+  const std::string xmp = makeLargeXmp(65504);
+#else
+  const std::string xmp = makeLargeXmp(65505);
+#endif
+  uhdr_mem_block_t xmp_block{const_cast<char*>(xmp.data()), xmp.size(), xmp.size()};
+  ASSERT_EQ(uhdr_enc_set_xmp_data(enc, &xmp_block).error_code, UHDR_CODEC_OK);
+  ASSERT_EQ(uhdr_enc_set_output_format(enc, UHDR_CODEC_JPG).error_code, UHDR_CODEC_OK);
+
+  const uhdr_error_info_t status = uhdr_encode(enc);
+  EXPECT_NE(status.error_code, UHDR_CODEC_OK);
+  EXPECT_TRUE(status.has_detail);
+  uhdr_release_encoder(enc);
 }
 
 // ============================================================================
