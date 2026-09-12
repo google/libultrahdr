@@ -122,15 +122,20 @@ uhdr_error_info_t uhdr_gainmap_metadata_frac::encodeGainmapMetadata(
     return status;
   }
 
+  if (in_metadata->backwardDirection) {
+    uhdr_error_info_t status;
+    status.error_code = UHDR_CODEC_UNSUPPORTED_FEATURE;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail, "backward direction is not supported");
+    return status;
+  }
+
   const uint16_t min_version = 0, writer_version = 0;
   streamWriteU16(out_data, min_version);
   streamWriteU16(out_data, writer_version);
 
   uint8_t flags = 0u;
-  // Always write three channels for now for simplicity.
-  // TODO(maryla): the draft says that this specifies the count of channels of the
-  // gain map. But tone mapping is done in RGB space so there are always three
-  // channels, even if the gain map is grayscale. Should this be revised?
+  // Version 0 defines only the channel-count and base-color-space flags.
   const uint8_t channelCount = in_metadata->allChannelsIdentical() ? 1u : 3u;
 
   if (channelCount == 3) {
@@ -139,55 +144,23 @@ uhdr_error_info_t uhdr_gainmap_metadata_frac::encodeGainmapMetadata(
   if (in_metadata->useBaseColorSpace) {
     flags |= kUseBaseColorSpaceMask;
   }
-  if (in_metadata->backwardDirection) {
-    flags |= 4;
-  }
-
-  const uint32_t denom = in_metadata->baseHdrHeadroomD;
-  bool useCommonDenominator = true;
-  if (in_metadata->baseHdrHeadroomD != denom || in_metadata->alternateHdrHeadroomD != denom) {
-    useCommonDenominator = false;
-  }
-  for (int c = 0; c < channelCount; ++c) {
-    if (in_metadata->gainMapMinD[c] != denom || in_metadata->gainMapMaxD[c] != denom ||
-        in_metadata->gainMapGammaD[c] != denom || in_metadata->baseOffsetD[c] != denom ||
-        in_metadata->alternateOffsetD[c] != denom) {
-      useCommonDenominator = false;
-    }
-  }
-  if (useCommonDenominator) {
-    flags |= 8;
-  }
   streamWriteU8(out_data, flags);
 
-  if (useCommonDenominator) {
-    streamWriteU32(out_data, denom);
-    streamWriteU32(out_data, in_metadata->baseHdrHeadroomN);
-    streamWriteU32(out_data, in_metadata->alternateHdrHeadroomN);
-    for (int c = 0; c < channelCount; ++c) {
-      streamWriteS32(out_data, in_metadata->gainMapMinN[c]);
-      streamWriteS32(out_data, in_metadata->gainMapMaxN[c]);
-      streamWriteU32(out_data, in_metadata->gainMapGammaN[c]);
-      streamWriteS32(out_data, in_metadata->baseOffsetN[c]);
-      streamWriteS32(out_data, in_metadata->alternateOffsetN[c]);
-    }
-  } else {
-    streamWriteU32(out_data, in_metadata->baseHdrHeadroomN);
-    streamWriteU32(out_data, in_metadata->baseHdrHeadroomD);
-    streamWriteU32(out_data, in_metadata->alternateHdrHeadroomN);
-    streamWriteU32(out_data, in_metadata->alternateHdrHeadroomD);
-    for (int c = 0; c < channelCount; ++c) {
-      streamWriteS32(out_data, in_metadata->gainMapMinN[c]);
-      streamWriteU32(out_data, in_metadata->gainMapMinD[c]);
-      streamWriteS32(out_data, in_metadata->gainMapMaxN[c]);
-      streamWriteU32(out_data, in_metadata->gainMapMaxD[c]);
-      streamWriteU32(out_data, in_metadata->gainMapGammaN[c]);
-      streamWriteU32(out_data, in_metadata->gainMapGammaD[c]);
-      streamWriteS32(out_data, in_metadata->baseOffsetN[c]);
-      streamWriteU32(out_data, in_metadata->baseOffsetD[c]);
-      streamWriteS32(out_data, in_metadata->alternateOffsetN[c]);
-      streamWriteU32(out_data, in_metadata->alternateOffsetD[c]);
-    }
+  streamWriteU32(out_data, in_metadata->baseHdrHeadroomN);
+  streamWriteU32(out_data, in_metadata->baseHdrHeadroomD);
+  streamWriteU32(out_data, in_metadata->alternateHdrHeadroomN);
+  streamWriteU32(out_data, in_metadata->alternateHdrHeadroomD);
+  for (int c = 0; c < channelCount; ++c) {
+    streamWriteS32(out_data, in_metadata->gainMapMinN[c]);
+    streamWriteU32(out_data, in_metadata->gainMapMinD[c]);
+    streamWriteS32(out_data, in_metadata->gainMapMaxN[c]);
+    streamWriteU32(out_data, in_metadata->gainMapMaxD[c]);
+    streamWriteU32(out_data, in_metadata->gainMapGammaN[c]);
+    streamWriteU32(out_data, in_metadata->gainMapGammaD[c]);
+    streamWriteS32(out_data, in_metadata->baseOffsetN[c]);
+    streamWriteU32(out_data, in_metadata->baseOffsetD[c]);
+    streamWriteS32(out_data, in_metadata->alternateOffsetN[c]);
+    streamWriteU32(out_data, in_metadata->alternateOffsetD[c]);
   }
 
   return g_no_error;
