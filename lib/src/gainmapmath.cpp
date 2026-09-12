@@ -429,16 +429,23 @@ Color getP010Pixel(uhdr_raw_image_t* image, size_t x, size_t y) {
   size_t chroma_stride = image->stride[UHDR_PLANE_UV];
 
   size_t pixel_y_idx = y * luma_stride + x;
-  size_t chroma_x = x & ~(size_t)0x1;
-  if (chroma_x + 1 >= image->w) {
-    chroma_x = (image->w >= 2) ? ((image->w - 2) & ~(size_t)0x1) : 0;
-  }
+  // P010 stores complete interleaved UV pairs. The logical row width is ceil(w / 2)
+  // pairs, but a caller-provided stride can be tighter than that capacity.
+  const size_t logical_chroma_samples = 2 * (static_cast<size_t>(image->w) / 2 + image->w % 2);
+  const size_t available_chroma_samples = (std::min)(logical_chroma_samples, chroma_stride);
+  const size_t max_chroma_x =
+      available_chroma_samples >= 2 ? (available_chroma_samples - 2) & ~(size_t)0x1 : 0;
+  const size_t chroma_x = (std::min)(x & ~(size_t)0x1, max_chroma_x);
   size_t pixel_u_idx = (y >> 1) * chroma_stride + chroma_x;
   size_t pixel_v_idx = pixel_u_idx + 1;
 
   uint16_t y_uint = luma_data[pixel_y_idx] >> 6;
-  uint16_t u_uint = chroma_data[pixel_u_idx] >> 6;
-  uint16_t v_uint = chroma_data[pixel_v_idx] >> 6;
+  uint16_t u_uint = 512;
+  uint16_t v_uint = 512;
+  if (available_chroma_samples >= 2) {
+    u_uint = chroma_data[pixel_u_idx] >> 6;
+    v_uint = chroma_data[pixel_v_idx] >> 6;
+  }
 
   if (image->range == UHDR_CR_FULL_RANGE) {
     return {{{static_cast<float>(y_uint) / 1023.0f, static_cast<float>(u_uint) / 1023.0f - 0.5f,
@@ -1248,6 +1255,13 @@ PutPixelFn putPixelFn(uhdr_img_fmt_t format) {
   return nullptr;
 }
 
+static Color getPixelClamped(uhdr_raw_image_t* image, GetPixelFn get_pixel, size_t x, size_t y) {
+  // 4:2:0 processes complete 2x2 blocks; replicate the edge pixel for a partial block.
+  x = (std::min)(x, static_cast<size_t>(image->w - 1));
+  y = (std::min)(y, static_cast<size_t>(image->h - 1));
+  return get_pixel(image, x, y);
+}
+
 SamplePixelFn getSamplePixelFn(uhdr_img_fmt_t format) {
   switch (format) {
     case UHDR_IMG_FMT_24bppYCbCr444:
@@ -1321,25 +1335,27 @@ std::unique_ptr<uhdr_raw_image_ext_t> convert_raw_input_to_ycbcr(uhdr_raw_image_
     uint16_t* uData = static_cast<uint16_t*>(dst->planes[UHDR_PLANE_UV]);
     uint16_t* vData = uData + 1;
 
-    for (size_t i = 0; i + 1 < dst->h; i += 2) {
-      for (size_t j = 0; j + 1 < dst->w; j += 2) {
+    for (size_t i = 0; i < dst->h; i += 2) {
+      for (size_t j = 0; j < dst->w; j += 2) {
+        const size_t next_i = i + 1 < src->h ? i + 1 : i;
+        const size_t next_j = j + 1 < src->w ? j + 1 : j;
         Color pixel[4];
 
         pixel[0].r = float(rgbData[srcStride * i + j] & 0x3ff);
         pixel[0].g = float((rgbData[srcStride * i + j] >> 10) & 0x3ff);
         pixel[0].b = float((rgbData[srcStride * i + j] >> 20) & 0x3ff);
 
-        pixel[1].r = float(rgbData[srcStride * i + j + 1] & 0x3ff);
-        pixel[1].g = float((rgbData[srcStride * i + j + 1] >> 10) & 0x3ff);
-        pixel[1].b = float((rgbData[srcStride * i + j + 1] >> 20) & 0x3ff);
+        pixel[1].r = float(rgbData[srcStride * i + next_j] & 0x3ff);
+        pixel[1].g = float((rgbData[srcStride * i + next_j] >> 10) & 0x3ff);
+        pixel[1].b = float((rgbData[srcStride * i + next_j] >> 20) & 0x3ff);
 
-        pixel[2].r = float(rgbData[srcStride * (i + 1) + j] & 0x3ff);
-        pixel[2].g = float((rgbData[srcStride * (i + 1) + j] >> 10) & 0x3ff);
-        pixel[2].b = float((rgbData[srcStride * (i + 1) + j] >> 20) & 0x3ff);
+        pixel[2].r = float(rgbData[srcStride * next_i + j] & 0x3ff);
+        pixel[2].g = float((rgbData[srcStride * next_i + j] >> 10) & 0x3ff);
+        pixel[2].b = float((rgbData[srcStride * next_i + j] >> 20) & 0x3ff);
 
-        pixel[3].r = float(rgbData[srcStride * (i + 1) + j + 1] & 0x3ff);
-        pixel[3].g = float((rgbData[srcStride * (i + 1) + j + 1] >> 10) & 0x3ff);
-        pixel[3].b = float((rgbData[srcStride * (i + 1) + j + 1] >> 20) & 0x3ff);
+        pixel[3].r = float(rgbData[srcStride * next_i + next_j] & 0x3ff);
+        pixel[3].g = float((rgbData[srcStride * next_i + next_j] >> 10) & 0x3ff);
+        pixel[3].b = float((rgbData[srcStride * next_i + next_j] >> 20) & 0x3ff);
 
         for (int k = 0; k < 4; k++) {
           // Now we only support the RGB input being full range
@@ -1351,9 +1367,15 @@ std::unique_ptr<uhdr_raw_image_ext_t> convert_raw_input_to_ycbcr(uhdr_raw_image_
         }
 
         yData[dst->stride[UHDR_PLANE_Y] * i + j] = uint16_t(pixel[0].y) << 6;
-        yData[dst->stride[UHDR_PLANE_Y] * i + j + 1] = uint16_t(pixel[1].y) << 6;
-        yData[dst->stride[UHDR_PLANE_Y] * (i + 1) + j] = uint16_t(pixel[2].y) << 6;
-        yData[dst->stride[UHDR_PLANE_Y] * (i + 1) + j + 1] = uint16_t(pixel[3].y) << 6;
+        if (j + 1 < dst->w) {
+          yData[dst->stride[UHDR_PLANE_Y] * i + j + 1] = uint16_t(pixel[1].y) << 6;
+        }
+        if (i + 1 < dst->h) {
+          yData[dst->stride[UHDR_PLANE_Y] * (i + 1) + j] = uint16_t(pixel[2].y) << 6;
+          if (j + 1 < dst->w) {
+            yData[dst->stride[UHDR_PLANE_Y] * (i + 1) + j + 1] = uint16_t(pixel[3].y) << 6;
+          }
+        }
 
         pixel[0].u = (pixel[0].u + pixel[1].u + pixel[2].u + pixel[3].u) / 4;
         pixel[0].v = (pixel[0].v + pixel[1].v + pixel[2].v + pixel[3].v) / 4;
@@ -1414,14 +1436,14 @@ std::unique_ptr<uhdr_raw_image_ext_t> convert_raw_input_to_ycbcr(uhdr_raw_image_
     uint8_t* yData = static_cast<uint8_t*>(dst->planes[UHDR_PLANE_Y]);
     uint8_t* uData = static_cast<uint8_t*>(dst->planes[UHDR_PLANE_U]);
     uint8_t* vData = static_cast<uint8_t*>(dst->planes[UHDR_PLANE_V]);
-    for (size_t i = 0; i + 1 < dst->h; i += 2) {
-      for (size_t j = 0; j + 1 < dst->w; j += 2) {
-        Color pixel[4];
-
-        pixel[0] = getPixel(src, j, i);
-        pixel[1] = getPixel(src, j + 1, i);
-        pixel[2] = getPixel(src, j, i + 1);
-        pixel[3] = getPixel(src, j + 1, i + 1);
+    for (size_t i = 0; i < dst->h; i += 2) {
+      for (size_t j = 0; j < dst->w; j += 2) {
+        Color pixel[4] = {
+            getPixelClamped(src, getPixel, j, i),
+            getPixelClamped(src, getPixel, j + 1, i),
+            getPixelClamped(src, getPixel, j, i + 1),
+            getPixelClamped(src, getPixel, j + 1, i + 1),
+        };
 
         for (int k = 0; k < 4; k++) {
           // Now we only support the RGB input being full range
@@ -1431,9 +1453,15 @@ std::unique_ptr<uhdr_raw_image_ext_t> convert_raw_input_to_ycbcr(uhdr_raw_image_
           pixel[k].y = CLIP3(pixel[k].y, 0.0f, 255.0f);
         }
         yData[dst->stride[UHDR_PLANE_Y] * i + j] = uint8_t(pixel[0].y);
-        yData[dst->stride[UHDR_PLANE_Y] * i + j + 1] = uint8_t(pixel[1].y);
-        yData[dst->stride[UHDR_PLANE_Y] * (i + 1) + j] = uint8_t(pixel[2].y);
-        yData[dst->stride[UHDR_PLANE_Y] * (i + 1) + j + 1] = uint8_t(pixel[3].y);
+        if (j + 1 < dst->w) {
+          yData[dst->stride[UHDR_PLANE_Y] * i + j + 1] = uint8_t(pixel[1].y);
+        }
+        if (i + 1 < dst->h) {
+          yData[dst->stride[UHDR_PLANE_Y] * (i + 1) + j] = uint8_t(pixel[2].y);
+          if (j + 1 < dst->w) {
+            yData[dst->stride[UHDR_PLANE_Y] * (i + 1) + j + 1] = uint8_t(pixel[3].y);
+          }
+        }
 
         pixel[0].u = (pixel[0].u + pixel[1].u + pixel[2].u + pixel[3].u) / 4;
         pixel[0].v = (pixel[0].v + pixel[1].v + pixel[2].v + pixel[3].v) / 4;
@@ -1508,9 +1536,27 @@ uhdr_error_info_t copy_raw_image(uhdr_raw_image_t* src, uhdr_raw_image_t* dst) {
   dst->cg = src->cg;
   dst->ct = src->ct;
   dst->range = src->range;
+  auto invalid_chroma_stride = [](const char* image, size_t stride, size_t required) {
+    uhdr_error_info_t status;
+    status.error_code = UHDR_CODEC_INVALID_PARAM;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "%s chroma stride %zu is smaller than the required row width %zu", image, stride,
+             required);
+    return status;
+  };
   if (dst->fmt == src->fmt) {
     if (src->fmt == UHDR_IMG_FMT_24bppYCbCrP010) {
       size_t bpp = 2;
+      const size_t chroma_height = src->h / 2 + src->h % 2;
+      const size_t chroma_width = src->w / 2 + src->w % 2;
+      const size_t chroma_row_samples = 2 * chroma_width;
+      if (src->stride[UHDR_PLANE_UV] < chroma_row_samples) {
+        return invalid_chroma_stride("source", src->stride[UHDR_PLANE_UV], chroma_row_samples);
+      }
+      if (dst->stride[UHDR_PLANE_UV] < chroma_row_samples) {
+        return invalid_chroma_stride("destination", dst->stride[UHDR_PLANE_UV], chroma_row_samples);
+      }
       uint8_t* y_dst = static_cast<uint8_t*>(dst->planes[UHDR_PLANE_Y]);
       uint8_t* y_src = static_cast<uint8_t*>(src->planes[UHDR_PLANE_Y]);
       uint8_t* uv_dst = static_cast<uint8_t*>(dst->planes[UHDR_PLANE_UV]);
@@ -1523,13 +1569,25 @@ uhdr_error_info_t copy_raw_image(uhdr_raw_image_t* src, uhdr_raw_image_t* dst) {
         y_src += (src->stride[UHDR_PLANE_Y] * bpp);
       }
       // copy cbcr
-      for (size_t i = 0; i < src->h / 2; i++) {
-        memcpy(uv_dst, uv_src, src->w * bpp);
+      for (size_t i = 0; i < chroma_height; i++) {
+        memcpy(uv_dst, uv_src, chroma_row_samples * bpp);
         uv_dst += (dst->stride[UHDR_PLANE_UV] * bpp);
         uv_src += (src->stride[UHDR_PLANE_UV] * bpp);
       }
       return g_no_error;
     } else if (src->fmt == UHDR_IMG_FMT_12bppYCbCr420) {
+      const size_t chroma_height = src->h / 2 + src->h % 2;
+      const size_t chroma_width = src->w / 2 + src->w % 2;
+      if (src->stride[UHDR_PLANE_U] < chroma_width || src->stride[UHDR_PLANE_V] < chroma_width) {
+        return invalid_chroma_stride(
+            "source", (std::min)(src->stride[UHDR_PLANE_U], src->stride[UHDR_PLANE_V]),
+            chroma_width);
+      }
+      if (dst->stride[UHDR_PLANE_U] < chroma_width || dst->stride[UHDR_PLANE_V] < chroma_width) {
+        return invalid_chroma_stride(
+            "destination", (std::min)(dst->stride[UHDR_PLANE_U], dst->stride[UHDR_PLANE_V]),
+            chroma_width);
+      }
       uint8_t* y_dst = static_cast<uint8_t*>(dst->planes[UHDR_PLANE_Y]);
       uint8_t* y_src = static_cast<uint8_t*>(src->planes[UHDR_PLANE_Y]);
       uint8_t* u_dst = static_cast<uint8_t*>(dst->planes[UHDR_PLANE_U]);
@@ -1544,9 +1602,9 @@ uhdr_error_info_t copy_raw_image(uhdr_raw_image_t* src, uhdr_raw_image_t* dst) {
         y_src += src->stride[UHDR_PLANE_Y];
       }
       // copy cb & cr
-      for (size_t i = 0; i < src->h / 2; i++) {
-        memcpy(u_dst, u_src, src->w / 2);
-        memcpy(v_dst, v_src, src->w / 2);
+      for (size_t i = 0; i < chroma_height; i++) {
+        memcpy(u_dst, u_src, chroma_width);
+        memcpy(v_dst, v_src, chroma_width);
         u_dst += dst->stride[UHDR_PLANE_U];
         v_dst += dst->stride[UHDR_PLANE_V];
         u_src += src->stride[UHDR_PLANE_U];

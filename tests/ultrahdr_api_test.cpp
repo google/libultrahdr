@@ -650,6 +650,114 @@ TEST_F(UltraHdrApiTest, HeifAndAvifPropagateGainMapMetadataErrors) {
   if (tested_formats == 0) GTEST_SKIP() << "AV1 and HEVC encoder plugins are unavailable";
 }
 
+class OddMultichannelGainMapCodecTest : public ::testing::TestWithParam<uhdr_codec_t> {};
+
+TEST_P(OddMultichannelGainMapCodecTest, PreservesOddGainMapEdges) {
+  constexpr unsigned width = 36;
+  constexpr unsigned height = 36;
+  constexpr unsigned gainmap_scale_factor = 4;
+  constexpr unsigned gainmap_width = width / gainmap_scale_factor;
+  constexpr unsigned gainmap_height = height / gainmap_scale_factor;
+  constexpr unsigned edge_sample_x = (gainmap_width - 1) * gainmap_scale_factor;
+  constexpr unsigned edge_sample_y = (gainmap_height - 1) * gainmap_scale_factor;
+  std::vector<uint32_t> hdr_pixels(static_cast<size_t>(width) * height,
+                                   700u | (700u << 10) | (700u << 20) | (3u << 30));
+  hdr_pixels[static_cast<size_t>(edge_sample_y) * width + edge_sample_x] =
+      1000u | (300u << 10) | (100u << 20) | (3u << 30);
+  uhdr_raw_image_t hdr{};
+  hdr.fmt = UHDR_IMG_FMT_32bppRGBA1010102;
+  hdr.cg = UHDR_CG_BT_2100;
+  hdr.ct = UHDR_CT_HLG;
+  hdr.range = UHDR_CR_FULL_RANGE;
+  hdr.w = width;
+  hdr.h = height;
+  hdr.planes[UHDR_PLANE_PACKED] = hdr_pixels.data();
+  hdr.stride[UHDR_PLANE_PACKED] = width;
+
+  std::vector<uint8_t> sdr_pixels(static_cast<size_t>(width) * height * 4, 128);
+  for (size_t i = 3; i < sdr_pixels.size(); i += 4) sdr_pixels[i] = 255;
+  uhdr_raw_image_t sdr{};
+  sdr.fmt = UHDR_IMG_FMT_32bppRGBA8888;
+  sdr.cg = UHDR_CG_BT_2100;
+  sdr.ct = UHDR_CT_SRGB;
+  sdr.range = UHDR_CR_FULL_RANGE;
+  sdr.w = width;
+  sdr.h = height;
+  sdr.planes[UHDR_PLANE_PACKED] = sdr_pixels.data();
+  sdr.stride[UHDR_PLANE_PACKED] = width;
+
+  uhdr_codec_private_t* enc = uhdr_create_encoder();
+  ASSERT_NE(enc, nullptr);
+  ASSERT_EQ(uhdr_enc_set_raw_image(enc, &hdr, UHDR_HDR_IMG).error_code, UHDR_CODEC_OK);
+  ASSERT_EQ(uhdr_enc_set_raw_image(enc, &sdr, UHDR_SDR_IMG).error_code, UHDR_CODEC_OK);
+  ASSERT_EQ(uhdr_enc_set_output_format(enc, GetParam()).error_code, UHDR_CODEC_OK);
+  ASSERT_EQ(uhdr_enc_set_using_multi_channel_gainmap(enc, 1).error_code, UHDR_CODEC_OK);
+  ASSERT_EQ(uhdr_enc_set_gainmap_scale_factor(enc, gainmap_scale_factor).error_code, UHDR_CODEC_OK);
+  ASSERT_EQ(uhdr_enc_set_quality(enc, 100, UHDR_GAIN_MAP_IMG).error_code, UHDR_CODEC_OK);
+
+  uhdr_error_info_t enc_status = uhdr_encode(enc);
+  if (enc_status.error_code != UHDR_CODEC_OK && enc_status.has_detail &&
+      (strstr(enc_status.detail, "Unsupported file-type") != nullptr ||
+       strstr(enc_status.detail, "No encoder") != nullptr)) {
+    const std::string detail = enc_status.detail;
+    uhdr_release_encoder(enc);
+    GTEST_SKIP() << "encoder plugin not available in environment: " << detail;
+  }
+  ASSERT_EQ(enc_status.error_code, UHDR_CODEC_OK)
+      << (enc_status.has_detail ? enc_status.detail : "");
+  uhdr_compressed_image_t* output = uhdr_get_encoded_stream(enc);
+  ASSERT_NE(output, nullptr);
+
+  uhdr_codec_private_t* dec = uhdr_create_decoder();
+  ASSERT_NE(dec, nullptr);
+  ASSERT_EQ(uhdr_dec_set_image(dec, output).error_code, UHDR_CODEC_OK);
+  ASSERT_EQ(uhdr_dec_probe(dec).error_code, UHDR_CODEC_OK);
+  EXPECT_EQ(uhdr_dec_get_gainmap_width(dec), static_cast<int>(gainmap_width));
+  EXPECT_EQ(uhdr_dec_get_gainmap_height(dec), static_cast<int>(gainmap_height));
+  ASSERT_EQ(uhdr_decode(dec).error_code, UHDR_CODEC_OK);
+
+  heif_context* heif_ctx = heif_context_alloc();
+  ASSERT_NE(heif_ctx, nullptr);
+  ASSERT_EQ(
+      heif_context_read_from_memory_without_copy(heif_ctx, output->data, output->data_sz, nullptr)
+          .code,
+      heif_error_Ok);
+  heif_image_handle* base_handle = nullptr;
+  ASSERT_EQ(heif_context_get_primary_image_handle(heif_ctx, &base_handle).code, heif_error_Ok);
+  heif_image_handle* gainmap_handle = nullptr;
+  ASSERT_EQ(heif_image_handle_get_gain_map_image_handle(base_handle, &gainmap_handle).code,
+            heif_error_Ok);
+  EXPECT_EQ(heif_image_handle_get_width(gainmap_handle), static_cast<int>(gainmap_width));
+  EXPECT_EQ(heif_image_handle_get_height(gainmap_handle), static_cast<int>(gainmap_height));
+  heif_image* decoded_gainmap = nullptr;
+  ASSERT_EQ(heif_decode_image(gainmap_handle, &decoded_gainmap, heif_colorspace_RGB,
+                              heif_chroma_interleaved_RGBA, nullptr)
+                .code,
+            heif_error_Ok);
+  int gainmap_stride = 0;
+  const uint8_t* gainmap_pixels =
+      heif_image_get_plane_readonly(decoded_gainmap, heif_channel_interleaved, &gainmap_stride);
+  ASSERT_NE(gainmap_pixels, nullptr);
+  const size_t edge_offset =
+      static_cast<size_t>(gainmap_height - 1) * gainmap_stride + (gainmap_width - 1) * 4;
+  // The final source sample has much more red gain than green or blue. This verifies that the
+  // partial lower-right 4:2:0 block carries its own chroma instead of retaining default values or
+  // borrowing the previous complete pair.
+  EXPECT_GT(gainmap_pixels[edge_offset], gainmap_pixels[edge_offset + 1] + 20);
+  EXPECT_GT(gainmap_pixels[edge_offset], gainmap_pixels[edge_offset + 2] + 20);
+
+  heif_image_release(decoded_gainmap);
+  heif_image_handle_release(gainmap_handle);
+  heif_image_handle_release(base_handle);
+  heif_context_free(heif_ctx);
+
+  uhdr_release_decoder(dec);
+  uhdr_release_encoder(enc);
+}
+
+INSTANTIATE_TEST_SUITE_P(AvifAndHeif, OddMultichannelGainMapCodecTest,
+                         ::testing::Values(UHDR_CODEC_AVIF, UHDR_CODEC_HEIF));
+
 TEST_F(UltraHdrApiTest, AvifCompressedIntentsUnsupported) {
   uhdr_codec_private_t* enc = uhdr_create_encoder();
   ASSERT_NE(enc, nullptr);
