@@ -10,6 +10,7 @@
 
 #include <cstdio>
 #include <cstring>
+#include <limits>
 
 #include "ultrahdr_api.h"
 #include "ultrahdr/ultrahdrcommon.h"
@@ -41,6 +42,14 @@
 using namespace photos_editing_formats::image_io;
 
 namespace ultrahdr {
+
+namespace {
+
+// A standard XMP APP1 segment can contain 65,504 bytes of packet data, in addition to its
+// marker, length field, and Adobe namespace identifier.
+constexpr size_t kJpegXmpApp1Allowance = 0xffff + 2;
+
+}  // namespace
 
 uhdr_memory_block::uhdr_memory_block(size_t capacity) {
   m_buffer = std::make_unique<uint8_t[]>(capacity);
@@ -1315,6 +1324,18 @@ uhdr_error_info_t uhdr_encode(uhdr_codec_private_t* enc) {
   }
 
   if (handle->m_output_format == UHDR_CODEC_JPG) {
+    const bool mayWriteXmp = !handle->m_xmp.empty() || !handle->m_compressed_images.empty();
+    const size_t xmpAllowance = mayWriteXmp ? ultrahdr::kJpegXmpApp1Allowance : 0;
+    auto addXmpAllowance = [xmpAllowance](size_t base_size, size_t* output_size) {
+      if (xmpAllowance > (std::numeric_limits<size_t>::max)() - base_size) return false;
+      *output_size = base_size + xmpAllowance;
+      return true;
+    };
+    auto reportOutputSizeOverflow = [&status]() {
+      status.error_code = UHDR_CODEC_ERROR;
+      status.has_detail = 1;
+      snprintf(status.detail, sizeof status.detail, "compressed output size calculation overflowed");
+    };
     ultrahdr::JpegR jpegr(nullptr, handle->m_gainmap_scale_factor,
                           handle->m_quality.find(UHDR_GAIN_MAP_IMG)->second,
                           handle->m_use_multi_channel_gainmap, handle->m_gamma,
@@ -1327,6 +1348,10 @@ uhdr_error_info_t uhdr_encode(uhdr_codec_private_t* enc) {
 
       size_t size =
           (std::max)(((size_t)64 * 1024), 2 * (base_entry->data_sz + gainmap_entry->data_sz));
+      if (!addXmpAllowance(size, &size)) {
+        reportOutputSizeOverflow();
+        return status;
+      }
       handle->m_compressed_output_buffer = std::make_unique<ultrahdr::uhdr_compressed_image_ext_t>(
           UHDR_CG_UNSPECIFIED, UHDR_CT_UNSPECIFIED, UHDR_CR_UNSPECIFIED, size);
 
@@ -1340,6 +1365,10 @@ uhdr_error_info_t uhdr_encode(uhdr_codec_private_t* enc) {
       auto& hdr_raw_entry = handle->m_raw_images.find(UHDR_HDR_IMG)->second;
 
       size_t size = (std::max)((64u * 1024), hdr_raw_entry->w * hdr_raw_entry->h * 3 * 2);
+      if (!addXmpAllowance(size, &size)) {
+        reportOutputSizeOverflow();
+        return status;
+      }
       handle->m_compressed_output_buffer = std::make_unique<ultrahdr::uhdr_compressed_image_ext_t>(
           UHDR_CG_UNSPECIFIED, UHDR_CT_UNSPECIFIED, UHDR_CR_UNSPECIFIED, size);
 
