@@ -34,9 +34,15 @@ class MemoryWriter {
 
   ~MemoryWriter() { free(data_); }
 
-  const uint8_t* data() const { return data_; }
+  MemoryWriter(const MemoryWriter&) = delete;
+  MemoryWriter& operator=(const MemoryWriter&) = delete;
 
-  size_t size() const { return size_; }
+  void release(uhdr_owned_buffer_t* output) {
+    output->reset(data_, size_);
+    data_ = nullptr;
+    size_ = 0;
+    capacity_ = 0;
+  }
 
   struct heif_error write(const void* data, size_t size) {
     if (size == 0) return {heif_error_Ok, heif_suberror_Unspecified, nullptr};
@@ -288,6 +294,30 @@ HeifUltraHdr::HeifUltraHdr(void* uhdrGLESCtxt, int mapDimensionScaleFactor, int 
 /* Encode API-0 */
 uhdr_error_info_t HeifUltraHdr::encodeHeicUltraHdr(uhdr_raw_image_t* hdr_intent, uhdr_compressed_image_t* dest,
                                      int quality, uhdr_mem_block_t* exif) {
+  uhdr_owned_buffer_t output;
+  if (dest == nullptr || dest->data == nullptr) {
+    return invalidOutputDestination();
+  }
+  uhdr_error_info_t status = encodeHeicUltraHdrToOwnedBuffer(hdr_intent, &output, quality, exif);
+  if (status.error_code != UHDR_CODEC_OK) return status;
+  return copyOwnedBufferToCompressedImage(output, dest);
+}
+
+uhdr_error_info_t HeifUltraHdr::encodeHeicUltraHdrToOwnedBuffer(uhdr_raw_image_t* hdr_intent,
+                                                                uhdr_owned_buffer_t* dest,
+                                                                int quality,
+                                                                uhdr_mem_block_t* exif) {
+  if (dest == nullptr) {
+    return invalidOutputDestination();
+  }
+  dest->reset();
+  if (hdr_intent == nullptr) {
+    uhdr_error_info_t status = g_no_error;
+    status.error_code = UHDR_CODEC_INVALID_PARAM;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail, "hdr intent is null");
+    return status;
+  }
   uhdr_img_fmt_t sdr_intent_fmt;
   if (hdr_intent->fmt == UHDR_IMG_FMT_24bppYCbCrP010) {
     sdr_intent_fmt = UHDR_IMG_FMT_12bppYCbCr420;
@@ -338,14 +368,38 @@ uhdr_error_info_t HeifUltraHdr::encodeHeicUltraHdr(uhdr_raw_image_t* hdr_intent,
   std::shared_ptr<DataStruct> alternateIcc =
       IccHelper::writeIccProfile(gainmap->ct, gainmap->cg);
 
-  return encodeHeicUltraHdr(sdr_intent_yuv, gainmap.get(), &metadata, dest, quality, exif, baseIcc.get(),
-                     alternateIcc.get());
+  return encodeHeicUltraHdr(sdr_intent_yuv, gainmap.get(), &metadata, dest, quality,
+                            exif, baseIcc.get(), alternateIcc.get());
 }
 
 /* Encode API-1 */
 uhdr_error_info_t HeifUltraHdr::encodeHeicUltraHdr(uhdr_raw_image_t* hdr_intent, uhdr_raw_image_t* sdr_intent,
                                      uhdr_compressed_image_t* dest, int quality,
                                      uhdr_mem_block_t* exif) {
+  uhdr_owned_buffer_t output;
+  if (dest == nullptr || dest->data == nullptr) {
+    return invalidOutputDestination();
+  }
+  uhdr_error_info_t status =
+      encodeHeicUltraHdrToOwnedBuffer(hdr_intent, sdr_intent, &output, quality, exif);
+  if (status.error_code != UHDR_CODEC_OK) return status;
+  return copyOwnedBufferToCompressedImage(output, dest);
+}
+
+uhdr_error_info_t HeifUltraHdr::encodeHeicUltraHdrToOwnedBuffer(
+    uhdr_raw_image_t* hdr_intent, uhdr_raw_image_t* sdr_intent, uhdr_owned_buffer_t* dest,
+    int quality, uhdr_mem_block_t* exif) {
+  if (dest == nullptr) {
+    return invalidOutputDestination();
+  }
+  dest->reset();
+  if (hdr_intent == nullptr || sdr_intent == nullptr) {
+    uhdr_error_info_t status = g_no_error;
+    status.error_code = UHDR_CODEC_INVALID_PARAM;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail, "hdr or sdr intent is null");
+    return status;
+  }
   // generate gain map
   uhdr_gainmap_metadata_ext_t metadata(kJpegrVersion);
   std::unique_ptr<uhdr_raw_image_ext_t> gainmap;
@@ -367,16 +421,20 @@ uhdr_error_info_t HeifUltraHdr::encodeHeicUltraHdr(uhdr_raw_image_t* hdr_intent,
   std::shared_ptr<DataStruct> alternateIcc =
       IccHelper::writeIccProfile(gainmap->ct, gainmap->cg);
 
-  return encodeHeicUltraHdr(sdr_intent_yuv, gainmap.get(), &metadata, dest, quality, exif, baseIcc.get(),
-                     alternateIcc.get());
+  return encodeHeicUltraHdr(sdr_intent_yuv, gainmap.get(), &metadata, dest, quality,
+                            exif, baseIcc.get(), alternateIcc.get());
 }
 
-uhdr_error_info_t HeifUltraHdr::encodeHeicUltraHdr(uhdr_raw_image_t* sdr_intent, uhdr_raw_image_t* gainmap_img,
-                                     uhdr_gainmap_metadata_ext_t* metadata,
-                                     uhdr_compressed_image_t* dest, int quality,
-                                     uhdr_mem_block_t* exif, DataStruct* baseIcc,
-                                     DataStruct* alternateIcc) {
+uhdr_error_info_t HeifUltraHdr::encodeHeicUltraHdr(uhdr_raw_image_t* sdr_intent,
+                                                   uhdr_raw_image_t* gainmap_img,
+                                                   uhdr_gainmap_metadata_ext_t* metadata,
+                                                   uhdr_owned_buffer_t* dest, int quality,
+                                                   uhdr_mem_block_t* exif, DataStruct* baseIcc,
+                                                   DataStruct* alternateIcc) {
   uhdr_error_info_t status = g_no_error;
+  if (dest == nullptr) {
+    return invalidOutputDestination();
+  }
   heif_encoder* encoder = nullptr;
   heif_encoding_options* options = nullptr;
   heif_color_profile_nclx* sdrNclx = nullptr;
@@ -548,16 +606,7 @@ uhdr_error_info_t HeifUltraHdr::encodeHeicUltraHdr(uhdr_raw_image_t* sdr_intent,
     snprintf(status.detail, sizeof status.detail, "%s", write_err.message);
     goto CleanUp;
   }
-  if (writer.size() > dest->capacity) {
-    status.error_code = UHDR_CODEC_MEM_ERROR;
-    status.has_detail = 1;
-    snprintf(status.detail, sizeof status.detail,
-             "destination buffer is too small, capacity is %zu, required size is %zu",
-             dest->capacity, writer.size());
-    goto CleanUp;
-  }
-  memcpy(dest->data, writer.data(), writer.size());
-  dest->data_sz = writer.size();
+  writer.release(dest);
 
 CleanUp:
   if (baseImage) heif_image_release(baseImage);
