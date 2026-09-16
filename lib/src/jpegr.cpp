@@ -1270,6 +1270,15 @@ uhdr_error_info_t JpegR::appendGainMap(uhdr_compressed_image_t* sdr_intent_compr
   std::string xmp_primary_str;
   if (kWriteXmpMetadata) {
     xmp_primary_str = generateXmpForPrimaryImage(secondary_image_size, *metadata, pXmp);
+    if (pXmp != nullptr && pXmp->data != nullptr && pXmp->data_sz > 0 &&
+        xmp_primary_str.empty()) {
+      uhdr_error_info_t status;
+      status.error_code = UHDR_CODEC_INVALID_PARAM;
+      status.has_detail = 1;
+      snprintf(status.detail, sizeof status.detail,
+               "unable to safely merge supplied XMP metadata into the primary image");
+      return status;
+    }
   } else if (pXmp != nullptr && pXmp->data != nullptr && pXmp->data_sz > 0) {
     const std::string kXmpHeader = "http://ns.adobe.com/xap/1.0/";
     if (pXmp->data_sz > kXmpHeader.size() &&

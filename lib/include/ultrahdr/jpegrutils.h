@@ -124,7 +124,10 @@ uhdr_error_info_t getMetadataFromXMP(uint8_t* xmp_data, size_t xmp_size, uint8_t
  * </x:xmpmeta>
  *
  * @param secondary_image_length length of secondary image
- * @return XMP metadata in type of string
+ * @param user_xmp optional XMP packet from the primary image. Its unrelated XML is preserved while
+ *                  the encoder-owned primary-image gain-map description is replaced.
+ * @return XMP metadata in type of string. An empty string means that a supplied packet could not be
+ *         safely merged.
  */
 std::string generateXmpForPrimaryImage(size_t secondary_image_length,
                                        uhdr_gainmap_metadata_ext_t& metadata,
