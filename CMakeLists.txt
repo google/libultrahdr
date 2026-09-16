@@ -823,6 +823,7 @@ if(UHDR_BUILD_TESTS)
   target_include_directories(ultrahdr_unit_test PRIVATE
     ${PRIVATE_INCLUDE_DIR}
     ${GTEST_INCLUDE_DIRS}
+    "${THIRD_PARTY_DIR}/image_io/includes"
   )
   if(UHDR_BUILD_FUZZERS)
     target_link_options(ultrahdr_unit_test PRIVATE -fsanitize=fuzzer-no-link)

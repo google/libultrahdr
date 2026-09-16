@@ -94,8 +94,8 @@ static DecoderPtr makeDecoder() {
   return DecoderPtr(uhdr_create_decoder(), &uhdr_release_decoder);
 }
 
-// Configures the API-4 inputs used by the focused JPEG XMP tests. The XMP block is optional for
-// the first encode in the getter/setter re-encode test, which relies on generated XMP.
+// Configures the API-4 inputs used by the focused JPEG XMP tests. The XMP block is optional when
+// an API-4 re-encode should reuse XMP embedded in its compressed base image.
 static uhdr_error_info_t configureJpegGainmapEncoder(uhdr_codec_private_t* encoder,
                                                      uhdr_compressed_image_t* base_image,
                                                      uhdr_compressed_image_t* gainmap_image,
@@ -622,10 +622,24 @@ TEST_F(UltraHdrApiTest, JpegApi4XmpMergeReplacesVersionAttributeAndElement) {
 }
 
 TEST_F(UltraHdrApiTest, JpegApi4GetterSetterReencodeUsesSingleCurrentGainmapDirectory) {
+  const std::string descriptive_seed =
+      "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF "
+      "xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description "
+      "rdf:about=\"\" xmlns:dc=\"http://purl.org/dc/elements/1.1/\" "
+      "xmlns:c=\"http://ns.google.com/photos/1.0/container/\" "
+      "xmlns:h=\"http://ns.adobe.com/hdr-gain-map/1.0/\" "
+      "c:Directory=\"stale-container-attribute\" h:Version=\"stale-hdrgm-attribute\">"
+      "<dc:description><rdf:Alt><rdf:li xml:lang=\"x-default\">retained-description"
+      "</rdf:li></rdf:Alt></dc:description>"
+      "<c:Directory>stale-container-element</c:Directory>"
+      "<h:Version>stale-hdrgm-element</h:Version>"
+      "</rdf:Description></rdf:RDF></x:xmpmeta>";
+  uhdr_mem_block_t descriptive_seed_block{const_cast<char*>(descriptive_seed.data()),
+                                           descriptive_seed.size(), descriptive_seed.size()};
   uhdr_gainmap_metadata_t metadata = makeTestGainmapMetadata();
   JpegXmpRoundTrip first_round_trip;
-  ASSERT_TRUE(encodeAndProbeJpegXmp(&mSdrCompressed, &mSdrCompressed, &metadata, nullptr,
-                                     first_round_trip));
+  ASSERT_TRUE(encodeAndProbeJpegXmp(&mSdrCompressed, &mSdrCompressed, &metadata,
+                                     &descriptive_seed_block, first_round_trip));
   uhdr_mem_block_t* first_xmp = uhdr_dec_get_xmp(first_round_trip.decoder.get());
   ASSERT_NE(first_xmp, nullptr);
   ASSERT_NE(first_xmp->data, nullptr);
@@ -636,6 +650,47 @@ TEST_F(UltraHdrApiTest, JpegApi4GetterSetterReencodeUsesSingleCurrentGainmapDire
   ASSERT_NE(first_gainmap->data, nullptr);
   const std::string first_packet = getXmpPacket(first_xmp);
   ASSERT_FALSE(first_packet.empty());
+  const char* stale_sentinels[] = {
+      "stale-container-attribute", "stale-container-element", "stale-hdrgm-attribute",
+      "stale-hdrgm-element",
+  };
+
+  auto checkOutput = [&](JpegXmpRoundTrip& round_trip, bool expect_changed_gainmap,
+                         const char* expected_description, const char* absent_description,
+                         std::string* packet_out) {
+    uhdr_mem_block_t* output_gainmap = uhdr_dec_get_gainmap_image(round_trip.decoder.get());
+    ASSERT_NE(output_gainmap, nullptr);
+    ASSERT_NE(output_gainmap->data, nullptr);
+    if (expect_changed_gainmap) {
+      EXPECT_NE(output_gainmap->data_sz, first_gainmap->data_sz);
+    }
+
+    uhdr_mem_block_t* output_xmp = uhdr_dec_get_xmp(round_trip.decoder.get());
+    ASSERT_NE(output_xmp, nullptr);
+    ASSERT_NE(output_xmp->data, nullptr);
+    const std::string output_packet = getXmpPacket(output_xmp);
+    ASSERT_FALSE(output_packet.empty());
+    EXPECT_NE(output_packet.find(expected_description), std::string::npos);
+    if (absent_description != nullptr) {
+      EXPECT_EQ(output_packet.find(absent_description), std::string::npos);
+    }
+    for (const char* stale : stale_sentinels) {
+      EXPECT_EQ(output_packet.find(stale), std::string::npos) << stale;
+    }
+
+    const ContainerDirectoryInfo directory_info = getContainerDirectoryInfo(output_packet);
+    ASSERT_TRUE(directory_info.parsed);
+    EXPECT_EQ(directory_info.directory_count, 1u);
+    ASSERT_EQ(directory_info.gainmap_lengths.size(), 1u);
+    EXPECT_EQ(directory_info.gainmap_lengths.front(), output_gainmap->data_sz);
+    ASSERT_EQ(uhdr_decode(round_trip.decoder.get()).error_code, UHDR_CODEC_OK);
+    if (packet_out != nullptr) *packet_out = output_packet;
+  };
+
+  uhdr_gainmap_metadata_t* decoded_metadata =
+      uhdr_dec_get_gainmap_metadata(first_round_trip.decoder.get());
+  ASSERT_NE(decoded_metadata, nullptr);
+  checkOutput(first_round_trip, false, "retained-description", nullptr, nullptr);
 
   JpegEncoderHelper changed_gainmap_encoder;
   ASSERT_EQ(changed_gainmap_encoder.compressImage(&mSdrRaw, 50, nullptr, 0).error_code,
@@ -648,39 +703,45 @@ TEST_F(UltraHdrApiTest, JpegApi4GetterSetterReencodeUsesSingleCurrentGainmapDire
       first_base->data, first_base->data_sz, first_base->capacity, UHDR_CG_BT_709, UHDR_CT_SRGB,
       UHDR_CR_FULL_RANGE};
   uhdr_compressed_image_t gainmap_input = changed_gainmap;
-  uhdr_gainmap_metadata_t* decoded_metadata =
-      uhdr_dec_get_gainmap_metadata(first_round_trip.decoder.get());
-  ASSERT_NE(decoded_metadata, nullptr);
 
   const std::string xpacket_wrapped =
       "<?xpacket begin=\"\xef\xbb\xbf\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>\n" + first_packet +
       "\n<?xpacket end=\"w\"?>";
   const std::string raw_getter(static_cast<const char*>(first_xmp->data), first_xmp->data_sz);
-  const std::string xmp_inputs[] = {raw_getter, xpacket_wrapped};
-  for (size_t input_index = 0; input_index < std::size(xmp_inputs); ++input_index) {
-    SCOPED_TRACE(input_index == 0 ? "raw getter bytes" : "xpacket wrapped XML");
-    uhdr_mem_block_t xmp_input{const_cast<char*>(xmp_inputs[input_index].data()),
-                               xmp_inputs[input_index].size(), xmp_inputs[input_index].size()};
-    JpegXmpRoundTrip second_round_trip;
-    ASSERT_TRUE(encodeAndProbeJpegXmp(&base_input, &gainmap_input, decoded_metadata, &xmp_input,
-                                      second_round_trip));
-    uhdr_mem_block_t* second_gainmap =
-        uhdr_dec_get_gainmap_image(second_round_trip.decoder.get());
-    ASSERT_NE(second_gainmap, nullptr);
-    ASSERT_NE(second_gainmap->data, nullptr);
-    ASSERT_NE(second_gainmap->data_sz, first_gainmap->data_sz);
-    uhdr_mem_block_t* second_xmp = uhdr_dec_get_xmp(second_round_trip.decoder.get());
-    ASSERT_NE(second_xmp, nullptr);
-    ASSERT_NE(second_xmp->data, nullptr);
-    const std::string second_packet = getXmpPacket(second_xmp);
-    const ContainerDirectoryInfo directory_info = getContainerDirectoryInfo(second_packet);
-    EXPECT_TRUE(directory_info.parsed);
-    EXPECT_EQ(directory_info.directory_count, 1u);
-    EXPECT_EQ(directory_info.gainmap_lengths.size(), 1u);
-    if (!directory_info.gainmap_lengths.empty()) {
-      EXPECT_EQ(directory_info.gainmap_lengths.front(), second_gainmap->data_sz);
+  const std::string replacement_xmp =
+      "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF "
+      "xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description "
+      "rdf:about=\"\" xmlns:dc=\"http://purl.org/dc/elements/1.1/\"><dc:description>"
+      "replacement-description</dc:description></rdf:Description></rdf:RDF></x:xmpmeta>";
+  struct ReencodeControl {
+    const char* name;
+    const std::string* xmp;
+    const char* expected_description;
+    const char* absent_description;
+    bool expect_xpacket_wrapper;
+  };
+  const ReencodeControl controls[] = {
+      {"raw getter bytes", &raw_getter, "retained-description", nullptr, false},
+      {"xpacket wrapped XML", &xpacket_wrapped, "retained-description", nullptr, true},
+      {"no XMP setter", nullptr, "retained-description", nullptr, false},
+      {"explicit replacement", &replacement_xmp, "replacement-description",
+       "retained-description", false},
+  };
+  for (const ReencodeControl& control : controls) {
+    SCOPED_TRACE(control.name);
+    uhdr_mem_block_t xmp_input{};
+    if (control.xmp != nullptr) {
+      xmp_input = {const_cast<char*>(control.xmp->data()), control.xmp->size(),
+                   control.xmp->size()};
     }
-    if (input_index == 1) {
+    JpegXmpRoundTrip second_round_trip;
+    ASSERT_TRUE(encodeAndProbeJpegXmp(&base_input, &gainmap_input, decoded_metadata,
+                                      control.xmp != nullptr ? &xmp_input : nullptr,
+                                      second_round_trip));
+    std::string second_packet;
+    checkOutput(second_round_trip, true, control.expected_description,
+                control.absent_description, &second_packet);
+    if (control.expect_xpacket_wrapper) {
       EXPECT_NE(second_packet.find(
                     "<?xpacket begin=\"\xef\xbb\xbf\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>"),
                 std::string::npos);
