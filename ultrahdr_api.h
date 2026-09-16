@@ -83,14 +83,12 @@
  *   2.0.2           2.0.2                       fix static libheif feature probing in Findlibheif.cmake;
  *                                               make core target linking PRIVATE to prevent overlinking
  *                                               downstream consumers.
- *   2.1.0           2.1.0                       add a runtime-aware gain-map routing predicate and
- *                                               correct structural gain-map recognition.
  */
 
 // This needs to be kept in sync with version in CMakeLists.txt
 #define UHDR_LIB_VER_MAJOR 2
-#define UHDR_LIB_VER_MINOR 1
-#define UHDR_LIB_VER_PATCH 0
+#define UHDR_LIB_VER_MINOR 0
+#define UHDR_LIB_VER_PATCH 2
 
 #define UHDR_LIB_VERSION \
   ((UHDR_LIB_VER_MAJOR * 10000) + (UHDR_LIB_VER_MINOR * 100) + UHDR_LIB_VER_PATCH)
