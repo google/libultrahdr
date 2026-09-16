@@ -15,7 +15,6 @@
 #include <string>
 #include <vector>
 #include <memory>
-#include <vector>
 
 #include "ultrahdr_api.h"
 #include "ultrahdr/ultrahdrcommon.h"

@@ -1286,7 +1286,6 @@ uhdr_error_info_t JpegR::appendGainMap(uhdr_compressed_image_t* sdr_intent_compr
   }
 
   if (!xmp_primary_str.empty()) {
-    constexpr size_t kJpegSegmentMaxLength = 0xffff;
     if (xmpNameSpaceLength > kJpegSegmentMaxLength - 2 ||
         xmp_primary_str.size() > kJpegSegmentMaxLength - 2 - xmpNameSpaceLength) {
       uhdr_error_info_t status;

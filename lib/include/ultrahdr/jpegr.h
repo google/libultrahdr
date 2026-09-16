@@ -22,6 +22,11 @@
 
 namespace ultrahdr {
 
+// Maximum length of a JPEG marker segment payload (including the 2-byte length field).
+constexpr size_t kJpegSegmentMaxLength = 0xffff;
+// Maximum byte footprint for a JPEG application segment including the 2-byte marker code.
+constexpr size_t kJpegAppSegmentTotalMaxBytes = kJpegSegmentMaxLength + 2;
+
 /*
  * Holds information of jpeg image
  */

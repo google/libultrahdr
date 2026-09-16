@@ -43,14 +43,6 @@ using namespace photos_editing_formats::image_io;
 
 namespace ultrahdr {
 
-namespace {
-
-// A standard XMP APP1 segment can contain 65,504 bytes of packet data, in addition to its
-// marker, length field, and Adobe namespace identifier.
-constexpr size_t kJpegXmpApp1Allowance = 0xffff + 2;
-
-}  // namespace
-
 uhdr_memory_block::uhdr_memory_block(size_t capacity) {
   m_buffer = std::make_unique<uint8_t[]>(capacity);
   m_capacity = capacity;
@@ -1325,7 +1317,7 @@ uhdr_error_info_t uhdr_encode(uhdr_codec_private_t* enc) {
 
   if (handle->m_output_format == UHDR_CODEC_JPG) {
     const bool mayWriteXmp = !handle->m_xmp.empty() || !handle->m_compressed_images.empty();
-    const size_t xmpAllowance = mayWriteXmp ? ultrahdr::kJpegXmpApp1Allowance : 0;
+    const size_t xmpAllowance = mayWriteXmp ? ultrahdr::kJpegAppSegmentTotalMaxBytes : 0;
     auto addXmpAllowance = [xmpAllowance](size_t base_size, size_t* output_size) {
       if (xmpAllowance > (std::numeric_limits<size_t>::max)() - base_size) return false;
       *output_size = base_size + xmpAllowance;
