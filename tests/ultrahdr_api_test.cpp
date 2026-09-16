@@ -70,7 +70,6 @@ static std::string getXmpPacket(const uhdr_mem_block_t* xmp) {
   return std::string(bytes + offset, xmp->data_sz - offset);
 }
 
-#if defined(UHDR_WRITE_XMP)
 static uhdr_gainmap_metadata_t makeTestGainmapMetadata() {
   uhdr_gainmap_metadata_t metadata{};
   for (int channel = 0; channel < 3; ++channel) {
@@ -84,6 +83,85 @@ static uhdr_gainmap_metadata_t makeTestGainmapMetadata() {
   return metadata;
 }
 
+using EncoderPtr = std::unique_ptr<uhdr_codec_private_t, decltype(&uhdr_release_encoder)>;
+using DecoderPtr = std::unique_ptr<uhdr_codec_private_t, decltype(&uhdr_release_decoder)>;
+
+static EncoderPtr makeEncoder() {
+  return EncoderPtr(uhdr_create_encoder(), &uhdr_release_encoder);
+}
+
+static DecoderPtr makeDecoder() {
+  return DecoderPtr(uhdr_create_decoder(), &uhdr_release_decoder);
+}
+
+// Configures the API-4 inputs used by the focused JPEG XMP tests. The XMP block is optional for
+// the first encode in the getter/setter re-encode test, which relies on generated XMP.
+static uhdr_error_info_t configureJpegGainmapEncoder(uhdr_codec_private_t* encoder,
+                                                     uhdr_compressed_image_t* base_image,
+                                                     uhdr_compressed_image_t* gainmap_image,
+                                                     uhdr_gainmap_metadata_t* metadata,
+                                                     uhdr_mem_block_t* xmp) {
+  uhdr_error_info_t status =
+      uhdr_enc_set_compressed_image(encoder, base_image, UHDR_BASE_IMG);
+  if (status.error_code != UHDR_CODEC_OK) return status;
+  status = uhdr_enc_set_gainmap_image(encoder, gainmap_image, metadata);
+  if (status.error_code != UHDR_CODEC_OK) return status;
+  if (xmp != nullptr) {
+    status = uhdr_enc_set_xmp_data(encoder, xmp);
+    if (status.error_code != UHDR_CODEC_OK) return status;
+  }
+  return uhdr_enc_set_output_format(encoder, UHDR_CODEC_JPG);
+}
+
+struct JpegXmpRoundTrip {
+  EncoderPtr encoder;
+  DecoderPtr decoder;
+
+  JpegXmpRoundTrip()
+      : encoder(nullptr, &uhdr_release_encoder), decoder(nullptr, &uhdr_release_decoder) {}
+};
+
+static testing::AssertionResult encodeAndProbeJpegXmp(
+    uhdr_compressed_image_t* base_image, uhdr_compressed_image_t* gainmap_image,
+    uhdr_gainmap_metadata_t* metadata, uhdr_mem_block_t* xmp, JpegXmpRoundTrip& round_trip) {
+  round_trip.encoder = makeEncoder();
+  if (round_trip.encoder == nullptr) {
+    return testing::AssertionFailure() << "uhdr_create_encoder returned nullptr";
+  }
+
+  const uhdr_error_info_t setup_status = configureJpegGainmapEncoder(
+      round_trip.encoder.get(), base_image, gainmap_image, metadata, xmp);
+  if (setup_status.error_code != UHDR_CODEC_OK) {
+    return testing::AssertionFailure() << "JPEG XMP encoder setup failed: "
+                                       << setup_status.detail;
+  }
+
+  const uhdr_error_info_t encode_status = uhdr_encode(round_trip.encoder.get());
+  if (encode_status.error_code != UHDR_CODEC_OK) {
+    return testing::AssertionFailure() << "JPEG XMP encode failed: " << encode_status.detail;
+  }
+  uhdr_compressed_image_t* output = uhdr_get_encoded_stream(round_trip.encoder.get());
+  if (output == nullptr) {
+    return testing::AssertionFailure() << "uhdr_get_encoded_stream returned nullptr";
+  }
+
+  round_trip.decoder = makeDecoder();
+  if (round_trip.decoder == nullptr) {
+    return testing::AssertionFailure() << "uhdr_create_decoder returned nullptr";
+  }
+  uhdr_error_info_t probe_status = uhdr_dec_set_image(round_trip.decoder.get(), output);
+  if (probe_status.error_code != UHDR_CODEC_OK) {
+    return testing::AssertionFailure() << "JPEG XMP decoder setup failed: "
+                                       << probe_status.detail;
+  }
+  probe_status = uhdr_dec_probe(round_trip.decoder.get());
+  if (probe_status.error_code != UHDR_CODEC_OK) {
+    return testing::AssertionFailure() << "JPEG XMP probe failed: " << probe_status.detail;
+  }
+  return testing::AssertionSuccess();
+}
+
+#if defined(UHDR_WRITE_XMP)
 struct ContainerDirectoryInfo {
   bool parsed = false;
   size_t directory_count = 0;
@@ -474,27 +552,13 @@ TEST_F(UltraHdrApiTest, JpegApi4ExplicitXmpPreservesRdfNamespacePrefixes) {
 
   for (const PrefixControl& control : controls) {
     SCOPED_TRACE(control.name);
-    uhdr_codec_private_t* enc = uhdr_create_encoder();
-    ASSERT_NE(enc, nullptr);
     uhdr_gainmap_metadata_t metadata = makeTestGainmapMetadata();
-    ASSERT_EQ(uhdr_enc_set_compressed_image(enc, &mSdrCompressed, UHDR_BASE_IMG).error_code,
-              UHDR_CODEC_OK);
-    ASSERT_EQ(uhdr_enc_set_gainmap_image(enc, &mSdrCompressed, &metadata).error_code,
-              UHDR_CODEC_OK);
     uhdr_mem_block_t xmp_block{const_cast<char*>(control.packet), strlen(control.packet),
                                strlen(control.packet)};
-    ASSERT_EQ(uhdr_enc_set_xmp_data(enc, &xmp_block).error_code, UHDR_CODEC_OK);
-    ASSERT_EQ(uhdr_enc_set_output_format(enc, UHDR_CODEC_JPG).error_code, UHDR_CODEC_OK);
-    const uhdr_error_info_t enc_status = uhdr_encode(enc);
-    ASSERT_EQ(enc_status.error_code, UHDR_CODEC_OK) << enc_status.detail;
-
-    uhdr_compressed_image_t* output = uhdr_get_encoded_stream(enc);
-    ASSERT_NE(output, nullptr);
-    uhdr_codec_private_t* dec = uhdr_create_decoder();
-    ASSERT_NE(dec, nullptr);
-    ASSERT_EQ(uhdr_dec_set_image(dec, output).error_code, UHDR_CODEC_OK);
-    ASSERT_EQ(uhdr_dec_probe(dec).error_code, UHDR_CODEC_OK);
-    uhdr_mem_block_t* decoded_xmp = uhdr_dec_get_xmp(dec);
+    JpegXmpRoundTrip round_trip;
+    ASSERT_TRUE(encodeAndProbeJpegXmp(&mSdrCompressed, &mSdrCompressed, &metadata, &xmp_block,
+                                      round_trip));
+    uhdr_mem_block_t* decoded_xmp = uhdr_dec_get_xmp(round_trip.decoder.get());
     ASSERT_NE(decoded_xmp, nullptr);
     ASSERT_NE(decoded_xmp->data, nullptr);
     const std::string decoded_packet = getXmpPacket(decoded_xmp);
@@ -512,9 +576,6 @@ TEST_F(UltraHdrApiTest, JpegApi4ExplicitXmpPreservesRdfNamespacePrefixes) {
               std::string::npos);
     EXPECT_NE(decoded_packet.find("semantic-probe"), std::string::npos);
     EXPECT_NE(decoded_packet.find("keep-unrelated"), std::string::npos);
-
-    uhdr_release_decoder(dec);
-    uhdr_release_encoder(enc);
   }
 }
 
@@ -542,27 +603,13 @@ TEST_F(UltraHdrApiTest, JpegApi4XmpMergeReplacesVersionAttributeAndElement) {
 
   for (const VersionForm& form : forms) {
     SCOPED_TRACE(form.name);
-    uhdr_codec_private_t* enc = uhdr_create_encoder();
-    ASSERT_NE(enc, nullptr);
     uhdr_gainmap_metadata_t metadata = makeTestGainmapMetadata();
-    ASSERT_EQ(uhdr_enc_set_compressed_image(enc, &mSdrCompressed, UHDR_BASE_IMG).error_code,
-              UHDR_CODEC_OK);
-    ASSERT_EQ(uhdr_enc_set_gainmap_image(enc, &mSdrCompressed, &metadata).error_code,
-              UHDR_CODEC_OK);
     uhdr_mem_block_t xmp_block{const_cast<char*>(form.packet), strlen(form.packet),
                                strlen(form.packet)};
-    ASSERT_EQ(uhdr_enc_set_xmp_data(enc, &xmp_block).error_code, UHDR_CODEC_OK);
-    ASSERT_EQ(uhdr_enc_set_output_format(enc, UHDR_CODEC_JPG).error_code, UHDR_CODEC_OK);
-    const uhdr_error_info_t status = uhdr_encode(enc);
-    ASSERT_EQ(status.error_code, UHDR_CODEC_OK) << status.detail;
-
-    uhdr_compressed_image_t* output = uhdr_get_encoded_stream(enc);
-    ASSERT_NE(output, nullptr);
-    uhdr_codec_private_t* dec = uhdr_create_decoder();
-    ASSERT_NE(dec, nullptr);
-    ASSERT_EQ(uhdr_dec_set_image(dec, output).error_code, UHDR_CODEC_OK);
-    ASSERT_EQ(uhdr_dec_probe(dec).error_code, UHDR_CODEC_OK);
-    uhdr_mem_block_t* decoded_xmp = uhdr_dec_get_xmp(dec);
+    JpegXmpRoundTrip round_trip;
+    ASSERT_TRUE(encodeAndProbeJpegXmp(&mSdrCompressed, &mSdrCompressed, &metadata, &xmp_block,
+                                      round_trip));
+    uhdr_mem_block_t* decoded_xmp = uhdr_dec_get_xmp(round_trip.decoder.get());
     ASSERT_NE(decoded_xmp, nullptr);
     ASSERT_NE(decoded_xmp->data, nullptr);
     const std::string decoded_packet = getXmpPacket(decoded_xmp);
@@ -571,35 +618,20 @@ TEST_F(UltraHdrApiTest, JpegApi4XmpMergeReplacesVersionAttributeAndElement) {
     EXPECT_EQ(directory_info.directory_count, 1u);
     EXPECT_EQ(decoded_packet.find(form.stale_value), std::string::npos);
     EXPECT_NE(decoded_packet.find("hdrgm:Version=\"1.0\""), std::string::npos);
-
-    uhdr_release_decoder(dec);
-    uhdr_release_encoder(enc);
   }
 }
 
 TEST_F(UltraHdrApiTest, JpegApi4GetterSetterReencodeUsesSingleCurrentGainmapDirectory) {
   uhdr_gainmap_metadata_t metadata = makeTestGainmapMetadata();
-  uhdr_codec_private_t* first_enc = uhdr_create_encoder();
-  ASSERT_NE(first_enc, nullptr);
-  ASSERT_EQ(uhdr_enc_set_compressed_image(first_enc, &mSdrCompressed, UHDR_BASE_IMG).error_code,
-            UHDR_CODEC_OK);
-  ASSERT_EQ(uhdr_enc_set_gainmap_image(first_enc, &mSdrCompressed, &metadata).error_code,
-            UHDR_CODEC_OK);
-  ASSERT_EQ(uhdr_enc_set_output_format(first_enc, UHDR_CODEC_JPG).error_code, UHDR_CODEC_OK);
-  ASSERT_EQ(uhdr_encode(first_enc).error_code, UHDR_CODEC_OK);
-  uhdr_compressed_image_t* first_output = uhdr_get_encoded_stream(first_enc);
-  ASSERT_NE(first_output, nullptr);
-
-  uhdr_codec_private_t* first_dec = uhdr_create_decoder();
-  ASSERT_NE(first_dec, nullptr);
-  ASSERT_EQ(uhdr_dec_set_image(first_dec, first_output).error_code, UHDR_CODEC_OK);
-  ASSERT_EQ(uhdr_dec_probe(first_dec).error_code, UHDR_CODEC_OK);
-  uhdr_mem_block_t* first_xmp = uhdr_dec_get_xmp(first_dec);
+  JpegXmpRoundTrip first_round_trip;
+  ASSERT_TRUE(encodeAndProbeJpegXmp(&mSdrCompressed, &mSdrCompressed, &metadata, nullptr,
+                                     first_round_trip));
+  uhdr_mem_block_t* first_xmp = uhdr_dec_get_xmp(first_round_trip.decoder.get());
   ASSERT_NE(first_xmp, nullptr);
   ASSERT_NE(first_xmp->data, nullptr);
-  uhdr_mem_block_t* first_base = uhdr_dec_get_base_image(first_dec);
+  uhdr_mem_block_t* first_base = uhdr_dec_get_base_image(first_round_trip.decoder.get());
   ASSERT_NE(first_base, nullptr);
-  uhdr_mem_block_t* first_gainmap = uhdr_dec_get_gainmap_image(first_dec);
+  uhdr_mem_block_t* first_gainmap = uhdr_dec_get_gainmap_image(first_round_trip.decoder.get());
   ASSERT_NE(first_gainmap, nullptr);
   ASSERT_NE(first_gainmap->data, nullptr);
   const std::string first_packet = getXmpPacket(first_xmp);
@@ -616,7 +648,8 @@ TEST_F(UltraHdrApiTest, JpegApi4GetterSetterReencodeUsesSingleCurrentGainmapDire
       first_base->data, first_base->data_sz, first_base->capacity, UHDR_CG_BT_709, UHDR_CT_SRGB,
       UHDR_CR_FULL_RANGE};
   uhdr_compressed_image_t gainmap_input = changed_gainmap;
-  uhdr_gainmap_metadata_t* decoded_metadata = uhdr_dec_get_gainmap_metadata(first_dec);
+  uhdr_gainmap_metadata_t* decoded_metadata =
+      uhdr_dec_get_gainmap_metadata(first_round_trip.decoder.get());
   ASSERT_NE(decoded_metadata, nullptr);
 
   const std::string xpacket_wrapped =
@@ -626,30 +659,17 @@ TEST_F(UltraHdrApiTest, JpegApi4GetterSetterReencodeUsesSingleCurrentGainmapDire
   const std::string xmp_inputs[] = {raw_getter, xpacket_wrapped};
   for (size_t input_index = 0; input_index < std::size(xmp_inputs); ++input_index) {
     SCOPED_TRACE(input_index == 0 ? "raw getter bytes" : "xpacket wrapped XML");
-    uhdr_codec_private_t* second_enc = uhdr_create_encoder();
-    ASSERT_NE(second_enc, nullptr);
-    ASSERT_EQ(uhdr_enc_set_compressed_image(second_enc, &base_input, UHDR_BASE_IMG).error_code,
-              UHDR_CODEC_OK);
-    ASSERT_EQ(uhdr_enc_set_gainmap_image(second_enc, &gainmap_input, decoded_metadata).error_code,
-              UHDR_CODEC_OK);
     uhdr_mem_block_t xmp_input{const_cast<char*>(xmp_inputs[input_index].data()),
                                xmp_inputs[input_index].size(), xmp_inputs[input_index].size()};
-    ASSERT_EQ(uhdr_enc_set_xmp_data(second_enc, &xmp_input).error_code, UHDR_CODEC_OK);
-    ASSERT_EQ(uhdr_enc_set_output_format(second_enc, UHDR_CODEC_JPG).error_code, UHDR_CODEC_OK);
-    const uhdr_error_info_t second_status = uhdr_encode(second_enc);
-    ASSERT_EQ(second_status.error_code, UHDR_CODEC_OK) << second_status.detail;
-    uhdr_compressed_image_t* second_output = uhdr_get_encoded_stream(second_enc);
-    ASSERT_NE(second_output, nullptr);
-
-    uhdr_codec_private_t* second_dec = uhdr_create_decoder();
-    ASSERT_NE(second_dec, nullptr);
-    ASSERT_EQ(uhdr_dec_set_image(second_dec, second_output).error_code, UHDR_CODEC_OK);
-    ASSERT_EQ(uhdr_dec_probe(second_dec).error_code, UHDR_CODEC_OK);
-    uhdr_mem_block_t* second_gainmap = uhdr_dec_get_gainmap_image(second_dec);
+    JpegXmpRoundTrip second_round_trip;
+    ASSERT_TRUE(encodeAndProbeJpegXmp(&base_input, &gainmap_input, decoded_metadata, &xmp_input,
+                                      second_round_trip));
+    uhdr_mem_block_t* second_gainmap =
+        uhdr_dec_get_gainmap_image(second_round_trip.decoder.get());
     ASSERT_NE(second_gainmap, nullptr);
     ASSERT_NE(second_gainmap->data, nullptr);
     ASSERT_NE(second_gainmap->data_sz, first_gainmap->data_sz);
-    uhdr_mem_block_t* second_xmp = uhdr_dec_get_xmp(second_dec);
+    uhdr_mem_block_t* second_xmp = uhdr_dec_get_xmp(second_round_trip.decoder.get());
     ASSERT_NE(second_xmp, nullptr);
     ASSERT_NE(second_xmp->data, nullptr);
     const std::string second_packet = getXmpPacket(second_xmp);
@@ -666,12 +686,7 @@ TEST_F(UltraHdrApiTest, JpegApi4GetterSetterReencodeUsesSingleCurrentGainmapDire
                 std::string::npos);
       EXPECT_NE(second_packet.find("<?xpacket end=\"w\"?>"), std::string::npos);
     }
-
-    uhdr_release_decoder(second_dec);
-    uhdr_release_encoder(second_enc);
   }
-  uhdr_release_decoder(first_dec);
-  uhdr_release_encoder(first_enc);
 }
 
 TEST_F(UltraHdrApiTest, JpegApi4XmpMergeIgnoresFakeRdfClosersInCommentsAndCdata) {
@@ -683,26 +698,12 @@ TEST_F(UltraHdrApiTest, JpegApi4XmpMergeIgnoresFakeRdfClosersInCommentsAndCdata)
       "</rdf:Description></rdf:RDF><!-- keep-comment </rdf:RDF> -->"
       "</x:xmpmeta>";
 
-  uhdr_codec_private_t* enc = uhdr_create_encoder();
-  ASSERT_NE(enc, nullptr);
   uhdr_gainmap_metadata_t metadata = makeTestGainmapMetadata();
-  ASSERT_EQ(uhdr_enc_set_compressed_image(enc, &mSdrCompressed, UHDR_BASE_IMG).error_code,
-            UHDR_CODEC_OK);
-  ASSERT_EQ(uhdr_enc_set_gainmap_image(enc, &mSdrCompressed, &metadata).error_code,
-            UHDR_CODEC_OK);
   uhdr_mem_block_t xmp_block{const_cast<char*>(user_xmp.data()), user_xmp.size(), user_xmp.size()};
-  ASSERT_EQ(uhdr_enc_set_xmp_data(enc, &xmp_block).error_code, UHDR_CODEC_OK);
-  ASSERT_EQ(uhdr_enc_set_output_format(enc, UHDR_CODEC_JPG).error_code, UHDR_CODEC_OK);
-  const uhdr_error_info_t enc_status = uhdr_encode(enc);
-  ASSERT_EQ(enc_status.error_code, UHDR_CODEC_OK) << enc_status.detail;
-  uhdr_compressed_image_t* output = uhdr_get_encoded_stream(enc);
-  ASSERT_NE(output, nullptr);
-
-  uhdr_codec_private_t* dec = uhdr_create_decoder();
-  ASSERT_NE(dec, nullptr);
-  ASSERT_EQ(uhdr_dec_set_image(dec, output).error_code, UHDR_CODEC_OK);
-  ASSERT_EQ(uhdr_dec_probe(dec).error_code, UHDR_CODEC_OK);
-  uhdr_mem_block_t* decoded_xmp = uhdr_dec_get_xmp(dec);
+  JpegXmpRoundTrip round_trip;
+  ASSERT_TRUE(encodeAndProbeJpegXmp(&mSdrCompressed, &mSdrCompressed, &metadata, &xmp_block,
+                                    round_trip));
+  uhdr_mem_block_t* decoded_xmp = uhdr_dec_get_xmp(round_trip.decoder.get());
   ASSERT_NE(decoded_xmp, nullptr);
   ASSERT_NE(decoded_xmp->data, nullptr);
   const std::string decoded_packet = getXmpPacket(decoded_xmp);
@@ -713,13 +714,10 @@ TEST_F(UltraHdrApiTest, JpegApi4XmpMergeIgnoresFakeRdfClosersInCommentsAndCdata)
   EXPECT_NE(decoded_packet.find("<![CDATA[keep-cdata </rdf:RDF>]]>"), std::string::npos);
   EXPECT_NE(decoded_packet.find("<!-- keep-comment </rdf:RDF> -->"), std::string::npos);
   ASSERT_EQ(directory_info.gainmap_lengths.size(), 1u);
-  uhdr_mem_block_t* decoded_gainmap = uhdr_dec_get_gainmap_image(dec);
+  uhdr_mem_block_t* decoded_gainmap = uhdr_dec_get_gainmap_image(round_trip.decoder.get());
   ASSERT_NE(decoded_gainmap, nullptr);
   ASSERT_NE(decoded_gainmap->data, nullptr);
   EXPECT_EQ(directory_info.gainmap_lengths.front(), decoded_gainmap->data_sz);
-
-  uhdr_release_decoder(dec);
-  uhdr_release_encoder(enc);
 }
 
 TEST_F(UltraHdrApiTest, JpegApi4XmpMergeKeepsOwnedPropertiesOnNodeIdDescription) {
@@ -733,35 +731,18 @@ TEST_F(UltraHdrApiTest, JpegApi4XmpMergeKeepsOwnedPropertiesOnNodeIdDescription)
       "</rdf:Description><rdf:Description rdf:about=\"\" xmlns:ex=\"urn:test\">"
       "<ex:Probe>primary-probe</ex:Probe></rdf:Description></rdf:RDF></x:xmpmeta>";
 
-  uhdr_codec_private_t* enc = uhdr_create_encoder();
-  ASSERT_NE(enc, nullptr);
   uhdr_gainmap_metadata_t metadata = makeTestGainmapMetadata();
-  ASSERT_EQ(uhdr_enc_set_compressed_image(enc, &mSdrCompressed, UHDR_BASE_IMG).error_code,
-            UHDR_CODEC_OK);
-  ASSERT_EQ(uhdr_enc_set_gainmap_image(enc, &mSdrCompressed, &metadata).error_code,
-            UHDR_CODEC_OK);
   uhdr_mem_block_t xmp_block{const_cast<char*>(user_xmp.data()), user_xmp.size(), user_xmp.size()};
-  ASSERT_EQ(uhdr_enc_set_xmp_data(enc, &xmp_block).error_code, UHDR_CODEC_OK);
-  ASSERT_EQ(uhdr_enc_set_output_format(enc, UHDR_CODEC_JPG).error_code, UHDR_CODEC_OK);
-  const uhdr_error_info_t enc_status = uhdr_encode(enc);
-  ASSERT_EQ(enc_status.error_code, UHDR_CODEC_OK) << enc_status.detail;
-  uhdr_compressed_image_t* output = uhdr_get_encoded_stream(enc);
-  ASSERT_NE(output, nullptr);
-
-  uhdr_codec_private_t* dec = uhdr_create_decoder();
-  ASSERT_NE(dec, nullptr);
-  ASSERT_EQ(uhdr_dec_set_image(dec, output).error_code, UHDR_CODEC_OK);
-  ASSERT_EQ(uhdr_dec_probe(dec).error_code, UHDR_CODEC_OK);
-  uhdr_mem_block_t* decoded_xmp = uhdr_dec_get_xmp(dec);
+  JpegXmpRoundTrip round_trip;
+  ASSERT_TRUE(encodeAndProbeJpegXmp(&mSdrCompressed, &mSdrCompressed, &metadata, &xmp_block,
+                                    round_trip));
+  uhdr_mem_block_t* decoded_xmp = uhdr_dec_get_xmp(round_trip.decoder.get());
   ASSERT_NE(decoded_xmp, nullptr);
   ASSERT_NE(decoded_xmp->data, nullptr);
   const std::string decoded_packet = getXmpPacket(decoded_xmp);
   EXPECT_NE(decoded_packet.find("keep-id-directory"), std::string::npos);
   EXPECT_NE(decoded_packet.find("keep-node-directory"), std::string::npos);
   EXPECT_NE(decoded_packet.find("primary-probe"), std::string::npos);
-
-  uhdr_release_decoder(dec);
-  uhdr_release_encoder(enc);
 }
 
 TEST_F(UltraHdrApiTest, JpegApi4RejectsMalformedOrUnmergeableXmp) {
@@ -777,19 +758,15 @@ TEST_F(UltraHdrApiTest, JpegApi4RejectsMalformedOrUnmergeableXmp) {
 
   for (const char* packet : packets) {
     SCOPED_TRACE(packet);
-    uhdr_codec_private_t* enc = uhdr_create_encoder();
+    EncoderPtr enc = makeEncoder();
     ASSERT_NE(enc, nullptr);
     uhdr_gainmap_metadata_t metadata = makeTestGainmapMetadata();
-    ASSERT_EQ(uhdr_enc_set_compressed_image(enc, &mSdrCompressed, UHDR_BASE_IMG).error_code,
-              UHDR_CODEC_OK);
-    ASSERT_EQ(uhdr_enc_set_gainmap_image(enc, &mSdrCompressed, &metadata).error_code,
-              UHDR_CODEC_OK);
     uhdr_mem_block_t xmp_block{const_cast<char*>(packet), strlen(packet), strlen(packet)};
-    ASSERT_EQ(uhdr_enc_set_xmp_data(enc, &xmp_block).error_code, UHDR_CODEC_OK);
-    ASSERT_EQ(uhdr_enc_set_output_format(enc, UHDR_CODEC_JPG).error_code, UHDR_CODEC_OK);
-    const uhdr_error_info_t status = uhdr_encode(enc);
+    const uhdr_error_info_t setup_status = configureJpegGainmapEncoder(
+        enc.get(), &mSdrCompressed, &mSdrCompressed, &metadata, &xmp_block);
+    ASSERT_EQ(setup_status.error_code, UHDR_CODEC_OK) << setup_status.detail;
+    const uhdr_error_info_t status = uhdr_encode(enc.get());
     EXPECT_EQ(status.error_code, UHDR_CODEC_INVALID_PARAM) << status.detail;
-    uhdr_release_encoder(enc);
   }
 }
 #endif
@@ -801,40 +778,15 @@ TEST_F(UltraHdrApiTest, JpegApi4IsoOnlyPassesThroughXmpExactly) {
       "xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description "
       "rdf:about=\"\" xmlns:ex=\"urn:test\"><ex:Probe>iso-passthrough</ex:Probe>"
       "</rdf:Description></rdf:RDF></x:xmpmeta>";
-  uhdr_gainmap_metadata_t metadata{};
-  for (int channel = 0; channel < 3; ++channel) {
-    metadata.max_content_boost[channel] = 2.0f;
-    metadata.min_content_boost[channel] = 1.0f;
-    metadata.gamma[channel] = 1.0f;
-  }
-  metadata.hdr_capacity_min = 1.0f;
-  metadata.hdr_capacity_max = 2.0f;
-  metadata.use_base_cg = 1;
-
-  uhdr_codec_private_t* enc = uhdr_create_encoder();
-  ASSERT_NE(enc, nullptr);
-  ASSERT_EQ(uhdr_enc_set_compressed_image(enc, &mSdrCompressed, UHDR_BASE_IMG).error_code,
-            UHDR_CODEC_OK);
-  ASSERT_EQ(uhdr_enc_set_gainmap_image(enc, &mSdrCompressed, &metadata).error_code,
-            UHDR_CODEC_OK);
+  uhdr_gainmap_metadata_t metadata = makeTestGainmapMetadata();
   uhdr_mem_block_t xmp_block{const_cast<char*>(user_xmp.data()), user_xmp.size(), user_xmp.size()};
-  ASSERT_EQ(uhdr_enc_set_xmp_data(enc, &xmp_block).error_code, UHDR_CODEC_OK);
-  ASSERT_EQ(uhdr_enc_set_output_format(enc, UHDR_CODEC_JPG).error_code, UHDR_CODEC_OK);
-  ASSERT_EQ(uhdr_encode(enc).error_code, UHDR_CODEC_OK);
-  uhdr_compressed_image_t* output = uhdr_get_encoded_stream(enc);
-  ASSERT_NE(output, nullptr);
-
-  uhdr_codec_private_t* dec = uhdr_create_decoder();
-  ASSERT_NE(dec, nullptr);
-  ASSERT_EQ(uhdr_dec_set_image(dec, output).error_code, UHDR_CODEC_OK);
-  ASSERT_EQ(uhdr_dec_probe(dec).error_code, UHDR_CODEC_OK);
-  uhdr_mem_block_t* decoded_xmp = uhdr_dec_get_xmp(dec);
+  JpegXmpRoundTrip round_trip;
+  ASSERT_TRUE(encodeAndProbeJpegXmp(&mSdrCompressed, &mSdrCompressed, &metadata, &xmp_block,
+                                    round_trip));
+  uhdr_mem_block_t* decoded_xmp = uhdr_dec_get_xmp(round_trip.decoder.get());
   ASSERT_NE(decoded_xmp, nullptr);
   ASSERT_NE(decoded_xmp->data, nullptr);
   EXPECT_EQ(getXmpPacket(decoded_xmp), user_xmp);
-
-  uhdr_release_decoder(dec);
-  uhdr_release_encoder(enc);
 }
 #endif
 

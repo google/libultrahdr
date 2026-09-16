@@ -923,7 +923,6 @@ struct XmpElementSpan {
   vector<XmpAttributeSpan> attributes;
   size_t parent = kNoXmpElement;
   size_t start_begin = 0;
-  size_t start_end = 0;
   size_t end_begin = 0;
   size_t end_end = 0;
   bool self_closing = false;
@@ -937,9 +936,7 @@ class XmpMergeXmlHandler : public XmlHandler {
     if (!FinalizePendingElement()) valid_ = false;
     pending_name_.clear();
     pending_attributes_.clear();
-    pending_attribute_name_.clear();
-    pending_attribute_value_.clear();
-    pending_attribute_waiting_value_ = false;
+    pending_attribute_index_ = kNoXmpElement;
     pending_name_begin_ = context.GetTokenRange().GetBegin();
     if (!context.BuildTokenValue(&pending_name_)) valid_ = false;
     pending_element_ = true;
@@ -947,33 +944,27 @@ class XmpMergeXmlHandler : public XmlHandler {
   }
 
   DataMatchResult AttributeName(const XmlTokenContext& context) override {
-    if (!pending_element_ || pending_attribute_waiting_value_) {
+    if (!pending_element_ || pending_attribute_index_ != kNoXmpElement) {
       valid_ = false;
       return context.GetResult();
     }
-    pending_attribute_name_.clear();
-    pending_attribute_name_begin_ = context.GetTokenRange().GetBegin();
-    if (!context.BuildTokenValue(&pending_attribute_name_)) valid_ = false;
-    pending_attribute_waiting_value_ = true;
+    XmpAttributeSpan attribute;
+    attribute.name_begin = context.GetTokenRange().GetBegin();
+    if (!context.BuildTokenValue(&attribute.qualified_name)) valid_ = false;
+    pending_attributes_.push_back(std::move(attribute));
+    pending_attribute_index_ = pending_attributes_.size() - 1;
     return context.GetResult();
   }
 
   DataMatchResult AttributeValue(const XmlTokenContext& context) override {
-    if (!pending_element_ || !pending_attribute_waiting_value_) {
+    if (!pending_element_ || pending_attribute_index_ == kNoXmpElement) {
       valid_ = false;
       return context.GetResult();
     }
-    pending_attribute_value_.clear();
-    if (!context.BuildTokenValue(&pending_attribute_value_, true)) valid_ = false;
-    XmpAttributeSpan attribute;
-    attribute.qualified_name = pending_attribute_name_;
-    attribute.value = pending_attribute_value_;
-    attribute.name_begin = pending_attribute_name_begin_;
+    XmpAttributeSpan& attribute = pending_attributes_[pending_attribute_index_];
+    if (!context.BuildTokenValue(&attribute.value, true)) valid_ = false;
     attribute.value_end = context.GetTokenRange().GetEnd();
-    pending_attributes_.push_back(std::move(attribute));
-    pending_attribute_name_.clear();
-    pending_attribute_value_.clear();
-    pending_attribute_waiting_value_ = false;
+    pending_attribute_index_ = kNoXmpElement;
     return context.GetResult();
   }
 
@@ -1104,7 +1095,7 @@ class XmpMergeXmlHandler : public XmlHandler {
 
   bool FinalizePendingElement() {
     if (!pending_element_) return true;
-    if (pending_name_.empty() || pending_attribute_waiting_value_) {
+    if (pending_name_.empty() || pending_attribute_index_ != kNoXmpElement) {
       pending_element_ = false;
       return false;
     }
@@ -1150,7 +1141,6 @@ class XmpMergeXmlHandler : public XmlHandler {
     element.qualified_name = pending_name_;
     element.parent = parent;
     element.start_begin = start_begin;
-    element.start_end = start_end;
     element.namespace_declarations = namespace_declarations;
     if (!ResolveName(element.qualified_name, parent, namespace_declarations, false, &element.uri,
                      &element.local_name)) {
@@ -1197,10 +1187,7 @@ class XmpMergeXmlHandler : public XmlHandler {
   string pending_name_;
   size_t pending_name_begin_ = 0;
   vector<XmpAttributeSpan> pending_attributes_;
-  string pending_attribute_name_;
-  string pending_attribute_value_;
-  size_t pending_attribute_name_begin_ = 0;
-  bool pending_attribute_waiting_value_ = false;
+  size_t pending_attribute_index_ = kNoXmpElement;
   bool last_element_was_self_closing_ = false;
 };
 
@@ -1305,30 +1292,17 @@ string MergePrimaryXmp(const string& existing_xmp, size_t secondary_image_length
 
   vector<pair<size_t, size_t>> removals;
   for (const size_t description : primary_descriptions) {
-    for (size_t index = 0; index < elements.size(); ++index) {
-      const XmpElementSpan& element = elements[index];
-      if (element.parent == description && element.uri == kContainerUri &&
-          element.local_name == "Directory") {
-        removals.emplace_back(element.start_begin, element.end_end);
-      }
-    }
-    for (const XmpAttributeSpan& attribute : elements[description].attributes) {
-      if (attribute.uri == kContainerUri && attribute.local_name == "Directory") {
+    const XmpElementSpan& primary = elements[description];
+    for (const XmpAttributeSpan& attribute : primary.attributes) {
+      if ((attribute.uri == kContainerUri && attribute.local_name == "Directory") ||
+          (attribute.uri == kGainMapUri && attribute.local_name == "Version")) {
         removals.emplace_back(attribute.name_begin, attribute.value_end);
       }
     }
-  }
-  for (const size_t description : primary_descriptions) {
-    const XmpElementSpan& element = elements[description];
-    for (const XmpAttributeSpan& attribute : element.attributes) {
-      if (attribute.uri == kGainMapUri && attribute.local_name == "Version") {
-        removals.emplace_back(attribute.name_begin, attribute.value_end);
-      }
-    }
-    for (size_t index = 0; index < elements.size(); ++index) {
-      const XmpElementSpan& child = elements[index];
-      if (child.parent == description && child.uri == kGainMapUri &&
-          child.local_name == "Version") {
+    for (const XmpElementSpan& child : elements) {
+      if (child.parent == description &&
+          ((child.uri == kContainerUri && child.local_name == "Directory") ||
+           (child.uri == kGainMapUri && child.local_name == "Version"))) {
         removals.emplace_back(child.start_begin, child.end_end);
       }
     }
@@ -1343,6 +1317,7 @@ string MergePrimaryXmp(const string& existing_xmp, size_t secondary_image_length
     if (removal.first < offset || removal.second < removal.first) return string();
     removal.first -= offset;
     removal.second -= offset;
+    if (removal.second > insertion) return string();
   }
   sort(removals.begin(), removals.end());
   for (size_t index = 1; index < removals.size(); ++index) {
@@ -1353,25 +1328,15 @@ string MergePrimaryXmp(const string& existing_xmp, size_t secondary_image_length
       GeneratePrimaryDescription(secondary_image_length, metadata);
   string merged;
   size_t cursor = 0;
-  size_t removal_index = 0;
-  while (removal_index < removals.size() && removals[removal_index].first < insertion) {
-    const auto [begin, end] = removals[removal_index++];
-    if (begin < cursor || end > existing_xmp.size()) return string();
+  for (const auto [begin, end] : removals) {
+    if (begin < cursor || end > insertion || end > existing_xmp.size()) return string();
     merged.append(existing_xmp, cursor, begin - cursor);
     cursor = end;
   }
-  if (cursor > insertion) return string();
   merged.append(existing_xmp, cursor, insertion - cursor);
   merged.append(generated_description);
   merged.push_back('\n');
-  cursor = insertion;
-  while (removal_index < removals.size()) {
-    const auto [begin, end] = removals[removal_index++];
-    if (begin < cursor || end > existing_xmp.size()) return string();
-    merged.append(existing_xmp, cursor, begin - cursor);
-    cursor = end;
-  }
-  merged.append(existing_xmp, cursor, existing_xmp.size() - cursor);
+  merged.append(existing_xmp, insertion, existing_xmp.size() - insertion);
   return merged;
 }
 
