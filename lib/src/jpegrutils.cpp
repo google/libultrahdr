@@ -1328,7 +1328,7 @@ string MergePrimaryXmp(const string& existing_xmp, size_t secondary_image_length
       GeneratePrimaryDescription(secondary_image_length, metadata);
   string merged;
   size_t cursor = 0;
-  for (const auto [begin, end] : removals) {
+  for (const auto& [begin, end] : removals) {
     if (begin < cursor || end > insertion || end > existing_xmp.size()) return string();
     merged.append(existing_xmp, cursor, begin - cursor);
     cursor = end;
