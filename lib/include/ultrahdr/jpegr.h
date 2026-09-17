@@ -27,6 +27,12 @@ constexpr size_t kJpegSegmentMaxLength = 0xffff;
 // Maximum byte footprint for a JPEG application segment including the 2-byte marker code.
 constexpr size_t kJpegAppSegmentTotalMaxBytes = kJpegSegmentMaxLength + 2;
 
+// Adobe XMP namespaces and segment length limits
+constexpr size_t kMaxStandardXmpPayload = kJpegSegmentMaxLength - 2 - 29;  // 65504 bytes
+// Extended XMP segment header: 2 (length) + 35 (signature) + 32 (GUID) + 4 (totalLength) + 4 (offset) = 77 bytes
+constexpr size_t kExtendedXmpHeaderSize = 77;
+constexpr size_t kExtendedXmpMaxChunkSize = kJpegSegmentMaxLength - kExtendedXmpHeaderSize;  // 65458 bytes
+
 /*
  * Holds information of jpeg image
  */

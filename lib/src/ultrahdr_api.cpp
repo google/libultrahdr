@@ -1317,7 +1317,17 @@ uhdr_error_info_t uhdr_encode(uhdr_codec_private_t* enc) {
 
   if (handle->m_output_format == UHDR_CODEC_JPG) {
     const bool mayWriteXmp = !handle->m_xmp.empty() || !handle->m_compressed_images.empty();
-    const size_t xmpAllowance = mayWriteXmp ? ultrahdr::kJpegAppSegmentTotalMaxBytes : 0;
+    size_t xmpAllowance = 0;
+    if (mayWriteXmp) {
+      if (handle->m_xmp.size() <= ultrahdr::kMaxStandardXmpPayload) {
+        xmpAllowance = ultrahdr::kJpegAppSegmentTotalMaxBytes;
+      } else {
+        const size_t xmp_sz = handle->m_xmp.size();
+        const size_t num_chunks =
+            (xmp_sz + ultrahdr::kExtendedXmpMaxChunkSize - 1) / ultrahdr::kExtendedXmpMaxChunkSize;
+        xmpAllowance = ultrahdr::kJpegAppSegmentTotalMaxBytes + xmp_sz + num_chunks * 79;
+      }
+    }
     auto addXmpAllowance = [xmpAllowance](size_t base_size, size_t* output_size) {
       if (xmpAllowance > (std::numeric_limits<size_t>::max)() - base_size) return false;
       *output_size = base_size + xmpAllowance;
