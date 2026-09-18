@@ -13,6 +13,7 @@
 
 #include <cmath>
 #include <cstring>
+#include <limits>
 
 #include "ultrahdr/ultrahdrcommon.h"
 #include "ultrahdr/jpegdecoderhelper.h"
@@ -141,7 +142,7 @@ static void jpeg_extract_marker_payload(const j_decompress_ptr cinfo, const uint
 
 // Locate the selected payload in the original JPEG stream. The saved-marker list is incomplete
 // by design and is not a reliable source of byte offsets when other segments precede EXIF.
-static long find_marker_payload_offset(const uint8_t* image, size_t length, uint32_t marker_code,
+static long find_marker_payload_offset(const uint8_t* image, size_t length, uint8_t marker_code,
                                        const uint8_t* payload, size_t payload_length) {
   if (image == nullptr || payload == nullptr || length < 2 || image[0] != 0xff ||
       image[1] != 0xd8) {
@@ -165,6 +166,9 @@ static long find_marker_payload_offset(const uint8_t* image, size_t length, uint
     const size_t segment_payload_offset = pos + 2;
     if (marker == marker_code && segment_payload_length == payload_length &&
         memcmp(image + segment_payload_offset, payload, payload_length) == 0) {
+      if (segment_payload_offset > static_cast<size_t>(std::numeric_limits<long>::max())) {
+        return -1;
+      }
       return static_cast<long>(segment_payload_offset);
     }
     pos += segment_length;
