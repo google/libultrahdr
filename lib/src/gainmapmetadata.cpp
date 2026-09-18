@@ -122,15 +122,20 @@ uhdr_error_info_t uhdr_gainmap_metadata_frac::encodeGainmapMetadata(
     return status;
   }
 
+  if (in_metadata->backwardDirection) {
+    uhdr_error_info_t status;
+    status.error_code = UHDR_CODEC_UNSUPPORTED_FEATURE;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail, "backward direction is not supported");
+    return status;
+  }
+
   const uint16_t min_version = 0, writer_version = 0;
   streamWriteU16(out_data, min_version);
   streamWriteU16(out_data, writer_version);
 
   uint8_t flags = 0u;
-  // Always write three channels for now for simplicity.
-  // TODO(maryla): the draft says that this specifies the count of channels of the
-  // gain map. But tone mapping is done in RGB space so there are always three
-  // channels, even if the gain map is grayscale. Should this be revised?
+  // Version 0 defines only the channel-count and base-color-space flags.
   const uint8_t channelCount = in_metadata->allChannelsIdentical() ? 1u : 3u;
 
   if (channelCount == 3) {
@@ -139,34 +144,6 @@ uhdr_error_info_t uhdr_gainmap_metadata_frac::encodeGainmapMetadata(
   if (in_metadata->useBaseColorSpace) {
     flags |= kUseBaseColorSpaceMask;
   }
-  if (in_metadata->backwardDirection) {
-    flags |= 4;
-  }
-
-  // Validate that no denominator is zero before serialization
-  if (in_metadata->baseHdrHeadroomD == 0 || in_metadata->alternateHdrHeadroomD == 0) {
-    uhdr_error_info_t status;
-    status.error_code = UHDR_CODEC_INVALID_PARAM;
-    status.has_detail = 1;
-    snprintf(status.detail, sizeof status.detail,
-             "gain map metadata headroom denominator cannot be 0");
-    return status;
-  }
-  for (int c = 0; c < channelCount; ++c) {
-    if (in_metadata->gainMapMinD[c] == 0 || in_metadata->gainMapMaxD[c] == 0 ||
-        in_metadata->gainMapGammaD[c] == 0 || in_metadata->baseOffsetD[c] == 0 ||
-        in_metadata->alternateOffsetD[c] == 0) {
-      uhdr_error_info_t status;
-      status.error_code = UHDR_CODEC_INVALID_PARAM;
-      status.has_detail = 1;
-      snprintf(status.detail, sizeof status.detail,
-               "gain map metadata channel %d denominator cannot be 0", c);
-      return status;
-    }
-  }
-
-  // Per ISO/IEC 21496-1, bit 3 of flags is reserved and MUST be 0.
-  // Always emit independent rational fraction pairs (N, D).
   streamWriteU8(out_data, flags);
 
   streamWriteU32(out_data, in_metadata->baseHdrHeadroomN);
