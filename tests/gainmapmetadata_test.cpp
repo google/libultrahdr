@@ -409,4 +409,152 @@ TEST(GainmapMetadataTest, RejectsMalformedISO21496_1Ratios) {
             UHDR_CODEC_INVALID_PARAM);
 }
 
+
+TEST_F(GainMapMetadataTest, EncodedFlagsClearsReservedBit3) {
+  uhdr_gainmap_metadata_frac frac{};
+  frac.baseHdrHeadroomN = 0;
+  frac.baseHdrHeadroomD = 1000;
+  frac.alternateHdrHeadroomN = 1000;
+  frac.alternateHdrHeadroomD = 1000;
+  for (int c = 0; c < 3; ++c) {
+    frac.gainMapMinN[c] = 0;
+    frac.gainMapMinD[c] = 1000;
+    frac.gainMapMaxN[c] = 1000;
+    frac.gainMapMaxD[c] = 1000;
+    frac.gainMapGammaN[c] = 1000;
+    frac.gainMapGammaD[c] = 1000;
+    frac.baseOffsetN[c] = 0;
+    frac.baseOffsetD[c] = 1000;
+    frac.alternateOffsetN[c] = 0;
+    frac.alternateOffsetD[c] = 1000;
+  }
+
+  std::vector<uint8_t> data;
+  ASSERT_EQ(uhdr_gainmap_metadata_frac::encodeGainmapMetadata(&frac, data).error_code,
+            UHDR_CODEC_OK);
+
+  // Byte 4 is the flags byte (after 2 bytes min_version + 2 bytes writer_version)
+  ASSERT_GE(data.size(), 5u);
+  uint8_t flags = data[4];
+  EXPECT_EQ(flags & 0x08, 0)
+      << "the legacy common-denominator flag is reserved in ISO/IEC 21496-1 and must "
+         "not be set by the writer";
+}
+
+TEST_F(GainMapMetadataTest, RejectsZeroDenominatorDuringEncoding) {
+  uhdr_gainmap_metadata_frac frac{};
+  frac.baseHdrHeadroomD = 0; // Invalid zero denominator
+
+  std::vector<uint8_t> data;
+  EXPECT_EQ(uhdr_gainmap_metadata_frac::encodeGainmapMetadata(&frac, data).error_code,
+            UHDR_CODEC_INVALID_PARAM);
+}
+
+TEST_F(GainMapMetadataTest, DecodesLegacyCommonDenominatorStream) {
+  // Synthetic legacy stream with bit 3 set (common denominator = 1000)
+  const std::vector<uint8_t> legacy_data = {
+      0x00, 0x00,             // min_version = 0
+      0x00, 0x00,             // writer_version = 0
+      0x08,                   // flags: bit 3 set (useCommonDenominator), 1 channel
+      0x00, 0x00, 0x03, 0xe8, // commonDenominator = 1000
+      0x00, 0x00, 0x00, 0x00, // baseHdrHeadroomN = 0
+      0x00, 0x00, 0x03, 0xe8, // alternateHdrHeadroomN = 1000
+      0x00, 0x00, 0x00, 0x00, // gainMapMinN = 0
+      0x00, 0x00, 0x03, 0xe8, // gainMapMaxN = 1000
+      0x00, 0x00, 0x03, 0xe8, // gainMapGammaN = 1000
+      0x00, 0x00, 0x00, 0x00, // baseOffsetN = 0
+      0x00, 0x00, 0x00, 0x00  // alternateOffsetN = 0
+  };
+
+  uhdr_gainmap_metadata_frac decoded;
+  EXPECT_EQ(uhdr_gainmap_metadata_frac::decodeGainmapMetadata(legacy_data, &decoded).error_code,
+            UHDR_CODEC_OK);
+  EXPECT_EQ(decoded.baseHdrHeadroomD, 1000u);
+  EXPECT_EQ(decoded.alternateHdrHeadroomD, 1000u);
+}
+
+TEST_F(GainMapMetadataTest, RejectsZeroDenominatorInIndependentFractionStream) {
+  // Independent fraction pairs are what the writer always emits now, so the decoder must
+  // reject a zero denominator on this path too - not just on the legacy common-denominator
+  // path. Otherwise the zero survives until gainmapMetadataFractionToFloat() divides by it.
+  uhdr_gainmap_metadata_frac frac{};
+  frac.baseHdrHeadroomN = 0;
+  frac.baseHdrHeadroomD = 1000;
+  frac.alternateHdrHeadroomN = 1000;
+  frac.alternateHdrHeadroomD = 1000;
+  for (int c = 0; c < 3; ++c) {
+    frac.gainMapMinN[c] = 0;
+    frac.gainMapMinD[c] = 1000;
+    frac.gainMapMaxN[c] = 1000;
+    frac.gainMapMaxD[c] = 1000;
+    frac.gainMapGammaN[c] = 1000;
+    frac.gainMapGammaD[c] = 1000;
+    frac.baseOffsetN[c] = 0;
+    frac.baseOffsetD[c] = 1000;
+    frac.alternateOffsetN[c] = 0;
+    frac.alternateOffsetD[c] = 1000;
+  }
+
+  std::vector<uint8_t> data;
+  ASSERT_EQ(uhdr_gainmap_metadata_frac::encodeGainmapMetadata(&frac, data).error_code,
+            UHDR_CODEC_OK);
+  ASSERT_EQ(data[4] & 0x08, 0) << "writer must emit independent fractions";
+
+  uhdr_gainmap_metadata_frac decoded;
+  ASSERT_EQ(uhdr_gainmap_metadata_frac::decodeGainmapMetadata(data, &decoded).error_code,
+            UHDR_CODEC_OK);
+
+  // Layout: [0..1] min_version, [2..3] writer_version, [4] flags,
+  //         [5..8] baseHdrHeadroomN, [9..12] baseHdrHeadroomD, ...
+  //         [21..24] gainMapMinN[0], [25..28] gainMapMinD[0]
+  {
+    std::vector<uint8_t> corrupt = data;
+    ASSERT_GT(corrupt.size(), 12u);
+    corrupt[9] = corrupt[10] = corrupt[11] = corrupt[12] = 0;  // baseHdrHeadroomD = 0
+    uhdr_gainmap_metadata_frac out;
+    EXPECT_EQ(uhdr_gainmap_metadata_frac::decodeGainmapMetadata(corrupt, &out).error_code,
+              UHDR_CODEC_INVALID_PARAM);
+  }
+  {
+    std::vector<uint8_t> corrupt = data;
+    ASSERT_GT(corrupt.size(), 28u);
+    corrupt[25] = corrupt[26] = corrupt[27] = corrupt[28] = 0;  // gainMapMinD[0] = 0
+    uhdr_gainmap_metadata_frac out;
+    EXPECT_EQ(uhdr_gainmap_metadata_frac::decodeGainmapMetadata(corrupt, &out).error_code,
+              UHDR_CODEC_INVALID_PARAM);
+  }
+}
+
+TEST_F(GainMapMetadataTest, RejectsZeroDenominatorInLegacyCommonDenominatorStream) {
+  // Same stream as DecodesLegacyCommonDenominatorStream, but with a 0 common denominator.
+  const std::vector<uint8_t> legacy_data = {
+      0x00, 0x00,              // min_version = 0
+      0x00, 0x00,              // writer_version = 0
+      0x08,                    // flags: common-denominator bit set, 1 channel
+      0x00, 0x00, 0x00, 0x00,  // commonDenominator = 0 (invalid)
+      0x00, 0x00, 0x00, 0x00,  // baseHdrHeadroomN = 0
+      0x00, 0x00, 0x03, 0xe8,  // alternateHdrHeadroomN = 1000
+      0x00, 0x00, 0x00, 0x00,  // gainMapMinN = 0
+      0x00, 0x00, 0x03, 0xe8,  // gainMapMaxN = 1000
+      0x00, 0x00, 0x03, 0xe8,  // gainMapGammaN = 1000
+      0x00, 0x00, 0x00, 0x00,  // baseOffsetN = 0
+      0x00, 0x00, 0x00, 0x00   // alternateOffsetN = 0
+  };
+
+  uhdr_gainmap_metadata_frac decoded;
+  EXPECT_EQ(uhdr_gainmap_metadata_frac::decodeGainmapMetadata(legacy_data, &decoded).error_code,
+            UHDR_CODEC_INVALID_PARAM);
+}
+
+TEST_F(GainMapMetadataTest, EncodeLeavesOutputUntouchedOnValidationFailure) {
+  // A rejected descriptor must not append a partial header to the caller's buffer.
+  uhdr_gainmap_metadata_frac frac{};
+  frac.baseHdrHeadroomD = 0;
+
+  std::vector<uint8_t> data;
+  EXPECT_EQ(uhdr_gainmap_metadata_frac::encodeGainmapMetadata(&frac, data).error_code,
+            UHDR_CODEC_INVALID_PARAM);
+  EXPECT_TRUE(data.empty()) << "encoder wrote " << data.size() << " byte(s) before failing";
+}
+
 }  // namespace ultrahdr

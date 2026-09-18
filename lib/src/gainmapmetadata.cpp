@@ -130,10 +130,6 @@ uhdr_error_info_t uhdr_gainmap_metadata_frac::encodeGainmapMetadata(
     return status;
   }
 
-  const uint16_t min_version = 0, writer_version = 0;
-  streamWriteU16(out_data, min_version);
-  streamWriteU16(out_data, writer_version);
-
   uint8_t flags = 0u;
   // Version 0 defines only the channel-count and base-color-space flags.
   const uint8_t channelCount = in_metadata->allChannelsIdentical() ? 1u : 3u;
@@ -144,6 +140,37 @@ uhdr_error_info_t uhdr_gainmap_metadata_frac::encodeGainmapMetadata(
   if (in_metadata->useBaseColorSpace) {
     flags |= kUseBaseColorSpaceMask;
   }
+
+  // Validate that no denominator is zero before serialization
+  if (in_metadata->baseHdrHeadroomD == 0 || in_metadata->alternateHdrHeadroomD == 0) {
+    uhdr_error_info_t status;
+    status.error_code = UHDR_CODEC_INVALID_PARAM;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "gain map metadata headroom denominator cannot be 0");
+    return status;
+  }
+  for (int c = 0; c < channelCount; ++c) {
+    if (in_metadata->gainMapMinD[c] == 0 || in_metadata->gainMapMaxD[c] == 0 ||
+        in_metadata->gainMapGammaD[c] == 0 || in_metadata->baseOffsetD[c] == 0 ||
+        in_metadata->alternateOffsetD[c] == 0) {
+      uhdr_error_info_t status;
+      status.error_code = UHDR_CODEC_INVALID_PARAM;
+      status.has_detail = 1;
+      snprintf(status.detail, sizeof status.detail,
+               "gain map metadata channel %d denominator cannot be 0", c);
+      return status;
+    }
+  }
+
+  // Nothing is appended to out_data until every field has been validated, so a
+  // rejected descriptor leaves the caller's buffer untouched.
+  const uint16_t min_version = 0, writer_version = 0;
+  streamWriteU16(out_data, min_version);
+  streamWriteU16(out_data, writer_version);
+
+  // Per ISO/IEC 21496-1, the common-denominator bit is reserved and MUST be 0.
+  // Always emit independent rational fraction pairs (N, D).
   streamWriteU8(out_data, flags);
 
   streamWriteU32(out_data, in_metadata->baseHdrHeadroomN);
@@ -209,6 +236,14 @@ uhdr_error_info_t uhdr_gainmap_metadata_frac::decodeGainmapMetadata(
   if (useCommonDenominator) {
     uint32_t commonDenominator = 1u;
     UHDR_ERR_CHECK(streamReadU32(in_data, commonDenominator, pos))
+    if (commonDenominator == 0) {
+      uhdr_error_info_t status;
+      status.error_code = UHDR_CODEC_INVALID_PARAM;
+      status.has_detail = 1;
+      snprintf(status.detail, sizeof status.detail,
+               "decoded gain map common denominator cannot be 0");
+      return status;
+    }
 
     UHDR_ERR_CHECK(streamReadU32(in_data, out_metadata->baseHdrHeadroomN, pos))
     out_metadata->baseHdrHeadroomD = commonDenominator;
@@ -243,6 +278,29 @@ uhdr_error_info_t uhdr_gainmap_metadata_frac::decodeGainmapMetadata(
       UHDR_ERR_CHECK(streamReadU32(in_data, out_metadata->baseOffsetD[c], pos))
       UHDR_ERR_CHECK(streamReadS32(in_data, out_metadata->alternateOffsetN[c], pos))
       UHDR_ERR_CHECK(streamReadU32(in_data, out_metadata->alternateOffsetD[c], pos))
+    }
+  }
+
+  // Applies to both layouts: a zero denominator yields NaN / SIGFPE once the
+  // rationals are converted to float, so reject it at parse time.
+  if (out_metadata->baseHdrHeadroomD == 0 || out_metadata->alternateHdrHeadroomD == 0) {
+    uhdr_error_info_t status;
+    status.error_code = UHDR_CODEC_INVALID_PARAM;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "decoded gain map headroom denominator cannot be 0");
+    return status;
+  }
+  for (int c = 0; c < channelCount; ++c) {
+    if (out_metadata->gainMapMinD[c] == 0 || out_metadata->gainMapMaxD[c] == 0 ||
+        out_metadata->gainMapGammaD[c] == 0 || out_metadata->baseOffsetD[c] == 0 ||
+        out_metadata->alternateOffsetD[c] == 0) {
+      uhdr_error_info_t status;
+      status.error_code = UHDR_CODEC_INVALID_PARAM;
+      status.has_detail = 1;
+      snprintf(status.detail, sizeof status.detail,
+               "decoded gain map channel %d denominator cannot be 0", c);
+      return status;
     }
   }
 
