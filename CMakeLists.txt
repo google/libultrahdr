@@ -646,6 +646,18 @@ if(UHDR_ENABLE_HEIF)
   endif()
   if(LIBHEIF_FOUND)
     message(STATUS "Found libheif: ${LIBHEIF_LIBRARIES}")
+    if(TARGET libheif::heif)
+      get_target_property(_heif_interface_dirs libheif::heif INTERFACE_INCLUDE_DIRECTORIES)
+      if(_heif_interface_dirs)
+        list(PREPEND PRIVATE_INCLUDE_DIR ${_heif_interface_dirs})
+      endif()
+      # CMake 3.25+: prevent libheif from being classified as a system target so
+      # its headers are prioritized over any conflicting host/system headers,
+      # without stripping system include classification from other dependencies.
+      set_target_properties(libheif::heif PROPERTIES SYSTEM FALSE)
+    elseif(LIBHEIF_INCLUDE_DIRS)
+      list(PREPEND PRIVATE_INCLUDE_DIR ${LIBHEIF_INCLUDE_DIRS})
+    endif()
     add_compile_options(-DUHDR_ENABLE_HEIF)
     list(APPEND PRIVATE_LINK_LIBS libheif::heif)
   else()
