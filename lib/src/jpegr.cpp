@@ -161,9 +161,14 @@ UltraHdr::UltraHdr(void* uhdrGLESCtxt, int mapDimensionScaleFactor, int mapCompr
  *                 (4 bytes offset to FF sign, the byte after FF E1 XX XX <this byte>).
  * @param exif_size exif size without the initial 4 bytes, aligned with jpegdecoder.getEXIFSize().
  */
-static void copyJpegWithoutExif(uhdr_compressed_image_t* pDest, uhdr_compressed_image_t* pSource,
+static bool copyJpegWithoutExif(uhdr_compressed_image_t* pDest, uhdr_compressed_image_t* pSource,
                                 size_t exif_pos, size_t exif_size) {
   const size_t exif_offset = 4;  // exif_pos has 4 bytes offset to the FF sign
+  if (pDest == nullptr || pSource == nullptr || pSource->data == nullptr || exif_pos < exif_offset ||
+      exif_pos > pSource->data_sz || exif_size > pSource->data_sz - exif_pos ||
+      exif_offset > pSource->data_sz - exif_size) {
+    return false;
+  }
   pDest->data_sz = pSource->data_sz - exif_size - exif_offset;
   pDest->data = new uint8_t[pDest->data_sz];
   pDest->capacity = pDest->data_sz;
@@ -173,6 +178,7 @@ static void copyJpegWithoutExif(uhdr_compressed_image_t* pDest, uhdr_compressed_
   memcpy(pDest->data, pSource->data, exif_pos - exif_offset);
   memcpy((uint8_t*)pDest->data + exif_pos - exif_offset,
          (uint8_t*)pSource->data + exif_pos + exif_size, pSource->data_sz - exif_pos - exif_size);
+  return true;
 }
 
 /* Encode API-0 */
@@ -1197,8 +1203,15 @@ uhdr_error_info_t JpegR::appendGainMap(uhdr_compressed_image_t* sdr_intent_compr
                "contains exif, unsure which one to use");
       return status;
     }
-    copyJpegWithoutExif(&new_jpg_image, sdr_intent_compressed, decoder.getEXIFPos(),
-                        decoder.getEXIFSize());
+    if (!copyJpegWithoutExif(&new_jpg_image, sdr_intent_compressed, decoder.getEXIFPos(),
+                             decoder.getEXIFSize())) {
+      uhdr_error_info_t status;
+      status.error_code = UHDR_CODEC_INVALID_PARAM;
+      status.has_detail = 1;
+      snprintf(status.detail, sizeof status.detail,
+               "invalid EXIF position or size in compressed base image");
+      return status;
+    }
     dest_data.reset(reinterpret_cast<uint8_t*>(new_jpg_image.data));
     exif_from_jpg.data = decoder.getEXIFPtr();
     exif_from_jpg.data_sz = decoder.getEXIFSize();
@@ -1316,11 +1329,18 @@ uhdr_error_info_t JpegR::appendGainMap(uhdr_compressed_image_t* sdr_intent_compr
       if (base_data[base_pos] != 0xFF) break;
       if (base_pos + 1 >= base_size) break;  // guard against truncated data
       uint8_t marker = base_data[base_pos+1];
+      if (marker == 0xFF) {
+          // JPEG permits repeated 0xFF fill bytes before a marker code. Keep the final
+          // 0xFF as the marker prefix so the normal segment parsing below can consume it.
+          while (base_pos + 2 < base_size && base_data[base_pos+1] == 0xFF) ++base_pos;
+          if (base_pos + 1 >= base_size || base_data[base_pos+1] == 0xFF) break;
+          marker = base_data[base_pos+1];
+      }
       if (marker == 0xDA) {            // SOS - stop here, MPF goes before this
           sos_offset = base_pos;
           break;
       }
-      if (marker == 0x00 || marker == 0xFF) { base_pos += 2; continue; }
+      if (marker == 0x00) { base_pos += 2; continue; }
       if (marker >= 0xD0 && marker <= 0xD7) { base_pos += 2; continue; }
       if (marker == 0xD9) break;      // EOI - shouldn't happen here but guard
       // OOB check: need at least 2 bytes for the segment length field

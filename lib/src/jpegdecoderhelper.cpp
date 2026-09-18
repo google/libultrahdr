@@ -139,6 +139,39 @@ static void jpeg_extract_marker_payload(const j_decompress_ptr cinfo, const uint
   }
 }
 
+// Locate the selected payload in the original JPEG stream. The saved-marker list is incomplete
+// by design and is not a reliable source of byte offsets when other segments precede EXIF.
+static long find_marker_payload_offset(const uint8_t* image, size_t length, uint32_t marker_code,
+                                       const uint8_t* payload, size_t payload_length) {
+  if (image == nullptr || payload == nullptr || length < 2 || image[0] != 0xff ||
+      image[1] != 0xd8) {
+    return -1;
+  }
+
+  size_t pos = 2;
+  while (pos + 1 < length) {
+    if (image[pos] != 0xff) return -1;
+    while (pos < length && image[pos] == 0xff) ++pos;
+    if (pos >= length) return -1;
+
+    const uint8_t marker = image[pos++];
+    if (marker == 0xd9 || marker == 0xda) return -1;
+    if (marker == 0xd8 || marker == 0x01 || (marker >= 0xd0 && marker <= 0xd7)) continue;
+    if (pos + 2 > length) return -1;
+
+    const size_t segment_length = (static_cast<size_t>(image[pos]) << 8) | image[pos + 1];
+    if (segment_length < 2 || segment_length > length - pos) return -1;
+    const size_t segment_payload_length = segment_length - 2;
+    const size_t segment_payload_offset = pos + 2;
+    if (marker == marker_code && segment_payload_length == payload_length &&
+        memcmp(image + segment_payload_offset, payload, payload_length) == 0) {
+      return static_cast<long>(segment_payload_offset);
+    }
+    pos += segment_length;
+  }
+  return -1;
+}
+
 static uhdr_img_fmt_t getOutputSamplingFormat(const j_decompress_ptr cinfo) {
   if (cinfo->num_components == 1)
     return UHDR_IMG_FMT_8bppYCbCr400;
@@ -238,6 +271,19 @@ uhdr_error_info_t JpegDecoderHelper::decode(const void* image, size_t length, de
     jpeg_extract_marker_payload(&cinfo, kAPP1Marker, kExifIdCode,
                                 sizeof kExifIdCode / sizeof kExifIdCode[0], mEXIFBuffer,
                                 mExifPayLoadOffset);
+    if (mExifPayLoadOffset >= 0) {
+      mExifPayLoadOffset = find_marker_payload_offset(
+          static_cast<const uint8_t*>(image), length, kAPP1Marker, mEXIFBuffer.data(),
+          mEXIFBuffer.size());
+      if (mExifPayLoadOffset < 0) {
+        status.error_code = UHDR_CODEC_ERROR;
+        status.has_detail = 1;
+        snprintf(status.detail, sizeof status.detail,
+                 "failed to locate extracted EXIF payload in JPEG source");
+        jpeg_destroy_decompress(&cinfo);
+        return status;
+      }
+    }
     jpeg_extract_marker_payload(&cinfo, kAPP2Marker, kICCSig, sizeof kICCSig / sizeof kICCSig[0],
                                 mICCBuffer, payloadOffset);
     jpeg_extract_marker_payload(&cinfo, kAPP2Marker, kIsoMetadataNameSpace,
