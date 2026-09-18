@@ -1292,6 +1292,14 @@ uhdr_error_info_t JpegR::appendGainMap(uhdr_compressed_image_t* sdr_intent_compr
       uhdr_mem_block_t user_block{const_cast<char*>(user_xmp_str.data()), user_xmp_str.size(),
                                   user_xmp_str.size()};
       xmp_primary_str = generateXmpForPrimaryImage(secondary_image_size, *metadata, &user_block);
+      if (xmp_primary_str.empty()) {
+        uhdr_error_info_t status;
+        status.error_code = UHDR_CODEC_INVALID_PARAM;
+        status.has_detail = 1;
+        snprintf(status.detail, sizeof status.detail,
+                 "unable to safely merge supplied XMP metadata into the primary image");
+        return status;
+      }
     } else {
       xmp_primary_str = user_xmp_str;
     }

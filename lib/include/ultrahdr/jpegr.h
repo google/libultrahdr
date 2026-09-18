@@ -357,8 +357,11 @@ class JpegR : public UltraHdr {
    * \param[in]       metadata                 gainmap metadata descriptor
    * \param[in, out]  dest                     output image descriptor to store compressed ultrahdr
    *                                           image
+   * \param[in]       pXmp                     optional primary-image XMP packet to preserve and
+   *                                           merge when XMP metadata is enabled
    *
    * \return uhdr_error_info_t #UHDR_CODEC_OK if operation succeeds, uhdr_codec_err_t otherwise.
+   *         An unsupported or unmergeable XMP packet returns #UHDR_CODEC_INVALID_PARAM in XMP mode.
    */
   uhdr_error_info_t appendGainMap(uhdr_compressed_image_t* sdr_intent_compressed,
                                   uhdr_compressed_image_t* gainmap_compressed,

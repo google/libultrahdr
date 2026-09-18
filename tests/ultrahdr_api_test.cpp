@@ -7,20 +7,28 @@
 #else
 #include <gtest/gtest.h>
 #endif
+#include <charconv>
 #include <algorithm>
 #include <cstdint>
 #include <fstream>
 #include <cstring>
 #include <limits>
+#include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 #include <memory>
 
 #include "ultrahdr_api.h"
 #include "ultrahdr/ultrahdrcommon.h"
 #include "ultrahdr/jpegr.h"
+#include "ultrahdr/jpegencoderhelper.h"
 #include "ultrahdr/heifultrahdr.h"
 #include "ultrahdr/avifultrahdr.h"
+#include "image_io/base/message_handler.h"
+#include "image_io/xml/xml_element_rules.h"
+#include "image_io/xml/xml_handler.h"
+#include "image_io/xml/xml_reader.h"
 
 namespace ultrahdr {
 
@@ -48,6 +56,203 @@ static std::vector<uint8_t> makeSmallHdrData() {
   }
   return data;
 }
+
+static std::string getXmpPacket(const uhdr_mem_block_t* xmp) {
+  constexpr std::string_view kXmpNamespace = "http://ns.adobe.com/xap/1.0/";
+  if (xmp == nullptr || xmp->data == nullptr) return {};
+  const auto* bytes = static_cast<const char*>(xmp->data);
+  size_t offset = 0;
+  if (xmp->data_sz >= kXmpNamespace.size() &&
+      std::string_view(bytes, kXmpNamespace.size()) == kXmpNamespace) {
+    offset = kXmpNamespace.size();
+    if (offset < xmp->data_sz && bytes[offset] == '\0') ++offset;
+  }
+  return std::string(bytes + offset, xmp->data_sz - offset);
+}
+
+static uhdr_gainmap_metadata_t makeTestGainmapMetadata() {
+  uhdr_gainmap_metadata_t metadata{};
+  for (int channel = 0; channel < 3; ++channel) {
+    metadata.max_content_boost[channel] = 2.0f;
+    metadata.min_content_boost[channel] = 1.0f;
+    metadata.gamma[channel] = 1.0f;
+  }
+  metadata.hdr_capacity_min = 1.0f;
+  metadata.hdr_capacity_max = 2.0f;
+  metadata.use_base_cg = 1;
+  return metadata;
+}
+
+using EncoderPtr = std::unique_ptr<uhdr_codec_private_t, decltype(&uhdr_release_encoder)>;
+using DecoderPtr = std::unique_ptr<uhdr_codec_private_t, decltype(&uhdr_release_decoder)>;
+
+static EncoderPtr makeEncoder() {
+  return EncoderPtr(uhdr_create_encoder(), &uhdr_release_encoder);
+}
+
+static DecoderPtr makeDecoder() {
+  return DecoderPtr(uhdr_create_decoder(), &uhdr_release_decoder);
+}
+
+// Configures the API-4 inputs used by the focused JPEG XMP tests. The XMP block is optional when
+// an API-4 re-encode should reuse XMP embedded in its compressed base image.
+static uhdr_error_info_t configureJpegGainmapEncoder(uhdr_codec_private_t* encoder,
+                                                     uhdr_compressed_image_t* base_image,
+                                                     uhdr_compressed_image_t* gainmap_image,
+                                                     uhdr_gainmap_metadata_t* metadata,
+                                                     uhdr_mem_block_t* xmp) {
+  uhdr_error_info_t status =
+      uhdr_enc_set_compressed_image(encoder, base_image, UHDR_BASE_IMG);
+  if (status.error_code != UHDR_CODEC_OK) return status;
+  status = uhdr_enc_set_gainmap_image(encoder, gainmap_image, metadata);
+  if (status.error_code != UHDR_CODEC_OK) return status;
+  if (xmp != nullptr) {
+    status = uhdr_enc_set_xmp_data(encoder, xmp);
+    if (status.error_code != UHDR_CODEC_OK) return status;
+  }
+  return uhdr_enc_set_output_format(encoder, UHDR_CODEC_JPG);
+}
+
+struct JpegXmpRoundTrip {
+  EncoderPtr encoder;
+  DecoderPtr decoder;
+
+  JpegXmpRoundTrip()
+      : encoder(nullptr, &uhdr_release_encoder), decoder(nullptr, &uhdr_release_decoder) {}
+};
+
+static testing::AssertionResult encodeAndProbeJpegXmp(
+    uhdr_compressed_image_t* base_image, uhdr_compressed_image_t* gainmap_image,
+    uhdr_gainmap_metadata_t* metadata, uhdr_mem_block_t* xmp, JpegXmpRoundTrip& round_trip) {
+  round_trip.encoder = makeEncoder();
+  if (round_trip.encoder == nullptr) {
+    return testing::AssertionFailure() << "uhdr_create_encoder returned nullptr";
+  }
+
+  const uhdr_error_info_t setup_status = configureJpegGainmapEncoder(
+      round_trip.encoder.get(), base_image, gainmap_image, metadata, xmp);
+  if (setup_status.error_code != UHDR_CODEC_OK) {
+    return testing::AssertionFailure() << "JPEG XMP encoder setup failed: "
+                                       << setup_status.detail;
+  }
+
+  const uhdr_error_info_t encode_status = uhdr_encode(round_trip.encoder.get());
+  if (encode_status.error_code != UHDR_CODEC_OK) {
+    return testing::AssertionFailure() << "JPEG XMP encode failed: " << encode_status.detail;
+  }
+  uhdr_compressed_image_t* output = uhdr_get_encoded_stream(round_trip.encoder.get());
+  if (output == nullptr) {
+    return testing::AssertionFailure() << "uhdr_get_encoded_stream returned nullptr";
+  }
+
+  round_trip.decoder = makeDecoder();
+  if (round_trip.decoder == nullptr) {
+    return testing::AssertionFailure() << "uhdr_create_decoder returned nullptr";
+  }
+  uhdr_error_info_t probe_status = uhdr_dec_set_image(round_trip.decoder.get(), output);
+  if (probe_status.error_code != UHDR_CODEC_OK) {
+    return testing::AssertionFailure() << "JPEG XMP decoder setup failed: "
+                                       << probe_status.detail;
+  }
+  probe_status = uhdr_dec_probe(round_trip.decoder.get());
+  if (probe_status.error_code != UHDR_CODEC_OK) {
+    return testing::AssertionFailure() << "JPEG XMP probe failed: " << probe_status.detail;
+  }
+  return testing::AssertionSuccess();
+}
+
+#if defined(UHDR_WRITE_XMP)
+struct ContainerDirectoryInfo {
+  bool parsed = false;
+  size_t directory_count = 0;
+  std::vector<size_t> gainmap_lengths;
+};
+
+class ContainerDirectoryHandler : public photos_editing_formats::image_io::XmlHandler {
+ public:
+  photos_editing_formats::image_io::DataMatchResult StartElement(
+      const photos_editing_formats::image_io::XmlTokenContext& context) override {
+    std::string name;
+    if (context.BuildTokenValue(&name)) {
+      element_stack_.push_back(name);
+      current_attribute_.clear();
+      if (name == "Container:Directory") ++directory_count_;
+      if (name == "Container:Item") {
+        current_item_is_gainmap_ = false;
+        current_item_length_.reset();
+      }
+    }
+    return context.GetResult();
+  }
+
+  photos_editing_formats::image_io::DataMatchResult AttributeName(
+      const photos_editing_formats::image_io::XmlTokenContext& context) override {
+    context.BuildTokenValue(&current_attribute_);
+    return context.GetResult();
+  }
+
+  photos_editing_formats::image_io::DataMatchResult AttributeValue(
+      const photos_editing_formats::image_io::XmlTokenContext& context) override {
+    std::string value;
+    if (context.BuildTokenValue(&value, true) && !element_stack_.empty() &&
+        element_stack_.back() == "Container:Item") {
+      if (current_attribute_ == "Item:Semantic") {
+        current_item_is_gainmap_ = value == "GainMap";
+      } else if (current_attribute_ == "Item:Length") {
+        size_t parsed = 0;
+        const auto parse_result =
+            std::from_chars(value.data(), value.data() + value.size(), parsed);
+        if (parse_result.ec == std::errc() && parse_result.ptr == value.data() + value.size()) {
+          current_item_length_ = parsed;
+        } else {
+          current_item_length_.reset();
+        }
+      }
+    }
+    return context.GetResult();
+  }
+
+  photos_editing_formats::image_io::DataMatchResult FinishElement(
+      const photos_editing_formats::image_io::XmlTokenContext& context) override {
+    if (!element_stack_.empty()) {
+      if (element_stack_.back() == "Container:Item" && current_item_is_gainmap_ &&
+          current_item_length_.has_value()) {
+        gainmap_lengths_.push_back(*current_item_length_);
+      }
+      element_stack_.pop_back();
+    }
+    current_attribute_.clear();
+    return context.GetResult();
+  }
+
+  size_t directoryCount() const { return directory_count_; }
+  const std::vector<size_t>& gainmapLengths() const { return gainmap_lengths_; }
+
+ private:
+  std::vector<std::string> element_stack_;
+  std::string current_attribute_;
+  bool current_item_is_gainmap_ = false;
+  std::optional<size_t> current_item_length_;
+  size_t directory_count_ = 0;
+  std::vector<size_t> gainmap_lengths_;
+};
+
+static ContainerDirectoryInfo getContainerDirectoryInfo(std::string_view xmp) {
+  ContainerDirectoryInfo info;
+  ContainerDirectoryHandler handler;
+  photos_editing_formats::image_io::MessageHandler messages;
+  photos_editing_formats::image_io::XmlReader reader(&handler, &messages);
+  if (!reader.StartParse(std::make_unique<photos_editing_formats::image_io::XmlElementRule>()) ||
+      !reader.Parse(std::string("<test>") + std::string(xmp) + "</test>") ||
+      !reader.FinishParse() || reader.HasErrors()) {
+    return info;
+  }
+  info.parsed = true;
+  info.directory_count = handler.directoryCount();
+  info.gainmap_lengths = handler.gainmapLengths();
+  return info;
+}
+#endif
 
 static void expectEncodedXmpDecodes(uhdr_compressed_image_t* output, size_t min_xmp_size) {
   ASSERT_NE(output, nullptr);
@@ -317,6 +522,334 @@ TEST_F(UltraHdrApiTest, JpegEncodeApi2AndDecode) {
   uhdr_release_decoder(dec);
   uhdr_release_encoder(enc);
 }
+
+#if defined(UHDR_WRITE_XMP)
+TEST_F(UltraHdrApiTest, JpegApi4ExplicitXmpPreservesRdfNamespacePrefixes) {
+  struct PrefixControl {
+    const char* name;
+    const char* packet;
+  };
+  const PrefixControl controls[] = {
+      {"conventional",
+       "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF "
+       "xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description "
+       "rdf:about=\"\" xmlns:ex=\"urn:test\"><ex:Probe>semantic-probe</ex:Probe>"
+       "<ex:Unrelated>keep-unrelated</ex:Unrelated></rdf:Description></rdf:RDF>"
+       "</x:xmpmeta>"},
+      {"alias",
+       "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><r:RDF "
+       "xmlns:r=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><r:Description "
+       "r:about=\"\" xmlns:ex=\"urn:test\"><ex:Probe>semantic-probe</ex:Probe>"
+       "<ex:Unrelated>keep-unrelated</ex:Unrelated></r:Description></r:RDF>"
+       "</x:xmpmeta>"},
+      {"default-rdf",
+       "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><RDF "
+       "xmlns=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\" xmlns:r=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><Description "
+       "r:about=\"\" xmlns:ex=\"urn:test\"><ex:Probe>semantic-probe</ex:Probe>"
+       "<ex:Unrelated>keep-unrelated</ex:Unrelated></Description></RDF>"
+       "</x:xmpmeta>"},
+  };
+
+  for (const PrefixControl& control : controls) {
+    SCOPED_TRACE(control.name);
+    uhdr_gainmap_metadata_t metadata = makeTestGainmapMetadata();
+    uhdr_mem_block_t xmp_block{const_cast<char*>(control.packet), strlen(control.packet),
+                               strlen(control.packet)};
+    JpegXmpRoundTrip round_trip;
+    ASSERT_TRUE(encodeAndProbeJpegXmp(&mSdrCompressed, &mSdrCompressed, &metadata, &xmp_block,
+                                      round_trip));
+    uhdr_mem_block_t* decoded_xmp = uhdr_dec_get_xmp(round_trip.decoder.get());
+    ASSERT_NE(decoded_xmp, nullptr);
+    ASSERT_NE(decoded_xmp->data, nullptr);
+    const std::string decoded_packet = getXmpPacket(decoded_xmp);
+    const ContainerDirectoryInfo directory_info = getContainerDirectoryInfo(decoded_packet);
+    ASSERT_TRUE(directory_info.parsed);
+    EXPECT_EQ(directory_info.directory_count, 1u);
+    const size_t generated_description = decoded_packet.rfind("<rdf:Description");
+    ASSERT_NE(generated_description, std::string::npos);
+    const size_t opening_end = decoded_packet.find('>', generated_description);
+    ASSERT_NE(opening_end, std::string::npos);
+    const std::string generated_opening =
+        decoded_packet.substr(generated_description, opening_end - generated_description);
+    EXPECT_NE(generated_opening.find(
+                  "xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\""),
+              std::string::npos);
+    EXPECT_NE(decoded_packet.find("semantic-probe"), std::string::npos);
+    EXPECT_NE(decoded_packet.find("keep-unrelated"), std::string::npos);
+  }
+}
+
+TEST_F(UltraHdrApiTest, JpegApi4XmpMergeReplacesVersionAttributeAndElement) {
+  struct VersionForm {
+    const char* name;
+    const char* packet;
+    const char* stale_value;
+  };
+  const VersionForm forms[] = {
+      {"attribute",
+       "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF "
+       "xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description "
+       "rdf:about=\"\" xmlns:hdrgm=\"http://ns.adobe.com/hdr-gain-map/1.0/\" "
+       "hdrgm:Version=\"old-attribute\"/></rdf:RDF></x:xmpmeta>",
+       "old-attribute"},
+      {"element",
+       "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF "
+       "xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description "
+       "rdf:about=\"\" xmlns:hdrgm=\"http://ns.adobe.com/hdr-gain-map/1.0/\">"
+       "<hdrgm:Version>old-element</hdrgm:Version></rdf:Description></rdf:RDF>"
+       "</x:xmpmeta>",
+       "old-element"},
+  };
+
+  for (const VersionForm& form : forms) {
+    SCOPED_TRACE(form.name);
+    uhdr_gainmap_metadata_t metadata = makeTestGainmapMetadata();
+    uhdr_mem_block_t xmp_block{const_cast<char*>(form.packet), strlen(form.packet),
+                               strlen(form.packet)};
+    JpegXmpRoundTrip round_trip;
+    ASSERT_TRUE(encodeAndProbeJpegXmp(&mSdrCompressed, &mSdrCompressed, &metadata, &xmp_block,
+                                      round_trip));
+    uhdr_mem_block_t* decoded_xmp = uhdr_dec_get_xmp(round_trip.decoder.get());
+    ASSERT_NE(decoded_xmp, nullptr);
+    ASSERT_NE(decoded_xmp->data, nullptr);
+    const std::string decoded_packet = getXmpPacket(decoded_xmp);
+    const ContainerDirectoryInfo directory_info = getContainerDirectoryInfo(decoded_packet);
+    ASSERT_TRUE(directory_info.parsed);
+    EXPECT_EQ(directory_info.directory_count, 1u);
+    EXPECT_EQ(decoded_packet.find(form.stale_value), std::string::npos);
+    EXPECT_NE(decoded_packet.find("hdrgm:Version=\"1.0\""), std::string::npos);
+  }
+}
+
+TEST_F(UltraHdrApiTest, JpegApi4GetterSetterReencodeUsesSingleCurrentGainmapDirectory) {
+  const std::string descriptive_seed =
+      "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF "
+      "xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description "
+      "rdf:about=\"\" xmlns:dc=\"http://purl.org/dc/elements/1.1/\" "
+      "xmlns:c=\"http://ns.google.com/photos/1.0/container/\" "
+      "xmlns:h=\"http://ns.adobe.com/hdr-gain-map/1.0/\" "
+      "c:Directory=\"stale-container-attribute\" h:Version=\"stale-hdrgm-attribute\">"
+      "<dc:description><rdf:Alt><rdf:li xml:lang=\"x-default\">retained-description"
+      "</rdf:li></rdf:Alt></dc:description>"
+      "<c:Directory>stale-container-element</c:Directory>"
+      "<h:Version>stale-hdrgm-element</h:Version>"
+      "</rdf:Description></rdf:RDF></x:xmpmeta>";
+  uhdr_mem_block_t descriptive_seed_block{const_cast<char*>(descriptive_seed.data()),
+                                           descriptive_seed.size(), descriptive_seed.size()};
+  uhdr_gainmap_metadata_t metadata = makeTestGainmapMetadata();
+  JpegXmpRoundTrip first_round_trip;
+  ASSERT_TRUE(encodeAndProbeJpegXmp(&mSdrCompressed, &mSdrCompressed, &metadata,
+                                     &descriptive_seed_block, first_round_trip));
+  uhdr_mem_block_t* first_xmp = uhdr_dec_get_xmp(first_round_trip.decoder.get());
+  ASSERT_NE(first_xmp, nullptr);
+  ASSERT_NE(first_xmp->data, nullptr);
+  uhdr_mem_block_t* first_base = uhdr_dec_get_base_image(first_round_trip.decoder.get());
+  ASSERT_NE(first_base, nullptr);
+  uhdr_mem_block_t* first_gainmap = uhdr_dec_get_gainmap_image(first_round_trip.decoder.get());
+  ASSERT_NE(first_gainmap, nullptr);
+  ASSERT_NE(first_gainmap->data, nullptr);
+  const std::string first_packet = getXmpPacket(first_xmp);
+  ASSERT_FALSE(first_packet.empty());
+  const char* stale_sentinels[] = {
+      "stale-container-attribute", "stale-container-element", "stale-hdrgm-attribute",
+      "stale-hdrgm-element",
+  };
+
+  auto checkOutput = [&](JpegXmpRoundTrip& round_trip, bool expect_changed_gainmap,
+                         const char* expected_description, const char* absent_description,
+                         std::string* packet_out) {
+    uhdr_mem_block_t* output_gainmap = uhdr_dec_get_gainmap_image(round_trip.decoder.get());
+    ASSERT_NE(output_gainmap, nullptr);
+    ASSERT_NE(output_gainmap->data, nullptr);
+    if (expect_changed_gainmap) {
+      EXPECT_NE(output_gainmap->data_sz, first_gainmap->data_sz);
+    }
+
+    uhdr_mem_block_t* output_xmp = uhdr_dec_get_xmp(round_trip.decoder.get());
+    ASSERT_NE(output_xmp, nullptr);
+    ASSERT_NE(output_xmp->data, nullptr);
+    const std::string output_packet = getXmpPacket(output_xmp);
+    ASSERT_FALSE(output_packet.empty());
+    EXPECT_NE(output_packet.find(expected_description), std::string::npos);
+    if (absent_description != nullptr) {
+      EXPECT_EQ(output_packet.find(absent_description), std::string::npos);
+    }
+    for (const char* stale : stale_sentinels) {
+      EXPECT_EQ(output_packet.find(stale), std::string::npos) << stale;
+    }
+
+    const ContainerDirectoryInfo directory_info = getContainerDirectoryInfo(output_packet);
+    ASSERT_TRUE(directory_info.parsed);
+    EXPECT_EQ(directory_info.directory_count, 1u);
+    ASSERT_EQ(directory_info.gainmap_lengths.size(), 1u);
+    EXPECT_EQ(directory_info.gainmap_lengths.front(), output_gainmap->data_sz);
+    ASSERT_EQ(uhdr_decode(round_trip.decoder.get()).error_code, UHDR_CODEC_OK);
+    if (packet_out != nullptr) *packet_out = output_packet;
+  };
+
+  uhdr_gainmap_metadata_t* decoded_metadata =
+      uhdr_dec_get_gainmap_metadata(first_round_trip.decoder.get());
+  ASSERT_NE(decoded_metadata, nullptr);
+  checkOutput(first_round_trip, false, "retained-description", nullptr, nullptr);
+
+  JpegEncoderHelper changed_gainmap_encoder;
+  ASSERT_EQ(changed_gainmap_encoder.compressImage(&mSdrRaw, 50, nullptr, 0).error_code,
+            UHDR_CODEC_OK);
+  uhdr_compressed_image_t changed_gainmap = changed_gainmap_encoder.getCompressedImage();
+  ASSERT_NE(changed_gainmap.data, nullptr);
+  ASSERT_NE(changed_gainmap.data_sz, first_gainmap->data_sz);
+
+  uhdr_compressed_image_t base_input{
+      first_base->data, first_base->data_sz, first_base->capacity, UHDR_CG_BT_709, UHDR_CT_SRGB,
+      UHDR_CR_FULL_RANGE};
+  uhdr_compressed_image_t gainmap_input = changed_gainmap;
+
+  const std::string xpacket_wrapped =
+      "<?xpacket begin=\"\xef\xbb\xbf\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>\n" + first_packet +
+      "\n<?xpacket end=\"w\"?>";
+  const std::string raw_getter(static_cast<const char*>(first_xmp->data), first_xmp->data_sz);
+  const std::string replacement_xmp =
+      "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF "
+      "xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description "
+      "rdf:about=\"\" xmlns:dc=\"http://purl.org/dc/elements/1.1/\"><dc:description>"
+      "replacement-description</dc:description></rdf:Description></rdf:RDF></x:xmpmeta>";
+  struct ReencodeControl {
+    const char* name;
+    const std::string* xmp;
+    const char* expected_description;
+    const char* absent_description;
+    bool expect_xpacket_wrapper;
+  };
+  const ReencodeControl controls[] = {
+      {"raw getter bytes", &raw_getter, "retained-description", nullptr, false},
+      {"xpacket wrapped XML", &xpacket_wrapped, "retained-description", nullptr, true},
+      {"no XMP setter", nullptr, "retained-description", nullptr, false},
+      {"explicit replacement", &replacement_xmp, "replacement-description",
+       "retained-description", false},
+  };
+  for (const ReencodeControl& control : controls) {
+    SCOPED_TRACE(control.name);
+    uhdr_mem_block_t xmp_input{};
+    if (control.xmp != nullptr) {
+      xmp_input = {const_cast<char*>(control.xmp->data()), control.xmp->size(),
+                   control.xmp->size()};
+    }
+    JpegXmpRoundTrip second_round_trip;
+    ASSERT_TRUE(encodeAndProbeJpegXmp(&base_input, &gainmap_input, decoded_metadata,
+                                      control.xmp != nullptr ? &xmp_input : nullptr,
+                                      second_round_trip));
+    std::string second_packet;
+    checkOutput(second_round_trip, true, control.expected_description,
+                control.absent_description, &second_packet);
+    if (control.expect_xpacket_wrapper) {
+      EXPECT_NE(second_packet.find(
+                    "<?xpacket begin=\"\xef\xbb\xbf\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>"),
+                std::string::npos);
+      EXPECT_NE(second_packet.find("<?xpacket end=\"w\"?>"), std::string::npos);
+    }
+  }
+}
+
+TEST_F(UltraHdrApiTest, JpegApi4XmpMergeIgnoresFakeRdfClosersInCommentsAndCdata) {
+  const std::string user_xmp =
+      "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF "
+      "xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description "
+      "rdf:about=\"\" xmlns:ex=\"urn:test\"><ex:Probe>semantic-probe</ex:Probe>"
+      "<ex:Unrelated><![CDATA[keep-cdata </rdf:RDF>]]></ex:Unrelated>"
+      "</rdf:Description></rdf:RDF><!-- keep-comment </rdf:RDF> -->"
+      "</x:xmpmeta>";
+
+  uhdr_gainmap_metadata_t metadata = makeTestGainmapMetadata();
+  uhdr_mem_block_t xmp_block{const_cast<char*>(user_xmp.data()), user_xmp.size(), user_xmp.size()};
+  JpegXmpRoundTrip round_trip;
+  ASSERT_TRUE(encodeAndProbeJpegXmp(&mSdrCompressed, &mSdrCompressed, &metadata, &xmp_block,
+                                    round_trip));
+  uhdr_mem_block_t* decoded_xmp = uhdr_dec_get_xmp(round_trip.decoder.get());
+  ASSERT_NE(decoded_xmp, nullptr);
+  ASSERT_NE(decoded_xmp->data, nullptr);
+  const std::string decoded_packet = getXmpPacket(decoded_xmp);
+  const ContainerDirectoryInfo directory_info = getContainerDirectoryInfo(decoded_packet);
+  ASSERT_TRUE(directory_info.parsed);
+  EXPECT_EQ(directory_info.directory_count, 1u);
+  EXPECT_NE(decoded_packet.find("semantic-probe"), std::string::npos);
+  EXPECT_NE(decoded_packet.find("<![CDATA[keep-cdata </rdf:RDF>]]>"), std::string::npos);
+  EXPECT_NE(decoded_packet.find("<!-- keep-comment </rdf:RDF> -->"), std::string::npos);
+  ASSERT_EQ(directory_info.gainmap_lengths.size(), 1u);
+  uhdr_mem_block_t* decoded_gainmap = uhdr_dec_get_gainmap_image(round_trip.decoder.get());
+  ASSERT_NE(decoded_gainmap, nullptr);
+  ASSERT_NE(decoded_gainmap->data, nullptr);
+  EXPECT_EQ(directory_info.gainmap_lengths.front(), decoded_gainmap->data_sz);
+}
+
+TEST_F(UltraHdrApiTest, JpegApi4XmpMergeKeepsOwnedPropertiesOnNodeIdDescription) {
+  const std::string user_xmp =
+      "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF "
+      "xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description "
+      "rdf:ID=\"other-id\" xmlns:Container=\"http://ns.google.com/photos/1.0/container/\">"
+      "<Container:Directory>keep-id-directory</Container:Directory></rdf:Description>"
+      "<rdf:Description rdf:nodeID=\"other-resource\" xmlns:Container=\"http://ns.google.com/photos/1.0/container/\">"
+      "<Container:Directory>keep-node-directory</Container:Directory>"
+      "</rdf:Description><rdf:Description rdf:about=\"\" xmlns:ex=\"urn:test\">"
+      "<ex:Probe>primary-probe</ex:Probe></rdf:Description></rdf:RDF></x:xmpmeta>";
+
+  uhdr_gainmap_metadata_t metadata = makeTestGainmapMetadata();
+  uhdr_mem_block_t xmp_block{const_cast<char*>(user_xmp.data()), user_xmp.size(), user_xmp.size()};
+  JpegXmpRoundTrip round_trip;
+  ASSERT_TRUE(encodeAndProbeJpegXmp(&mSdrCompressed, &mSdrCompressed, &metadata, &xmp_block,
+                                    round_trip));
+  uhdr_mem_block_t* decoded_xmp = uhdr_dec_get_xmp(round_trip.decoder.get());
+  ASSERT_NE(decoded_xmp, nullptr);
+  ASSERT_NE(decoded_xmp->data, nullptr);
+  const std::string decoded_packet = getXmpPacket(decoded_xmp);
+  EXPECT_NE(decoded_packet.find("keep-id-directory"), std::string::npos);
+  EXPECT_NE(decoded_packet.find("keep-node-directory"), std::string::npos);
+  EXPECT_NE(decoded_packet.find("primary-probe"), std::string::npos);
+}
+
+TEST_F(UltraHdrApiTest, JpegApi4RejectsMalformedOrUnmergeableXmp) {
+  const char* packets[] = {
+      "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF "
+      "xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description>",
+      "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF "
+      "xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description>"
+      "</rdf:Other></rdf:RDF></x:xmpmeta>",
+      "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><ex:Metadata xmlns:ex=\"urn:test\">"
+      "<ex:Probe>unmergeable</ex:Probe></ex:Metadata></x:xmpmeta>",
+  };
+
+  for (const char* packet : packets) {
+    SCOPED_TRACE(packet);
+    EncoderPtr enc = makeEncoder();
+    ASSERT_NE(enc, nullptr);
+    uhdr_gainmap_metadata_t metadata = makeTestGainmapMetadata();
+    uhdr_mem_block_t xmp_block{const_cast<char*>(packet), strlen(packet), strlen(packet)};
+    const uhdr_error_info_t setup_status = configureJpegGainmapEncoder(
+        enc.get(), &mSdrCompressed, &mSdrCompressed, &metadata, &xmp_block);
+    ASSERT_EQ(setup_status.error_code, UHDR_CODEC_OK) << setup_status.detail;
+    const uhdr_error_info_t status = uhdr_encode(enc.get());
+    EXPECT_EQ(status.error_code, UHDR_CODEC_INVALID_PARAM) << status.detail;
+  }
+}
+#endif
+
+#if !defined(UHDR_WRITE_XMP) && defined(UHDR_WRITE_ISO)
+TEST_F(UltraHdrApiTest, JpegApi4IsoOnlyPassesThroughXmpExactly) {
+  const std::string user_xmp =
+      "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF "
+      "xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description "
+      "rdf:about=\"\" xmlns:ex=\"urn:test\"><ex:Probe>iso-passthrough</ex:Probe>"
+      "</rdf:Description></rdf:RDF></x:xmpmeta>";
+  uhdr_gainmap_metadata_t metadata = makeTestGainmapMetadata();
+  uhdr_mem_block_t xmp_block{const_cast<char*>(user_xmp.data()), user_xmp.size(), user_xmp.size()};
+  JpegXmpRoundTrip round_trip;
+  ASSERT_TRUE(encodeAndProbeJpegXmp(&mSdrCompressed, &mSdrCompressed, &metadata, &xmp_block,
+                                    round_trip));
+  uhdr_mem_block_t* decoded_xmp = uhdr_dec_get_xmp(round_trip.decoder.get());
+  ASSERT_NE(decoded_xmp, nullptr);
+  ASSERT_NE(decoded_xmp->data, nullptr);
+  EXPECT_EQ(getXmpPacket(decoded_xmp), user_xmp);
+}
+#endif
 
 TEST_F(UltraHdrApiTest, JpegEncodeWithXmpAndDecode) {
   uhdr_codec_private_t* enc = uhdr_create_encoder();
