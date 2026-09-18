@@ -143,51 +143,47 @@ uhdr_error_info_t uhdr_gainmap_metadata_frac::encodeGainmapMetadata(
     flags |= 4;
   }
 
-  const uint32_t denom = in_metadata->baseHdrHeadroomD;
-  bool useCommonDenominator = true;
-  if (in_metadata->baseHdrHeadroomD != denom || in_metadata->alternateHdrHeadroomD != denom) {
-    useCommonDenominator = false;
+  // Validate that no denominator is zero before serialization
+  if (in_metadata->baseHdrHeadroomD == 0 || in_metadata->alternateHdrHeadroomD == 0) {
+    uhdr_error_info_t status;
+    status.error_code = UHDR_CODEC_INVALID_PARAM;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "gain map metadata headroom denominator cannot be 0");
+    return status;
   }
   for (int c = 0; c < channelCount; ++c) {
-    if (in_metadata->gainMapMinD[c] != denom || in_metadata->gainMapMaxD[c] != denom ||
-        in_metadata->gainMapGammaD[c] != denom || in_metadata->baseOffsetD[c] != denom ||
-        in_metadata->alternateOffsetD[c] != denom) {
-      useCommonDenominator = false;
+    if (in_metadata->gainMapMinD[c] == 0 || in_metadata->gainMapMaxD[c] == 0 ||
+        in_metadata->gainMapGammaD[c] == 0 || in_metadata->baseOffsetD[c] == 0 ||
+        in_metadata->alternateOffsetD[c] == 0) {
+      uhdr_error_info_t status;
+      status.error_code = UHDR_CODEC_INVALID_PARAM;
+      status.has_detail = 1;
+      snprintf(status.detail, sizeof status.detail,
+               "gain map metadata channel %d denominator cannot be 0", c);
+      return status;
     }
   }
-  if (useCommonDenominator) {
-    flags |= 8;
-  }
+
+  // Per ISO/IEC 21496-1, bit 3 of flags is reserved and MUST be 0.
+  // Always emit independent rational fraction pairs (N, D).
   streamWriteU8(out_data, flags);
 
-  if (useCommonDenominator) {
-    streamWriteU32(out_data, denom);
-    streamWriteU32(out_data, in_metadata->baseHdrHeadroomN);
-    streamWriteU32(out_data, in_metadata->alternateHdrHeadroomN);
-    for (int c = 0; c < channelCount; ++c) {
-      streamWriteS32(out_data, in_metadata->gainMapMinN[c]);
-      streamWriteS32(out_data, in_metadata->gainMapMaxN[c]);
-      streamWriteU32(out_data, in_metadata->gainMapGammaN[c]);
-      streamWriteS32(out_data, in_metadata->baseOffsetN[c]);
-      streamWriteS32(out_data, in_metadata->alternateOffsetN[c]);
-    }
-  } else {
-    streamWriteU32(out_data, in_metadata->baseHdrHeadroomN);
-    streamWriteU32(out_data, in_metadata->baseHdrHeadroomD);
-    streamWriteU32(out_data, in_metadata->alternateHdrHeadroomN);
-    streamWriteU32(out_data, in_metadata->alternateHdrHeadroomD);
-    for (int c = 0; c < channelCount; ++c) {
-      streamWriteS32(out_data, in_metadata->gainMapMinN[c]);
-      streamWriteU32(out_data, in_metadata->gainMapMinD[c]);
-      streamWriteS32(out_data, in_metadata->gainMapMaxN[c]);
-      streamWriteU32(out_data, in_metadata->gainMapMaxD[c]);
-      streamWriteU32(out_data, in_metadata->gainMapGammaN[c]);
-      streamWriteU32(out_data, in_metadata->gainMapGammaD[c]);
-      streamWriteS32(out_data, in_metadata->baseOffsetN[c]);
-      streamWriteU32(out_data, in_metadata->baseOffsetD[c]);
-      streamWriteS32(out_data, in_metadata->alternateOffsetN[c]);
-      streamWriteU32(out_data, in_metadata->alternateOffsetD[c]);
-    }
+  streamWriteU32(out_data, in_metadata->baseHdrHeadroomN);
+  streamWriteU32(out_data, in_metadata->baseHdrHeadroomD);
+  streamWriteU32(out_data, in_metadata->alternateHdrHeadroomN);
+  streamWriteU32(out_data, in_metadata->alternateHdrHeadroomD);
+  for (int c = 0; c < channelCount; ++c) {
+    streamWriteS32(out_data, in_metadata->gainMapMinN[c]);
+    streamWriteU32(out_data, in_metadata->gainMapMinD[c]);
+    streamWriteS32(out_data, in_metadata->gainMapMaxN[c]);
+    streamWriteU32(out_data, in_metadata->gainMapMaxD[c]);
+    streamWriteU32(out_data, in_metadata->gainMapGammaN[c]);
+    streamWriteU32(out_data, in_metadata->gainMapGammaD[c]);
+    streamWriteS32(out_data, in_metadata->baseOffsetN[c]);
+    streamWriteU32(out_data, in_metadata->baseOffsetD[c]);
+    streamWriteS32(out_data, in_metadata->alternateOffsetN[c]);
+    streamWriteU32(out_data, in_metadata->alternateOffsetD[c]);
   }
 
   return g_no_error;
@@ -236,6 +232,14 @@ uhdr_error_info_t uhdr_gainmap_metadata_frac::decodeGainmapMetadata(
   if (useCommonDenominator) {
     uint32_t commonDenominator = 1u;
     UHDR_ERR_CHECK(streamReadU32(in_data, commonDenominator, pos))
+    if (commonDenominator == 0) {
+      uhdr_error_info_t status;
+      status.error_code = UHDR_CODEC_INVALID_PARAM;
+      status.has_detail = 1;
+      snprintf(status.detail, sizeof status.detail,
+               "decoded gain map common denominator cannot be 0");
+      return status;
+    }
 
     UHDR_ERR_CHECK(streamReadU32(in_data, out_metadata->baseHdrHeadroomN, pos))
     out_metadata->baseHdrHeadroomD = commonDenominator;
