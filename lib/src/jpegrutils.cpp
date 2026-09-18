@@ -1342,10 +1342,6 @@ string MergePrimaryXmp(const string& existing_xmp, size_t secondary_image_length
 
 }  // namespace
 
-string generateXmpForPrimaryImage(size_t secondary_image_length,
-                                  uhdr_gainmap_metadata_ext_t& metadata,
-                                  uhdr_mem_block_t* user_xmp) {
-
 /*
  * Computes 128-bit MD5 digest formatted as a 32-character uppercase hexadecimal GUID.
  *
@@ -1499,7 +1495,6 @@ string generateXmpForPrimaryImage(size_t secondary_image_length,
     return MergePrimaryXmp(existing_xmp, secondary_image_length, metadata);
   }
 
-  const vector<string> kConDirSeq({kConDirectory, string("rdf:Seq")});
   std::stringstream ss;
   photos_editing_formats::image_io::XmlWriter writer(ss);
   writer.StartWritingElement("x:xmpmeta");
