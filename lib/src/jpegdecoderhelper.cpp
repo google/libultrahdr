@@ -15,6 +15,7 @@
 #include <cstring>
 
 #include "ultrahdr/ultrahdrcommon.h"
+#include "ultrahdr/jpegrutils.h"
 #include "ultrahdr/jpegdecoderhelper.h"
 
 using namespace std;
@@ -139,6 +140,75 @@ static void jpeg_extract_marker_payload(const j_decompress_ptr cinfo, const uint
   }
 }
 
+static void jpeg_extract_extended_xmp(const j_decompress_ptr cinfo,
+                                      const std::string& expected_guid,
+                                      std::vector<JOCTET>& destination) {
+  const uint8_t kExtNamespace[] = "http://ns.adobe.com/xmp/extension/\0";
+  const size_t kExtNamespaceLen = 35;
+  const size_t kHeaderLen = kExtNamespaceLen + 32 + 4 + 4;  // 75 bytes
+
+  std::string active_guid = expected_guid;
+  uint32_t total_length = 0;
+  std::vector<uint8_t> reassembled;
+  std::vector<bool> received_bytes;
+
+  for (jpeg_marker_struct* marker = cinfo->marker_list; marker; marker = marker->next) {
+    if (marker->marker == kAPP1Marker && marker->data_length > kHeaderLen &&
+        !memcmp(marker->data, kExtNamespace, kExtNamespaceLen)) {
+      const char* guid_ptr = reinterpret_cast<const char*>(marker->data + kExtNamespaceLen);
+      std::string segment_guid(guid_ptr, 32);
+
+      if (!active_guid.empty() && segment_guid != active_guid) {
+        continue;
+      }
+
+      uint32_t total_len_be = 0;
+      memcpy(&total_len_be, marker->data + kExtNamespaceLen + 32, 4);
+      uint32_t seg_total_len = EndianSwap32(total_len_be);
+
+      uint32_t offset_be = 0;
+      memcpy(&offset_be, marker->data + kExtNamespaceLen + 36, 4);
+      uint32_t seg_offset = EndianSwap32(offset_be);
+
+      const size_t chunk_data_len = marker->data_length - kHeaderLen;
+      if (seg_offset + chunk_data_len > seg_total_len) {
+        continue;
+      }
+
+      if (active_guid.empty()) {
+        active_guid = segment_guid;
+      }
+
+      if (total_length == 0) {
+        total_length = seg_total_len;
+        reassembled.resize(total_length, 0);
+        received_bytes.resize(total_length, false);
+      } else if (seg_total_len != total_length) {
+        continue;
+      }
+
+      memcpy(reassembled.data() + seg_offset, marker->data + kHeaderLen, chunk_data_len);
+      for (size_t i = 0; i < chunk_data_len; ++i) {
+        received_bytes[seg_offset + i] = true;
+      }
+    }
+  }
+
+  if (total_length > 0) {
+    bool complete = true;
+    for (bool b : received_bytes) {
+      if (!b) {
+        complete = false;
+        break;
+      }
+    }
+    if (complete) {
+      destination = std::move(reassembled);
+    }
+  }
+}
+
+
 static uhdr_img_fmt_t getOutputSamplingFormat(const j_decompress_ptr cinfo) {
   if (cinfo->num_components == 1)
     return UHDR_IMG_FMT_8bppYCbCr400;
@@ -243,6 +313,24 @@ uhdr_error_info_t JpegDecoderHelper::decode(const void* image, size_t length, de
     jpeg_extract_marker_payload(&cinfo, kAPP2Marker, kIsoMetadataNameSpace,
                                 sizeof kIsoMetadataNameSpace / sizeof kIsoMetadataNameSpace[0],
                                 mIsoMetadataBuffer, payloadOffset);
+
+    std::string expected_guid;
+    if (!mXMPBuffer.empty()) {
+      std::string std_xmp(reinterpret_cast<const char*>(mXMPBuffer.data()), mXMPBuffer.size());
+      const std::string kTag = "HasExtendedXMP=";
+      size_t pos = std_xmp.find(kTag);
+      if (pos != std::string::npos && pos + kTag.size() + 33 <= std_xmp.size()) {
+        char quote = std_xmp[pos + kTag.size()];
+        if (quote == '"' || quote == '\'') {
+          expected_guid = std_xmp.substr(pos + kTag.size() + 1, 32);
+        }
+      }
+    }
+    std::vector<JOCTET> extXmpBuffer;
+    jpeg_extract_extended_xmp(&cinfo, expected_guid, extXmpBuffer);
+    if (!extXmpBuffer.empty()) {
+      mXMPBuffer = std::move(extXmpBuffer);
+    }
 
     if (cinfo.image_width < 1 || cinfo.image_height < 1) {
       status.error_code = UHDR_CODEC_ERROR;

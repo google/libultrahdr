@@ -60,6 +60,7 @@ static const bool kWriteIso21496_1Metadata = false;
 #endif
 
 static const string kXmpNameSpace = "http://ns.adobe.com/xap/1.0/";
+static const string kExtendedXmpNameSpace = "http://ns.adobe.com/xmp/extension/";
 static const string kIsoNameSpace = "urn:iso:std:iso:ts:21496:-1";
 
 static_assert(kWriteXmpMetadata || kWriteIso21496_1Metadata,
@@ -1284,36 +1285,94 @@ uhdr_error_info_t JpegR::appendGainMap(uhdr_compressed_image_t* sdr_intent_compr
     if (pXmp->data_sz > kXmpHeader.size() &&
         memcmp(pXmp->data, kXmpHeader.c_str(), kXmpHeader.size()) == 0) {
       size_t offset = kXmpHeader.size();
-      if (static_cast<const char*>(pXmp->data)[offset] == '\0') {
+      if (static_cast<const char*>(pXmp->data)[offset] == 0) {
         offset++;
       }
-      xmp_primary_str = std::string(static_cast<const char*>(pXmp->data) + offset,
-                                    pXmp->data_sz - offset);
+      user_xmp_str = std::string(static_cast<const char*>(pXmp->data) + offset,
+                                 pXmp->data_sz - offset);
     } else {
-      xmp_primary_str = std::string(static_cast<const char*>(pXmp->data), pXmp->data_sz);
+      user_xmp_str = std::string(static_cast<const char*>(pXmp->data), pXmp->data_sz);
     }
   }
 
-  if (!xmp_primary_str.empty()) {
-    if (xmpNameSpaceLength > kJpegSegmentMaxLength - 2 ||
-        xmp_primary_str.size() > kJpegSegmentMaxLength - 2 - xmpNameSpaceLength) {
-      uhdr_error_info_t status;
-      status.error_code = UHDR_CODEC_INVALID_PARAM;
-      status.has_detail = 1;
-      snprintf(status.detail, sizeof status.detail,
-               "serialized XMP metadata exceeds the JPEG APP1 segment size limit");
-      return status;
+  if (kWriteXmpMetadata) {
+    if (user_xmp_str.empty()) {
+      xmp_primary_str = generateXmpForPrimaryImage(secondary_image_size, *metadata, nullptr);
+    } else if (user_xmp_str.size() <= kMaxStandardXmpPayload) {
+      uhdr_mem_block_t user_block{const_cast<char*>(user_xmp_str.data()), user_xmp_str.size(),
+                                  user_xmp_str.size()};
+      xmp_primary_str = generateXmpForPrimaryImage(secondary_image_size, *metadata, &user_block);
+    } else {
+      xmp_primary_str = user_xmp_str;
     }
+  } else if (!user_xmp_str.empty()) {
+    xmp_primary_str = user_xmp_str;
+  }
 
-    const size_t length = 2 + xmpNameSpaceLength + xmp_primary_str.size();
-    const uint8_t lengthH = ((length >> 8) & 0xff);
-    const uint8_t lengthL = (length & 0xff);
-    UHDR_ERR_CHECK(Write(dest, &photos_editing_formats::image_io::JpegMarker::kStart, 1, pos));
-    UHDR_ERR_CHECK(Write(dest, &photos_editing_formats::image_io::JpegMarker::kAPP1, 1, pos));
-    UHDR_ERR_CHECK(Write(dest, &lengthH, 1, pos));
-    UHDR_ERR_CHECK(Write(dest, &lengthL, 1, pos));
-    UHDR_ERR_CHECK(Write(dest, (void*)kXmpNameSpace.c_str(), xmpNameSpaceLength, pos));
-    UHDR_ERR_CHECK(Write(dest, (void*)xmp_primary_str.c_str(), xmp_primary_str.size(), pos));
+  if (!xmp_primary_str.empty()) {
+    if (xmp_primary_str.size() <= kMaxStandardXmpPayload) {
+      // Write single standard XMP segment
+      const size_t length = 2 + xmpNameSpaceLength + xmp_primary_str.size();
+      const uint8_t lengthH = ((length >> 8) & 0xff);
+      const uint8_t lengthL = (length & 0xff);
+      UHDR_ERR_CHECK(Write(dest, &photos_editing_formats::image_io::JpegMarker::kStart, 1, pos));
+      UHDR_ERR_CHECK(Write(dest, &photos_editing_formats::image_io::JpegMarker::kAPP1, 1, pos));
+      UHDR_ERR_CHECK(Write(dest, &lengthH, 1, pos));
+      UHDR_ERR_CHECK(Write(dest, &lengthL, 1, pos));
+      UHDR_ERR_CHECK(Write(dest, (void*)kXmpNameSpace.c_str(), xmpNameSpaceLength, pos));
+      UHDR_ERR_CHECK(Write(dest, (void*)xmp_primary_str.c_str(), xmp_primary_str.size(), pos));
+    } else {
+      // Extended XMP (Adobe XMP Specification Part 3)
+      const std::string guid =
+          computeMd5Guid(reinterpret_cast<const uint8_t*>(xmp_primary_str.data()),
+                         xmp_primary_str.size());
+
+      // 1. Write Standard XMP segment with xmpNote:HasExtendedXMP referencing the GUID
+      std::string standard_xmp;
+      if (kWriteXmpMetadata) {
+        standard_xmp =
+            generateXmpForPrimaryImage(secondary_image_size, *metadata, nullptr, guid);
+      } else {
+        standard_xmp = generateStandardXmpWithExtendedGuid(guid);
+      }
+
+      const size_t std_length = 2 + xmpNameSpaceLength + standard_xmp.size();
+      const uint8_t std_lengthH = ((std_length >> 8) & 0xff);
+      const uint8_t std_lengthL = (std_length & 0xff);
+      UHDR_ERR_CHECK(Write(dest, &photos_editing_formats::image_io::JpegMarker::kStart, 1, pos));
+      UHDR_ERR_CHECK(Write(dest, &photos_editing_formats::image_io::JpegMarker::kAPP1, 1, pos));
+      UHDR_ERR_CHECK(Write(dest, &std_lengthH, 1, pos));
+      UHDR_ERR_CHECK(Write(dest, &std_lengthL, 1, pos));
+      UHDR_ERR_CHECK(Write(dest, (void*)kXmpNameSpace.c_str(), xmpNameSpaceLength, pos));
+      UHDR_ERR_CHECK(Write(dest, (void*)standard_xmp.c_str(), standard_xmp.size(), pos));
+
+      // 2. Write Extended XMP segments
+      const size_t extNamespaceLength = kExtendedXmpNameSpace.size() + 1;  // 35 bytes
+      const uint32_t totalLen = static_cast<uint32_t>(xmp_primary_str.size());
+      const uint32_t totalLenBE = EndianSwap32(totalLen);
+      size_t ext_offset = 0;
+      while (ext_offset < xmp_primary_str.size()) {
+        const size_t chunk_size =
+            (std::min)(xmp_primary_str.size() - ext_offset, kExtendedXmpMaxChunkSize);
+        const size_t seg_length = 2 + extNamespaceLength + 32 + 4 + 4 + chunk_size;
+        const uint8_t seg_lengthH = ((seg_length >> 8) & 0xff);
+        const uint8_t seg_lengthL = (seg_length & 0xff);
+        const uint32_t offsetBE = EndianSwap32(static_cast<uint32_t>(ext_offset));
+
+        UHDR_ERR_CHECK(Write(dest, &photos_editing_formats::image_io::JpegMarker::kStart, 1, pos));
+        UHDR_ERR_CHECK(Write(dest, &photos_editing_formats::image_io::JpegMarker::kAPP1, 1, pos));
+        UHDR_ERR_CHECK(Write(dest, &seg_lengthH, 1, pos));
+        UHDR_ERR_CHECK(Write(dest, &seg_lengthL, 1, pos));
+        UHDR_ERR_CHECK(Write(dest, (void*)kExtendedXmpNameSpace.c_str(), extNamespaceLength, pos));
+        UHDR_ERR_CHECK(Write(dest, (void*)guid.c_str(), 32, pos));
+        UHDR_ERR_CHECK(Write(dest, &totalLenBE, 4, pos));
+        UHDR_ERR_CHECK(Write(dest, &offsetBE, 4, pos));
+        UHDR_ERR_CHECK(
+            Write(dest, (void*)(xmp_primary_str.data() + ext_offset), chunk_size, pos));
+
+        ext_offset += chunk_size;
+      }
+    }
   }
 
   // Write ICC

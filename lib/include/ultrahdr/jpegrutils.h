@@ -87,6 +87,16 @@ uhdr_error_info_t getMetadataFromXMP(uint8_t* xmp_data, size_t xmp_size, uint8_t
                                      int exif_size, uhdr_gainmap_metadata_ext_t* metadata);
 
 /*
+ * Computes 128-bit MD5 digest formatted as a 32-character uppercase hexadecimal GUID.
+ */
+std::string computeMd5Guid(const uint8_t* data, size_t len);
+
+/*
+ * Generates a minimal standard XMP packet referencing Extended XMP via xmpNote:HasExtendedXMP.
+ */
+std::string generateStandardXmpWithExtendedGuid(const std::string& guid);
+
+/*
  * This method generates XMP metadata for the primary image.
  *
  * below is an example of the XMP metadata that this function generates where
@@ -131,7 +141,8 @@ uhdr_error_info_t getMetadataFromXMP(uint8_t* xmp_data, size_t xmp_size, uint8_t
  */
 std::string generateXmpForPrimaryImage(size_t secondary_image_length,
                                        uhdr_gainmap_metadata_ext_t& metadata,
-                                       uhdr_mem_block_t* user_xmp = nullptr);
+                                       uhdr_mem_block_t* user_xmp = nullptr,
+                                       const std::string& extended_xmp_guid = "");
 
 /*
  * This method generates XMP metadata for the recovery map image.
