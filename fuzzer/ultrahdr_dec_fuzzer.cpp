@@ -118,6 +118,7 @@ void UltraHdrDecFuzzer::process() {
 }
 
 extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
+  (void)uhdr_is_supported_gainmap_image(data, size);
   UltraHdrDecFuzzer fuzzHandle(data, size);
   fuzzHandle.process();
   return 0;

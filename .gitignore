@@ -7,3 +7,7 @@ third_party/googletest
 third_party/turbojpeg
 third_party/benchmark
 tests/data
+!tests/data/
+tests/data/*
+!tests/data/gainmap_hevc_16x16.heic
+!tests/data/GAINMAP_FIXTURE_README.md

@@ -221,6 +221,11 @@ class JpegR : public UltraHdr {
   uhdr_error_info_t getJPEGRInfo(uhdr_compressed_image_t* uhdr_compressed_img,
                                  jr_info_ptr uhdr_image_info);
 
+  // Internal fast-probe variant. Compressed JPEG payloads are borrowed while parsing and the MPF
+  // directory must identify the exact secondary JPEG range.
+  uhdr_error_info_t getJPEGRInfoForProbe(uhdr_compressed_image_t* uhdr_compressed_img,
+                                         jr_info_ptr uhdr_image_info);
+
   /* \brief Alias of Encode API-0.
    *
    * \deprecated This function is deprecated. Use its alias
@@ -276,6 +281,10 @@ class JpegR : public UltraHdr {
   status_t getJPEGRInfo(jr_compressed_ptr jpegr_image_ptr, jr_info_ptr jpegr_image_info_ptr);
 
  private:
+  uhdr_error_info_t getJPEGRInfo(uhdr_compressed_image_t* uhdr_compressed_img,
+                                 jr_info_ptr uhdr_image_info, bool copy_image_data,
+                                 bool require_mpf_association);
+
   /*!\brief compress gainmap image
    *
    * \param[in]       gainmap_img              gainmap image descriptor
@@ -296,7 +305,8 @@ class JpegR : public UltraHdr {
    */
   uhdr_error_info_t extractPrimaryImageAndGainMap(uhdr_compressed_image_t* jpegr_image,
                                                   uhdr_compressed_image_t* primary_image,
-                                                  uhdr_compressed_image_t* gainmap_image);
+                                                  uhdr_compressed_image_t* gainmap_image,
+                                                  bool require_mpf_association = false);
 
   /*!\brief This function parses the bitstream and returns metadata that is useful for actual
    * decoding. This does not decode the image. That is handled by decompressImage().
@@ -310,7 +320,7 @@ class JpegR : public UltraHdr {
    */
   uhdr_error_info_t parseJpegInfo(uhdr_compressed_image_t* jpeg_image, j_info_ptr image_info,
                                   unsigned int* img_width = nullptr,
-                                  unsigned int* img_height = nullptr);
+                                  unsigned int* img_height = nullptr, bool copy_image_data = true);
 
   /*!\brief This method takes compressed sdr intent, compressed gainmap coefficient, gainmap
    * metadata and creates a ultrahdr image. This is done by first generating XMP packet from gainmap

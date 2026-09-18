@@ -8,6 +8,7 @@
 # Result Variables:
 #   LIBHEIF_FOUND             - True if libheif was found
 #   LIBHEIF_HAS_GAIN_MAP      - True if libheif includes ISO 21496-1 gain map APIs
+#   LIBHEIF_HAS_ITEM_API      - True if libheif exposes item inspection APIs
 #   LIBHEIF_VERSION           - Version of libheif found
 #   LIBHEIF_INCLUDE_DIRS      - Include directories for libheif
 #   LIBHEIF_LIBRARIES         - Libraries needed to link against libheif
@@ -91,7 +92,8 @@ if(LIBHEIF_TARGET)
     list(APPEND CMAKE_REQUIRED_INCLUDES ${LIBHEIF_INCLUDE_DIR})
   endif()
   if(LIBHEIF_DEFS)
-    set(CMAKE_REQUIRED_DEFINITIONS "-D${LIBHEIF_DEFS}")
+    set(CMAKE_REQUIRED_DEFINITIONS ${LIBHEIF_DEFS})
+    list(TRANSFORM CMAKE_REQUIRED_DEFINITIONS PREPEND "-D")
   endif()
 
   # Perform a compile-only check to avoid linking transitive dependencies
@@ -103,6 +105,11 @@ if(LIBHEIF_TARGET)
     heif_image_handle_get_gain_map_image_handle
     "libheif/heif.h"
     LIBHEIF_HAS_GAIN_MAP
+  )
+  check_cxx_symbol_exists(
+    heif_item_get_item_type
+    "libheif/heif_items.h"
+    LIBHEIF_HAS_ITEM_API
   )
 
   set(CMAKE_TRY_COMPILE_TARGET_TYPE ${_saved_try_compile_target_type})
