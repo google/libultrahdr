@@ -75,3 +75,11 @@ cc_fuzz {
         "ultrahdr_legacy_fuzzer.cpp",
     ],
 }
+
+cc_fuzz {
+    name: "ultrahdr_xmp_fuzzer",
+    defaults: ["ultrahdr_fuzzer_defaults"],
+    srcs: [
+        "ultrahdr_xmp_fuzzer.cpp",
+    ],
+}
