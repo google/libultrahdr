@@ -176,6 +176,30 @@ typedef struct uhdr_memory_block {
   size_t m_capacity;                   /**< capacity */
 } uhdr_memory_block_t;                 /**< alias for struct uhdr_memory_block */
 
+/**\brief move-only buffer for transferring malloc-owned encoded output */
+typedef struct uhdr_owned_buffer {
+  uhdr_owned_buffer() noexcept;
+  ~uhdr_owned_buffer();
+
+  uhdr_owned_buffer(const uhdr_owned_buffer&) = delete;
+  uhdr_owned_buffer& operator=(const uhdr_owned_buffer&) = delete;
+  uhdr_owned_buffer(uhdr_owned_buffer&& other) noexcept;
+  uhdr_owned_buffer& operator=(uhdr_owned_buffer&& other) noexcept;
+
+  /** Releases prior ownership and adopts malloc/free-compatible storage. */
+  void reset(uint8_t* data = nullptr, size_t size = 0) noexcept;
+  uint8_t* data() const noexcept { return m_data; }
+  size_t size() const noexcept { return m_size; }
+
+ private:
+  uint8_t* m_data;
+  size_t m_size;
+} uhdr_owned_buffer_t; /**< alias for struct uhdr_owned_buffer */
+
+uhdr_error_info_t invalidOutputDestination();
+uhdr_error_info_t copyOwnedBufferToCompressedImage(const uhdr_owned_buffer_t& source,
+                                                    uhdr_compressed_image_t* dest);
+
 /**\brief extended raw image descriptor */
 typedef struct uhdr_raw_image_ext : uhdr_raw_image_t {
   uhdr_raw_image_ext(uhdr_img_fmt_t fmt, uhdr_color_gamut_t cg, uhdr_color_transfer_t ct,
@@ -189,9 +213,12 @@ typedef struct uhdr_raw_image_ext : uhdr_raw_image_t {
 typedef struct uhdr_compressed_image_ext : uhdr_compressed_image_t {
   uhdr_compressed_image_ext(uhdr_color_gamut_t cg, uhdr_color_transfer_t ct,
                             uhdr_color_range_t range, size_t sz);
+  uhdr_compressed_image_ext(uhdr_color_gamut_t cg, uhdr_color_transfer_t ct,
+                            uhdr_color_range_t range, uhdr_owned_buffer_t&& buffer);
 
  private:
   std::unique_ptr<ultrahdr::uhdr_memory_block> m_block;
+  uhdr_owned_buffer_t m_owned_buffer;
 } uhdr_compressed_image_ext_t; /**< alias for struct uhdr_compressed_image_ext */
 
 /*!\brief forward declaration for image effect descriptor */
