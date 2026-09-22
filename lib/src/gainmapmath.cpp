@@ -135,8 +135,8 @@ Color srgbInvOetfLUT(Color e_gamma) {
   static LookUpTable kSrgbLut(kSrgbInvOETFNumEntries, static_cast<float (*)(float)>(srgbInvOetfLUT));
   const std::vector<float>& lut = kSrgbLut.getTable();
   const auto index = [](float value) {
-    int32_t index = static_cast<int32_t>(value * (kSrgbInvOETFNumEntries - 1) + 0.5);
-    return CLIP3(index, 0, kSrgbInvOETFNumEntries - 1);
+    int32_t lut_index = static_cast<int32_t>(value * (kSrgbInvOETFNumEntries - 1) + 0.5);
+    return CLIP3(lut_index, 0, kSrgbInvOETFNumEntries - 1);
   };
   return {{{lut[index(e_gamma.r)], lut[index(e_gamma.g)], lut[index(e_gamma.b)]}}};
 }
