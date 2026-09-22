@@ -11,6 +11,8 @@
 #include <gtest/gtest.h>
 #include <gmock/gmock.h>
 
+#include <array>
+#include <cmath>
 #include <vector>
 
 #include "ultrahdr/gainmapmath.h"
@@ -1380,6 +1382,46 @@ TEST_F(GainMapMathTest, srgbInvOetfLUT) {
   for (size_t idx = 0; idx < kSrgbInvOETFNumEntries; idx++) {
     float value = static_cast<float>(idx) / static_cast<float>(kSrgbInvOETFNumEntries - 1);
     EXPECT_FLOAT_EQ(srgbInvOetf(value), srgbInvOetfLUT(value));
+  }
+}
+
+TEST_F(GainMapMathTest, SrgbInvOetfLutRgbPreservesScalarIndexing) {
+  constexpr int32_t kLast = kSrgbInvOETFNumEntries - 1;
+  const auto expected = [=](float value) {
+    int32_t index = static_cast<int32_t>(value * kLast + 0.5);
+    index = CLIP3(index, 0, kLast);
+    return srgbInvOetf(static_cast<float>(index) / static_cast<float>(kLast));
+  };
+  const std::array<std::array<int, 3>, 6> permutations = {{
+      {{0, 1, 2}}, {{0, 2, 1}}, {{1, 0, 2}},
+      {{1, 2, 0}}, {{2, 0, 1}}, {{2, 1, 0}},
+  }};
+  const auto check = [&](float value) {
+    const std::array<float, 3> source = {value, 0.123f, 0.876f};
+    for (const auto& permutation : permutations) {
+      const std::array<float, 3> input = {
+          source[permutation[0]], source[permutation[1]], source[permutation[2]]};
+      const Color actual = srgbInvOetfLUT({{{input[0], input[1], input[2]}}});
+      const std::array<float, 3> output = {actual.r, actual.g, actual.b};
+      for (size_t channel = 0; channel < output.size(); ++channel) {
+        const float scalar = srgbInvOetfLUT(input[channel]);
+        EXPECT_EQ(output[channel], scalar);
+        EXPECT_EQ(scalar, expected(input[channel]));
+      }
+    }
+  };
+
+  for (int32_t index = 0; index <= kLast; ++index) {
+    check(static_cast<float>(index) / static_cast<float>(kLast));
+  }
+  for (int32_t index = 0; index < kLast; ++index) {
+    const float boundary = static_cast<float>((static_cast<double>(index) + 0.5) / kLast);
+    check(std::nextafter(boundary, -1.0f));
+    check(boundary);
+    check(std::nextafter(boundary, 2.0f));
+  }
+  for (const float value : {-1000.0f, -1.0f, -0.0f, 0.0f, 1.0f, 2.0f, 1000.0f}) {
+    check(value);
   }
 }
 
