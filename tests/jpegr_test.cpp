@@ -1753,6 +1753,7 @@ TEST(JpegRTest, decodeApple) {
     }
     EXPECT_EQ(gainmapMetadata->hdr_capacity_min, 1.0f);
     EXPECT_FLOAT_EQ(gainmapMetadata->hdr_capacity_max, headroom);
+    EXPECT_TRUE(gainmapMetadata->use_base_cg);
 
     uhdr_release_decoder(dec);
   }

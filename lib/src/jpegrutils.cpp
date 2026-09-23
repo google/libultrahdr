@@ -729,6 +729,9 @@ uhdr_error_info_t getMetadataFromXMP(uint8_t* xmp_data, size_t xmp_size, uint8_t
       metadata->offset_hdr[c] = 0.0f;
     }
     metadata->hdr_capacity_min = 1.0f;
+    // Apple applies the gain map in the base image's color space, and its gain-map
+    // image carries no ICC profile.
+    metadata->use_base_cg = true;
 
     float max_content_boost;
     bool present = false;
