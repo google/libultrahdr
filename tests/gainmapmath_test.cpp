@@ -1643,7 +1643,7 @@ TEST_F(GainMapMathTest, ComputeGainWithCoherentOffset) {
   EXPECT_FLOAT_EQ(kOffsetNits, kSdrWhiteNits * kNormalizedOffset);
 
   const float gain = computeGainWithOffset(40.0f, 80.0f, kOffsetNits);
-  EXPECT_FLOAT_EQ(gain, log2((80.0f + kOffsetNits) / (40.0f + kOffsetNits)));
+  EXPECT_FLOAT_EQ(gain, std::log2((80.0f + kOffsetNits) / (40.0f + kOffsetNits)));
   EXPECT_LT(gain, computeGain(40.0f, 80.0f));
 
   // Both black and near-black SDR samples retain the existing dark-pixel gain cap.
@@ -1651,8 +1651,8 @@ TEST_F(GainMapMathTest, ComputeGainWithCoherentOffset) {
   EXPECT_FLOAT_EQ(computeGainWithOffset(1.0f / 255.0f, kSdrWhiteNits, kOffsetNits), 2.3f);
   EXPECT_GT(computeGainWithOffset(2.0f / 255.0f, kSdrWhiteNits, kOffsetNits), 2.3f);
 
-  EXPECT_EQ(affineMapGain(computeGainWithOffset(0.0f, kSdrWhiteNits, kOffsetNits), log2(1.25f),
-                          log2(4.0f), 1.0f),
+  EXPECT_EQ(affineMapGain(computeGainWithOffset(0.0f, kSdrWhiteNits, kOffsetNits), std::log2(1.25f),
+                          std::log2(4.0f), 1.0f),
             255);
 }
 
@@ -1715,10 +1715,10 @@ TEST_F(GainMapMathTest, CoherentOffsetGenerationPreservesLegacyRangeAndFallbacks
     float selected_min = (std::clamp)(legacy_min, -14.3f, 15.6f);
     float selected_max = (std::clamp)(legacy_max, -14.3f, 15.6f);
     if (max_content_boost != FLT_MAX) {
-      selected_max = (std::min)(selected_max, log2(max_content_boost));
+      selected_max = (std::min)(selected_max, std::log2(max_content_boost));
     }
     if (min_content_boost != FLT_MIN) {
-      selected_min = (std::max)(selected_min, log2(min_content_boost));
+      selected_min = (std::max)(selected_min, std::log2(min_content_boost));
     }
     if (fabs(selected_max - selected_min) < FLT_EPSILON) selected_max += 0.1f;
 
