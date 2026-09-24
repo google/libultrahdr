@@ -1755,6 +1755,41 @@ TEST(JpegRTest, decodeApple) {
     EXPECT_FLOAT_EQ(gainmapMetadata->hdr_capacity_max, headroom);
     EXPECT_TRUE(gainmapMetadata->use_base_cg);
 
+    // Re-encode the decoded base image, gain map and metadata (API-4). This must succeed as
+    // Apple gain-map images carry no ICC profile.
+    uhdr_mem_block_t* baseImg = uhdr_dec_get_base_image(dec);
+    ASSERT_NE(baseImg, nullptr);
+    uhdr_compressed_image_t baseCompressed{baseImg->data, baseImg->data_sz, baseImg->capacity,
+                                           UHDR_CG_UNSPECIFIED, UHDR_CT_UNSPECIFIED,
+                                           UHDR_CR_UNSPECIFIED};
+    uhdr_compressed_image_t gainmapCompressed{gainMapImg->data, gainMapImg->data_sz,
+                                              gainMapImg->capacity, UHDR_CG_UNSPECIFIED,
+                                              UHDR_CT_UNSPECIFIED, UHDR_CR_UNSPECIFIED};
+    uhdr_gainmap_metadata_t metadataCopy = *gainmapMetadata;
+
+    uhdr_codec_private_t* enc = uhdr_create_encoder();
+    ASSERT_NE(enc, nullptr);
+    uhdr_error_info_t status = uhdr_enc_set_compressed_image(enc, &baseCompressed, UHDR_BASE_IMG);
+    ASSERT_EQ(status.error_code, UHDR_CODEC_OK) << status.detail;
+    status = uhdr_enc_set_gainmap_image(enc, &gainmapCompressed, &metadataCopy);
+    ASSERT_EQ(status.error_code, UHDR_CODEC_OK) << status.detail;
+    status = uhdr_encode(enc);
+    ASSERT_EQ(status.error_code, UHDR_CODEC_OK) << status.detail;
+    uhdr_compressed_image_t* reencoded = uhdr_get_encoded_stream(enc);
+    ASSERT_NE(reencoded, nullptr);
+
+    uhdr_codec_private_t* dec2 = uhdr_create_decoder();
+    ASSERT_NE(dec2, nullptr);
+    ASSERT_EQ(uhdr_dec_set_image(dec2, reencoded).error_code, UHDR_CODEC_OK);
+    status = uhdr_decode(dec2);
+    ASSERT_EQ(status.error_code, UHDR_CODEC_OK) << status.detail;
+    const uhdr_gainmap_metadata_t* reencodedMetadata = uhdr_dec_get_gainmap_metadata(dec2);
+    ASSERT_NE(reencodedMetadata, nullptr);
+    EXPECT_FLOAT_EQ(reencodedMetadata->hdr_capacity_max, headroom);
+    EXPECT_TRUE(reencodedMetadata->use_base_cg);
+    uhdr_release_decoder(dec2);
+    uhdr_release_encoder(enc);
+
     uhdr_release_decoder(dec);
   }
 }
