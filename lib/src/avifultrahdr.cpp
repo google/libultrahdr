@@ -105,6 +105,127 @@ static struct heif_error fill_img_plane(heif_image* img, heif_channel channel, v
   return err;
 }
 
+// Copy a 10-bit source plane into libheif's native 10-bit (uint16_t) plane. The source may be
+// MSB-aligned P010 (sourceRightShift == 6) or a logical 10-bit planar image (sourceRightShift ==
+// 0). For interleaved P010 chroma, srcChannelOffset selects Cb (0) or Cr (1).
+static struct heif_error fill_10bit_plane(heif_image* img, heif_channel channel,
+                                          const uint16_t* srcBuffer, int width, int height,
+                                          size_t srcRowStride, size_t srcChannelOffset,
+                                          size_t srcPixelStride, unsigned int sourceRightShift) {
+  if (img == nullptr || srcBuffer == nullptr || width <= 0 || height <= 0 || srcRowStride == 0 ||
+      srcPixelStride == 0) {
+    return {heif_error_Invalid_input, heif_suberror_Null_pointer_argument,
+            "invalid 10-bit plane arguments"};
+  }
+
+  const size_t last_pixel = static_cast<size_t>(width - 1);
+  if (last_pixel > (std::numeric_limits<size_t>::max() - srcChannelOffset) / srcPixelStride) {
+    return {heif_error_Invalid_input, heif_suberror_Invalid_parameter_value,
+            "10-bit source channel span overflows"};
+  }
+  const size_t last_sample = srcChannelOffset + last_pixel * srcPixelStride;
+  if (last_sample >= srcRowStride) {
+    return {heif_error_Invalid_input, heif_suberror_Invalid_parameter_value,
+            "10-bit source channel span exceeds row stride"};
+  }
+
+  heif_error err = heif_image_add_plane(img, channel, width, height, 10 /*bitDepth */);
+  if (err.code != heif_error_Ok) return err;
+
+  int dstStride = 0;
+  uint8_t* dstBuffer = heif_image_get_plane(img, channel, &dstStride);
+  if (dstBuffer == nullptr || dstStride <= 0 ||
+      static_cast<size_t>(dstStride) < static_cast<size_t>(width) * sizeof(uint16_t)) {
+    return {heif_error_Invalid_input, heif_suberror_Null_pointer_argument,
+            "failed to allocate 10-bit destination plane"};
+  }
+
+  const uint16_t* srcRow = srcBuffer;
+  for (int y = 0; y < height; y++) {
+    uint16_t* dstRow = reinterpret_cast<uint16_t*>(dstBuffer);
+    for (int x = 0; x < width; x++) {
+      dstRow[x] = srcRow[srcChannelOffset + x * srcPixelStride] >> sourceRightShift;
+    }
+    srcRow += srcRowStride;
+    dstBuffer += dstStride;
+  }
+  return err;
+}
+
+static uhdr_error_info_t validate_native10_p010_descriptor(uhdr_codec_t codec,
+                                                           const uhdr_raw_image_t* hdr_intent) {
+  uhdr_error_info_t status = g_no_error;
+  if (codec != UHDR_CODEC_AVIF) {
+    status.error_code = UHDR_CODEC_UNSUPPORTED_FEATURE;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "native 10-bit AVIF base path supports only the AVIF codec");
+  } else if (hdr_intent == nullptr) {
+    status.error_code = UHDR_CODEC_INVALID_PARAM;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail, "HDR input is null");
+  } else if (hdr_intent->fmt != UHDR_IMG_FMT_24bppYCbCrP010) {
+    status.error_code = UHDR_CODEC_UNSUPPORTED_FEATURE;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "native 10-bit AVIF base path supports only P010 HDR input; received format %d",
+             hdr_intent->fmt);
+  } else if (hdr_intent->cg != UHDR_CG_BT_2100 && hdr_intent->cg != UHDR_CG_DISPLAY_P3 &&
+             hdr_intent->cg != UHDR_CG_BT_709) {
+    status.error_code = UHDR_CODEC_INVALID_PARAM;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "native 10-bit AVIF HDR input has invalid color gamut %d", hdr_intent->cg);
+  } else if (hdr_intent->ct != UHDR_CT_HLG && hdr_intent->ct != UHDR_CT_PQ) {
+    status.error_code = UHDR_CODEC_INVALID_PARAM;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "native 10-bit AVIF HDR input has invalid color transfer %d; expects HLG or PQ",
+             hdr_intent->ct);
+  } else if (hdr_intent->range != UHDR_CR_FULL_RANGE &&
+             hdr_intent->range != UHDR_CR_LIMITED_RANGE) {
+    status.error_code = UHDR_CODEC_INVALID_PARAM;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "native 10-bit AVIF HDR input has invalid color range %d", hdr_intent->range);
+  } else if ((hdr_intent->w % 2u) != 0 || (hdr_intent->h % 2u) != 0) {
+    status.error_code = UHDR_CODEC_INVALID_PARAM;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "native 10-bit AVIF HDR input dimensions must be even; received %ux%u",
+             hdr_intent->w, hdr_intent->h);
+  } else if (hdr_intent->w < static_cast<unsigned int>(kMinWidth) ||
+             hdr_intent->h < static_cast<unsigned int>(kMinHeight)) {
+    status.error_code = UHDR_CODEC_INVALID_PARAM;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "native 10-bit AVIF HDR input dimensions must be at least %dx%d; received %ux%u",
+             kMinWidth, kMinHeight, hdr_intent->w, hdr_intent->h);
+  } else if (hdr_intent->w > static_cast<unsigned int>(kMaxWidth) ||
+             hdr_intent->h > static_cast<unsigned int>(kMaxHeight)) {
+    status.error_code = UHDR_CODEC_INVALID_PARAM;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "native 10-bit AVIF HDR input dimensions must be at most %dx%d; received %ux%u",
+             kMaxWidth, kMaxHeight, hdr_intent->w, hdr_intent->h);
+  } else if (hdr_intent->planes[UHDR_PLANE_Y] == nullptr ||
+             hdr_intent->planes[UHDR_PLANE_UV] == nullptr) {
+    status.error_code = UHDR_CODEC_INVALID_PARAM;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "native 10-bit AVIF HDR input requires nonnull Y and UV planes");
+  } else if (hdr_intent->stride[UHDR_PLANE_Y] < hdr_intent->w ||
+             hdr_intent->stride[UHDR_PLANE_UV] < hdr_intent->w) {
+    status.error_code = UHDR_CODEC_INVALID_PARAM;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "native 10-bit AVIF HDR input Y and UV strides must be at least width; received %u/%u "
+             "for width %u",
+             hdr_intent->stride[UHDR_PLANE_Y], hdr_intent->stride[UHDR_PLANE_UV], hdr_intent->w);
+  }
+  return status;
+}
+
 static uint8_t get_alpha_value(const uhdr_raw_image_t* image, size_t x, size_t y) {
   if (image->fmt == UHDR_IMG_FMT_32bppRGBA8888) {
     const auto* row = static_cast<const uint32_t*>(image->planes[UHDR_PLANE_PACKED]) +
@@ -252,7 +373,7 @@ static uhdr_color_gamut_t map_matrix_inverse(heif_matrix_coefficients matrix) {
 static heif_error map_fmt_to_heif_chroma_vars(uhdr_img_fmt_t fmt, unsigned int w, unsigned h,
                                               enum heif_chroma& heif_img_fmt, int& chromaWd,
                                               int& chromaHt) {
-  if (fmt == UHDR_IMG_FMT_12bppYCbCr420) {
+  if (fmt == UHDR_IMG_FMT_12bppYCbCr420 || fmt == UHDR_IMG_FMT_24bppYCbCrP010) {
     heif_img_fmt = heif_chroma_420;
     chromaWd = w / 2 + w % 2;
     chromaHt = h / 2 + h % 2;
@@ -260,7 +381,7 @@ static heif_error map_fmt_to_heif_chroma_vars(uhdr_img_fmt_t fmt, unsigned int w
     heif_img_fmt = heif_chroma_422;
     chromaWd = w;
     chromaHt = h / 2;
-  } else if (fmt == UHDR_IMG_FMT_24bppYCbCr444) {
+  } else if (fmt == UHDR_IMG_FMT_24bppYCbCr444 || fmt == UHDR_IMG_FMT_30bppYCbCr444) {
     heif_img_fmt = heif_chroma_444;
     chromaWd = w;
     chromaHt = h;
@@ -382,10 +503,25 @@ uhdr_error_info_t AvifUltraHdr::encodeAvifUltraHdrToOwnedBuffer(uhdr_raw_image_t
                                                                 uhdr_owned_buffer_t* dest,
                                                                 int quality,
                                                                 uhdr_mem_block_t* exif) {
+  return encodeAvifUltraHdrToOwnedBuffer(hdr_intent, dest, quality, exif,
+                                         kMaxBaseImageBitDepthDefault);
+}
+
+uhdr_error_info_t AvifUltraHdr::encodeAvifUltraHdrToOwnedBuffer(
+    uhdr_raw_image_t* hdr_intent, uhdr_owned_buffer_t* dest, int quality,
+    uhdr_mem_block_t* exif, int max_base_image_bit_depth) {
   if (dest == nullptr) {
     return invalidOutputDestination();
   }
   dest->reset();
+  if (!isValidMaxBaseImageBitDepth(max_base_image_bit_depth)) {
+    uhdr_error_info_t status = g_no_error;
+    status.error_code = UHDR_CODEC_INVALID_PARAM;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "base image bit depth must be 8 or 10; received %d", max_base_image_bit_depth);
+    return status;
+  }
   if (hdr_intent == nullptr) {
     uhdr_error_info_t status = g_no_error;
     status.error_code = UHDR_CODEC_INVALID_PARAM;
@@ -393,11 +529,24 @@ uhdr_error_info_t AvifUltraHdr::encodeAvifUltraHdrToOwnedBuffer(uhdr_raw_image_t
     snprintf(status.detail, sizeof status.detail, "hdr intent is null");
     return status;
   }
+  const bool use_native10_p010 =
+      mCodec == UHDR_CODEC_AVIF && max_base_image_bit_depth == 10 &&
+      hdr_intent->fmt == UHDR_IMG_FMT_24bppYCbCrP010;
+  const bool use_native10_rgba =
+      mCodec == UHDR_CODEC_AVIF && max_base_image_bit_depth == 10 &&
+      hdr_intent->fmt == UHDR_IMG_FMT_32bppRGBA1010102;
+  if (use_native10_p010) {
+    uhdr_error_info_t status = validate_native10_p010_descriptor(mCodec, hdr_intent);
+    if (status.error_code != UHDR_CODEC_OK) return status;
+  }
   uhdr_img_fmt_t sdr_intent_fmt;
   if (hdr_intent->fmt == UHDR_IMG_FMT_24bppYCbCrP010) {
-    sdr_intent_fmt = UHDR_IMG_FMT_12bppYCbCr420;
+    sdr_intent_fmt = use_native10_p010 ? UHDR_IMG_FMT_24bppYCbCrP010
+                                       : UHDR_IMG_FMT_12bppYCbCr420;
   } else if (hdr_intent->fmt == UHDR_IMG_FMT_30bppYCbCr444) {
     sdr_intent_fmt = UHDR_IMG_FMT_24bppYCbCr444;
+  } else if (use_native10_rgba) {
+    sdr_intent_fmt = UHDR_IMG_FMT_30bppYCbCr444;
   } else if (hdr_intent->fmt == UHDR_IMG_FMT_32bppRGBA1010102 ||
              hdr_intent->fmt == UHDR_IMG_FMT_64bppRGBAHalfFloat) {
     sdr_intent_fmt = UHDR_IMG_FMT_32bppRGBA8888;
@@ -436,6 +585,13 @@ uhdr_error_info_t AvifUltraHdr::encodeAvifUltraHdrToOwnedBuffer(uhdr_raw_image_t
 #else
     sdr_intent_yuv_ext = convert_raw_input_to_ycbcr(sdr_intent.get());
 #endif
+    if (sdr_intent_yuv_ext == nullptr) {
+      uhdr_error_info_t status = g_no_error;
+      status.error_code = UHDR_CODEC_MEM_ERROR;
+      status.has_detail = 1;
+      snprintf(status.detail, sizeof status.detail, "failed to convert SDR intent to YCbCr");
+      return status;
+    }
     sdr_intent_yuv = sdr_intent_yuv_ext.get();
   }
 
@@ -443,8 +599,18 @@ uhdr_error_info_t AvifUltraHdr::encodeAvifUltraHdrToOwnedBuffer(uhdr_raw_image_t
   std::shared_ptr<DataStruct> alternateIcc =
       IccHelper::writeIccProfile(gainmap->ct, gainmap->cg);
 
-  return encodeAvifUltraHdr(sdr_intent_yuv, hdr_intent, gainmap.get(), &metadata, dest, quality,
-                            exif, baseIcc.get(), alternateIcc.get());
+  std::unique_ptr<uhdr_raw_image_ext_t> encoder_sdr_owner;
+  if (sdr_intent_yuv_ext != nullptr) {
+    sdr_intent.reset();
+    encoder_sdr_owner = std::move(sdr_intent_yuv_ext);
+  } else {
+    encoder_sdr_owner = std::move(sdr_intent);
+  }
+  sdr_intent_yuv = encoder_sdr_owner.get();
+
+  return encodeAvifUltraHdrOwned(sdr_intent_yuv, hdr_intent, gainmap.get(), &metadata, dest,
+                                 quality, exif, baseIcc.get(), alternateIcc.get(),
+                                 std::move(encoder_sdr_owner));
 }
 
 /* Encode API-1 */
@@ -464,15 +630,52 @@ uhdr_error_info_t AvifUltraHdr::encodeAvifUltraHdr(uhdr_raw_image_t* hdr_intent,
 uhdr_error_info_t AvifUltraHdr::encodeAvifUltraHdrToOwnedBuffer(
     uhdr_raw_image_t* hdr_intent, uhdr_raw_image_t* sdr_intent, uhdr_owned_buffer_t* dest,
     int quality, uhdr_mem_block_t* exif) {
+  return encodeAvifUltraHdrToOwnedBuffer(hdr_intent, sdr_intent, dest, quality, exif,
+                                         kMaxBaseImageBitDepthDefault);
+}
+
+uhdr_error_info_t AvifUltraHdr::encodeAvifUltraHdrToOwnedBuffer(
+    uhdr_raw_image_t* hdr_intent, uhdr_raw_image_t* sdr_intent, uhdr_owned_buffer_t* dest,
+    int quality, uhdr_mem_block_t* exif, int max_base_image_bit_depth) {
   if (dest == nullptr) {
     return invalidOutputDestination();
   }
   dest->reset();
+  if (!isValidMaxBaseImageBitDepth(max_base_image_bit_depth)) {
+    uhdr_error_info_t status = g_no_error;
+    status.error_code = UHDR_CODEC_INVALID_PARAM;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "base image bit depth must be 8 or 10; received %d", max_base_image_bit_depth);
+    return status;
+  }
   if (hdr_intent == nullptr || sdr_intent == nullptr) {
     uhdr_error_info_t status = g_no_error;
     status.error_code = UHDR_CODEC_INVALID_PARAM;
     status.has_detail = 1;
     snprintf(status.detail, sizeof status.detail, "hdr or sdr intent is null");
+    return status;
+  }
+  if (sdr_intent->fmt == UHDR_IMG_FMT_24bppYCbCrP010) {
+    uhdr_error_info_t status = g_no_error;
+    status.error_code = UHDR_CODEC_UNSUPPORTED_FEATURE;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "default AVIF API-1 does not support a P010 SDR intent");
+    return status;
+  }
+  const bool explicit_native10_sdr =
+      mCodec == UHDR_CODEC_AVIF && max_base_image_bit_depth == 10 &&
+      (sdr_intent->fmt == UHDR_IMG_FMT_30bppYCbCr444 ||
+       sdr_intent->fmt == UHDR_IMG_FMT_32bppRGBA1010102);
+  if ((sdr_intent->fmt == UHDR_IMG_FMT_30bppYCbCr444 ||
+       sdr_intent->fmt == UHDR_IMG_FMT_32bppRGBA1010102) &&
+      !explicit_native10_sdr) {
+    uhdr_error_info_t status = g_no_error;
+    status.error_code = UHDR_CODEC_UNSUPPORTED_FEATURE;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "10-bit SDR API-1 input requires an explicit 10-bit AVIF base request");
     return status;
   }
   // generate gain map
@@ -484,11 +687,28 @@ uhdr_error_info_t AvifUltraHdr::encodeAvifUltraHdrToOwnedBuffer(
   std::unique_ptr<uhdr_raw_image_ext_t> sdr_intent_yuv_ext;
   uhdr_raw_image_t* sdr_intent_yuv = sdr_intent;
   if (isPixelFormatRgb(sdr_intent->fmt)) {
+    const bool encode_native10_rgba8888 =
+        mCodec == UHDR_CODEC_AVIF && max_base_image_bit_depth == 10 &&
+        sdr_intent->fmt == UHDR_IMG_FMT_32bppRGBA8888;
+    if (encode_native10_rgba8888 || explicit_native10_sdr) {
+      sdr_intent_yuv_ext = convert_rgb_to_ycbcr_10bit444(sdr_intent);
+    } else {
 #if (defined(UHDR_ENABLE_INTRINSICS) && (defined(__ARM_NEON__) || defined(__ARM_NEON)))
-    sdr_intent_yuv_ext = convert_raw_input_to_ycbcr_neon(sdr_intent);
+      sdr_intent_yuv_ext = convert_raw_input_to_ycbcr_neon(sdr_intent);
+      if (sdr_intent_yuv_ext == nullptr) {
+        sdr_intent_yuv_ext = convert_raw_input_to_ycbcr(sdr_intent);
+      }
 #else
-    sdr_intent_yuv_ext = convert_raw_input_to_ycbcr(sdr_intent);
+      sdr_intent_yuv_ext = convert_raw_input_to_ycbcr(sdr_intent);
 #endif
+    }
+    if (sdr_intent_yuv_ext == nullptr) {
+      uhdr_error_info_t status = g_no_error;
+      status.error_code = UHDR_CODEC_MEM_ERROR;
+      status.has_detail = 1;
+      snprintf(status.detail, sizeof status.detail, "failed to convert SDR intent to YCbCr");
+      return status;
+    }
     sdr_intent_yuv = sdr_intent_yuv_ext.get();
   }
 
@@ -496,17 +716,16 @@ uhdr_error_info_t AvifUltraHdr::encodeAvifUltraHdrToOwnedBuffer(
   std::shared_ptr<DataStruct> alternateIcc =
       IccHelper::writeIccProfile(gainmap->ct, gainmap->cg);
 
-  return encodeAvifUltraHdr(sdr_intent_yuv, sdr_intent, gainmap.get(), &metadata, dest, quality,
-                            exif, baseIcc.get(), alternateIcc.get());
+  return encodeAvifUltraHdrOwned(sdr_intent_yuv, sdr_intent, gainmap.get(), &metadata, dest,
+                                 quality, exif, baseIcc.get(), alternateIcc.get(),
+                                 std::move(sdr_intent_yuv_ext));
 }
 
-uhdr_error_info_t AvifUltraHdr::encodeAvifUltraHdr(uhdr_raw_image_t* sdr_intent,
-                                                   uhdr_raw_image_t* base_alpha_source,
-                                                   uhdr_raw_image_t* gainmap_img,
-                                                   uhdr_gainmap_metadata_ext_t* metadata,
-                                                   uhdr_owned_buffer_t* dest, int quality,
-                                                   uhdr_mem_block_t* exif, DataStruct* baseIcc,
-                                                   DataStruct* alternateIcc) {
+uhdr_error_info_t AvifUltraHdr::encodeAvifUltraHdrOwned(
+    uhdr_raw_image_t* sdr_intent, uhdr_raw_image_t* base_alpha_source,
+    uhdr_raw_image_t* gainmap_img, uhdr_gainmap_metadata_ext_t* metadata,
+    uhdr_owned_buffer_t* dest, int quality, uhdr_mem_block_t* exif, DataStruct* baseIcc,
+    DataStruct* alternateIcc, std::unique_ptr<uhdr_raw_image_ext_t> sdrIntentOwner) {
   uhdr_error_info_t status = g_no_error;
   if (dest == nullptr) {
     return invalidOutputDestination();
@@ -554,12 +773,35 @@ uhdr_error_info_t AvifUltraHdr::encodeAvifUltraHdr(uhdr_raw_image_t* sdr_intent,
                                              heif_img_fmt, chromaWd, chromaHt));
   HEIF_ERR_CHECK(heif_image_create(sdr_intent->w, sdr_intent->h, heif_colorspace_YCbCr,
                                    heif_img_fmt, &baseImage));
-  HEIF_ERR_CHECK(fill_img_plane(baseImage, heif_channel_Y, sdr_intent->planes[UHDR_PLANE_Y],
-                                sdr_intent->w, sdr_intent->h, sdr_intent->stride[UHDR_PLANE_Y]));
-  HEIF_ERR_CHECK(fill_img_plane(baseImage, heif_channel_Cb, sdr_intent->planes[UHDR_PLANE_U],
-                                chromaWd, chromaHt, sdr_intent->stride[UHDR_PLANE_U]));
-  HEIF_ERR_CHECK(fill_img_plane(baseImage, heif_channel_Cr, sdr_intent->planes[UHDR_PLANE_V],
-                                chromaWd, chromaHt, sdr_intent->stride[UHDR_PLANE_V]));
+  if (sdr_intent->fmt == UHDR_IMG_FMT_24bppYCbCrP010) {
+    HEIF_ERR_CHECK(fill_10bit_plane(
+        baseImage, heif_channel_Y, static_cast<const uint16_t*>(sdr_intent->planes[UHDR_PLANE_Y]),
+        sdr_intent->w, sdr_intent->h, sdr_intent->stride[UHDR_PLANE_Y], 0, 1, 6));
+    HEIF_ERR_CHECK(fill_10bit_plane(
+        baseImage, heif_channel_Cb, static_cast<const uint16_t*>(sdr_intent->planes[UHDR_PLANE_UV]),
+        chromaWd, chromaHt, sdr_intent->stride[UHDR_PLANE_UV], 0, 2, 6));
+    HEIF_ERR_CHECK(fill_10bit_plane(
+        baseImage, heif_channel_Cr, static_cast<const uint16_t*>(sdr_intent->planes[UHDR_PLANE_UV]),
+        chromaWd, chromaHt, sdr_intent->stride[UHDR_PLANE_UV], 1, 2, 6));
+  } else if (sdr_intent->fmt == UHDR_IMG_FMT_30bppYCbCr444) {
+    HEIF_ERR_CHECK(fill_10bit_plane(
+        baseImage, heif_channel_Y, static_cast<const uint16_t*>(sdr_intent->planes[UHDR_PLANE_Y]),
+        sdr_intent->w, sdr_intent->h, sdr_intent->stride[UHDR_PLANE_Y], 0, 1, 0));
+    HEIF_ERR_CHECK(fill_10bit_plane(
+        baseImage, heif_channel_Cb, static_cast<const uint16_t*>(sdr_intent->planes[UHDR_PLANE_U]),
+        chromaWd, chromaHt, sdr_intent->stride[UHDR_PLANE_U], 0, 1, 0));
+    HEIF_ERR_CHECK(fill_10bit_plane(
+        baseImage, heif_channel_Cr, static_cast<const uint16_t*>(sdr_intent->planes[UHDR_PLANE_V]),
+        chromaWd, chromaHt, sdr_intent->stride[UHDR_PLANE_V], 0, 1, 0));
+  } else {
+    HEIF_ERR_CHECK(fill_img_plane(baseImage, heif_channel_Y, sdr_intent->planes[UHDR_PLANE_Y],
+                                  sdr_intent->w, sdr_intent->h,
+                                  sdr_intent->stride[UHDR_PLANE_Y]));
+    HEIF_ERR_CHECK(fill_img_plane(baseImage, heif_channel_Cb, sdr_intent->planes[UHDR_PLANE_U],
+                                  chromaWd, chromaHt, sdr_intent->stride[UHDR_PLANE_U]));
+    HEIF_ERR_CHECK(fill_img_plane(baseImage, heif_channel_Cr, sdr_intent->planes[UHDR_PLANE_V],
+                                  chromaWd, chromaHt, sdr_intent->stride[UHDR_PLANE_V]));
+  }
   HEIF_ERR_CHECK(add_alpha_plane(baseImage, base_alpha_source));
   if (baseIcc != nullptr) {
     void* ptr = (uint8_t*)baseIcc->getData() + kICCIdentifierSize;
@@ -595,7 +837,10 @@ uhdr_error_info_t AvifUltraHdr::encodeAvifUltraHdr(uhdr_raw_image_t* sdr_intent,
   options->save_alpha_channel = 1;
   options->output_nclx_profile = sdrNclx;
   HEIF_ERR_CHECK(heif_image_set_nclx_color_profile(baseImage, sdrNclx));
+  sdrIntentOwner.reset();
   HEIF_ERR_CHECK(heif_context_encode_image(ctx, baseImage, encoder, options, &baseHandle));
+  heif_image_release(baseImage);
+  baseImage = nullptr;
   if (exif != nullptr) {
     HEIF_ERR_CHECK(heif_context_add_exif_metadata(ctx, baseHandle, exif->data, exif->data_sz));
   }
@@ -674,6 +919,9 @@ uhdr_error_info_t AvifUltraHdr::encodeAvifUltraHdr(uhdr_raw_image_t* sdr_intent,
   HEIF_ERR_CHECK(heif_context_encode_gain_map_image(ctx, baseHandle, encoder, secondaryImage,
                                                     options, iso_data.data(), iso_data.size(),
                                                     hdrNclx, &secondaryHandle));
+  heif_image_release(secondaryImage);
+  secondaryImage = nullptr;
+  gainmap_yuv_ext.reset();
 
   write_err = heif_context_write(ctx, &w, &writer);
   if (write_err.code != heif_error_Ok) {

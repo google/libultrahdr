@@ -20,6 +20,7 @@
 #ifdef UHDR_ENABLE_HEIF
 
 #include <cfloat>
+#include <memory>
 
 #include "ultrahdr_api.h"
 #include "ultrahdr/ultrahdrcommon.h"
@@ -75,6 +76,11 @@ class AvifUltraHdr : public UltraHdr {
   uhdr_error_info_t encodeAvifUltraHdrToOwnedBuffer(uhdr_raw_image_t* hdr_intent,
                                                      uhdr_owned_buffer_t* dest, int quality,
                                                      uhdr_mem_block_t* exif);
+  // The depth-aware owned-output variant keeps per-call policy out of the class layout.
+  uhdr_error_info_t encodeAvifUltraHdrToOwnedBuffer(uhdr_raw_image_t* hdr_intent,
+                                                     uhdr_owned_buffer_t* dest, int quality,
+                                                     uhdr_mem_block_t* exif,
+                                                     int max_base_image_bit_depth);
 
   /*!\brief Encode API-1.
    *
@@ -102,6 +108,14 @@ class AvifUltraHdr : public UltraHdr {
                                                      uhdr_raw_image_t* sdr_intent,
                                                      uhdr_owned_buffer_t* dest, int quality,
                                                      uhdr_mem_block_t* exif);
+  // The depth-aware API-1 owned-output variant keeps per-call policy out of the class layout.
+  // The existing overload retains the 8-bit default. A 10-bit AVIF request enables direct 4:4:4
+  // conversion for RGBA8888 SDR input; this C++ overload also accepts planar10 and RGBA1010102 SDR.
+  uhdr_error_info_t encodeAvifUltraHdrToOwnedBuffer(uhdr_raw_image_t* hdr_intent,
+                                                     uhdr_raw_image_t* sdr_intent,
+                                                     uhdr_owned_buffer_t* dest, int quality,
+                                                     uhdr_mem_block_t* exif,
+                                                     int max_base_image_bit_depth);
 
   /*!\brief Decode API.
    *
@@ -171,13 +185,11 @@ class AvifUltraHdr : public UltraHdr {
    *
    * \return uhdr_error_info_t #UHDR_CODEC_OK if operation succeeds, uhdr_codec_err_t otherwise.
    */
-  uhdr_error_info_t encodeAvifUltraHdr(uhdr_raw_image_t* sdr_intent,
-                                       uhdr_raw_image_t* base_alpha_source,
-                                       uhdr_raw_image_t* gainmap_img,
-                                       uhdr_gainmap_metadata_ext_t* metadata,
-                                       uhdr_owned_buffer_t* dest, int quality,
-                                       uhdr_mem_block_t* exif, DataStruct* baseIcc,
-                                       DataStruct* alternateIcc);
+  uhdr_error_info_t encodeAvifUltraHdrOwned(
+      uhdr_raw_image_t* sdr_intent, uhdr_raw_image_t* base_alpha_source,
+      uhdr_raw_image_t* gainmap_img, uhdr_gainmap_metadata_ext_t* metadata,
+      uhdr_owned_buffer_t* dest, int quality, uhdr_mem_block_t* exif, DataStruct* baseIcc,
+      DataStruct* alternateIcc, std::unique_ptr<uhdr_raw_image_ext_t> sdrIntentOwner);
 
   uhdr_codec_t mCodec;
 };
