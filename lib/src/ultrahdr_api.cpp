@@ -907,6 +907,38 @@ void uhdr_release_encoder(uhdr_codec_private_t* enc) {
 }
 
 UHDR_EXTERN uhdr_error_info_t
+uhdr_enc_set_max_base_image_bit_depth(uhdr_codec_private_t* enc, int bit_depth) {
+  uhdr_error_info_t status = g_no_error;
+
+  if (dynamic_cast<uhdr_encoder_private*>(enc) == nullptr) {
+    status.error_code = UHDR_CODEC_INVALID_PARAM;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail, "received nullptr for uhdr codec instance");
+    return status;
+  }
+  if (!ultrahdr::isValidMaxBaseImageBitDepth(bit_depth)) {
+    status.error_code = UHDR_CODEC_INVALID_PARAM;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "base image bit depth must be 8 or 10; received %d", bit_depth);
+    return status;
+  }
+
+  uhdr_encoder_private* handle = dynamic_cast<uhdr_encoder_private*>(enc);
+  if (handle->m_sailed) {
+    status.error_code = UHDR_CODEC_INVALID_OPERATION;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "An earlier call to uhdr_encode() has switched the context from configurable state "
+             "to end state. The context is no longer configurable. To reuse, call reset()");
+    return status;
+  }
+
+  handle->m_max_base_image_bit_depth = bit_depth;
+  return status;
+}
+
+UHDR_EXTERN uhdr_error_info_t
 uhdr_enc_set_using_multi_channel_gainmap(uhdr_codec_private_t* enc, int use_multi_channel_gainmap) {
   uhdr_error_info_t status = g_no_error;
 
@@ -1661,7 +1693,7 @@ uhdr_error_info_t uhdr_encode(uhdr_codec_private_t* enc) {
         // api - 0
         status = avifultrahdr.encodeAvifUltraHdrToOwnedBuffer(
             hdr_raw_entry.get(), &output, handle->m_quality.find(UHDR_BASE_IMG)->second,
-            handle->m_exif.size() > 0 ? &exif : nullptr);
+            handle->m_exif.size() > 0 ? &exif : nullptr, handle->m_max_base_image_bit_depth);
       } else if (handle->m_compressed_images.find(UHDR_SDR_IMG) !=
                      handle->m_compressed_images.end() &&
                  handle->m_raw_images.find(UHDR_SDR_IMG) == handle->m_raw_images.end()) {
@@ -1676,7 +1708,8 @@ uhdr_error_info_t uhdr_encode(uhdr_codec_private_t* enc) {
           status = avifultrahdr.encodeAvifUltraHdrToOwnedBuffer(
               hdr_raw_entry.get(), sdr_raw_entry.get(), &output,
               handle->m_quality.find(UHDR_BASE_IMG)->second,
-              handle->m_exif.size() > 0 ? &exif : nullptr);
+              handle->m_exif.size() > 0 ? &exif : nullptr,
+              handle->m_max_base_image_bit_depth);
         } else {
           status.error_code = UHDR_CODEC_UNSUPPORTED_FEATURE;
           status.has_detail = 1;
@@ -1784,6 +1817,7 @@ void uhdr_reset_encoder(uhdr_codec_private_t* enc) {
     handle->m_quality.emplace(UHDR_GAIN_MAP_IMG, ultrahdr::kMapCompressQualityDefault);
     handle->m_exif.clear();
     handle->m_output_format = UHDR_CODEC_JPG;
+    handle->m_max_base_image_bit_depth = ultrahdr::kMaxBaseImageBitDepthDefault;
     handle->m_gainmap_scale_factor = ultrahdr::kMapDimensionScaleFactorDefault;
     handle->m_use_multi_channel_gainmap = ultrahdr::kUseMultiChannelGainMapDefault;
     handle->m_gamma = ultrahdr::kGainMapGammaDefault;

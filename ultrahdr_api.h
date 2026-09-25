@@ -391,6 +391,31 @@ UHDR_EXTERN uhdr_error_info_t uhdr_enc_set_gainmap_image(uhdr_codec_private_t* e
 UHDR_EXTERN uhdr_error_info_t uhdr_enc_set_quality(uhdr_codec_private_t* enc, int quality,
                                                    uhdr_img_label_t intent);
 
+/*!\brief Set the maximum bit depth used to encode the base image for this encoder instance. The
+ * default is 8 bits. Configure the value before calling uhdr_encode().
+ *
+ * A value of 10 enables native 10-bit AVIF base encoding for API-0 P010 and RGBA1010102 HDR
+ * inputs, and for API-1 with RGBA8888 SDR input. API-1 RGBA8888 is converted directly to a 10-bit
+ * 4:4:4 base, avoiding an additional 8-bit YCbCr conversion, but it cannot restore detail already
+ * lost before encoding. The gain map remains 8-bit. Inputs without a supported native 10-bit route
+ * continue to use their existing base path. This setting does not change JPEG or HEIF encoding.
+ *
+ * Selecting 10 can materially increase peak memory use and may increase output size. The output
+ * also requires an AVIF decoder capable of decoding a 10-bit primary image. If the selected AV1
+ * encoder cannot encode the requested 10-bit base, encoding returns an error; the library does not
+ * silently retry at 8-bit. A caller that wants fallback behavior may retry with a new or reset
+ * encoder configured for 8-bit.
+ *
+ * \param[in]  enc        encoder instance.
+ * \param[in]  bit_depth  maximum base image bit depth. Supported values are 8 and 10.
+ *
+ * \return uhdr_error_info_t #UHDR_CODEC_OK if operation succeeds,
+ *                           #UHDR_CODEC_INVALID_PARAM for an invalid encoder or bit depth, or
+ *                           #UHDR_CODEC_INVALID_OPERATION after encoding has started.
+ */
+UHDR_EXTERN uhdr_error_info_t uhdr_enc_set_max_base_image_bit_depth(uhdr_codec_private_t* enc,
+                                                                    int bit_depth);
+
 /*!\brief Set Exif data that needs to be inserted in the output compressed stream. This function
  * does not generate or validate exif data on its own. It merely copies the supplied information
  * into the bitstream.
@@ -518,6 +543,9 @@ UHDR_EXTERN uhdr_error_info_t uhdr_enc_set_output_format(uhdr_codec_private_t* e
  * - The program overrides the default settings using uhdr_enc_set_*() functions
  * - If the application wants to control the compression level
  *   - uhdr_enc_set_quality()
+ * - If the application wants to allow a native 10-bit AVIF base for supported API-0 HDR or API-1
+ *   RGBA8888 SDR inputs
+ *   - uhdr_enc_set_max_base_image_bit_depth()
  * - If the application wants to insert exif data
  *   - uhdr_enc_set_exif_data()
  * - If the application wants to set gainmap scale factor
@@ -562,6 +590,7 @@ UHDR_EXTERN uhdr_error_info_t uhdr_enc_set_output_format(uhdr_codec_private_t* e
  * - uhdr_create_encoder()
  * - uhdr_enc_set_raw_image(ctxt, img, UHDR_HDR_IMG)
  * - uhdr_enc_set_quality() // optional
+ * - uhdr_enc_set_max_base_image_bit_depth() // optional, API-0 or API-1 AVIF only
  * - uhdr_enc_set_exif_data() // optional
  * - uhdr_enc_set_output_format() // optional
  * - uhdr_enc_set_gainmap_scale_factor() // optional
