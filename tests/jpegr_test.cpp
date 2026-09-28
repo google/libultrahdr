@@ -1712,6 +1712,33 @@ TEST(JpegRTest, writeXmpThenRead) {
   EXPECT_TRUE(metadata_read.use_base_cg);
 }
 
+TEST(JpegRTest, readAppleHeadroomXmpAsLinearBoost) {
+  const std::string nameSpace = "http://ns.adobe.com/xap/1.0/\0";
+  const size_t nameSpaceLength = nameSpace.size() + 1;
+  const std::string xmp =
+      "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF "
+      "xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description "
+      "xmlns:HDRGainMap=\"http://ns.apple.com/HDRGainMap/1.0/\">"
+      "<HDRGainMap:HDRGainMapVersion>131072</HDRGainMap:HDRGainMapVersion>"
+      "<HDRGainMap:HDRGainMapHeadroom>4.0</HDRGainMap:HDRGainMapHeadroom>"
+      "</rdf:Description></rdf:RDF></x:xmpmeta>";
+
+  std::vector<uint8_t> xmpData;
+  xmpData.reserve(nameSpaceLength + xmp.size());
+  xmpData.insert(xmpData.end(), reinterpret_cast<const uint8_t*>(nameSpace.c_str()),
+                 reinterpret_cast<const uint8_t*>(nameSpace.c_str()) + nameSpaceLength);
+  xmpData.insert(xmpData.end(), reinterpret_cast<const uint8_t*>(xmp.c_str()),
+                 reinterpret_cast<const uint8_t*>(xmp.c_str()) + xmp.size());
+
+  uhdr_gainmap_metadata_ext_t metadata;
+  ASSERT_EQ(getMetadataFromXMP(xmpData.data(), xmpData.size(), /*exif_data=*/nullptr,
+                               /*exif_size=*/0, &metadata)
+                .error_code,
+            UHDR_CODEC_OK);
+  EXPECT_FLOAT_EQ(metadata.max_content_boost[0], 4.0f);
+  EXPECT_FLOAT_EQ(metadata.hdr_capacity_max, 4.0f);
+}
+
 TEST(JpegRTest, decodeApple) {
   JpegR decoder;
   uhdr_compressed_image_t uhdrCompressedImg;
@@ -1743,7 +1770,7 @@ TEST(JpegRTest, decodeApple) {
     const uhdr_gainmap_metadata_t* gainmapMetadata = uhdr_dec_get_gainmap_metadata(dec);
     ASSERT_NE(gainmapMetadata, nullptr);
 
-    const double headroom = fileName == kOldAppleFileName ? 8.0 : 23.1474762;
+    const double headroom = fileName == kOldAppleFileName ? 8.0 : 4.532783;
     for (int c = 0; c < 3; ++c) {
       EXPECT_EQ(gainmapMetadata->gamma[c], 1.0f);
       EXPECT_EQ(gainmapMetadata->offset_sdr[c], 0.0f);
