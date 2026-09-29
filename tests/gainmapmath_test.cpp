@@ -11,6 +11,8 @@
 #include <gtest/gtest.h>
 #include <gmock/gmock.h>
 
+#include <algorithm>
+#include <cmath>
 #include <vector>
 
 #include "ultrahdr/gainmapmath.h"
@@ -1592,6 +1594,384 @@ TEST_F(GainMapMathTest, EncodeGain) {
   EXPECT_EQ(affineMapGain(computeGain(1.0f, 2.0f), min_boost, max_boost, 1.0f), 127);
   EXPECT_EQ(affineMapGain(computeGain(1.0f, 0.7071f), min_boost, max_boost, 1.0f), 32);
   EXPECT_EQ(affineMapGain(computeGain(1.0f, 0.5f), min_boost, max_boost, 1.0f), 0);
+}
+
+TEST_F(GainMapMathTest, ComputeGainWithCoherentOffset) {
+  constexpr float kNormalizedOffset = 1.0f / 255.0f;
+  const float kOffsetNits = kSdrWhiteNits / 255.0f;
+  EXPECT_FLOAT_EQ(kOffsetNits, kSdrWhiteNits * kNormalizedOffset);
+
+  const float gain = computeGainWithOffset(40.0f, 80.0f, kOffsetNits);
+  EXPECT_FLOAT_EQ(gain, std::log2((80.0f + kOffsetNits) / (40.0f + kOffsetNits)));
+  EXPECT_LT(gain, computeGain(40.0f, 80.0f));
+
+  // Both black and near-black SDR samples retain the existing dark-pixel gain cap.
+  EXPECT_FLOAT_EQ(computeGainWithOffset(0.0f, kSdrWhiteNits, kOffsetNits), 2.3f);
+  EXPECT_FLOAT_EQ(computeGainWithOffset(1.0f / 255.0f, kSdrWhiteNits, kOffsetNits), 2.3f);
+  EXPECT_GT(computeGainWithOffset(2.0f / 255.0f, kSdrWhiteNits, kOffsetNits), 2.3f);
+
+  EXPECT_EQ(affineMapGain(computeGainWithOffset(0.0f, kSdrWhiteNits, kOffsetNits), std::log2(1.25f),
+                          std::log2(4.0f), 1.0f),
+            255);
+}
+
+TEST_F(GainMapMathTest, CoherentOffsetReconstructsNonCappedHdrAndExactBlack) {
+  const float kOffsetNits = kSdrWhiteNits / 255.0f;
+  constexpr float kOffsetNormalized = 1.0f / 255.0f;
+  const float source_nits = 40.0f;
+  const float target_nits = 80.0f;
+  const float gain = computeGainWithOffset(source_nits, target_nits, kOffsetNits);
+  EXPECT_LT(gain, 2.3f);
+
+  uhdr_gainmap_metadata_ext_t metadata(kJpegrVersion);
+  std::fill_n(metadata.min_content_boost, 3, 1.0f);
+  std::fill_n(metadata.max_content_boost, 3, exp2(gain));
+  std::fill_n(metadata.gamma, 3, 1.0f);
+  std::fill_n(metadata.offset_sdr, 3, kOffsetNormalized);
+  std::fill_n(metadata.offset_hdr, 3, kOffsetNormalized);
+
+  const Color source = {
+      {{source_nits / kSdrWhiteNits, source_nits / kSdrWhiteNits, source_nits / kSdrWhiteNits}}};
+  const Color recovered = applyGain(source, 1.0f, &metadata);
+  EXPECT_NEAR(recovered.r, target_nits / kSdrWhiteNits, 1e-6f);
+  EXPECT_NEAR(recovered.g, target_nits / kSdrWhiteNits, 1e-6f);
+  EXPECT_NEAR(recovered.b, target_nits / kSdrWhiteNits, 1e-6f);
+
+  EXPECT_FLOAT_EQ(computeGainWithOffset(0.0f, 0.0f, kOffsetNits), 0.0f);
+  std::fill_n(metadata.max_content_boost, 3, 1.0f);
+  const Color recovered_black = applyGain(RgbBlack(), 0.0f, &metadata);
+  EXPECT_FLOAT_EQ(recovered_black.r, 0.0f);
+  EXPECT_FLOAT_EQ(recovered_black.g, 0.0f);
+  EXPECT_FLOAT_EQ(recovered_black.b, 0.0f);
+}
+
+TEST_F(GainMapMathTest, CoherentOffsetGenerationPreservesLegacyRangeAndFallbacks) {
+  auto verify_case = [&](const std::vector<uint8_t>& sdr_codes,
+                         const std::vector<float>& hdr_linear, float min_content_boost,
+                         float max_content_boost, float gamma, bool expect_coherent_map) {
+    ASSERT_EQ(sdr_codes.size(), hdr_linear.size());
+    ASSERT_FALSE(sdr_codes.empty());
+
+    const size_t width = sdr_codes.size();
+    std::vector<uint32_t> sdr_pixels(width);
+    std::vector<uint64_t> hdr_pixels(width);
+    std::vector<float> legacy_gains(width);
+    float legacy_min = 127.0f;
+    float legacy_max = -128.0f;
+    for (size_t i = 0; i < width; ++i) {
+      const uint32_t code = sdr_codes[i];
+      sdr_pixels[i] = code | (code << 8) | (code << 16) | (0xffu << 24);
+      hdr_pixels[i] = colorToRgbaF16(Color{{{hdr_linear[i], hdr_linear[i], hdr_linear[i]}}});
+
+      const float sdr_gamma = static_cast<float>(sdr_codes[i]) / 255.0f;
+      const float sdr_nits = srgbInvOetfLUT(sdr_gamma) * kSdrWhiteNits;
+      const float hdr_nits = hdr_linear[i] * kSdrWhiteNits;
+      legacy_gains[i] = computeGain(sdr_nits, hdr_nits);
+      legacy_min = (std::min)(legacy_min, legacy_gains[i]);
+      legacy_max = (std::max)(legacy_max, legacy_gains[i]);
+    }
+
+    float selected_min = (std::clamp)(legacy_min, -14.3f, 15.6f);
+    float selected_max = (std::clamp)(legacy_max, -14.3f, 15.6f);
+    if (max_content_boost != FLT_MAX) {
+      selected_max = (std::min)(selected_max, std::log2(max_content_boost));
+    }
+    if (min_content_boost != FLT_MIN) {
+      selected_min = (std::max)(selected_min, std::log2(min_content_boost));
+    }
+    if (fabs(selected_max - selected_min) < FLT_EPSILON) selected_max += 0.1f;
+
+    const bool range_contains_unity = selected_min <= 0.0f && selected_max >= 0.0f;
+    ASSERT_EQ(expect_coherent_map, range_contains_unity);
+
+    uhdr_raw_image_t sdr{};
+    sdr.cg = UHDR_CG_BT_709;
+    sdr.ct = UHDR_CT_SRGB;
+    sdr.range = UHDR_CR_FULL_RANGE;
+    sdr.fmt = UHDR_IMG_FMT_32bppRGBA8888;
+    sdr.w = static_cast<unsigned int>(width);
+    sdr.h = 1;
+    sdr.planes[UHDR_PLANE_PACKED] = sdr_pixels.data();
+    sdr.stride[UHDR_PLANE_PACKED] = width;
+
+    uhdr_raw_image_t hdr{};
+    hdr.cg = UHDR_CG_BT_709;
+    hdr.ct = UHDR_CT_LINEAR;
+    hdr.range = UHDR_CR_FULL_RANGE;
+    hdr.fmt = UHDR_IMG_FMT_64bppRGBAHalfFloat;
+    hdr.w = static_cast<unsigned int>(width);
+    hdr.h = 1;
+    hdr.planes[UHDR_PLANE_PACKED] = hdr_pixels.data();
+    hdr.stride[UHDR_PLANE_PACKED] = width;
+
+    UltraHdr encoder(nullptr, 1, 95, true, gamma, UHDR_USAGE_BEST_QUALITY, min_content_boost,
+                     max_content_boost);
+    uhdr_gainmap_metadata_ext_t metadata(kJpegrVersion);
+    std::unique_ptr<uhdr_raw_image_ext_t> gainmap;
+    const uhdr_error_info_t status = encoder.generateGainMap(&sdr, &hdr, &metadata, gainmap);
+    ASSERT_EQ(status.error_code, UHDR_CODEC_OK) << status.detail;
+    ASSERT_NE(gainmap, nullptr);
+    ASSERT_EQ(gainmap->fmt, UHDR_IMG_FMT_24bppRGB888);
+
+    const float expected_sdr_offset = expect_coherent_map ? 1.0f / 255.0f : kSdrOffset;
+    const float expected_hdr_offset = expect_coherent_map ? 1.0f / 255.0f : kHdrOffset;
+    for (int channel = 0; channel < 3; ++channel) {
+      EXPECT_FLOAT_EQ(metadata.offset_sdr[channel], expected_sdr_offset);
+      EXPECT_FLOAT_EQ(metadata.offset_hdr[channel], expected_hdr_offset);
+      EXPECT_FLOAT_EQ(metadata.min_content_boost[channel], exp2(selected_min));
+      EXPECT_FLOAT_EQ(metadata.max_content_boost[channel], exp2(selected_max));
+      EXPECT_FLOAT_EQ(metadata.gamma[channel], gamma);
+    }
+
+    const uint8_t* map_pixels = static_cast<const uint8_t*>(gainmap->planes[UHDR_PLANE_PACKED]);
+    ASSERT_NE(map_pixels, nullptr);
+    for (size_t i = 0; i < width; ++i) {
+      const float sdr_gamma = static_cast<float>(sdr_codes[i]) / 255.0f;
+      const float sdr_nits = srgbInvOetfLUT(sdr_gamma) * kSdrWhiteNits;
+      const float hdr_nits = hdr_linear[i] * kSdrWhiteNits;
+      float gain = expect_coherent_map
+                       ? computeGainWithOffset(sdr_nits, hdr_nits, kSdrWhiteNits / 255.0f)
+                       : legacy_gains[i];
+      if (expect_coherent_map) gain = (std::clamp)(gain, selected_min, selected_max);
+      const uint8_t expected = affineMapGain(gain, selected_min, selected_max, gamma);
+      for (size_t channel = 0; channel < 3; ++channel) {
+        EXPECT_EQ(map_pixels[i * 3 + channel], expected)
+            << "pixel " << i << ", channel " << channel << ", gamma " << gamma;
+      }
+    }
+  };
+
+  for (float gamma : {0.5f, 2.0f}) {
+    verify_case({128, 128, 128}, {0.125f, 0.25f, 0.5f}, FLT_MIN, FLT_MAX, gamma, true);
+    // The unmodified source range alone can exclude unity on either side.
+    verify_case({250, 0}, {1.0f, 1.0f}, FLT_MIN, FLT_MAX, gamma, false);
+    verify_case({128, 255}, {0.125f, 0.125f}, FLT_MIN, FLT_MAX, gamma, false);
+    verify_case({250, 0}, {1.0f, 1.0f}, FLT_MIN, 2.5f, gamma, false);
+    verify_case({128, 255}, {0.125f, 0.125f}, FLT_MIN, 0.5f, gamma, false);
+  }
+  // A minimum-content recommendation can also exclude unity by itself.
+  verify_case({250, 0}, {1.0f, 1.0f}, 1.5f, FLT_MAX, 1.0f, false);
+}
+
+TEST_F(GainMapMathTest, MixedChannelRangeUsesWriterCompatibleOffsetFallback) {
+  constexpr unsigned int kWidth = 2;
+  constexpr uint32_t kSdrCode = 128;
+  // Red stays above unity; green and blue each include both sides of unity.
+  const float hdr_linear[kWidth][3] = {{0.5f, 0.125f, 0.5f}, {1.0f, 0.5f, 0.125f}};
+  std::vector<uint32_t> sdr_pixels(kWidth);
+  std::vector<uint64_t> hdr_pixels(kWidth);
+  for (size_t pixel = 0; pixel < kWidth; ++pixel) {
+    sdr_pixels[pixel] = kSdrCode | (kSdrCode << 8) | (kSdrCode << 16) | (0xffu << 24);
+    const Color hdr_color = {{{hdr_linear[pixel][0], hdr_linear[pixel][1], hdr_linear[pixel][2]}}};
+    hdr_pixels[pixel] = colorToRgbaF16(hdr_color);
+  }
+
+  uhdr_raw_image_t sdr{};
+  sdr.cg = UHDR_CG_BT_709;
+  sdr.ct = UHDR_CT_SRGB;
+  sdr.range = UHDR_CR_FULL_RANGE;
+  sdr.fmt = UHDR_IMG_FMT_32bppRGBA8888;
+  sdr.w = kWidth;
+  sdr.h = 1;
+  sdr.planes[UHDR_PLANE_PACKED] = sdr_pixels.data();
+  sdr.stride[UHDR_PLANE_PACKED] = kWidth;
+
+  uhdr_raw_image_t hdr{};
+  hdr.cg = UHDR_CG_BT_709;
+  hdr.ct = UHDR_CT_LINEAR;
+  hdr.range = UHDR_CR_FULL_RANGE;
+  hdr.fmt = UHDR_IMG_FMT_64bppRGBAHalfFloat;
+  hdr.w = kWidth;
+  hdr.h = 1;
+  hdr.planes[UHDR_PLANE_PACKED] = hdr_pixels.data();
+  hdr.stride[UHDR_PLANE_PACKED] = kWidth;
+
+  UltraHdr encoder(nullptr, 1, 95, true, 1.0f, UHDR_USAGE_BEST_QUALITY, FLT_MIN, FLT_MAX);
+  uhdr_gainmap_metadata_ext_t metadata(kJpegrVersion);
+  std::unique_ptr<uhdr_raw_image_ext_t> gainmap;
+  const uhdr_error_info_t status = encoder.generateGainMap(&sdr, &hdr, &metadata, gainmap);
+  ASSERT_EQ(status.error_code, UHDR_CODEC_OK) << status.detail;
+  ASSERT_NE(gainmap, nullptr);
+  ASSERT_EQ(gainmap->fmt, UHDR_IMG_FMT_24bppRGB888);
+
+  const float sdr_nits = srgbInvOetfLUT(static_cast<float>(kSdrCode) / 255.0f) * kSdrWhiteNits;
+  float legacy_gains[kWidth][3];
+  float selected_min[3] = {127.0f, 127.0f, 127.0f};
+  float selected_max[3] = {-128.0f, -128.0f, -128.0f};
+  for (size_t pixel = 0; pixel < kWidth; ++pixel) {
+    for (int channel = 0; channel < 3; ++channel) {
+      const float hdr_nits = hdr_linear[pixel][channel] * kSdrWhiteNits;
+      legacy_gains[pixel][channel] = computeGain(sdr_nits, hdr_nits);
+      selected_min[channel] = (std::min)(selected_min[channel], legacy_gains[pixel][channel]);
+      selected_max[channel] = (std::max)(selected_max[channel], legacy_gains[pixel][channel]);
+    }
+  }
+
+  ASSERT_GT(selected_min[0], 0.0f);
+  ASSERT_LT(selected_min[1], 0.0f);
+  ASSERT_GT(selected_max[1], 0.0f);
+  ASSERT_LT(selected_min[2], 0.0f);
+  ASSERT_GT(selected_max[2], 0.0f);
+
+  bool use_xmp_shared_range = false;
+#ifdef UHDR_WRITE_XMP
+  use_xmp_shared_range = true;
+#endif
+  if (use_xmp_shared_range) {
+    const float shared_min =
+        (std::min)(selected_min[0], (std::min)(selected_min[1], selected_min[2]));
+    const float shared_max =
+        (std::max)(selected_max[0], (std::max)(selected_max[1], selected_max[2]));
+    ASSERT_LT(shared_min, 0.0f);
+    ASSERT_GT(shared_max, 0.0f);
+    std::fill_n(selected_min, 3, shared_min);
+    std::fill_n(selected_max, 3, shared_max);
+  }
+
+  const float expected_sdr_offset = use_xmp_shared_range ? 1.0f / 255.0f : kSdrOffset;
+  const float expected_hdr_offset = use_xmp_shared_range ? 1.0f / 255.0f : kHdrOffset;
+  const uint8_t* map_pixels = static_cast<const uint8_t*>(gainmap->planes[UHDR_PLANE_PACKED]);
+  ASSERT_NE(map_pixels, nullptr);
+  for (int channel = 0; channel < 3; ++channel) {
+    EXPECT_FLOAT_EQ(metadata.offset_sdr[channel], expected_sdr_offset);
+    EXPECT_FLOAT_EQ(metadata.offset_hdr[channel], expected_hdr_offset);
+    EXPECT_FLOAT_EQ(metadata.min_content_boost[channel], exp2(selected_min[channel]));
+    EXPECT_FLOAT_EQ(metadata.max_content_boost[channel], exp2(selected_max[channel]));
+    EXPECT_FLOAT_EQ(metadata.gamma[channel], 1.0f);
+  }
+
+  for (size_t pixel = 0; pixel < kWidth; ++pixel) {
+    for (int channel = 0; channel < 3; ++channel) {
+      const float hdr_nits = hdr_linear[pixel][channel] * kSdrWhiteNits;
+      const float gain = use_xmp_shared_range
+                             ? computeGainWithOffset(sdr_nits, hdr_nits, kSdrWhiteNits / 255.0f)
+                             : legacy_gains[pixel][channel];
+      const uint8_t expected =
+          affineMapGain(gain, selected_min[channel], selected_max[channel], 1.0f);
+      EXPECT_EQ(map_pixels[pixel * 3 + channel], expected)
+          << "pixel " << pixel << ", channel " << channel << ", XMP " << use_xmp_shared_range;
+    }
+  }
+}
+
+TEST_F(GainMapMathTest, CoherentOffsetLeavesScalarAndRealtimePathsUnchanged) {
+  const std::vector<uint8_t> sdr_codes = {128, 128, 128};
+  const std::vector<float> hdr_linear = {0.125f, 0.25f, 0.5f};
+  std::vector<uint32_t> sdr_pixels(sdr_codes.size());
+  std::vector<uint64_t> hdr_pixels(hdr_linear.size());
+  for (size_t i = 0; i < sdr_codes.size(); ++i) {
+    const uint32_t code = sdr_codes[i];
+    sdr_pixels[i] = code | (code << 8) | (code << 16) | (0xffu << 24);
+    hdr_pixels[i] = colorToRgbaF16(Color{{{hdr_linear[i], hdr_linear[i], hdr_linear[i]}}});
+  }
+
+  uhdr_raw_image_t sdr{};
+  sdr.cg = UHDR_CG_BT_709;
+  sdr.ct = UHDR_CT_SRGB;
+  sdr.range = UHDR_CR_FULL_RANGE;
+  sdr.fmt = UHDR_IMG_FMT_32bppRGBA8888;
+  sdr.w = static_cast<unsigned int>(sdr_codes.size());
+  sdr.h = 1;
+  sdr.planes[UHDR_PLANE_PACKED] = sdr_pixels.data();
+  sdr.stride[UHDR_PLANE_PACKED] = sdr_codes.size();
+
+  uhdr_raw_image_t hdr{};
+  hdr.cg = UHDR_CG_BT_709;
+  hdr.ct = UHDR_CT_LINEAR;
+  hdr.range = UHDR_CR_FULL_RANGE;
+  hdr.fmt = UHDR_IMG_FMT_64bppRGBAHalfFloat;
+  hdr.w = static_cast<unsigned int>(hdr_linear.size());
+  hdr.h = 1;
+  hdr.planes[UHDR_PLANE_PACKED] = hdr_pixels.data();
+  hdr.stride[UHDR_PLANE_PACKED] = hdr_linear.size();
+
+  auto verify_legacy_path = [&](bool multi_channel, uhdr_enc_preset_t preset) {
+    UltraHdr encoder(nullptr, 1, 95, multi_channel, 1.0f, preset, FLT_MIN, FLT_MAX);
+    uhdr_gainmap_metadata_ext_t metadata(kJpegrVersion);
+    std::unique_ptr<uhdr_raw_image_ext_t> gainmap;
+    const uhdr_error_info_t status = encoder.generateGainMap(&sdr, &hdr, &metadata, gainmap);
+    ASSERT_EQ(status.error_code, UHDR_CODEC_OK) << status.detail;
+    ASSERT_NE(gainmap, nullptr);
+
+    const bool realtime = preset == UHDR_USAGE_REALTIME;
+    for (int channel = 0; channel < 3; ++channel) {
+      EXPECT_FLOAT_EQ(metadata.offset_sdr[channel], realtime ? 0.0f : kSdrOffset);
+      EXPECT_FLOAT_EQ(metadata.offset_hdr[channel], realtime ? 0.0f : kHdrOffset);
+    }
+
+    const uint8_t* map_pixels = static_cast<const uint8_t*>(
+        gainmap->planes[multi_channel ? UHDR_PLANE_PACKED : UHDR_PLANE_Y]);
+    ASSERT_NE(map_pixels, nullptr);
+    if (multi_channel) {
+      ASSERT_EQ(gainmap->fmt, UHDR_IMG_FMT_24bppRGB888);
+    } else {
+      ASSERT_EQ(gainmap->fmt, UHDR_IMG_FMT_8bppYCbCr400);
+    }
+    // Golden codes captured from generateGainMap in the f3e3622 reference build with intrinsics.
+    // Keep the production inverse-OETF and luminance-reduction rounding in the expected values.
+    const uint8_t expected_scalar[] = {0, 128, 255};
+    const uint8_t expected_realtime[] = {0, 0, 0, 9, 9, 9, 54, 54, 54};
+    const uint8_t* expected_map = realtime ? expected_realtime : expected_scalar;
+    for (size_t i = 0; i < sdr_codes.size(); ++i) {
+      for (size_t channel = 0; channel < (multi_channel ? 3 : 1); ++channel) {
+        const size_t sample_index = i * (multi_channel ? 3 : 1) + channel;
+        EXPECT_EQ(map_pixels[sample_index], expected_map[sample_index])
+            << "pixel " << i << ", channel " << channel << ", preset " << preset;
+      }
+    }
+  };
+
+  verify_legacy_path(false, UHDR_USAGE_BEST_QUALITY);
+  verify_legacy_path(true, UHDR_USAGE_REALTIME);
+}
+
+TEST_F(GainMapMathTest, CoherentOffsetSupportsDefaultMapScale) {
+  constexpr unsigned int kImageDimension = 4;
+  constexpr size_t kPixelCount = kImageDimension * kImageDimension;
+  std::vector<uint32_t> sdr_pixels(kPixelCount, 0xffffffffu);
+  std::vector<uint64_t> hdr_pixels(kPixelCount, colorToRgbaF16(Color{{{1.0f, 1.0f, 1.0f}}}));
+
+  uhdr_raw_image_t sdr{};
+  sdr.cg = UHDR_CG_BT_709;
+  sdr.ct = UHDR_CT_SRGB;
+  sdr.range = UHDR_CR_FULL_RANGE;
+  sdr.fmt = UHDR_IMG_FMT_32bppRGBA8888;
+  sdr.w = kImageDimension;
+  sdr.h = kImageDimension;
+  sdr.planes[UHDR_PLANE_PACKED] = sdr_pixels.data();
+  sdr.stride[UHDR_PLANE_PACKED] = kImageDimension;
+
+  uhdr_raw_image_t hdr{};
+  hdr.cg = UHDR_CG_BT_709;
+  hdr.ct = UHDR_CT_LINEAR;
+  hdr.range = UHDR_CR_FULL_RANGE;
+  hdr.fmt = UHDR_IMG_FMT_64bppRGBAHalfFloat;
+  hdr.w = kImageDimension;
+  hdr.h = kImageDimension;
+  hdr.planes[UHDR_PLANE_PACKED] = hdr_pixels.data();
+  hdr.stride[UHDR_PLANE_PACKED] = kImageDimension;
+
+  UltraHdr encoder(nullptr, 4, 95, true, 1.0f, UHDR_USAGE_BEST_QUALITY, FLT_MIN, FLT_MAX);
+  uhdr_gainmap_metadata_ext_t metadata(kJpegrVersion);
+  std::unique_ptr<uhdr_raw_image_ext_t> gainmap;
+  const uhdr_error_info_t status = encoder.generateGainMap(&sdr, &hdr, &metadata, gainmap);
+  ASSERT_EQ(status.error_code, UHDR_CODEC_OK) << status.detail;
+  ASSERT_NE(gainmap, nullptr);
+  ASSERT_EQ(gainmap->w, 1u);
+  ASSERT_EQ(gainmap->h, 1u);
+  ASSERT_EQ(gainmap->fmt, UHDR_IMG_FMT_24bppRGB888);
+
+  const uint8_t* map_pixels = static_cast<const uint8_t*>(gainmap->planes[UHDR_PLANE_PACKED]);
+  ASSERT_NE(map_pixels, nullptr);
+  EXPECT_EQ(map_pixels[0], 0);
+  EXPECT_EQ(map_pixels[1], 0);
+  EXPECT_EQ(map_pixels[2], 0);
+  for (int channel = 0; channel < 3; ++channel) {
+    EXPECT_FLOAT_EQ(metadata.offset_sdr[channel], 1.0f / 255.0f);
+    EXPECT_FLOAT_EQ(metadata.offset_hdr[channel], 1.0f / 255.0f);
+    EXPECT_FLOAT_EQ(metadata.min_content_boost[channel], 1.0f);
+    EXPECT_FLOAT_EQ(metadata.max_content_boost[channel], exp2(0.1f));
+  }
 }
 
 TEST_F(GainMapMathTest, ApplyGain) {
