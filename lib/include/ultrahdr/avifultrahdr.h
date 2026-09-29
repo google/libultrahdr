@@ -71,6 +71,10 @@ class AvifUltraHdr : public UltraHdr {
    */
   uhdr_error_info_t encodeAvifUltraHdr(uhdr_raw_image_t* hdr_intent, uhdr_compressed_image_t* dest,
                                 int quality, uhdr_mem_block_t* exif);
+  // The owned-output variant resets dest on entry and leaves it empty on failure.
+  uhdr_error_info_t encodeAvifUltraHdrToOwnedBuffer(uhdr_raw_image_t* hdr_intent,
+                                                     uhdr_owned_buffer_t* dest, int quality,
+                                                     uhdr_mem_block_t* exif);
 
   /*!\brief Encode API-1.
    *
@@ -93,6 +97,11 @@ class AvifUltraHdr : public UltraHdr {
    */
   uhdr_error_info_t encodeAvifUltraHdr(uhdr_raw_image_t* hdr_intent, uhdr_raw_image_t* sdr_intent,
                                 uhdr_compressed_image_t* dest, int quality, uhdr_mem_block_t* exif);
+  // The owned-output variant resets dest on entry and leaves it empty on failure.
+  uhdr_error_info_t encodeAvifUltraHdrToOwnedBuffer(uhdr_raw_image_t* hdr_intent,
+                                                     uhdr_raw_image_t* sdr_intent,
+                                                     uhdr_owned_buffer_t* dest, int quality,
+                                                     uhdr_mem_block_t* exif);
 
   /*!\brief Decode API.
    *
@@ -153,7 +162,7 @@ class AvifUltraHdr : public UltraHdr {
    *                                    8-bit alpha in the base image
    * \param[in]       gainmap_img       gainmap raw image descriptor
    * \param[in]       metadata          gainmap metadata descriptor
-   * \param[in, out]  dest              output image descriptor to store compressed ultrahdr image
+   * \param[in, out]  dest              owned output buffer for compressed ultrahdr image
    * \param[in]       quality           quality factor for sdr intent heif/avif compression
    * \param[in]       exif              optional exif metadata that needs to be inserted in
    *                                    compressed output
@@ -166,7 +175,7 @@ class AvifUltraHdr : public UltraHdr {
                                        uhdr_raw_image_t* base_alpha_source,
                                        uhdr_raw_image_t* gainmap_img,
                                        uhdr_gainmap_metadata_ext_t* metadata,
-                                       uhdr_compressed_image_t* dest, int quality,
+                                       uhdr_owned_buffer_t* dest, int quality,
                                        uhdr_mem_block_t* exif, DataStruct* baseIcc,
                                        DataStruct* alternateIcc);
 
