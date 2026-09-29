@@ -23,6 +23,7 @@
 #include <map>
 
 #include "ultrahdr/avifultrahdr.h"
+#include "avifencoder.h"
 #include "ultrahdr/gainmapmath.h"
 #include "ultrahdr/gainmapmetadata.h"
 
@@ -338,7 +339,8 @@ AvifUltraHdr::AvifUltraHdr(void* uhdrGLESCtxt, int mapDimensionScaleFactor, int 
              uhdr_codec_t codec)
     : UltraHdr(uhdrGLESCtxt, mapDimensionScaleFactor, mapCompressQuality, useMultiChannelGainMap,
                gamma, preset, minContentBoost, maxContentBoost, targetDispPeakBrightness),
-      mCodec(codec) {}
+      mCodec(codec),
+      mUseRealtimeAomSpeed(preset == UHDR_USAGE_REALTIME) {}
 
 /* Encode API-0 */
 uhdr_error_info_t AvifUltraHdr::encodeAvifUltraHdr(uhdr_raw_image_t* hdr_intent, uhdr_compressed_image_t* dest,
@@ -464,8 +466,9 @@ uhdr_error_info_t AvifUltraHdr::encodeAvifUltraHdr(uhdr_raw_image_t* sdr_intent,
     return status;
   }
 
-  HEIF_ERR_CHECK(heif_context_get_encoder_for_format(
-      ctx, mCodec == UHDR_CODEC_AVIF ? heif_compression_AV1 : heif_compression_HEVC, &encoder));
+  HEIF_ERR_CHECK(internal::get_encoder_for_format(
+      ctx, mCodec == UHDR_CODEC_AVIF ? heif_compression_AV1 : heif_compression_HEVC,
+      mCodec == UHDR_CODEC_AVIF && mUseRealtimeAomSpeed, &encoder));
 
   // set the encoder parameters
   HEIF_ERR_CHECK(heif_encoder_set_lossy_quality(encoder, quality));

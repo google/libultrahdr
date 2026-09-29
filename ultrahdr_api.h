@@ -481,6 +481,9 @@ UHDR_EXTERN uhdr_error_info_t uhdr_enc_set_target_display_peak_brightness(uhdr_c
  * \param[in]  enc  encoder instance.
  * \param[in]  preset  encoding preset. #UHDR_USAGE_REALTIME - Tune settings for best performance
  *                                      #UHDR_USAGE_BEST_QUALITY - Tune settings for best quality
+ * \note For AVIF, the realtime preset sets AOM speed to 8 when libheif selects its AOM encoder.
+ *       Other selected encoders keep their default speed. If AOM does not support this parameter,
+ *       its default speed is used.
  *
  * \return uhdr_error_info_t #UHDR_CODEC_OK if operation succeeds,
  *                           #UHDR_CODEC_INVALID_PARAM otherwise.

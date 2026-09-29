@@ -24,6 +24,7 @@
 #include "ultrahdr/avifultrahdr.h"
 #if defined(UHDR_ENABLE_HEIF)
 #include "libheif/heif.h"
+#include "../lib/src/avifencoder.h"
 #endif
 
 namespace ultrahdr {
@@ -1209,6 +1210,116 @@ TEST_F(UltraHdrApiTest, HeicCompressedIntentsUnsupported) {
 // ============================================================================
 // AVIF Tests (API-0, API-1, and Unsupported APIs)
 // ============================================================================
+
+TEST(AvifEncoderPolicyTest, RealtimeSetsSpeedOnlyForTheSelectedAomEncoder) {
+  std::unique_ptr<heif_context, decltype(&heif_context_free)> context(heif_context_alloc(),
+                                                                      heif_context_free);
+  ASSERT_NE(context, nullptr);
+
+  const heif_encoder_descriptor* default_descriptor = nullptr;
+  if (heif_get_encoder_descriptors(heif_compression_AV1, nullptr, &default_descriptor, 1) <= 0 ||
+      default_descriptor == nullptr) {
+    GTEST_SKIP() << "AV1 encoder plugin not available";
+  }
+
+  heif_encoder* default_encoder_raw = nullptr;
+  ASSERT_EQ(heif_context_get_encoder_for_format(context.get(), heif_compression_AV1,
+                                                &default_encoder_raw)
+                .code,
+            heif_error_Ok);
+  std::unique_ptr<heif_encoder, decltype(&heif_encoder_release)> default_encoder(
+      default_encoder_raw, heif_encoder_release);
+  ASSERT_NE(default_encoder, nullptr);
+  EXPECT_STREQ(heif_encoder_get_name(default_encoder.get()),
+               heif_encoder_descriptor_get_name(default_descriptor));
+
+  const char* encoder_id = heif_encoder_descriptor_get_id_name(default_descriptor);
+  const bool default_is_aom = encoder_id != nullptr && std::strcmp(encoder_id, "aom") == 0;
+  int default_speed = -1;
+  if (default_is_aom) {
+    ASSERT_EQ(heif_encoder_get_parameter_integer(default_encoder.get(), "speed", &default_speed)
+                  .code,
+              heif_error_Ok);
+  }
+
+  for (const bool realtime : {true, false}) {
+    SCOPED_TRACE(realtime ? "realtime" : "best quality");
+    heif_encoder* mode_encoder_raw = nullptr;
+    ASSERT_EQ(internal::get_encoder_for_format(context.get(), heif_compression_AV1, realtime,
+                                               &mode_encoder_raw)
+                  .code,
+              heif_error_Ok);
+    std::unique_ptr<heif_encoder, decltype(&heif_encoder_release)> mode_encoder(
+        mode_encoder_raw, heif_encoder_release);
+    ASSERT_NE(mode_encoder, nullptr);
+    EXPECT_STREQ(heif_encoder_get_name(mode_encoder.get()),
+                 heif_encoder_descriptor_get_name(default_descriptor));
+    if (default_is_aom) {
+      int mode_speed = -1;
+      ASSERT_EQ(heif_encoder_get_parameter_integer(mode_encoder.get(), "speed", &mode_speed).code,
+                heif_error_Ok);
+      EXPECT_EQ(mode_speed, realtime ? 8 : default_speed);
+    }
+  }
+}
+
+TEST_F(UltraHdrApiTest, AvifApi0CallerPresetControlsRealtimeAomSpeed) {
+  // Context allocation initializes libheif plugins before the descriptor query below.
+  std::unique_ptr<heif_context, decltype(&heif_context_free)> context(heif_context_alloc(),
+                                                                      heif_context_free);
+  ASSERT_NE(context, nullptr);
+
+  const heif_encoder_descriptor* default_descriptor = nullptr;
+  if (heif_get_encoder_descriptors(heif_compression_AV1, nullptr, &default_descriptor, 1) <= 0 ||
+      default_descriptor == nullptr) {
+    GTEST_SKIP() << "AV1 encoder plugin not available";
+  }
+  const char* encoder_id = heif_encoder_descriptor_get_id_name(default_descriptor);
+  if (encoder_id == nullptr || std::strcmp(encoder_id, "aom") != 0) {
+    GTEST_SKIP() << "libheif's selected AV1 encoder is not AOM";
+  }
+
+  auto encode = [this](uhdr_enc_preset_t preset, std::vector<uint8_t>& bytes) {
+    SCOPED_TRACE(preset == UHDR_USAGE_REALTIME ? "realtime" : "best quality");
+    std::unique_ptr<uhdr_codec_private_t, decltype(&uhdr_release_encoder)> encoder(
+        uhdr_create_encoder(), uhdr_release_encoder);
+    ASSERT_NE(encoder, nullptr);
+
+    uhdr_error_info_t status = uhdr_enc_set_raw_image(encoder.get(), &mHdrRaw, UHDR_HDR_IMG);
+    ASSERT_EQ(status.error_code, UHDR_CODEC_OK)
+        << (status.has_detail ? status.detail : "failed to set HDR image");
+    status = uhdr_enc_set_output_format(encoder.get(), UHDR_CODEC_AVIF);
+    ASSERT_EQ(status.error_code, UHDR_CODEC_OK)
+        << (status.has_detail ? status.detail : "failed to set AVIF output format");
+    status = uhdr_enc_set_preset(encoder.get(), preset);
+    ASSERT_EQ(status.error_code, UHDR_CODEC_OK)
+        << (status.has_detail ? status.detail : "failed to set encoder preset");
+    status = uhdr_enc_set_quality(encoder.get(), 85, UHDR_BASE_IMG);
+    ASSERT_EQ(status.error_code, UHDR_CODEC_OK)
+        << (status.has_detail ? status.detail : "failed to set base image quality");
+    status = uhdr_enc_set_quality(encoder.get(), 85, UHDR_GAIN_MAP_IMG);
+    ASSERT_EQ(status.error_code, UHDR_CODEC_OK)
+        << (status.has_detail ? status.detail : "failed to set gain map quality");
+
+    status = uhdr_encode(encoder.get());
+    ASSERT_EQ(status.error_code, UHDR_CODEC_OK)
+        << (status.has_detail ? status.detail : "failed to encode AVIF");
+    uhdr_compressed_image_t* output = uhdr_get_encoded_stream(encoder.get());
+    ASSERT_NE(output, nullptr);
+    ASSERT_GT(output->data_sz, 0u);
+    const auto* output_data = static_cast<const uint8_t*>(output->data);
+    bytes.assign(output_data, output_data + output->data_sz);
+  };
+
+  std::vector<uint8_t> best_stream;
+  std::vector<uint8_t> realtime_stream;
+  ASSERT_NO_FATAL_FAILURE(encode(UHDR_USAGE_BEST_QUALITY, best_stream));
+  ASSERT_NO_FATAL_FAILURE(encode(UHDR_USAGE_REALTIME, realtime_stream));
+  ASSERT_FALSE(best_stream.empty());
+  ASSERT_FALSE(realtime_stream.empty());
+  EXPECT_FALSE(best_stream == realtime_stream)
+      << "API-0's internal realtime gain-map preset must not hide the caller's AVIF preset";
+}
 
 TEST_F(UltraHdrApiTest, AvifEncodeApi0AndDecode) {
   uhdr_codec_private_t* enc = uhdr_create_encoder();
