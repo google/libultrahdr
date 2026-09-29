@@ -1479,6 +1479,26 @@ TEST_P(OddMultichannelGainMapCodecTest, PreservesOddGainMapEdges) {
             heif_error_Ok);
   EXPECT_EQ(heif_image_handle_get_width(gainmap_handle), static_cast<int>(gainmap_width));
   EXPECT_EQ(heif_image_handle_get_height(gainmap_handle), static_cast<int>(gainmap_height));
+  heif_image* native_base = nullptr;
+  ASSERT_EQ(heif_decode_image(base_handle, &native_base, heif_colorspace_undefined,
+                              heif_chroma_undefined, nullptr)
+                .code,
+            heif_error_Ok);
+  ASSERT_NE(native_base, nullptr);
+  EXPECT_EQ(heif_image_get_colorspace(native_base), heif_colorspace_YCbCr);
+  EXPECT_EQ(heif_image_get_chroma_format(native_base), heif_chroma_444);
+  heif_image_release(native_base);
+
+  heif_image* native_gainmap = nullptr;
+  ASSERT_EQ(heif_decode_image(gainmap_handle, &native_gainmap, heif_colorspace_undefined,
+                              heif_chroma_undefined, nullptr)
+                .code,
+            heif_error_Ok);
+  ASSERT_NE(native_gainmap, nullptr);
+  EXPECT_EQ(heif_image_get_colorspace(native_gainmap), heif_colorspace_YCbCr);
+  EXPECT_EQ(heif_image_get_chroma_format(native_gainmap), heif_chroma_444);
+  heif_image_release(native_gainmap);
+
   heif_image* decoded_gainmap = nullptr;
   ASSERT_EQ(heif_decode_image(gainmap_handle, &decoded_gainmap, heif_colorspace_RGB,
                               heif_chroma_interleaved_RGBA, nullptr)
@@ -1491,8 +1511,7 @@ TEST_P(OddMultichannelGainMapCodecTest, PreservesOddGainMapEdges) {
   const size_t edge_offset =
       static_cast<size_t>(gainmap_height - 1) * gainmap_stride + (gainmap_width - 1) * 4;
   // The final source sample has much more red gain than green or blue. This verifies that the
-  // partial lower-right 4:2:0 block carries its own chroma instead of retaining default values or
-  // borrowing the previous complete pair.
+  // lower-right edge retains its own chroma instead of borrowing the previous complete pair.
   EXPECT_GT(gainmap_pixels[edge_offset], gainmap_pixels[edge_offset + 1] + 20);
   EXPECT_GT(gainmap_pixels[edge_offset], gainmap_pixels[edge_offset + 2] + 20);
 
@@ -1503,6 +1522,89 @@ TEST_P(OddMultichannelGainMapCodecTest, PreservesOddGainMapEdges) {
 
   uhdr_release_decoder(dec);
   uhdr_release_encoder(enc);
+}
+
+TEST_P(OddMultichannelGainMapCodecTest, SingleChannelGainMapRemainsMonochrome) {
+  constexpr unsigned width = 36;
+  constexpr unsigned height = 36;
+  constexpr unsigned gainmap_scale_factor = 4;
+  std::vector<uint32_t> hdr_pixels(static_cast<size_t>(width) * height,
+                                   700u | (700u << 10) | (700u << 20) | (3u << 30));
+  std::vector<uint8_t> sdr_pixels(static_cast<size_t>(width) * height * 4, 128);
+  for (size_t i = 3; i < sdr_pixels.size(); i += 4) sdr_pixels[i] = 255;
+
+  uhdr_raw_image_t hdr{};
+  hdr.fmt = UHDR_IMG_FMT_32bppRGBA1010102;
+  hdr.cg = UHDR_CG_BT_2100;
+  hdr.ct = UHDR_CT_HLG;
+  hdr.range = UHDR_CR_FULL_RANGE;
+  hdr.w = width;
+  hdr.h = height;
+  hdr.planes[UHDR_PLANE_PACKED] = hdr_pixels.data();
+  hdr.stride[UHDR_PLANE_PACKED] = width;
+
+  uhdr_raw_image_t sdr{};
+  sdr.fmt = UHDR_IMG_FMT_32bppRGBA8888;
+  sdr.cg = UHDR_CG_BT_2100;
+  sdr.ct = UHDR_CT_SRGB;
+  sdr.range = UHDR_CR_FULL_RANGE;
+  sdr.w = width;
+  sdr.h = height;
+  sdr.planes[UHDR_PLANE_PACKED] = sdr_pixels.data();
+  sdr.stride[UHDR_PLANE_PACKED] = width;
+
+  std::unique_ptr<uhdr_codec_private_t, decltype(&uhdr_release_encoder)> enc(
+      uhdr_create_encoder(), uhdr_release_encoder);
+  ASSERT_NE(enc, nullptr);
+  ASSERT_EQ(uhdr_enc_set_raw_image(enc.get(), &hdr, UHDR_HDR_IMG).error_code, UHDR_CODEC_OK);
+  ASSERT_EQ(uhdr_enc_set_raw_image(enc.get(), &sdr, UHDR_SDR_IMG).error_code, UHDR_CODEC_OK);
+  ASSERT_EQ(uhdr_enc_set_output_format(enc.get(), GetParam()).error_code, UHDR_CODEC_OK);
+  ASSERT_EQ(uhdr_enc_set_using_multi_channel_gainmap(enc.get(), 0).error_code, UHDR_CODEC_OK);
+  ASSERT_EQ(uhdr_enc_set_gainmap_scale_factor(enc.get(), gainmap_scale_factor).error_code,
+            UHDR_CODEC_OK);
+  ASSERT_EQ(uhdr_enc_set_quality(enc.get(), 100, UHDR_GAIN_MAP_IMG).error_code, UHDR_CODEC_OK);
+
+  uhdr_error_info_t enc_status = uhdr_encode(enc.get());
+  if (enc_status.error_code != UHDR_CODEC_OK && enc_status.has_detail &&
+      (strstr(enc_status.detail, "Unsupported file-type") != nullptr ||
+       strstr(enc_status.detail, "No encoder") != nullptr)) {
+    GTEST_SKIP() << "encoder plugin not available in environment: " << enc_status.detail;
+  }
+  ASSERT_EQ(enc_status.error_code, UHDR_CODEC_OK)
+      << (enc_status.has_detail ? enc_status.detail : "");
+  uhdr_compressed_image_t* output = uhdr_get_encoded_stream(enc.get());
+  ASSERT_NE(output, nullptr);
+
+  std::unique_ptr<heif_context, decltype(&heif_context_free)> heif_ctx(heif_context_alloc(),
+                                                                      heif_context_free);
+  ASSERT_NE(heif_ctx, nullptr);
+  ASSERT_EQ(heif_context_read_from_memory_without_copy(heif_ctx.get(), output->data,
+                                                       output->data_sz, nullptr)
+                .code,
+            heif_error_Ok);
+  heif_image_handle* raw_base_handle = nullptr;
+  ASSERT_EQ(heif_context_get_primary_image_handle(heif_ctx.get(), &raw_base_handle).code,
+            heif_error_Ok);
+  ASSERT_NE(raw_base_handle, nullptr);
+  std::unique_ptr<heif_image_handle, decltype(&heif_image_handle_release)> base_handle(
+      raw_base_handle, heif_image_handle_release);
+  heif_image_handle* raw_gainmap_handle = nullptr;
+  ASSERT_EQ(heif_image_handle_get_gain_map_image_handle(base_handle.get(), &raw_gainmap_handle)
+                .code,
+            heif_error_Ok);
+  ASSERT_NE(raw_gainmap_handle, nullptr);
+  std::unique_ptr<heif_image_handle, decltype(&heif_image_handle_release)> gainmap_handle(
+      raw_gainmap_handle, heif_image_handle_release);
+  heif_image* raw_gainmap = nullptr;
+  ASSERT_EQ(heif_decode_image(gainmap_handle.get(), &raw_gainmap, heif_colorspace_undefined,
+                              heif_chroma_undefined, nullptr)
+                .code,
+            heif_error_Ok);
+  ASSERT_NE(raw_gainmap, nullptr);
+  std::unique_ptr<heif_image, decltype(&heif_image_release)> gainmap(raw_gainmap,
+                                                                    heif_image_release);
+  EXPECT_EQ(heif_image_get_colorspace(gainmap.get()), heif_colorspace_monochrome);
+  EXPECT_EQ(heif_image_get_chroma_format(gainmap.get()), heif_chroma_monochrome);
 }
 
 INSTANTIATE_TEST_SUITE_P(AvifAndHeif, OddMultichannelGainMapCodecTest,

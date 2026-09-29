@@ -525,7 +525,7 @@ uhdr_error_info_t HeifUltraHdr::encodeHeicUltraHdr(uhdr_raw_image_t* sdr_intent,
 
   // encode the gain map image
   if (isUsingMultiChannelGainMap()) {
-    gainmap_yuv_ext = convert_raw_input_to_ycbcr(gainmap_img, true /* chroma sampling enabled */);
+    gainmap_yuv_ext = convert_raw_input_to_ycbcr(gainmap_img, false /* chroma sampling disabled */);
     gainmap_img_yuv = gainmap_yuv_ext.get();
   }
   if (isUsingMultiChannelGainMap()) {
