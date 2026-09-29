@@ -930,6 +930,13 @@ float sampleMap(uhdr_raw_image_t* map, float map_scale_factor, size_t x, size_t 
 
 float sampleMap(uhdr_raw_image_t* map, size_t map_scale_factor, size_t x, size_t y,
                 ShepardsIDW& weightTables) {
+  if (map_scale_factor == 1) {
+    const size_t map_x = std::min(x, static_cast<size_t>(map->w - 1));
+    const size_t map_y = std::min(y, static_cast<size_t>(map->h - 1));
+    uint8_t* data = reinterpret_cast<uint8_t*>(map->planes[UHDR_PLANE_Y]);
+    return mapUintToFloat(data[map_x + map_y * map->stride[UHDR_PLANE_Y]]);
+  }
+
   // TODO: If map_scale_factor is guaranteed to be an integer power of 2, then optimize the
   // following by computing log2(map_scale_factor) once and then using >> log2(map_scale_factor)
   size_t x_lower = x / map_scale_factor;
@@ -1036,6 +1043,16 @@ Color sampleMap3Channel(uhdr_raw_image_t* map, float map_scale_factor, size_t x,
 
 Color sampleMap3Channel(uhdr_raw_image_t* map, size_t map_scale_factor, size_t x, size_t y,
                         ShepardsIDW& weightTables, bool has_alpha) {
+  if (map_scale_factor == 1) {
+    const size_t map_x = std::min(x, static_cast<size_t>(map->w - 1));
+    const size_t map_y = std::min(y, static_cast<size_t>(map->h - 1));
+    const size_t factor = has_alpha ? 4 : 3;
+    uint8_t* data = reinterpret_cast<uint8_t*>(map->planes[UHDR_PLANE_PACKED]);
+    const size_t offset = (map_x + map_y * map->stride[UHDR_PLANE_PACKED]) * factor;
+    return {{{mapUintToFloat(data[offset]), mapUintToFloat(data[offset + 1]),
+              mapUintToFloat(data[offset + 2])}}};
+  }
+
   // TODO: If map_scale_factor is guaranteed to be an integer power of 2, then optimize the
   // following by computing log2(map_scale_factor) once and then using >> log2(map_scale_factor)
   size_t x_lower = x / map_scale_factor;

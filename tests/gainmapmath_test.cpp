@@ -1817,6 +1817,105 @@ TEST_F(GainMapMathTest, SampleMap) {
   }
 }
 
+TEST_F(GainMapMathTest, SampleMapScaleOneGrayUsesPaddedStrideAndClamps) {
+  constexpr size_t kWidth = 3;
+  constexpr size_t kHeight = 2;
+  constexpr size_t kStride = 5;
+  constexpr uint8_t kPadding = 0xa5;
+  const uint8_t values[] = {0, 1, 127, 128, 254, 255};
+  std::vector<uint8_t> storage(kStride * kHeight, kPadding);
+  for (size_t y = 0; y < kHeight; ++y) {
+    for (size_t x = 0; x < kWidth; ++x) {
+      storage[x + y * kStride] = values[x + y * kWidth];
+    }
+  }
+
+  uhdr_raw_image_t image{};
+  image.fmt = UHDR_IMG_FMT_8bppYCbCr400;
+  image.w = kWidth;
+  image.h = kHeight;
+  image.planes[UHDR_PLANE_Y] = storage.data();
+  image.stride[UHDR_PLANE_Y] = kStride;
+  ShepardsIDW weights(1);
+
+  const size_t coordinates[][4] = {
+      {0, 0, 0, 0}, {2, 0, 2, 0}, {0, 1, 0, 1},
+      {2, 1, 2, 1}, {3, 0, 2, 0}, {0, 2, 0, 1}, {3, 2, 2, 1},
+  };
+  for (const auto& coordinate : coordinates) {
+    const size_t x = coordinate[0];
+    const size_t y = coordinate[1];
+    const size_t expected_x = coordinate[2];
+    const size_t expected_y = coordinate[3];
+    const float expected = static_cast<float>(storage[expected_x + expected_y * kStride]) / 255.0f;
+    EXPECT_EQ(sampleMap(&image, size_t{1}, x, y, weights), expected);
+  }
+}
+
+TEST_F(GainMapMathTest, SampleMapScaleOneGrayPreservesEveryByteValue) {
+  constexpr size_t kWidth = 256;
+  constexpr size_t kStride = 260;
+  std::vector<uint8_t> storage(kStride, 0xa5);
+  for (size_t x = 0; x < kWidth; ++x) storage[x] = static_cast<uint8_t>(x);
+
+  uhdr_raw_image_t image{};
+  image.fmt = UHDR_IMG_FMT_8bppYCbCr400;
+  image.w = kWidth;
+  image.h = 1;
+  image.planes[UHDR_PLANE_Y] = storage.data();
+  image.stride[UHDR_PLANE_Y] = kStride;
+  ShepardsIDW weights(1);
+  for (size_t x = 0; x < kWidth; ++x) {
+    EXPECT_EQ(sampleMap(&image, size_t{1}, x, 0, weights),
+              static_cast<float>(x) / 255.0f);
+  }
+}
+
+TEST_F(GainMapMathTest, SampleMap3ChannelScaleOneUsesPaddedRgbAndRgbaStrides) {
+  constexpr size_t kWidth = 3;
+  constexpr size_t kHeight = 2;
+  constexpr size_t kStride = 5;
+  constexpr uint8_t kPadding = 0xa5;
+  const uint8_t values[] = {0, 1, 127, 128, 254, 255};
+  const bool alpha_modes[] = {false, true};
+  const size_t coordinates[][4] = {
+      {0, 0, 0, 0}, {2, 1, 2, 1}, {3, 0, 2, 0}, {0, 2, 0, 1}, {3, 2, 2, 1},
+  };
+
+  for (const bool has_alpha : alpha_modes) {
+    const size_t bytes_per_pixel = has_alpha ? 4 : 3;
+    std::vector<uint8_t> storage(kStride * kHeight * bytes_per_pixel, kPadding);
+    for (size_t y = 0; y < kHeight; ++y) {
+      for (size_t x = 0; x < kWidth; ++x) {
+        const size_t offset = (x + y * kStride) * bytes_per_pixel;
+        for (size_t channel = 0; channel < bytes_per_pixel; ++channel) {
+          storage[offset + channel] = channel == 3
+                                          ? 0xe7
+                                          : values[(x + y * kWidth + channel) % 6];
+        }
+      }
+    }
+
+    uhdr_raw_image_t image{};
+    image.fmt = has_alpha ? UHDR_IMG_FMT_32bppRGBA8888 : UHDR_IMG_FMT_24bppRGB888;
+    image.w = kWidth;
+    image.h = kHeight;
+    image.planes[UHDR_PLANE_PACKED] = storage.data();
+    image.stride[UHDR_PLANE_PACKED] = kStride;
+    ShepardsIDW weights(1);
+
+    for (const auto& coordinate : coordinates) {
+      const size_t expected_offset =
+          (coordinate[2] + coordinate[3] * kStride) * bytes_per_pixel;
+      const Color actual =
+          sampleMap3Channel(&image, size_t{1}, coordinate[0], coordinate[1], weights, has_alpha);
+      EXPECT_EQ(actual.r, static_cast<float>(storage[expected_offset]) / 255.0f);
+      EXPECT_EQ(actual.g, static_cast<float>(storage[expected_offset + 1]) / 255.0f);
+      EXPECT_EQ(actual.b, static_cast<float>(storage[expected_offset + 2]) / 255.0f);
+    }
+  }
+}
+
 TEST_F(GainMapMathTest, ColorToRgba1010102) {
   EXPECT_EQ(colorToRgba1010102(RgbBlack()), 0x3 << 30);
   EXPECT_EQ(colorToRgba1010102(RgbWhite()), 0xFFFFFFFF);
