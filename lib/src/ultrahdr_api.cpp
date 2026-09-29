@@ -8,10 +8,13 @@
  * except according to those terms.
  */
 
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <utility>
+#include <limits>
+#include <memory>
 
 #include "ultrahdr_api.h"
 #include "ultrahdr/ultrahdrcommon.h"
@@ -23,13 +26,9 @@
 #include "ultrahdr/heifultrahdr.h"
 #include "ultrahdr/avifultrahdr.h"
 #include "ultrahdr/gainmapmetadata.h"
+#if defined(UHDR_HAS_HEIF_ITEM_API)
+#include "libheif/heif_items.h"
 #endif
-
-
-#ifdef UHDR_ENABLE_HEIF
-#include "ultrahdr/heifultrahdr.h"
-#include "ultrahdr/avifultrahdr.h"
-#include "ultrahdr/gainmapmetadata.h"
 #endif
 
 #include "ultrahdr/jpegrutils.h"
@@ -574,6 +573,238 @@ uhdr_error_info_t uhdr_validate_gainmap_metadata_descriptor(uhdr_gainmap_metadat
 }
 
 }  // namespace ultrahdr
+
+namespace {
+
+bool inspect_jpeg_gainmap(const void* data, size_t size) {
+  uhdr_compressed_image_t image{};
+  image.data = const_cast<void*>(data);
+  image.data_sz = size;
+  image.capacity = size;
+  image.cg = UHDR_CG_UNSPECIFIED;
+  image.ct = UHDR_CT_UNSPECIFIED;
+  image.range = UHDR_CR_UNSPECIFIED;
+
+  ultrahdr::jpeg_info_struct primary;
+  ultrahdr::jpeg_info_struct gainmap;
+  ultrahdr::jpegr_info_struct info;
+  info.primaryImgInfo = &primary;
+  info.gainmapImgInfo = &gainmap;
+
+  ultrahdr::JpegR jpegr;
+  if (jpegr.getJPEGRInfoForProbe(&image, &info).error_code != UHDR_CODEC_OK) return false;
+
+  ultrahdr::uhdr_gainmap_metadata_ext_t metadata;
+  return jpegr
+             .parseGainMapMetadata(gainmap.isoData.data(), gainmap.isoData.size(),
+                                   gainmap.xmpData.data(), gainmap.xmpData.size(),
+                                   primary.exifData.data(), primary.exifData.size(), &metadata)
+             .error_code == UHDR_CODEC_OK;
+}
+
+#if defined(UHDR_ENABLE_HEIF) && defined(UHDR_HAS_HEIF_ITEM_API)
+
+constexpr size_t kMaxProbeMetadataSize = 64 * 1024;
+constexpr int kMaxProbeAuxiliaryImages = 16;
+
+struct HeifContextDeleter {
+  void operator()(heif_context* context) const { heif_context_free(context); }
+};
+
+struct HeifHandleDeleter {
+  void operator()(heif_image_handle* handle) const { heif_image_handle_release(handle); }
+};
+
+bool is_supported_heif_dimensions(const heif_image_handle* handle) {
+  const int width = heif_image_handle_get_width(handle);
+  const int height = heif_image_handle_get_height(handle);
+  return width > 0 && height > 0 && width <= ultrahdr::kMaxWidth && height <= ultrahdr::kMaxHeight;
+}
+
+bool is_supported_heif_layout(const heif_image_handle* handle, bool allow_monochrome) {
+  heif_colorspace colorspace;
+  heif_chroma chroma;
+  const heif_error error =
+      heif_image_handle_get_preferred_decoding_colorspace(handle, &colorspace, &chroma);
+  if (error.code != heif_error_Ok) return false;
+  if (colorspace == heif_colorspace_monochrome) {
+    return allow_monochrome && chroma == heif_chroma_monochrome;
+  }
+  if (colorspace == heif_colorspace_RGB) return true;
+  return colorspace == heif_colorspace_YCbCr &&
+         (chroma == heif_chroma_420 || chroma == heif_chroma_422 || chroma == heif_chroma_444);
+}
+
+bool get_direct_image_decoder_format(const heif_context* context, const heif_image_handle* handle,
+                                     heif_compression_format* format) {
+  const uint32_t type = heif_item_get_item_type(context, heif_image_handle_get_item_id(handle));
+  if (type == heif_fourcc('a', 'v', '0', '1')) {
+    *format = heif_compression_AV1;
+    return true;
+  }
+  if (type == heif_fourcc('h', 'v', 'c', '1') || type == heif_fourcc('h', 'e', 'v', '1')) {
+    *format = heif_compression_HEVC;
+    return true;
+  }
+  return false;
+}
+
+bool is_known_alpha_auxiliary_type(const char* type) {
+  return type != nullptr &&
+         (strcmp(type, "urn:mpeg:avc:2015:auxid:1") == 0 ||
+          strcmp(type, "urn:mpeg:hevc:2015:auxid:1") == 0 ||
+          strcmp(type, "urn:mpeg:mpegB:cicp:systems:auxiliary:alpha") == 0);
+}
+
+bool inspect_heif_alpha_dependencies(const heif_context* context,
+                                     const heif_image_handle* handle) {
+  if (!heif_image_handle_has_alpha_channel(handle)) return true;
+
+  const int auxiliary_count = heif_image_handle_get_number_of_auxiliary_images(handle, 0);
+  if (auxiliary_count <= 0 || auxiliary_count > kMaxProbeAuxiliaryImages) return false;
+
+  std::vector<heif_item_id> auxiliary_ids(auxiliary_count);
+  if (heif_image_handle_get_list_of_auxiliary_image_IDs(handle, 0, auxiliary_ids.data(),
+                                                        auxiliary_count) != auxiliary_count) {
+    return false;
+  }
+
+  bool found_alpha = false;
+  for (heif_item_id auxiliary_id : auxiliary_ids) {
+    heif_image_handle* auxiliary_raw = nullptr;
+    if (heif_image_handle_get_auxiliary_image_handle(handle, auxiliary_id, &auxiliary_raw).code !=
+            heif_error_Ok ||
+        auxiliary_raw == nullptr) {
+      return false;
+    }
+    std::unique_ptr<heif_image_handle, HeifHandleDeleter> auxiliary(auxiliary_raw);
+
+    const char* auxiliary_type = nullptr;
+    const heif_error type_error =
+        heif_image_handle_get_auxiliary_type(auxiliary.get(), &auxiliary_type);
+    const bool type_resolved = type_error.code == heif_error_Ok && auxiliary_type != nullptr;
+    const bool is_alpha = type_resolved && is_known_alpha_auxiliary_type(auxiliary_type);
+    heif_image_handle_release_auxiliary_type(auxiliary.get(), &auxiliary_type);
+    if (!type_resolved) return false;
+    if (!is_alpha) continue;
+    if (found_alpha) return false;
+    found_alpha = true;
+
+    heif_compression_format auxiliary_format;
+    if (!get_direct_image_decoder_format(context, auxiliary.get(), &auxiliary_format) ||
+        !heif_have_decoder_for_format(auxiliary_format)) {
+      return false;
+    }
+
+    // Alpha is supported as a direct independent dependency, allowing monochrome layouts. Do not
+    // follow an alpha dependency's own auxiliary graph.
+    if (heif_image_handle_has_alpha_channel(auxiliary.get()) ||
+        !is_supported_heif_dimensions(auxiliary.get()) ||
+        !is_supported_heif_layout(auxiliary.get(), true)) {
+      return false;
+    }
+  }
+
+  return found_alpha;
+}
+
+bool inspect_heif_gainmap(const void* data, size_t size) {
+  const int sniff_size =
+      static_cast<int>((std::min)(size, static_cast<size_t>((std::numeric_limits<int>::max)())));
+  const heif_filetype_result filetype =
+      heif_check_filetype(static_cast<const uint8_t*>(data), sniff_size);
+  if (filetype != heif_filetype_yes_supported && filetype != heif_filetype_maybe) return false;
+
+  std::unique_ptr<heif_context, HeifContextDeleter> context(heif_context_alloc());
+  if (context == nullptr) return false;
+  if (heif_context_read_from_memory_without_copy(context.get(), data, size, nullptr).code !=
+      heif_error_Ok) {
+    return false;
+  }
+
+  heif_image_handle* primary_raw = nullptr;
+  if (heif_context_get_primary_image_handle(context.get(), &primary_raw).code != heif_error_Ok ||
+      primary_raw == nullptr) {
+    return false;
+  }
+  std::unique_ptr<heif_image_handle, HeifHandleDeleter> primary(primary_raw);
+  if (!heif_image_handle_is_primary_image(primary.get())) return false;
+
+  heif_image_handle* gainmap_raw = nullptr;
+  if (heif_image_handle_get_gain_map_image_handle(primary.get(), &gainmap_raw).code !=
+          heif_error_Ok ||
+      gainmap_raw == nullptr) {
+    return false;
+  }
+  std::unique_ptr<heif_image_handle, HeifHandleDeleter> gainmap(gainmap_raw);
+
+  const size_t metadata_size = heif_image_handle_get_gain_map_metadata_size(primary.get());
+  if (metadata_size == 0 || metadata_size > kMaxProbeMetadataSize) return false;
+  std::vector<uint8_t> metadata_bytes(metadata_size);
+  if (heif_image_handle_get_gain_map_metadata(primary.get(), metadata_bytes.data()).code !=
+      heif_error_Ok) {
+    return false;
+  }
+  ultrahdr::uhdr_gainmap_metadata_frac metadata_fraction;
+  ultrahdr::uhdr_gainmap_metadata_ext_t metadata;
+  if (ultrahdr::uhdr_gainmap_metadata_frac::decodeGainmapMetadata(metadata_bytes,
+                                                                  &metadata_fraction)
+              .error_code != UHDR_CODEC_OK ||
+      ultrahdr::uhdr_gainmap_metadata_frac::gainmapMetadataFractionToFloat(&metadata_fraction,
+                                                                           &metadata)
+              .error_code != UHDR_CODEC_OK) {
+    return false;
+  }
+
+  if (!is_supported_heif_dimensions(primary.get()) ||
+      !is_supported_heif_dimensions(gainmap.get()) ||
+      !is_supported_heif_layout(primary.get(), false) ||
+      !is_supported_heif_layout(gainmap.get(), true)) {
+    return false;
+  }
+
+  heif_compression_format primary_format;
+  heif_compression_format gainmap_format;
+  if (!get_direct_image_decoder_format(context.get(), primary.get(), &primary_format) ||
+      !get_direct_image_decoder_format(context.get(), gainmap.get(), &gainmap_format)) {
+    return false;
+  }
+  if (!heif_have_decoder_for_format(primary_format) ||
+      !heif_have_decoder_for_format(gainmap_format)) {
+    return false;
+  }
+  return inspect_heif_alpha_dependencies(context.get(), primary.get()) &&
+         inspect_heif_alpha_dependencies(context.get(), gainmap.get());
+}
+
+#endif  // defined(UHDR_ENABLE_HEIF) && defined(UHDR_HAS_HEIF_ITEM_API)
+
+bool inspect_gainmap_image(const void* data, size_t size) {
+  if (data == nullptr || size == 0) return false;
+  const uint8_t* bytes = static_cast<const uint8_t*>(data);
+  if (size >= 3 && memcmp(bytes, "\377\330\377", 3) == 0) {
+    return inspect_jpeg_gainmap(data, size);
+  }
+#if defined(UHDR_ENABLE_HEIF) && defined(UHDR_HAS_HEIF_ITEM_API)
+  return inspect_heif_gainmap(data, size);
+#else
+  return false;
+#endif
+}
+
+int inspect_gainmap_image_for_c_api(const void* data, size_t size) {
+#if defined(__cpp_exceptions) || defined(__EXCEPTIONS) || defined(_CPPUNWIND)
+  try {
+    return inspect_gainmap_image(data, size);
+  } catch (...) {
+    return 0;
+  }
+#else
+  return inspect_gainmap_image(data, size);
+#endif
+}
+
+}  // namespace
 
 uhdr_codec_private::~uhdr_codec_private() {
   for (auto it : m_effects) delete it;
@@ -1592,6 +1823,10 @@ int is_uhdr_image(void* data, int size) {
   uhdr_release_decoder(obj);
 
   return 1;
+}
+
+UHDR_EXTERN int uhdr_is_supported_gainmap_image(const void* data, size_t size) {
+  return inspect_gainmap_image_for_c_api(data, size);
 }
 
 uhdr_codec_private_t* uhdr_create_decoder(void) {
