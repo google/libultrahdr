@@ -19,9 +19,11 @@
 #include "ultrahdr/ultrahdrcommon.h"
 #include "ultrahdr/jpegr.h"
 #include "ultrahdr/gainmapmath.h"
+#include "ultrahdr/gainmapmetadata.h"
 #include "ultrahdr/heifultrahdr.h"
 #include "ultrahdr/avifultrahdr.h"
 #if defined(UHDR_ENABLE_HEIF)
+#include "libheif/heif.h"
 #include "../lib/src/avifencoder.h"
 #endif
 
@@ -30,6 +32,7 @@ namespace ultrahdr {
 static const char* kYCbCrP010FileName = "raw_p010_image.p010";
 static const char* kYCbCr420FileName = "raw_yuv420_image.yuv420";
 static const char* kSdrJpgFileName = "jpeg_image.jpg";
+static const char* kHevcGainmapFileName = "gainmap_hevc_16x16.heic";
 static const size_t kImageWidth = 1280;
 static const size_t kImageHeight = 720;
 
@@ -55,6 +58,370 @@ static bool loadFile(const char* filename, std::vector<uint8_t>& buffer) {
   }
   return false;
 }
+
+static bool readMpfU16ForTest(const std::vector<uint8_t>& data, size_t offset, bool big_endian,
+                              uint16_t* value) {
+  if (offset > data.size() || data.size() - offset < 2) return false;
+  *value = big_endian ? static_cast<uint16_t>((data[offset] << 8) | data[offset + 1])
+                      : static_cast<uint16_t>(data[offset] | (data[offset + 1] << 8));
+  return true;
+}
+
+static bool readMpfU32ForTest(const std::vector<uint8_t>& data, size_t offset, bool big_endian,
+                              uint32_t* value) {
+  if (offset > data.size() || data.size() - offset < 4) return false;
+  if (big_endian) {
+    *value = (static_cast<uint32_t>(data[offset]) << 24) |
+             (static_cast<uint32_t>(data[offset + 1]) << 16) |
+             (static_cast<uint32_t>(data[offset + 2]) << 8) | data[offset + 3];
+  } else {
+    *value = data[offset] | (static_cast<uint32_t>(data[offset + 1]) << 8) |
+             (static_cast<uint32_t>(data[offset + 2]) << 16) |
+             (static_cast<uint32_t>(data[offset + 3]) << 24);
+  }
+  return true;
+}
+
+static void writeMpfU16ForTest(std::vector<uint8_t>& data, size_t offset, bool big_endian,
+                               uint16_t value) {
+  data[offset] = static_cast<uint8_t>(value >> (big_endian ? 8 : 0));
+  data[offset + 1] = static_cast<uint8_t>(value >> (big_endian ? 0 : 8));
+}
+
+static void writeMpfU32ForTest(std::vector<uint8_t>& data, size_t offset, bool big_endian,
+                               uint32_t value) {
+  for (int i = 0; i < 4; ++i) {
+    const int shift = big_endian ? 24 - 8 * i : 8 * i;
+    data[offset + i] = static_cast<uint8_t>(value >> shift);
+  }
+}
+
+struct MpfEntryLocations {
+  bool big_endian;
+  size_t signature;
+  size_t ifd;
+  size_t number_of_images_tag;
+  size_t mp_entry_tag;
+  size_t mp_entry_value;
+  size_t version_id;
+  size_t version_type;
+  size_t version_count;
+  size_t version_value;
+  size_t count;
+  size_t primary_attributes;
+  size_t primary_offset;
+  size_t secondary_attributes;
+  size_t secondary_offset;
+};
+
+static bool findMpfEntryLocations(const std::vector<uint8_t>& data, MpfEntryLocations* locations) {
+  const uint8_t signature[] = {'M', 'P', 'F', 0};
+  const auto found =
+      std::search(data.begin(), data.end(), std::begin(signature), std::end(signature));
+  if (found == data.end()) return false;
+  const size_t signature_offset = static_cast<size_t>(found - data.begin());
+  const size_t tiff = signature_offset + sizeof signature;
+  if (tiff > data.size() || data.size() - tiff < 8) return false;
+  const bool big_endian = data[tiff] == 'M' && data[tiff + 1] == 'M';
+  if (!big_endian && !(data[tiff] == 'I' && data[tiff + 1] == 'I')) return false;
+
+  uint32_t ifd_relative_offset = 0;
+  if (!readMpfU32ForTest(data, tiff + 4, big_endian, &ifd_relative_offset) ||
+      ifd_relative_offset > data.size() - tiff) {
+    return false;
+  }
+  const size_t ifd = tiff + ifd_relative_offset;
+  uint16_t tag_count = 0;
+  if (!readMpfU16ForTest(data, ifd, big_endian, &tag_count)) return false;
+  bool found_version = false;
+  bool found_number_of_images = false;
+  bool found_entries = false;
+  locations->big_endian = big_endian;
+  locations->signature = signature_offset;
+  locations->ifd = ifd;
+  for (uint16_t i = 0; i < tag_count; ++i) {
+    const size_t tag = ifd + 2 + 12 * i;
+    uint16_t id = 0;
+    uint32_t entries_offset = 0;
+    if (!readMpfU16ForTest(data, tag, big_endian, &id) ||
+        !readMpfU32ForTest(data, tag + 8, big_endian, &entries_offset)) {
+      return false;
+    }
+    if (id == 0xb000) {
+      locations->version_id = tag;
+      locations->version_type = tag + 2;
+      locations->version_count = tag + 4;
+      locations->version_value = tag + 8;
+      found_version = true;
+      continue;
+    }
+    if (id == 0xb001) {
+      locations->number_of_images_tag = tag;
+      found_number_of_images = true;
+      continue;
+    }
+    if (id != 0xb002) continue;
+    if (entries_offset > data.size() - tiff || data.size() - (tiff + entries_offset) < 32) {
+      return false;
+    }
+    const size_t entries = tiff + entries_offset;
+    locations->count = tag + 4;
+    locations->mp_entry_tag = tag;
+    locations->mp_entry_value = tag + 8;
+    locations->primary_attributes = entries;
+    locations->primary_offset = entries + 8;
+    locations->secondary_attributes = entries + 16;
+    locations->secondary_offset = entries + 24;
+    found_entries = true;
+  }
+  return found_version && found_number_of_images && found_entries;
+}
+
+static bool insertDuplicateMpfTag(std::vector<uint8_t>& data, uint16_t tag_id) {
+  MpfEntryLocations locations;
+  if (!findMpfEntryLocations(data, &locations) || locations.signature < 2) return false;
+
+  uint16_t tag_count = 0;
+  uint16_t app2_length = 0;
+  uint32_t entries_offset = 0;
+  uint32_t secondary_offset = 0;
+  if (!readMpfU16ForTest(data, locations.ifd, locations.big_endian, &tag_count) ||
+      !readMpfU16ForTest(data, locations.signature - 2, true, &app2_length) ||
+      !readMpfU32ForTest(data, locations.mp_entry_value, locations.big_endian, &entries_offset) ||
+      !readMpfU32ForTest(data, locations.secondary_offset, locations.big_endian,
+                         &secondary_offset)) {
+    return false;
+  }
+  const size_t source_tag =
+      tag_id == 0xb001 ? locations.number_of_images_tag : locations.mp_entry_tag;
+  const size_t insertion = locations.ifd + 2 + static_cast<size_t>(tag_count) * 12;
+  if (source_tag > data.size() || data.size() - source_tag < 12 || insertion > data.size() ||
+      app2_length > UINT16_MAX - 12) {
+    return false;
+  }
+
+  const std::vector<uint8_t> duplicate(data.begin() + source_tag, data.begin() + source_tag + 12);
+  data.insert(data.begin() + insertion, duplicate.begin(), duplicate.end());
+  writeMpfU16ForTest(data, locations.ifd, locations.big_endian, tag_count + 1);
+  writeMpfU16ForTest(data, locations.signature - 2, true, app2_length + 12);
+  writeMpfU32ForTest(data, locations.mp_entry_value, locations.big_endian, entries_offset + 12);
+  if (tag_id == 0xb002) {
+    writeMpfU32ForTest(data, insertion + 8, locations.big_endian, entries_offset + 12);
+  }
+  writeMpfU32ForTest(data, locations.secondary_offset + 12, locations.big_endian,
+                     secondary_offset + 12);
+  return true;
+}
+
+#if defined(UHDR_ENABLE_HEIF)
+static void expectSupportedHeifGainmap(const void* data, size_t size, bool decoder_available) {
+#if defined(UHDR_HAS_HEIF_ITEM_API)
+  EXPECT_EQ(uhdr_is_supported_gainmap_image(data, size), decoder_available ? 1 : 0);
+#else
+  // The legacy HEIF gain-map APIs keep encode/decode coverage available, but routing requires
+  // the optional item-inspection API. The documented fallback is an unsupported routing result.
+  EXPECT_EQ(uhdr_is_supported_gainmap_image(data, size), 0);
+  (void)decoder_available;
+#endif
+}
+
+static heif_error writeHeifToVector([[maybe_unused]] heif_context* context, const void* data,
+                                    size_t size, void* userdata) {
+  auto* output = static_cast<std::vector<uint8_t>*>(userdata);
+  const uint8_t* bytes = static_cast<const uint8_t*>(data);
+  output->insert(output->end(), bytes, bytes + size);
+  return {heif_error_Ok, heif_suberror_Unspecified, nullptr};
+}
+
+static bool encodeOrdinaryAvif(std::vector<uint8_t>& output) {
+  constexpr int width = 16;
+  constexpr int height = 16;
+  heif_context* context = heif_context_alloc();
+  heif_image* image = nullptr;
+  heif_encoder* encoder = nullptr;
+  heif_image_handle* handle = nullptr;
+  bool success = false;
+  if (context == nullptr) return false;
+
+  if (heif_image_create(width, height, heif_colorspace_YCbCr, heif_chroma_420, &image).code !=
+          heif_error_Ok ||
+      heif_image_add_plane(image, heif_channel_Y, width, height, 8).code != heif_error_Ok ||
+      heif_image_add_plane(image, heif_channel_Cb, width / 2, height / 2, 8).code !=
+          heif_error_Ok ||
+      heif_image_add_plane(image, heif_channel_Cr, width / 2, height / 2, 8).code !=
+          heif_error_Ok) {
+    goto cleanup;
+  }
+  for (const heif_channel channel : {heif_channel_Y, heif_channel_Cb, heif_channel_Cr}) {
+    int stride = 0;
+    uint8_t* plane = heif_image_get_plane(image, channel, &stride);
+    const int plane_height = channel == heif_channel_Y ? height : height / 2;
+    if (plane == nullptr || stride <= 0) goto cleanup;
+    std::fill(plane, plane + stride * plane_height, 128);
+  }
+  if (heif_context_get_encoder_for_format(context, heif_compression_AV1, &encoder).code !=
+          heif_error_Ok ||
+      heif_context_encode_image(context, image, encoder, nullptr, &handle).code != heif_error_Ok) {
+    goto cleanup;
+  }
+  {
+    heif_writer writer{1, writeHeifToVector};
+    success = heif_context_write(context, &writer, &output).code == heif_error_Ok;
+  }
+
+cleanup:
+  if (handle != nullptr) heif_image_handle_release(handle);
+  if (encoder != nullptr) heif_encoder_release(encoder);
+  if (image != nullptr) heif_image_release(image);
+  heif_context_free(context);
+  return success;
+}
+
+using HeifContextPtr = std::unique_ptr<heif_context, decltype(&heif_context_free)>;
+using HeifEncoderPtr = std::unique_ptr<heif_encoder, decltype(&heif_encoder_release)>;
+using HeifImagePtr = std::unique_ptr<heif_image, decltype(&heif_image_release)>;
+using HeifHandlePtr =
+    std::unique_ptr<heif_image_handle, decltype(&heif_image_handle_release)>;
+using HeifOptionsPtr =
+    std::unique_ptr<heif_encoding_options, decltype(&heif_encoding_options_free)>;
+using HeifProfilePtr =
+    std::unique_ptr<heif_color_profile_nclx, decltype(&heif_nclx_color_profile_free)>;
+
+static bool fillHeifPlane(heif_image* image, heif_channel channel, int width, int height,
+                          uint8_t value) {
+  int stride = 0;
+  uint8_t* plane = heif_image_get_plane(image, channel, &stride);
+  if (plane == nullptr || stride < width) return false;
+  for (int y = 0; y < height; ++y) {
+    std::fill(plane + y * stride, plane + y * stride + width, value);
+  }
+  return true;
+}
+
+static HeifProfilePtr makeNclxProfile(uint16_t primaries, uint16_t transfer, uint16_t matrix) {
+  HeifProfilePtr profile(heif_nclx_color_profile_alloc(), heif_nclx_color_profile_free);
+  if (profile == nullptr ||
+      heif_nclx_color_profile_set_color_primaries(profile.get(), primaries).code !=
+          heif_error_Ok ||
+      heif_nclx_color_profile_set_transfer_characteristics(profile.get(), transfer).code !=
+          heif_error_Ok ||
+      heif_nclx_color_profile_set_matrix_coefficients(profile.get(), matrix).code !=
+          heif_error_Ok) {
+    return HeifProfilePtr(nullptr, heif_nclx_color_profile_free);
+  }
+  profile->full_range_flag = 1;
+  return profile;
+}
+
+static bool encodeGainmapSideAlphaAvif(std::vector<uint8_t>& output) {
+  constexpr int base_width = 64;
+  constexpr int base_height = 64;
+  constexpr int gainmap_width = 32;
+  constexpr int gainmap_height = 32;
+
+  HeifContextPtr context(heif_context_alloc(), heif_context_free);
+  if (context == nullptr) return false;
+
+  heif_image* base_raw = nullptr;
+  if (heif_image_create(base_width, base_height, heif_colorspace_YCbCr, heif_chroma_420,
+                        &base_raw)
+              .code != heif_error_Ok) {
+    return false;
+  }
+  HeifImagePtr base(base_raw, heif_image_release);
+  if (heif_image_add_plane(base.get(), heif_channel_Y, base_width, base_height, 8).code !=
+          heif_error_Ok ||
+      heif_image_add_plane(base.get(), heif_channel_Cb, base_width / 2, base_height / 2, 8)
+              .code != heif_error_Ok ||
+      heif_image_add_plane(base.get(), heif_channel_Cr, base_width / 2, base_height / 2, 8)
+              .code != heif_error_Ok ||
+      !fillHeifPlane(base.get(), heif_channel_Y, base_width, base_height, 128) ||
+      !fillHeifPlane(base.get(), heif_channel_Cb, base_width / 2, base_height / 2, 128) ||
+      !fillHeifPlane(base.get(), heif_channel_Cr, base_width / 2, base_height / 2, 128)) {
+    return false;
+  }
+
+  heif_image* gainmap_raw = nullptr;
+  if (heif_image_create(gainmap_width, gainmap_height, heif_colorspace_monochrome,
+                        heif_chroma_monochrome, &gainmap_raw)
+              .code != heif_error_Ok) {
+    return false;
+  }
+  HeifImagePtr gainmap(gainmap_raw, heif_image_release);
+  if (heif_image_add_plane(gainmap.get(), heif_channel_Y, gainmap_width, gainmap_height, 8)
+              .code != heif_error_Ok ||
+      heif_image_add_plane(gainmap.get(), heif_channel_Alpha, gainmap_width, gainmap_height, 8)
+              .code != heif_error_Ok ||
+      !fillHeifPlane(gainmap.get(), heif_channel_Y, gainmap_width, gainmap_height, 96) ||
+      !fillHeifPlane(gainmap.get(), heif_channel_Alpha, gainmap_width, gainmap_height, 128)) {
+    return false;
+  }
+  heif_image_set_premultiplied_alpha(gainmap.get(), 0);
+
+  HeifProfilePtr base_profile =
+      makeNclxProfile(heif_color_primaries_ITU_R_BT_709_5,
+                      heif_transfer_characteristic_ITU_R_BT_709_5,
+                      heif_matrix_coefficients_ITU_R_BT_709_5);
+  HeifProfilePtr gainmap_profile =
+      makeNclxProfile(heif_color_primaries_unspecified, heif_transfer_characteristic_unspecified,
+                      heif_matrix_coefficients_ITU_R_BT_601_6);
+  HeifProfilePtr derived_profile =
+      makeNclxProfile(heif_color_primaries_ITU_R_BT_2020_2_and_2100_0,
+                      heif_transfer_characteristic_ITU_R_BT_2100_0_HLG,
+                      heif_matrix_coefficients_ITU_R_BT_2020_2_non_constant_luminance);
+  if (base_profile == nullptr || gainmap_profile == nullptr || derived_profile == nullptr ||
+      heif_image_set_nclx_color_profile(base.get(), base_profile.get()).code != heif_error_Ok ||
+      heif_image_set_nclx_color_profile(gainmap.get(), gainmap_profile.get()).code !=
+          heif_error_Ok) {
+    return false;
+  }
+
+  heif_encoder* encoder_raw = nullptr;
+  if (heif_context_get_encoder_for_format(context.get(), heif_compression_AV1, &encoder_raw)
+              .code != heif_error_Ok) {
+    return false;
+  }
+  HeifEncoderPtr encoder(encoder_raw, heif_encoder_release);
+  if (heif_encoder_set_lossy_quality(encoder.get(), 100).code != heif_error_Ok) return false;
+
+  HeifOptionsPtr options(heif_encoding_options_alloc(), heif_encoding_options_free);
+  if (options == nullptr) return false;
+  options->save_alpha_channel = 1;
+  options->output_nclx_profile = base_profile.get();
+
+  heif_image_handle* base_handle_raw = nullptr;
+  if (heif_context_encode_image(context.get(), base.get(), encoder.get(), options.get(),
+                                &base_handle_raw)
+              .code != heif_error_Ok) {
+    return false;
+  }
+  HeifHandlePtr base_handle(base_handle_raw, heif_image_handle_release);
+
+  uhdr_gainmap_metadata_frac metadata;
+  metadata.alternateHdrHeadroomN = 2;
+  std::vector<uint8_t> iso_metadata;
+  if (uhdr_gainmap_metadata_frac::encodeGainmapMetadata(&metadata, iso_metadata).error_code !=
+      UHDR_CODEC_OK) {
+    return false;
+  }
+
+  options->output_nclx_profile = gainmap_profile.get();
+  if (heif_encoder_set_lossy_quality(encoder.get(), 100).code != heif_error_Ok) return false;
+  heif_image_handle* gainmap_handle_raw = nullptr;
+  if (heif_context_encode_gain_map_image(
+          context.get(), base_handle.get(), encoder.get(), gainmap.get(), options.get(),
+          iso_metadata.data(), static_cast<int>(iso_metadata.size()), derived_profile.get(),
+          &gainmap_handle_raw)
+          .code != heif_error_Ok) {
+    return false;
+  }
+  HeifHandlePtr gainmap_handle(gainmap_handle_raw, heif_image_handle_release);
+
+  heif_writer writer{1, writeHeifToVector};
+  return heif_context_write(context.get(), &writer, &output).code == heif_error_Ok &&
+         !output.empty();
+}
+#endif
 
 static void expectGainMapsEqual(const uhdr_raw_image_t* expected,
                                 const uhdr_raw_image_t* actual) {
@@ -165,6 +532,16 @@ CleanUp:
 }
 #endif
 
+TEST_F(UltraHdrApiTest, RoutingProbeRejectsInvalidInputAndOrdinaryJpeg) {
+  EXPECT_EQ(uhdr_is_supported_gainmap_image(nullptr, 1), 0);
+  EXPECT_EQ(uhdr_is_supported_gainmap_image(mSdrJpgData.data(), 0), 0);
+  EXPECT_EQ(is_uhdr_image(mSdrJpgData.data(), static_cast<int>(mSdrJpgData.size())), 0);
+  EXPECT_EQ(uhdr_is_supported_gainmap_image(mSdrJpgData.data(), mSdrJpgData.size()), 0);
+
+  const uint8_t truncated_jpeg[] = {0xff, 0xd8, 0xff};
+  EXPECT_EQ(uhdr_is_supported_gainmap_image(truncated_jpeg, sizeof truncated_jpeg), 0);
+}
+
 TEST_F(UltraHdrApiTest, InvalidCompressedImageIntentDoesNotMutateEncoder) {
   uhdr_codec_private_t* enc = uhdr_create_encoder();
   ASSERT_NE(enc, nullptr);
@@ -213,6 +590,96 @@ TEST_F(UltraHdrApiTest, JpegEncodeApi0AndDecode) {
   uhdr_compressed_image_t* output = uhdr_get_encoded_stream(enc);
   ASSERT_NE(output, nullptr);
   ASSERT_GT(output->data_sz, 0u);
+  EXPECT_EQ(is_uhdr_image(output->data, static_cast<int>(output->data_sz)), 1);
+  EXPECT_EQ(uhdr_is_supported_gainmap_image(output->data, output->data_sz), 1);
+
+  std::vector<uint8_t> broken_association(static_cast<uint8_t*>(output->data),
+                                          static_cast<uint8_t*>(output->data) + output->data_sz);
+  MpfEntryLocations locations;
+  ASSERT_TRUE(findMpfEntryLocations(broken_association, &locations));
+  uint32_t secondary_offset = 0;
+  ASSERT_TRUE(readMpfU32ForTest(broken_association, locations.secondary_offset,
+                                locations.big_endian, &secondary_offset));
+  writeMpfU32ForTest(broken_association, locations.secondary_offset, locations.big_endian,
+                     secondary_offset + 1);
+  // is_uhdr_image() retains its historical decoder-probe behavior. The stricter MPF association
+  // check belongs to the new routing predicate.
+  EXPECT_EQ(is_uhdr_image(broken_association.data(), static_cast<int>(broken_association.size())),
+            1);
+  EXPECT_EQ(uhdr_is_supported_gainmap_image(broken_association.data(), broken_association.size()),
+            0);
+
+  std::vector<uint8_t> malformed_table(static_cast<uint8_t*>(output->data),
+                                       static_cast<uint8_t*>(output->data) + output->data_sz);
+  ASSERT_TRUE(findMpfEntryLocations(malformed_table, &locations));
+  writeMpfU32ForTest(malformed_table, locations.count, locations.big_endian, 0xffffffffu);
+  EXPECT_EQ(is_uhdr_image(malformed_table.data(), static_cast<int>(malformed_table.size())), 1);
+  EXPECT_EQ(uhdr_is_supported_gainmap_image(malformed_table.data(), malformed_table.size()), 0);
+
+  std::vector<uint8_t> displaced_signature(static_cast<uint8_t*>(output->data),
+                                           static_cast<uint8_t*>(output->data) + output->data_sz);
+  ASSERT_TRUE(findMpfEntryLocations(displaced_signature, &locations));
+  ASSERT_GE(locations.signature, 2u);
+  uint16_t app2_length = 0;
+  ASSERT_TRUE(readMpfU16ForTest(displaced_signature, locations.signature - 2, true, &app2_length));
+  displaced_signature[locations.signature + 3] = 'x';
+  const size_t displaced_mpf_offset = locations.signature + 4;
+  displaced_signature.insert(displaced_signature.begin() + displaced_mpf_offset, 4, uint8_t{0});
+  displaced_signature[displaced_mpf_offset] = 'M';
+  displaced_signature[displaced_mpf_offset + 1] = 'P';
+  displaced_signature[displaced_mpf_offset + 2] = 'F';
+  writeMpfU16ForTest(displaced_signature, locations.signature - 2, true, app2_length + 4);
+  EXPECT_EQ(is_uhdr_image(displaced_signature.data(), static_cast<int>(displaced_signature.size())),
+            1);
+  EXPECT_EQ(
+      uhdr_is_supported_gainmap_image(displaced_signature.data(), displaced_signature.size()), 0);
+
+  for (const uint16_t duplicate_tag : {uint16_t{0xb001}, uint16_t{0xb002}}) {
+    std::vector<uint8_t> duplicate_mandatory_tag(
+        static_cast<uint8_t*>(output->data),
+        static_cast<uint8_t*>(output->data) + output->data_sz);
+    ASSERT_TRUE(insertDuplicateMpfTag(duplicate_mandatory_tag, duplicate_tag));
+    EXPECT_EQ(is_uhdr_image(duplicate_mandatory_tag.data(),
+                            static_cast<int>(duplicate_mandatory_tag.size())),
+              1);
+    EXPECT_EQ(uhdr_is_supported_gainmap_image(duplicate_mandatory_tag.data(),
+                                              duplicate_mandatory_tag.size()),
+              0);
+  }
+
+  ASSERT_TRUE(findMpfEntryLocations(malformed_table, &locations));
+  struct VersionMutation {
+    size_t offset;
+    bool is_u16;
+  };
+  for (const VersionMutation mutation : {
+           VersionMutation{locations.version_id, true},
+           VersionMutation{locations.version_type, true},
+           VersionMutation{locations.version_count, false},
+           VersionMutation{locations.version_value, false},
+       }) {
+    std::vector<uint8_t> malformed_version(static_cast<uint8_t*>(output->data),
+                                           static_cast<uint8_t*>(output->data) + output->data_sz);
+    if (mutation.is_u16) {
+      writeMpfU16ForTest(malformed_version, mutation.offset, locations.big_endian, 0);
+    } else {
+      writeMpfU32ForTest(malformed_version, mutation.offset, locations.big_endian, 0);
+    }
+    EXPECT_EQ(is_uhdr_image(malformed_version.data(), static_cast<int>(malformed_version.size())),
+              1);
+    EXPECT_EQ(uhdr_is_supported_gainmap_image(malformed_version.data(), malformed_version.size()),
+              0);
+  }
+
+  for (const size_t invalid_field :
+       {locations.primary_attributes, locations.primary_offset, locations.secondary_attributes}) {
+    std::vector<uint8_t> malformed_entry(static_cast<uint8_t*>(output->data),
+                                         static_cast<uint8_t*>(output->data) + output->data_sz);
+    ASSERT_TRUE(findMpfEntryLocations(malformed_entry, &locations));
+    writeMpfU32ForTest(malformed_entry, invalid_field, locations.big_endian, 1);
+    EXPECT_EQ(is_uhdr_image(malformed_entry.data(), static_cast<int>(malformed_entry.size())), 1);
+    EXPECT_EQ(uhdr_is_supported_gainmap_image(malformed_entry.data(), malformed_entry.size()), 0);
+  }
 
   // Decode stream
   uhdr_codec_private_t* dec = uhdr_create_decoder();
@@ -328,6 +795,82 @@ static bool setBackwardDirectionFlag(const uhdr_compressed_image_t* image,
   // Set backwardDirection, which this decoder explicitly does not support.
   metadata_pos[4] |= 4;
   return true;
+}
+
+TEST_F(UltraHdrApiTest, RoutingProbeReflectsHevcDecoderAvailability) {
+  std::vector<uint8_t> hevc_gainmap;
+  ASSERT_TRUE(loadFile(kHevcGainmapFileName, hevc_gainmap));
+
+  EXPECT_EQ(is_uhdr_image(hevc_gainmap.data(), static_cast<int>(hevc_gainmap.size())), 1);
+  const bool have_hevc_decoder = heif_have_decoder_for_format(heif_compression_HEVC);
+  expectSupportedHeifGainmap(hevc_gainmap.data(), hevc_gainmap.size(), have_hevc_decoder);
+
+  if (have_hevc_decoder) {
+    uhdr_compressed_image_t input{};
+    input.data = hevc_gainmap.data();
+    input.data_sz = hevc_gainmap.size();
+    input.capacity = hevc_gainmap.size();
+    input.cg = UHDR_CG_UNSPECIFIED;
+    input.ct = UHDR_CT_UNSPECIFIED;
+    input.range = UHDR_CR_UNSPECIFIED;
+    uhdr_codec_private_t* decoder = uhdr_create_decoder();
+    ASSERT_NE(decoder, nullptr);
+    EXPECT_EQ(uhdr_dec_set_image(decoder, &input).error_code, UHDR_CODEC_OK);
+    EXPECT_EQ(uhdr_dec_set_out_color_transfer(decoder, UHDR_CT_HLG).error_code, UHDR_CODEC_OK);
+    EXPECT_EQ(uhdr_dec_set_out_img_format(decoder, UHDR_IMG_FMT_32bppRGBA1010102).error_code,
+              UHDR_CODEC_OK);
+    EXPECT_EQ(uhdr_dec_probe(decoder).error_code, UHDR_CODEC_OK);
+    EXPECT_EQ(uhdr_decode(decoder).error_code, UHDR_CODEC_OK);
+    uhdr_release_decoder(decoder);
+  }
+}
+
+TEST_F(UltraHdrApiTest, RoutingProbeRejectsOrdinaryAvifButLegacyPredicateRemainsCompatible) {
+  if (!heif_have_encoder_for_format(heif_compression_AV1)) {
+    GTEST_SKIP() << "AV1 encoder plugin not available in environment";
+  }
+  std::vector<uint8_t> ordinary_avif;
+  ASSERT_TRUE(encodeOrdinaryAvif(ordinary_avif));
+  ASSERT_FALSE(ordinary_avif.empty());
+
+  // The historical decoder-probe implementation returns 1 for a parseable HEIF/AVIF container
+  // even when it has no gain map. Keep that compatibility behavior explicit here.
+  EXPECT_EQ(is_uhdr_image(ordinary_avif.data(), static_cast<int>(ordinary_avif.size())), 1);
+  expectSupportedHeifGainmap(ordinary_avif.data(), ordinary_avif.size(), false);
+}
+
+TEST(UltraHdrRoutingTest, GainmapSideAlphaIsSupported) {
+  if (!heif_have_encoder_for_format(heif_compression_AV1)) {
+    GTEST_SKIP() << "AV1 encoder plugin not available in environment";
+  }
+
+  std::vector<uint8_t> encoded;
+  ASSERT_TRUE(encodeGainmapSideAlphaAvif(encoded));
+
+  HeifContextPtr context(heif_context_alloc(), heif_context_free);
+  ASSERT_NE(context, nullptr);
+  ASSERT_EQ(heif_context_read_from_memory_without_copy(context.get(), encoded.data(),
+                                                       encoded.size(), nullptr)
+                .code,
+            heif_error_Ok);
+
+  heif_image_handle* primary_raw = nullptr;
+  ASSERT_EQ(heif_context_get_primary_image_handle(context.get(), &primary_raw).code,
+            heif_error_Ok);
+  HeifHandlePtr primary(primary_raw, heif_image_handle_release);
+  ASSERT_NE(primary, nullptr);
+
+  heif_image_handle* gainmap_raw = nullptr;
+  ASSERT_EQ(heif_image_handle_get_gain_map_image_handle(primary.get(), &gainmap_raw).code,
+            heif_error_Ok);
+  HeifHandlePtr gainmap(gainmap_raw, heif_image_handle_release);
+  ASSERT_NE(gainmap, nullptr);
+
+  EXPECT_EQ(heif_image_handle_has_alpha_channel(primary.get()), 0);
+  EXPECT_EQ(heif_image_handle_has_alpha_channel(gainmap.get()), 1);
+  EXPECT_EQ(heif_image_handle_is_premultiplied_alpha(gainmap.get()), 0);
+  expectSupportedHeifGainmap(encoded.data(), encoded.size(),
+                             heif_have_decoder_for_format(heif_compression_AV1));
 }
 
 namespace {
@@ -545,6 +1088,10 @@ TEST_F(UltraHdrApiTest, HeicEncodeApi0AndDecode) {
   ASSERT_NE(output, nullptr);
   ASSERT_GT(output->data_sz, 0u);
 
+  EXPECT_EQ(is_uhdr_image(output->data, static_cast<int>(output->data_sz)), 1);
+  expectSupportedHeifGainmap(output->data, output->data_sz,
+                             heif_have_decoder_for_format(heif_compression_HEVC));
+
   // Decode HEIC stream
   uhdr_codec_private_t* dec = uhdr_create_decoder();
   ASSERT_NE(dec, nullptr);
@@ -612,6 +1159,9 @@ TEST_F(UltraHdrApiTest, HeicEncodeApi1AndDecode) {
   ASSERT_NE(output, nullptr);
   ASSERT_GT(output->data_sz, 0u);
   EXPECT_EQ(getPrimaryImageTransfer(output), heif_transfer_characteristic_IEC_61966_2_1);
+  EXPECT_EQ(is_uhdr_image(output->data, static_cast<int>(output->data_sz)), 1);
+  expectSupportedHeifGainmap(output->data, output->data_sz,
+                             heif_have_decoder_for_format(heif_compression_HEVC));
 
   uhdr_codec_private_t* dec = uhdr_create_decoder();
   ASSERT_NE(dec, nullptr);
@@ -796,6 +1346,10 @@ TEST_F(UltraHdrApiTest, AvifEncodeApi0AndDecode) {
   ASSERT_NE(output, nullptr);
   ASSERT_GT(output->data_sz, 0u);
 
+  EXPECT_EQ(is_uhdr_image(output->data, static_cast<int>(output->data_sz)), 1);
+  expectSupportedHeifGainmap(output->data, output->data_sz,
+                             heif_have_decoder_for_format(heif_compression_AV1));
+
   // Decode AVIF stream
   uhdr_codec_private_t* dec = uhdr_create_decoder();
   ASSERT_NE(dec, nullptr);
@@ -859,6 +1413,9 @@ TEST_F(UltraHdrApiTest, AvifEncodeApi1AndDecode) {
   ASSERT_NE(output, nullptr);
   ASSERT_GT(output->data_sz, 0u);
   EXPECT_EQ(getPrimaryImageTransfer(output), heif_transfer_characteristic_IEC_61966_2_1);
+  EXPECT_EQ(is_uhdr_image(output->data, static_cast<int>(output->data_sz)), 1);
+  expectSupportedHeifGainmap(output->data, output->data_sz,
+                             heif_have_decoder_for_format(heif_compression_AV1));
 
   uhdr_codec_private_t* dec = uhdr_create_decoder();
   ASSERT_NE(dec, nullptr);
@@ -1085,6 +1642,12 @@ TEST_F(UltraHdrApiTest, AvifPreservesRawAlpha) {
     GTEST_SKIP() << "AV1 encoder plugin not available in environment: " << status.detail;
   }
   ASSERT_EQ(status.error_code, UHDR_CODEC_OK) << (status.has_detail ? status.detail : "no detail");
+  // This fixture has straight alpha on the primary AVIF item. Its gain-map item is ordinary
+  // monochrome and is not alpha-bearing. When item inspection is available, the routing assertion
+  // covers the primary-alpha form; the helper below also performs a real SDR decode to RGBA.
+  EXPECT_EQ(is_uhdr_image(encoded.data(), static_cast<int>(encoded.size())), 1);
+  expectSupportedHeifGainmap(encoded.data(), encoded.size(),
+                             heif_have_decoder_for_format(heif_compression_AV1));
   EXPECT_TRUE(decodedAlphaMatches(encoded));
   expectRawAlphaPreserved(UHDR_CODEC_AVIF, &images.hdrHalfFloatDesc);
   images.makeHdr1010102AlphaOpaque();
@@ -1100,6 +1663,9 @@ TEST_F(UltraHdrApiTest, HeifPreservesRawAlpha) {
     GTEST_SKIP() << "HEVC encoder plugin not available in environment: " << status.detail;
   }
   ASSERT_EQ(status.error_code, UHDR_CODEC_OK) << (status.has_detail ? status.detail : "no detail");
+  EXPECT_EQ(is_uhdr_image(encoded.data(), static_cast<int>(encoded.size())), 1);
+  expectSupportedHeifGainmap(encoded.data(), encoded.size(),
+                             heif_have_decoder_for_format(heif_compression_HEVC));
   EXPECT_TRUE(decodedAlphaMatches(encoded));
   expectRawAlphaPreserved(UHDR_CODEC_HEIF, &images.hdrHalfFloatDesc);
   images.makeHdr1010102AlphaOpaque();
