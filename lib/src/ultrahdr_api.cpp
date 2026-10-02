@@ -2347,3 +2347,9 @@ uhdr_error_info_t uhdr_add_effect_resize(uhdr_codec_private_t* codec, int width,
 
   return status;
 }
+
+uhdr_error_info_t uhdr_strip_gain_map(uhdr_compressed_image_t* in_stream,
+                                      uhdr_mem_block_t* out_stream) {
+  ultrahdr::JpegR jpegr;
+  return jpegr.stripGainMap(in_stream, out_stream);
+}

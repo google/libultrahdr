@@ -922,4 +922,20 @@ UHDR_EXTERN uhdr_error_info_t uhdr_add_effect_crop(uhdr_codec_private_t* codec, 
 UHDR_EXTERN uhdr_error_info_t uhdr_add_effect_resize(uhdr_codec_private_t* codec, int width,
                                                      int height);
 
+/*!\brief Losslessly strip gain map bitstream and gain map metadata from an Ultra HDR image.
+ *
+ * Produces a clean standard SDR compressed stream:
+ * - Strips secondary gain map JPEG image data and MPF pointers.
+ * - Strips ISO 21496-1 gain map metadata from APP2 (urn:iso:std:iso:ts:21496:-1).
+ * - Strips legacy Ultra HDR tags (Container:Directory, hdrgm:*) from APP1 XMP.
+ * - Preserves primary image scan data bit-for-bit (lossless, no DCT re-encoding).
+ * - Preserves Exif, ICC profile, and all user/application XMP metadata intact.
+ *
+ * \param[in]  in_stream   Input compressed Ultra HDR stream.
+ * \param[out] out_stream  Output descriptor receiving the clean SDR compressed stream.
+ * \return uhdr_error_info_t #UHDR_CODEC_OK on success, #UHDR_CODEC_INVALID_PARAM otherwise.
+ */
+UHDR_EXTERN uhdr_error_info_t uhdr_strip_gain_map(uhdr_compressed_image_t* in_stream,
+                                                  uhdr_mem_block_t* out_stream);
+
 #endif  // ULTRAHDR_API_H

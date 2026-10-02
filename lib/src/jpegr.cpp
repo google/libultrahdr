@@ -1292,6 +1292,14 @@ uhdr_error_info_t JpegR::appendGainMap(uhdr_compressed_image_t* sdr_intent_compr
       uhdr_mem_block_t user_block{const_cast<char*>(user_xmp_str.data()), user_xmp_str.size(),
                                   user_xmp_str.size()};
       xmp_primary_str = generateXmpForPrimaryImage(secondary_image_size, *metadata, &user_block);
+      if (xmp_primary_str.empty()) {
+        uhdr_error_info_t status;
+        status.error_code = UHDR_CODEC_INVALID_PARAM;
+        status.has_detail = 1;
+        snprintf(status.detail, sizeof status.detail,
+                 "unable to safely merge supplied XMP metadata into the primary image");
+        return status;
+      }
     } else {
       xmp_primary_str = user_xmp_str;
     }
@@ -3001,6 +3009,262 @@ status_t JpegR::decodeJPEGR(jr_compressed_ptr jpegr_image_ptr, jr_uncompressed_p
   }
 
   return result.error_code == UHDR_CODEC_OK ? JPEGR_NO_ERROR : JPEGR_UNKNOWN_ERROR;
+}
+
+uhdr_error_info_t JpegR::stripGainMap(uhdr_compressed_image_t* in_stream,
+                                      uhdr_mem_block_t* out_stream) {
+  if (in_stream == nullptr) {
+    uhdr_error_info_t status;
+    status.error_code = UHDR_CODEC_INVALID_PARAM;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail, "received nullptr for input stream");
+    return status;
+  }
+  if (in_stream->data == nullptr || in_stream->data_sz < 4) {
+    uhdr_error_info_t status;
+    status.error_code = UHDR_CODEC_INVALID_PARAM;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "invalid input stream buffer (data=%p, data_sz=%zu)",
+             in_stream->data, in_stream->data_sz);
+    return status;
+  }
+  if (out_stream == nullptr) {
+    uhdr_error_info_t status;
+    status.error_code = UHDR_CODEC_INVALID_PARAM;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail, "received nullptr for output stream");
+    return status;
+  }
+  if (out_stream->data == nullptr && out_stream->capacity != 0) {
+    uhdr_error_info_t status;
+    status.error_code = UHDR_CODEC_INVALID_PARAM;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "received nullptr for output stream data buffer with non-zero capacity (%zu)",
+             out_stream->capacity);
+    return status;
+  }
+
+  const uint8_t* data = static_cast<const uint8_t*>(in_stream->data);
+  const size_t size = in_stream->data_sz;
+  if (data[0] != JpegMarker::kStart || data[1] != JpegMarker::kSOI) {
+    uhdr_error_info_t status;
+    status.error_code = UHDR_CODEC_INVALID_PARAM;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "input stream does not start with JPEG SOI marker");
+    return status;
+  }
+
+  std::vector<uint8_t> out_buf;
+  out_buf.reserve(size);
+  out_buf.push_back(JpegMarker::kStart);
+  out_buf.push_back(JpegMarker::kSOI);
+
+  const size_t xmp_ns_len = kXmpNameSpace.size() + 1;
+  const size_t iso_ns_len = kIsoNameSpace.size() + 1;
+  const size_t mpf_sig_len = sizeof(kMpfSig);
+
+  size_t pos = 2;
+  bool seen_sos = false;
+  bool seen_eoi = false;
+
+  while (pos < size) {
+    const size_t marker_start = pos;
+    if (data[pos] != JpegMarker::kStart) {
+      uhdr_error_info_t status;
+      status.error_code = UHDR_CODEC_INVALID_PARAM;
+      status.has_detail = 1;
+      snprintf(status.detail, sizeof status.detail,
+               "expected JPEG marker prefix 0xFF at offset %zu", pos);
+      return status;
+    }
+    while (pos < size && data[pos] == JpegMarker::kStart) {
+      ++pos;
+    }
+    if (pos >= size) {
+      uhdr_error_info_t status;
+      status.error_code = UHDR_CODEC_INVALID_PARAM;
+      status.has_detail = 1;
+      snprintf(status.detail, sizeof status.detail, "truncated JPEG marker at end of stream");
+      return status;
+    }
+
+    const uint8_t marker = data[pos++];
+    if (marker == 0x00 || marker == JpegMarker::kSOI) {
+      uhdr_error_info_t status;
+      status.error_code = UHDR_CODEC_INVALID_PARAM;
+      status.has_detail = 1;
+      snprintf(status.detail, sizeof status.detail,
+               "unexpected JPEG marker 0xFF%02X at offset %zu", marker, marker_start);
+      return status;
+    }
+
+    if (marker == JpegMarker::kEOI) {
+      if (!seen_sos) {
+        uhdr_error_info_t status;
+        status.error_code = UHDR_CODEC_INVALID_PARAM;
+        status.has_detail = 1;
+        snprintf(status.detail, sizeof status.detail,
+                 "encountered EOI before SOS in primary JPEG stream");
+        return status;
+      }
+      out_buf.push_back(JpegMarker::kStart);
+      out_buf.push_back(JpegMarker::kEOI);
+      seen_eoi = true;
+      break;
+    }
+
+    if (marker == 0x01 || (marker >= 0xD0 && marker <= 0xD7)) {
+      out_buf.insert(out_buf.end(), data + marker_start, data + pos);
+      continue;
+    }
+
+    if (pos + 2 > size) {
+      uhdr_error_info_t status;
+      status.error_code = UHDR_CODEC_INVALID_PARAM;
+      status.has_detail = 1;
+      snprintf(status.detail, sizeof status.detail,
+               "truncated segment length for marker 0xFF%02X at offset %zu", marker, marker_start);
+      return status;
+    }
+    const size_t seg_len = (static_cast<size_t>(data[pos]) << 8) | data[pos + 1];
+    if (seg_len < 2 || pos + seg_len > size) {
+      uhdr_error_info_t status;
+      status.error_code = UHDR_CODEC_INVALID_PARAM;
+      status.has_detail = 1;
+      snprintf(status.detail, sizeof status.detail,
+               "invalid segment length %zu for marker 0xFF%02X at offset %zu",
+               seg_len, marker, marker_start);
+      return status;
+    }
+
+    const uint8_t* payload = data + pos + 2;
+    const size_t payload_len = seg_len - 2;
+    const size_t next_pos = pos + seg_len;
+
+    if (marker == JpegMarker::kAPP2) {
+      const bool is_mpf =
+          payload_len >= mpf_sig_len && memcmp(payload, kMpfSig, mpf_sig_len) == 0;
+      const bool is_iso =
+          payload_len >= iso_ns_len && memcmp(payload, kIsoNameSpace.c_str(), iso_ns_len) == 0;
+      if (!is_mpf && !is_iso) {
+        out_buf.insert(out_buf.end(), data + marker_start, data + next_pos);
+      }
+      pos = next_pos;
+      continue;
+    }
+
+    if (marker == JpegMarker::kAPP1) {
+      const bool is_standard_xmp =
+          payload_len >= xmp_ns_len && memcmp(payload, kXmpNameSpace.c_str(), xmp_ns_len) == 0;
+      if (is_standard_xmp) {
+        const std::string xmp_xml(reinterpret_cast<const char*>(payload + xmp_ns_len),
+                                  payload_len - xmp_ns_len);
+        std::string stripped_xmp;
+        if (!stripGainMapFromXmp(xmp_xml, &stripped_xmp)) {
+          uhdr_error_info_t status;
+          status.error_code = UHDR_CODEC_INVALID_PARAM;
+          status.has_detail = 1;
+          snprintf(status.detail, sizeof status.detail,
+                   "unable to parse or strip gain map metadata from primary XMP packet");
+          return status;
+        }
+        if (!stripped_xmp.empty()) {
+          const size_t new_seg_len = 2 + xmp_ns_len + stripped_xmp.size();
+          if (new_seg_len > 0xFFFF) {
+            uhdr_error_info_t status;
+            status.error_code = UHDR_CODEC_INVALID_PARAM;
+            status.has_detail = 1;
+            snprintf(status.detail, sizeof status.detail,
+                     "stripped XMP segment exceeds maximum APP1 segment size");
+            return status;
+          }
+          out_buf.push_back(JpegMarker::kStart);
+          out_buf.push_back(JpegMarker::kAPP1);
+          out_buf.push_back(static_cast<uint8_t>((new_seg_len >> 8) & 0xFF));
+          out_buf.push_back(static_cast<uint8_t>(new_seg_len & 0xFF));
+          out_buf.insert(out_buf.end(),
+                         reinterpret_cast<const uint8_t*>(kXmpNameSpace.c_str()),
+                         reinterpret_cast<const uint8_t*>(kXmpNameSpace.c_str()) + xmp_ns_len);
+          out_buf.insert(out_buf.end(),
+                         reinterpret_cast<const uint8_t*>(stripped_xmp.data()),
+                         reinterpret_cast<const uint8_t*>(stripped_xmp.data()) +
+                             stripped_xmp.size());
+        }
+      } else {
+        out_buf.insert(out_buf.end(), data + marker_start, data + next_pos);
+      }
+      pos = next_pos;
+      continue;
+    }
+
+    out_buf.insert(out_buf.end(), data + marker_start, data + next_pos);
+    pos = next_pos;
+
+    if (marker == JpegMarker::kSOS) {
+      seen_sos = true;
+      const size_t scan_data_start = pos;
+      bool found_post_scan_marker = false;
+      while (pos < size) {
+        if (data[pos] != JpegMarker::kStart) {
+          ++pos;
+          continue;
+        }
+        const size_t ff_start = pos;
+        while (pos < size && data[pos] == JpegMarker::kStart) {
+          ++pos;
+        }
+        if (pos >= size) {
+          break;
+        }
+        const uint8_t next_marker = data[pos];
+        if (next_marker == 0x00 || (next_marker >= 0xD0 && next_marker <= 0xD7)) {
+          ++pos;
+          continue;
+        }
+        out_buf.insert(out_buf.end(), data + scan_data_start, data + ff_start);
+        pos = ff_start;
+        found_post_scan_marker = true;
+        break;
+      }
+      if (!found_post_scan_marker) {
+        uhdr_error_info_t status;
+        status.error_code = UHDR_CODEC_INVALID_PARAM;
+        status.has_detail = 1;
+        snprintf(status.detail, sizeof status.detail,
+                 "truncated entropy-coded scan data before EOI in primary JPEG stream");
+        return status;
+      }
+    }
+  }
+
+  if (!seen_sos || !seen_eoi) {
+    uhdr_error_info_t status;
+    status.error_code = UHDR_CODEC_INVALID_PARAM;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "incomplete primary JPEG stream (missing SOS or EOI marker)");
+    return status;
+  }
+
+  out_stream->data_sz = out_buf.size();
+  if (out_stream->data == nullptr && out_stream->capacity == 0) {
+    return g_no_error;
+  }
+  if (out_stream->capacity < out_buf.size()) {
+    uhdr_error_info_t status;
+    status.error_code = UHDR_CODEC_INVALID_PARAM;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "output buffer capacity (%zu) is smaller than required size (%zu)",
+             out_stream->capacity, out_buf.size());
+    return status;
+  }
+
+  memcpy(out_stream->data, out_buf.data(), out_buf.size());
+  return g_no_error;
 }
 
 }  // namespace ultrahdr

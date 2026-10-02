@@ -299,6 +299,16 @@ class JpegR : public UltraHdr {
    */
   status_t getJPEGRInfo(jr_compressed_ptr jpegr_image_ptr, jr_info_ptr jpegr_image_info_ptr);
 
+  /*!\brief Losslessly strip gain map bitstream and gain map metadata from a JPEG/R stream.
+   *
+   * \param[in]       in_stream                input compressed JPEG/R stream
+   * \param[in, out]  out_stream               output memory block receiving the stripped SDR JPEG
+   * \return uhdr_error_info_t #UHDR_CODEC_OK if operation succeeds, #UHDR_CODEC_INVALID_PARAM
+   *         otherwise.
+   */
+  uhdr_error_info_t stripGainMap(uhdr_compressed_image_t* in_stream,
+                                 uhdr_mem_block_t* out_stream);
+
  private:
   /*!\brief compress gainmap image
    *
@@ -357,8 +367,11 @@ class JpegR : public UltraHdr {
    * \param[in]       metadata                 gainmap metadata descriptor
    * \param[in, out]  dest                     output image descriptor to store compressed ultrahdr
    *                                           image
+   * \param[in]       pXmp                     optional primary-image XMP packet to preserve and
+   *                                           merge when XMP metadata is enabled
    *
    * \return uhdr_error_info_t #UHDR_CODEC_OK if operation succeeds, uhdr_codec_err_t otherwise.
+   *         An unsupported or unmergeable XMP packet returns #UHDR_CODEC_INVALID_PARAM in XMP mode.
    */
   uhdr_error_info_t appendGainMap(uhdr_compressed_image_t* sdr_intent_compressed,
                                   uhdr_compressed_image_t* gainmap_compressed,
