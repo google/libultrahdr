@@ -1285,6 +1285,7 @@ uhdr_error_info_t JpegR::appendGainMap(uhdr_compressed_image_t* sdr_intent_compr
     }
   }
 
+  bool spill_user_xmp_to_extended = false;
   if (kWriteXmpMetadata) {
     if (user_xmp_str.empty()) {
       xmp_primary_str = generateXmpForPrimaryImage(secondary_image_size, *metadata, nullptr);
@@ -1300,15 +1301,21 @@ uhdr_error_info_t JpegR::appendGainMap(uhdr_compressed_image_t* sdr_intent_compr
                  "unable to safely merge supplied XMP metadata into the primary image");
         return status;
       }
+      if (xmp_primary_str.size() > kMaxStandardXmpPayload) {
+        xmp_primary_str = user_xmp_str;
+        spill_user_xmp_to_extended = true;
+      }
     } else {
       xmp_primary_str = user_xmp_str;
+      spill_user_xmp_to_extended = true;
     }
   } else if (!user_xmp_str.empty()) {
     xmp_primary_str = user_xmp_str;
+    spill_user_xmp_to_extended = xmp_primary_str.size() > kMaxStandardXmpPayload;
   }
 
   if (!xmp_primary_str.empty()) {
-    if (xmp_primary_str.size() <= kMaxStandardXmpPayload) {
+    if (!spill_user_xmp_to_extended && xmp_primary_str.size() <= kMaxStandardXmpPayload) {
       // Write single standard XMP segment
       const size_t length = 2 + xmpNameSpaceLength + xmp_primary_str.size();
       const uint8_t lengthH = ((length >> 8) & 0xff);

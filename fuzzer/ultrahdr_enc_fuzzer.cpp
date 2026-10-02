@@ -427,6 +427,13 @@ void UltraHdrEncFuzzer::process() {
     if (status.error_code == UHDR_CODEC_OK) {
       auto output = uhdr_get_encoded_stream(enc_handle);
       if (output != nullptr) {
+        uhdr_mem_block_t stripped_size{nullptr, 0, 0};
+        if (uhdr_strip_gain_map(output, &stripped_size).error_code == UHDR_CODEC_OK &&
+            stripped_size.data_sz > 0) {
+          std::vector<uint8_t> stripped_buf(stripped_size.data_sz);
+          uhdr_mem_block_t stripped_out{stripped_buf.data(), 0, stripped_buf.size()};
+          ON_ERR(uhdr_strip_gain_map(output, &stripped_out))
+        }
         uhdr_codec_private_t* dec_handle = uhdr_create_decoder();
         if (dec_handle) {
           ON_ERR(uhdr_dec_set_image(dec_handle, output))
@@ -438,6 +445,7 @@ void UltraHdrEncFuzzer::process() {
           else
             ON_ERR(uhdr_dec_set_out_img_format(dec_handle, UHDR_IMG_FMT_32bppRGBA1010102))
           ON_ERR(uhdr_decode(dec_handle))
+          uhdr_dec_get_xmp(dec_handle);
           uhdr_release_decoder(dec_handle);
         }
       }

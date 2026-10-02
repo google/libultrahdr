@@ -1121,6 +1121,96 @@ TEST_F(UltraHdrApiTest, StripGainMapInvalidParamsAndCorruptInput) {
   EXPECT_EQ(uhdr_strip_gain_map(&no_sos_in, &out).error_code, UHDR_CODEC_INVALID_PARAM);
 }
 
+TEST_F(UltraHdrApiTest, StripGainMapOnAppleGainMapFixtures) {
+  for (const char* filename : {"apple_gainmap_new.jpg", "apple_gainmap_old.jpg"}) {
+    SCOPED_TRACE(filename);
+    std::vector<uint8_t> apple_data;
+    ASSERT_TRUE(loadFile(filename, apple_data));
+    ASSERT_EQ(is_uhdr_image(apple_data.data(), static_cast<int>(apple_data.size())), 1);
+
+    uhdr_compressed_image_t apple_in{apple_data.data(), apple_data.size(), apple_data.size(),
+                                     UHDR_CG_DISPLAY_P3, UHDR_CT_SRGB, UHDR_CR_FULL_RANGE};
+    uhdr_mem_block_t size_query{nullptr, 0, 0};
+    ASSERT_EQ(uhdr_strip_gain_map(&apple_in, &size_query).error_code, UHDR_CODEC_OK);
+    ASSERT_GT(size_query.data_sz, 0u);
+    ASSERT_LT(size_query.data_sz, apple_data.size());
+
+    std::vector<uint8_t> stripped_buf(size_query.data_sz);
+    uhdr_mem_block_t stripped_block{stripped_buf.data(), 0, stripped_buf.size()};
+    ASSERT_EQ(uhdr_strip_gain_map(&apple_in, &stripped_block).error_code, UHDR_CODEC_OK);
+    EXPECT_EQ(stripped_block.data_sz, size_query.data_sz);
+    EXPECT_EQ(is_uhdr_image(stripped_block.data, static_cast<int>(stripped_block.data_sz)), 0);
+
+    // Primary entropy-coded scan (including DRI and RST0..RST7 markers) must be bit-identical.
+    const std::vector<uint8_t> orig_scan =
+        extractPrimaryScanBytes(apple_data.data(), apple_data.size());
+    const std::vector<uint8_t> stripped_scan =
+        extractPrimaryScanBytes(stripped_block.data, stripped_block.data_sz);
+    ASSERT_FALSE(orig_scan.empty());
+    EXPECT_EQ(orig_scan, stripped_scan);
+
+    // Verify EXIF and ICC profile are preserved and stripped JPEG decodes cleanly.
+    JpegDecoderHelper orig_decoder;
+    ASSERT_EQ(orig_decoder.parseImage(apple_data.data(), apple_data.size()).error_code,
+              UHDR_CODEC_OK);
+    JpegDecoderHelper stripped_decoder;
+    ASSERT_EQ(stripped_decoder
+                  .decompressImage(stripped_block.data, stripped_block.data_sz, DECODE_TO_RGB_CS)
+                  .error_code,
+              UHDR_CODEC_OK);
+    ASSERT_EQ(stripped_decoder.getEXIFSize(), orig_decoder.getEXIFSize());
+    EXPECT_EQ(memcmp(stripped_decoder.getEXIFPtr(), orig_decoder.getEXIFPtr(),
+                     orig_decoder.getEXIFSize()),
+              0);
+    ASSERT_EQ(stripped_decoder.getICCSize(), orig_decoder.getICCSize());
+    EXPECT_EQ(memcmp(stripped_decoder.getICCPtr(), orig_decoder.getICCPtr(),
+                     orig_decoder.getICCSize()),
+              0);
+  }
+}
+
+TEST_F(UltraHdrApiTest, NearLimitStandardXmpSpillsCleanlyToExtendedXmp) {
+  // 65,200 bytes is <= kMaxStandardXmpPayload (65,503 B), but when UHDR_WRITE_XMP is enabled,
+  // merging the ~600-byte Ultra HDR container directory pushes it over 65,503 B into Extended XMP.
+  constexpr size_t kNearLimitSize = 65200;
+  const std::string near_limit_xmp = makeLargeXmp(kNearLimitSize);
+  uhdr_mem_block_t xmp_block{const_cast<char*>(near_limit_xmp.data()), near_limit_xmp.size(),
+                             near_limit_xmp.size()};
+  uhdr_gainmap_metadata_t metadata = makeTestGainmapMetadata();
+
+  EncoderPtr enc = makeEncoder();
+  ASSERT_NE(enc, nullptr);
+  ASSERT_EQ(configureJpegGainmapEncoder(enc.get(), &mSdrCompressed, &mSdrCompressed, &metadata,
+                                        &xmp_block)
+                .error_code,
+            UHDR_CODEC_OK);
+  ASSERT_EQ(uhdr_encode(enc.get()).error_code, UHDR_CODEC_OK);
+  uhdr_compressed_image_t* uhdr_stream = uhdr_get_encoded_stream(enc.get());
+  ASSERT_NE(uhdr_stream, nullptr);
+
+  // Verify uhdr_dec_get_xmp recovers the exact 65,200-byte user XMP packet.
+  DecoderPtr dec = makeDecoder();
+  ASSERT_NE(dec, nullptr);
+  ASSERT_EQ(uhdr_dec_set_image(dec.get(), uhdr_stream).error_code, UHDR_CODEC_OK);
+  ASSERT_EQ(uhdr_dec_probe(dec.get()).error_code, UHDR_CODEC_OK);
+  uhdr_mem_block_t* decoded_xmp = uhdr_dec_get_xmp(dec.get());
+  ASSERT_NE(decoded_xmp, nullptr);
+  EXPECT_EQ(getXmpPacket(decoded_xmp), near_limit_xmp);
+
+  // Verify uhdr_strip_gain_map also preserves the 65,200-byte user XMP packet cleanly.
+  std::vector<uint8_t> stripped_buf(uhdr_stream->data_sz);
+  uhdr_mem_block_t stripped_block{stripped_buf.data(), 0, stripped_buf.size()};
+  ASSERT_EQ(uhdr_strip_gain_map(uhdr_stream, &stripped_block).error_code, UHDR_CODEC_OK);
+  EXPECT_EQ(is_uhdr_image(stripped_block.data, static_cast<int>(stripped_block.data_sz)), 0);
+
+  JpegDecoderHelper stripped_decoder;
+  ASSERT_EQ(stripped_decoder.parseImage(stripped_block.data, stripped_block.data_sz).error_code,
+            UHDR_CODEC_OK);
+  uhdr_mem_block_t stripped_xmp_mem{stripped_decoder.getXMPPtr(), stripped_decoder.getXMPSize(),
+                                    stripped_decoder.getXMPSize()};
+  EXPECT_EQ(getXmpPacket(&stripped_xmp_mem), near_limit_xmp);
+}
+
 TEST_F(UltraHdrApiTest, JpegEncodeWithXmpAndDecode) {
   uhdr_codec_private_t* enc = uhdr_create_encoder();
   ASSERT_NE(enc, nullptr);
