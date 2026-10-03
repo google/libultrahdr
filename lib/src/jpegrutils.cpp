@@ -1575,13 +1575,8 @@ bool stripGainMapFromXmp(const std::string& xmp_data, std::string* stripped_xmp)
     }
 
     for (const XmpAttributeSpan& attribute : primary.attributes) {
-      bool should_remove = false;
+      // Namespace bindings may still be used by retained descendants in a mixed description.
       if (!attribute.namespace_declaration && IsGainMapPropertyUri(attribute.uri)) {
-        should_remove = true;
-      } else if (attribute.namespace_declaration && IsGainMapPropertyUri(attribute.value)) {
-        should_remove = true;
-      }
-      if (should_remove) {
         size_t attr_begin = attribute.name_begin;
         while (attr_begin > primary.start_begin && IsXmlWhitespace(parse_xml[attr_begin - 1])) {
           --attr_begin;
