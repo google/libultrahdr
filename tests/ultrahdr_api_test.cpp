@@ -1034,9 +1034,6 @@ TEST_F(UltraHdrApiTest, StripGainMapPreservesSharedDescriptionAndExtendedXmp) {
             std::string::npos);
   EXPECT_EQ(stripped_shared.find("hdrgm:"), std::string::npos);
   EXPECT_EQ(stripped_shared.find("Container:"), std::string::npos);
-  EXPECT_EQ(stripped_shared.find("xmlns:hdrgm"), std::string::npos);
-  EXPECT_EQ(stripped_shared.find("xmlns:Container"), std::string::npos);
-  EXPECT_EQ(stripped_shared.find("xmlns:Item"), std::string::npos);
 
   // Part 2: Multi-segment Extended XMP (> 64 KB) preserved through uhdr_strip_gain_map.
   const std::string ext_xmp = makeLargeXmp(140000);
@@ -1061,6 +1058,22 @@ TEST_F(UltraHdrApiTest, StripGainMapPreservesSharedDescriptionAndExtendedXmp) {
   ASSERT_EQ(stripped_decoder.parseImage(stripped_block.data, stripped_block.data_sz).error_code, UHDR_CODEC_OK);
   ASSERT_EQ(stripped_decoder.getXMPSize(), ext_xmp.size());
   EXPECT_EQ(memcmp(stripped_decoder.getXMPPtr(), ext_xmp.data(), ext_xmp.size()), 0);
+}
+
+TEST_F(UltraHdrApiTest, StripGainMapKeepsNamespaceUsedByRetainedDescendant) {
+  const std::string shared_xmp =
+      "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF "
+      "xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description "
+      "rdf:about=\"\" xmlns:hdrgm=\"http://ns.adobe.com/hdr-gain-map/1.0/\" "
+      "xmlns:u=\"urn:user\" hdrgm:Version=\"1.0\"><u:keep hdrgm:custom=\"x\"/>"
+      "</rdf:Description></rdf:RDF></x:xmpmeta>";
+
+  std::string stripped;
+  ASSERT_TRUE(stripGainMapFromXmp(shared_xmp, &stripped));
+  EXPECT_EQ(stripped.find("hdrgm:Version=\"1.0\""), std::string::npos);
+  EXPECT_NE(stripped.find("xmlns:hdrgm=\"http://ns.adobe.com/hdr-gain-map/1.0/\""),
+            std::string::npos);
+  EXPECT_NE(stripped.find("<u:keep hdrgm:custom=\"x\"/>"), std::string::npos);
 }
 
 TEST_F(UltraHdrApiTest, StripGainMapStripsTrailingBinaryTrailerAfterPrimaryEoi) {
