@@ -155,6 +155,12 @@ std::string generateXmpForPrimaryImage(size_t secondary_image_length,
  */
 bool stripGainMapFromXmp(const std::string& xmp_data, std::string* stripped_xmp);
 
+/* Reads or updates xmpNote:HasExtendedXMP on primary RDF descriptions. An empty replacement
+ * removes the link; unrelated RDF subjects and packet content are preserved. */
+bool getExtendedXmpGuidFromXmp(const std::string& xmp_data, std::string* guid);
+bool replaceExtendedXmpGuidInXmp(const std::string& xmp_data, const std::string& new_guid,
+                                 std::string* rewritten_xmp);
+
 /*
  * This method generates XMP metadata for the recovery map image.
  * Link: https://developer.android.com/media/platform/hdr-image-format#XMP-attributes

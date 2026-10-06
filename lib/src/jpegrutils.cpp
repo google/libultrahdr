@@ -1037,6 +1037,7 @@ struct XmpAttributeSpan {
   string uri;
   string local_name;
   size_t name_begin = 0;
+  size_t value_begin = 0;
   size_t value_end = 0;
   bool namespace_declaration = false;
 };
@@ -1094,6 +1095,7 @@ class XmpMergeXmlHandler : public XmlHandler {
     }
     XmpAttributeSpan& attribute = pending_attributes_[pending_attribute_index_];
     if (!context.BuildTokenValue(&attribute.value, true)) valid_ = false;
+    attribute.value_begin = context.GetTokenRange().GetBegin() + 1;
     attribute.value_end = context.GetTokenRange().GetEnd();
     pending_attribute_index_ = kNoXmpElement;
     return context.GetResult();
@@ -1429,6 +1431,134 @@ bool ParseRdfDescriptions(const string& parse_xml, XmpMergeXmlHandler* handler, 
   return true;
 }
 
+namespace {
+
+constexpr char kXmpNoteUri[] = "http://ns.adobe.com/xmp/note/";
+
+struct ExtendedXmpReference {
+  size_t value_begin;
+  size_t value_end;
+  size_t remove_begin;
+  size_t remove_end;
+};
+
+bool IsExtendedXmpGuid(const string& guid) {
+  if (guid.size() != 32) return false;
+  for (char value : guid) {
+    if (!((value >= '0' && value <= '9') || (value >= 'A' && value <= 'F'))) return false;
+  }
+  return true;
+}
+
+bool ProcessExtendedXmpGuid(const string& xmp_data, const string* replacement_guid,
+                            string* guid_out, string* rewritten_xmp) {
+  if (guid_out != nullptr) guid_out->clear();
+  if (replacement_guid != nullptr && rewritten_xmp == nullptr) return false;
+  if (replacement_guid != nullptr && !replacement_guid->empty() &&
+      !IsExtendedXmpGuid(*replacement_guid)) {
+    return false;
+  }
+
+  size_t trimmed_size = xmp_data.size();
+  while (trimmed_size > 0 && xmp_data[trimmed_size - 1] == '\0') --trimmed_size;
+  const string clean_xmp = xmp_data.substr(0, trimmed_size);
+  if (clean_xmp.empty()) {
+    if (rewritten_xmp != nullptr) rewritten_xmp->clear();
+    return true;
+  }
+
+  const string synthetic_open = "<XmpMergeRoot>";
+  const size_t offset = synthetic_open.size();
+  const string parse_xml = synthetic_open + clean_xmp + "</XmpMergeRoot>";
+  XmpMergeXmlHandler handler(parse_xml);
+  size_t rdf_root = kNoXmpElement;
+  vector<size_t> all_descriptions;
+  vector<size_t> primary_descriptions;
+  if (!ParseRdfDescriptions(parse_xml, &handler, &rdf_root, &all_descriptions,
+                            &primary_descriptions)) {
+    return false;
+  }
+
+  const vector<XmpElementSpan>& elements = handler.elements();
+  vector<ExtendedXmpReference> references;
+  string found_guid;
+  for (size_t description : primary_descriptions) {
+    const XmpElementSpan& primary = elements[description];
+    for (const XmpAttributeSpan& attribute : primary.attributes) {
+      if (attribute.uri != kXmpNoteUri || attribute.local_name != "HasExtendedXMP") continue;
+      if (!IsExtendedXmpGuid(attribute.value)) return false;
+      if (!found_guid.empty() && found_guid != attribute.value) return false;
+      found_guid = attribute.value;
+      size_t remove_begin = attribute.name_begin;
+      while (remove_begin > primary.start_begin && IsXmlWhitespace(parse_xml[remove_begin - 1])) {
+        --remove_begin;
+      }
+      references.push_back({attribute.value_begin, attribute.value_end - 1, remove_begin,
+                            attribute.value_end});
+    }
+
+    for (size_t index = 0; index < elements.size(); ++index) {
+      const XmpElementSpan& element = elements[index];
+      if (element.parent != description || element.uri != kXmpNoteUri ||
+          element.local_name != "HasExtendedXMP") {
+        continue;
+      }
+      if (element.self_closing) return false;
+      for (const XmpElementSpan& child : elements) {
+        if (child.parent == index) return false;
+      }
+      size_t value_begin = 0;
+      if (!FindXmlMarkupEnd(parse_xml, element.start_begin, &value_begin) ||
+          element.end_begin < value_begin) {
+        return false;
+      }
+      size_t value_end = element.end_begin;
+      while (value_begin < value_end && IsXmlWhitespace(parse_xml[value_begin])) ++value_begin;
+      while (value_end > value_begin && IsXmlWhitespace(parse_xml[value_end - 1])) --value_end;
+      const string guid = parse_xml.substr(value_begin, value_end - value_begin);
+      if (!IsExtendedXmpGuid(guid) || (!found_guid.empty() && found_guid != guid)) return false;
+      found_guid = guid;
+      size_t remove_begin = element.start_begin;
+      while (remove_begin > primary.start_begin && IsXmlWhitespace(parse_xml[remove_begin - 1])) {
+        --remove_begin;
+      }
+      references.push_back({value_begin, value_end, remove_begin, element.end_end});
+    }
+  }
+
+  if (guid_out != nullptr) *guid_out = found_guid;
+  if (rewritten_xmp == nullptr || references.empty() || *replacement_guid == found_guid) {
+    if (rewritten_xmp != nullptr) *rewritten_xmp = clean_xmp;
+    return true;
+  }
+
+  vector<pair<size_t, size_t>> edits;
+  edits.reserve(references.size());
+  for (const ExtendedXmpReference& reference : references) {
+    const size_t begin = replacement_guid->empty() ? reference.remove_begin : reference.value_begin;
+    const size_t end = replacement_guid->empty() ? reference.remove_end : reference.value_end;
+    if (begin < offset || end < begin || end - offset > clean_xmp.size()) return false;
+    edits.emplace_back(begin - offset, end - offset);
+  }
+  sort(edits.begin(), edits.end());
+  for (size_t index = 1; index < edits.size(); ++index) {
+    if (edits[index].first < edits[index - 1].second) return false;
+  }
+
+  string rewritten;
+  size_t cursor = 0;
+  for (const auto& edit : edits) {
+    rewritten.append(clean_xmp, cursor, edit.first - cursor);
+    if (!replacement_guid->empty()) rewritten.append(*replacement_guid);
+    cursor = edit.second;
+  }
+  rewritten.append(clean_xmp, cursor, clean_xmp.size() - cursor);
+  *rewritten_xmp = std::move(rewritten);
+  return true;
+}
+
+}  // namespace
+
 string MergePrimaryXmp(const string& existing_xmp, size_t secondary_image_length,
                        uhdr_gainmap_metadata_ext_t& metadata,
                        const string& extended_xmp_guid) {
@@ -1502,6 +1632,17 @@ string MergePrimaryXmp(const string& existing_xmp, size_t secondary_image_length
 }
 
 }  // namespace
+
+bool getExtendedXmpGuidFromXmp(const string& xmp_data, string* guid) {
+  if (guid == nullptr) return false;
+  return ProcessExtendedXmpGuid(xmp_data, nullptr, guid, nullptr);
+}
+
+bool replaceExtendedXmpGuidInXmp(const string& xmp_data, const string& new_guid,
+                                 string* rewritten_xmp) {
+  if (rewritten_xmp == nullptr) return false;
+  return ProcessExtendedXmpGuid(xmp_data, &new_guid, nullptr, rewritten_xmp);
+}
 
 bool stripGainMapFromXmp(const std::string& xmp_data, std::string* stripped_xmp) {
   if (stripped_xmp == nullptr) return false;
