@@ -200,6 +200,83 @@ static std::vector<uint8_t> extractPrimaryScanBytes(const void* stream_data, siz
   return {};
 }
 
+struct JpegSegmentSpan {
+  size_t begin;
+  size_t end;
+  size_t payload_begin;
+  size_t payload_size;
+};
+
+static std::vector<JpegSegmentSpan> findApp1Segments(const std::vector<uint8_t>& jpeg,
+                                                     std::string_view signature) {
+  std::vector<JpegSegmentSpan> segments;
+  if (jpeg.size() < 4 || jpeg[0] != 0xFF || jpeg[1] != 0xD8) return segments;
+  size_t pos = 2;
+  while (pos + 4 <= jpeg.size() && jpeg[pos] == 0xFF) {
+    const size_t marker_begin = pos;
+    while (pos < jpeg.size() && jpeg[pos] == 0xFF) ++pos;
+    if (pos == jpeg.size()) break;
+    const uint8_t marker = jpeg[pos++];
+    if (marker == 0xD9 || marker == 0xDA) break;
+    if (marker == 0x01 || (marker >= 0xD0 && marker <= 0xD8)) continue;
+    if (pos + 2 > jpeg.size()) break;
+    const size_t length = (static_cast<size_t>(jpeg[pos]) << 8) | jpeg[pos + 1];
+    if (length < 2 || pos + length > jpeg.size()) break;
+    const size_t payload_begin = pos + 2;
+    const size_t payload_size = length - 2;
+    if (marker == 0xE1 && payload_size >= signature.size() + 1 &&
+        std::string_view(reinterpret_cast<const char*>(jpeg.data() + payload_begin),
+                         signature.size()) == signature &&
+        jpeg[payload_begin + signature.size()] == 0) {
+      segments.push_back({marker_begin, pos + length, payload_begin, payload_size});
+    }
+    pos += length;
+  }
+  return segments;
+}
+
+static std::vector<JpegSegmentSpan> findExtendedXmpSegments(const std::vector<uint8_t>& jpeg) {
+  return findApp1Segments(jpeg, "http://ns.adobe.com/xmp/extension/");
+}
+
+static uint32_t readBigEndian32(const std::vector<uint8_t>& bytes, size_t offset) {
+  return (static_cast<uint32_t>(bytes[offset]) << 24) |
+         (static_cast<uint32_t>(bytes[offset + 1]) << 16) |
+         (static_cast<uint32_t>(bytes[offset + 2]) << 8) | bytes[offset + 3];
+}
+
+static void writeBigEndian32(std::vector<uint8_t>* bytes, size_t offset, uint32_t value) {
+  for (int shift = 24; shift >= 0; shift -= 8) {
+    (*bytes)[offset++] = static_cast<uint8_t>((value >> shift) & 0xFF);
+  }
+}
+
+static bool reverseExtendedXmpSegments(std::vector<uint8_t>* jpeg) {
+  const std::vector<JpegSegmentSpan> segments = findExtendedXmpSegments(*jpeg);
+  if (segments.size() < 2) return false;
+  for (size_t index = 1; index < segments.size(); ++index) {
+    if (segments[index - 1].end != segments[index].begin) return false;
+  }
+  std::vector<uint8_t> reordered(jpeg->begin(), jpeg->begin() + segments.front().begin);
+  for (auto segment = segments.rbegin(); segment != segments.rend(); ++segment) {
+    reordered.insert(reordered.end(), jpeg->begin() + segment->begin, jpeg->begin() + segment->end);
+  }
+  reordered.insert(reordered.end(), jpeg->begin() + segments.back().end, jpeg->end());
+  *jpeg = std::move(reordered);
+  return true;
+}
+
+static std::string makeLargeGainMapOnlyXmp(size_t size) {
+  const std::string prefix =
+      "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF "
+      "xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description "
+      "rdf:about=\"\" xmlns:hdrgm=\"http://ns.adobe.com/hdr-gain-map/1.0/\">"
+      "<hdrgm:Version>";
+  const std::string suffix = "</hdrgm:Version></rdf:Description></rdf:RDF></x:xmpmeta>";
+  EXPECT_GE(size, prefix.size() + suffix.size());
+  return prefix + std::string(size - prefix.size() - suffix.size(), '1') + suffix;
+}
+
 #if defined(UHDR_WRITE_XMP)
 struct ContainerDirectoryInfo {
   bool parsed = false;
@@ -1035,8 +1112,18 @@ TEST_F(UltraHdrApiTest, StripGainMapPreservesSharedDescriptionAndExtendedXmp) {
   EXPECT_EQ(stripped_shared.find("hdrgm:"), std::string::npos);
   EXPECT_EQ(stripped_shared.find("Container:"), std::string::npos);
 
-  // Part 2: Multi-segment Extended XMP (> 64 KB) preserved through uhdr_strip_gain_map.
-  const std::string ext_xmp = makeLargeXmp(140000);
+  // Part 2: Multi-segment Extended XMP (> 64 KB) is stripped and relinked.
+  std::string ext_xmp = makeLargeXmp(140000);
+  const std::string about = "rdf:about=\"\"";
+  const size_t about_pos = ext_xmp.find(about);
+  ASSERT_NE(about_pos, std::string::npos);
+  ext_xmp.insert(about_pos + about.size(),
+                 " xmlns:hdrgm=\"http://ns.adobe.com/hdr-gain-map/1.0/\" "
+                 "hdrgm:Version=\"1.0\"");
+  std::string expected_ext_xmp;
+  ASSERT_TRUE(stripGainMapFromXmp(ext_xmp, &expected_ext_xmp));
+  EXPECT_EQ(expected_ext_xmp.find("hdrgm:Version"), std::string::npos);
+  EXPECT_NE(expected_ext_xmp.find("<dc:Pad"), std::string::npos);
   uhdr_mem_block_t ext_xmp_block{const_cast<char*>(ext_xmp.data()), ext_xmp.size(), ext_xmp.size()};
   EncoderPtr enc = makeEncoder();
   ASSERT_NE(enc, nullptr);
@@ -1049,15 +1136,207 @@ TEST_F(UltraHdrApiTest, StripGainMapPreservesSharedDescriptionAndExtendedXmp) {
   uhdr_compressed_image_t* uhdr_stream = uhdr_get_encoded_stream(enc.get());
   ASSERT_NE(uhdr_stream, nullptr);
 
-  std::vector<uint8_t> stripped_buf(uhdr_stream->data_sz);
+  std::vector<uint8_t> reordered_input(
+      static_cast<const uint8_t*>(uhdr_stream->data),
+      static_cast<const uint8_t*>(uhdr_stream->data) + uhdr_stream->data_sz);
+  ASSERT_TRUE(reverseExtendedXmpSegments(&reordered_input));
+  uhdr_compressed_image_t reordered_stream{reordered_input.data(), reordered_input.size(),
+                                           reordered_input.size(), UHDR_CG_UNSPECIFIED,
+                                           UHDR_CT_UNSPECIFIED, UHDR_CR_UNSPECIFIED};
+  std::vector<uint8_t> stripped_buf(reordered_input.size());
   uhdr_mem_block_t stripped_block{stripped_buf.data(), 0, stripped_buf.size()};
-  ASSERT_EQ(uhdr_strip_gain_map(uhdr_stream, &stripped_block).error_code, UHDR_CODEC_OK);
+  ASSERT_EQ(uhdr_strip_gain_map(&reordered_stream, &stripped_block).error_code, UHDR_CODEC_OK);
   EXPECT_EQ(is_uhdr_image(stripped_block.data, static_cast<int>(stripped_block.data_sz)), 0);
 
   JpegDecoderHelper stripped_decoder;
   ASSERT_EQ(stripped_decoder.parseImage(stripped_block.data, stripped_block.data_sz).error_code, UHDR_CODEC_OK);
-  ASSERT_EQ(stripped_decoder.getXMPSize(), ext_xmp.size());
-  EXPECT_EQ(memcmp(stripped_decoder.getXMPPtr(), ext_xmp.data(), ext_xmp.size()), 0);
+  ASSERT_EQ(stripped_decoder.getXMPSize(), expected_ext_xmp.size());
+  EXPECT_EQ(memcmp(stripped_decoder.getXMPPtr(), expected_ext_xmp.data(), expected_ext_xmp.size()), 0);
+  const std::vector<uint8_t> stripped_jpeg(
+      static_cast<const uint8_t*>(stripped_block.data),
+      static_cast<const uint8_t*>(stripped_block.data) + stripped_block.data_sz);
+  const std::vector<JpegSegmentSpan> standard_segments =
+      findApp1Segments(stripped_jpeg, "http://ns.adobe.com/xap/1.0/");
+  std::string linked_guid;
+  for (const JpegSegmentSpan& segment : standard_segments) {
+    constexpr std::string_view kStandardNamespace = "http://ns.adobe.com/xap/1.0/";
+    const size_t xml_begin = segment.payload_begin + kStandardNamespace.size() + 1;
+    const std::string standard_xml(
+        reinterpret_cast<const char*>(stripped_jpeg.data() + xml_begin),
+        segment.payload_size - kStandardNamespace.size() - 1);
+    std::string segment_guid;
+    ASSERT_TRUE(getExtendedXmpGuidFromXmp(standard_xml, &segment_guid));
+    if (!segment_guid.empty()) {
+      ASSERT_TRUE(linked_guid.empty());
+      linked_guid = segment_guid;
+    }
+  }
+  ASSERT_FALSE(linked_guid.empty());
+  EXPECT_EQ(linked_guid,
+            computeMd5Guid(reinterpret_cast<const uint8_t*>(expected_ext_xmp.data()),
+                           expected_ext_xmp.size()));
+}
+
+TEST_F(UltraHdrApiTest, StripGainMapLeavesUserOnlyExtendedXmpChunksUnchanged) {
+  const std::string user_xmp = makeLargeXmp(140000);
+  uhdr_mem_block_t xmp_block{const_cast<char*>(user_xmp.data()), user_xmp.size(), user_xmp.size()};
+  EncoderPtr enc = makeEncoder();
+  ASSERT_NE(enc, nullptr);
+  uhdr_gainmap_metadata_t metadata = makeTestGainmapMetadata();
+  ASSERT_EQ(configureJpegGainmapEncoder(enc.get(), &mSdrCompressed, &mSdrCompressed, &metadata,
+                                        &xmp_block)
+                .error_code,
+            UHDR_CODEC_OK);
+  ASSERT_EQ(uhdr_encode(enc.get()).error_code, UHDR_CODEC_OK);
+  uhdr_compressed_image_t* encoded = uhdr_get_encoded_stream(enc.get());
+  ASSERT_NE(encoded, nullptr);
+  std::vector<uint8_t> original(static_cast<const uint8_t*>(encoded->data),
+                                static_cast<const uint8_t*>(encoded->data) + encoded->data_sz);
+  const std::vector<JpegSegmentSpan> original_segments = findExtendedXmpSegments(original);
+  ASSERT_GE(original_segments.size(), 2u);
+
+  uhdr_compressed_image_t input{original.data(), original.size(), original.size(),
+                                UHDR_CG_UNSPECIFIED, UHDR_CT_UNSPECIFIED,
+                                UHDR_CR_UNSPECIFIED};
+  std::vector<uint8_t> output(original.size());
+  uhdr_mem_block_t output_block{output.data(), 0, output.size()};
+  ASSERT_EQ(uhdr_strip_gain_map(&input, &output_block).error_code, UHDR_CODEC_OK);
+  output.resize(output_block.data_sz);
+  const std::vector<JpegSegmentSpan> output_segments = findExtendedXmpSegments(output);
+  ASSERT_EQ(output_segments.size(), original_segments.size());
+  for (size_t index = 0; index < original_segments.size(); ++index) {
+    const JpegSegmentSpan& before = original_segments[index];
+    const JpegSegmentSpan& after = output_segments[index];
+    ASSERT_EQ(before.end - before.begin, after.end - after.begin);
+    EXPECT_EQ(std::memcmp(original.data() + before.begin, output.data() + after.begin,
+                          before.end - before.begin),
+              0);
+  }
+  JpegDecoderHelper decoder;
+  ASSERT_EQ(decoder.parseImage(output.data(), output.size()).error_code, UHDR_CODEC_OK);
+  ASSERT_EQ(decoder.getXMPSize(), user_xmp.size());
+  EXPECT_EQ(std::memcmp(decoder.getXMPPtr(), user_xmp.data(), user_xmp.size()), 0);
+}
+
+TEST_F(UltraHdrApiTest, StripGainMapRemovesEmptyLinkedExtendedXmp) {
+  const std::string gainmap_only_xmp = makeLargeGainMapOnlyXmp(140000);
+  std::string stripped_xmp;
+  ASSERT_TRUE(stripGainMapFromXmp(gainmap_only_xmp, &stripped_xmp));
+  ASSERT_TRUE(stripped_xmp.empty());
+  uhdr_mem_block_t xmp_block{const_cast<char*>(gainmap_only_xmp.data()), gainmap_only_xmp.size(),
+                             gainmap_only_xmp.size()};
+  EncoderPtr enc = makeEncoder();
+  ASSERT_NE(enc, nullptr);
+  uhdr_gainmap_metadata_t metadata = makeTestGainmapMetadata();
+  ASSERT_EQ(configureJpegGainmapEncoder(enc.get(), &mSdrCompressed, &mSdrCompressed, &metadata,
+                                        &xmp_block)
+                .error_code,
+            UHDR_CODEC_OK);
+  ASSERT_EQ(uhdr_encode(enc.get()).error_code, UHDR_CODEC_OK);
+  uhdr_compressed_image_t* encoded = uhdr_get_encoded_stream(enc.get());
+  ASSERT_NE(encoded, nullptr);
+  std::vector<uint8_t> output(encoded->data_sz);
+  uhdr_mem_block_t output_block{output.data(), 0, output.size()};
+  ASSERT_EQ(uhdr_strip_gain_map(encoded, &output_block).error_code, UHDR_CODEC_OK);
+  output.resize(output_block.data_sz);
+  EXPECT_TRUE(findExtendedXmpSegments(output).empty());
+  JpegDecoderHelper decoder;
+  ASSERT_EQ(decoder.parseImage(output.data(), output.size()).error_code, UHDR_CODEC_OK);
+  ASSERT_NE(decoder.getXMPPtr(), nullptr);
+  uhdr_mem_block_t decoded_xmp_block{decoder.getXMPPtr(), decoder.getXMPSize(),
+                                     decoder.getXMPSize()};
+  const std::string decoded_xmp = getXmpPacket(&decoded_xmp_block);
+  std::string guid;
+  ASSERT_TRUE(getExtendedXmpGuidFromXmp(decoded_xmp, &guid)) << decoded_xmp;
+  EXPECT_TRUE(guid.empty());
+}
+
+TEST_F(UltraHdrApiTest, StripGainMapRejectsMalformedLinkedExtendedXmpWithoutWriting) {
+  constexpr std::string_view kExtensionNamespace = "http://ns.adobe.com/xmp/extension/";
+  std::string ext_xmp = makeLargeXmp(140000);
+  const size_t about_pos = ext_xmp.find("rdf:about=\"\"");
+  ASSERT_NE(about_pos, std::string::npos);
+  ext_xmp.insert(about_pos + std::string("rdf:about=\"\"").size(),
+                 " xmlns:hdrgm=\"http://ns.adobe.com/hdr-gain-map/1.0/\" "
+                 "hdrgm:Version=\"1.0\"");
+  uhdr_mem_block_t xmp_block{const_cast<char*>(ext_xmp.data()), ext_xmp.size(), ext_xmp.size()};
+  EncoderPtr enc = makeEncoder();
+  ASSERT_NE(enc, nullptr);
+  uhdr_gainmap_metadata_t metadata = makeTestGainmapMetadata();
+  ASSERT_EQ(configureJpegGainmapEncoder(enc.get(), &mSdrCompressed, &mSdrCompressed, &metadata,
+                                        &xmp_block)
+                .error_code,
+            UHDR_CODEC_OK);
+  ASSERT_EQ(uhdr_encode(enc.get()).error_code, UHDR_CODEC_OK);
+  uhdr_compressed_image_t* encoded = uhdr_get_encoded_stream(enc.get());
+  ASSERT_NE(encoded, nullptr);
+  const std::vector<uint8_t> original(static_cast<const uint8_t*>(encoded->data),
+                                      static_cast<const uint8_t*>(encoded->data) + encoded->data_sz);
+  const std::vector<JpegSegmentSpan> segments = findExtendedXmpSegments(original);
+  ASSERT_GE(segments.size(), 2u);
+  const size_t extension_header = kExtensionNamespace.size() + 1 + 32 + 8;
+  const size_t total_offset = segments[1].payload_begin + kExtensionNamespace.size() + 1 + 32;
+  const size_t chunk_offset = total_offset + 4;
+
+  std::vector<std::vector<uint8_t>> malformed;
+  malformed.push_back(original);
+  malformed.back().erase(malformed.back().begin() + segments.back().begin,
+                         malformed.back().begin() + segments.back().end);
+  malformed.push_back(original);
+  writeBigEndian32(&malformed.back(), total_offset,
+                   readBigEndian32(malformed.back(), total_offset) + 1);
+  malformed.push_back(original);
+  writeBigEndian32(&malformed.back(), chunk_offset, 0);
+  malformed.push_back(original);
+  const size_t changed_byte = ext_xmp.find('X');
+  ASSERT_NE(changed_byte, std::string::npos);
+  bool digest_byte_changed = false;
+  for (const JpegSegmentSpan& segment : segments) {
+    const size_t header = segment.payload_begin + extension_header;
+    const size_t offset = readBigEndian32(malformed.back(), header - 4);
+    const size_t data_size = segment.payload_size - extension_header;
+    if (changed_byte >= offset && changed_byte - offset < data_size) {
+      malformed.back()[header + changed_byte - offset] = 'Y';
+      digest_byte_changed = true;
+      break;
+    }
+  }
+  ASSERT_TRUE(digest_byte_changed);
+
+  for (size_t index = 0; index < malformed.size(); ++index) {
+    SCOPED_TRACE(index);
+    uhdr_compressed_image_t input{malformed[index].data(), malformed[index].size(),
+                                  malformed[index].size(), UHDR_CG_UNSPECIFIED,
+                                  UHDR_CT_UNSPECIFIED, UHDR_CR_UNSPECIFIED};
+    std::vector<uint8_t> output(malformed[index].size() * 2, 0xA5);
+    uhdr_mem_block_t output_block{output.data(), 0, output.size()};
+    EXPECT_EQ(uhdr_strip_gain_map(&input, &output_block).error_code, UHDR_CODEC_INVALID_PARAM);
+    EXPECT_TRUE(std::all_of(output.begin(), output.end(), [](uint8_t value) { return value == 0xA5; }));
+  }
+}
+
+TEST_F(UltraHdrApiTest, ExtendedXmpElementLinkIsUpdatedAndRemovedByNamespace) {
+  const std::string old_guid = "0123456789ABCDEF0123456789ABCDEF";
+  const std::string new_guid = "FEDCBA9876543210FEDCBA9876543210";
+  const std::string xmp =
+      "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF "
+      "xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description "
+      "rdf:about=\"\" xmlns:n=\"http://ns.adobe.com/xmp/note/\" "
+      "xmlns:dc=\"http://purl.org/dc/elements/1.1/\" dc:title=\"Keep this title\">"
+      "<n:HasExtendedXMP>" + old_guid +
+      "</n:HasExtendedXMP></rdf:Description></rdf:RDF></x:xmpmeta>";
+  std::string found_guid;
+  ASSERT_TRUE(getExtendedXmpGuidFromXmp(xmp, &found_guid));
+  EXPECT_EQ(found_guid, old_guid);
+  std::string updated;
+  ASSERT_TRUE(replaceExtendedXmpGuidInXmp(xmp, new_guid, &updated));
+  EXPECT_NE(updated.find(new_guid), std::string::npos);
+  EXPECT_EQ(updated.find(old_guid), std::string::npos);
+  EXPECT_NE(updated.find("dc:title=\"Keep this title\""), std::string::npos);
+  std::string removed;
+  ASSERT_TRUE(replaceExtendedXmpGuidInXmp(xmp, "", &removed));
+  EXPECT_EQ(removed.find("HasExtendedXMP"), std::string::npos);
+  EXPECT_NE(removed.find("dc:title=\"Keep this title\""), std::string::npos);
 }
 
 TEST_F(UltraHdrApiTest, StripGainMapKeepsNamespaceUsedByRetainedDescendant) {

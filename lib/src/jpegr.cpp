@@ -20,11 +20,14 @@
 #include <functional>
 #include <mutex>
 #include <thread>
+#include <algorithm>
+#include <cstring>
 
 #include "ultrahdr/editorhelper.h"
 #include "ultrahdr/gainmapmetadata.h"
 #include "ultrahdr/ultrahdrcommon.h"
 #include "ultrahdr/jpegr.h"
+#include "ultrahdr/jpegrutils.h"
 #include "ultrahdr/icc.h"
 #include "ultrahdr/multipictureformat.h"
 
@@ -3018,6 +3021,224 @@ status_t JpegR::decodeJPEGR(jr_compressed_ptr jpegr_image_ptr, jr_uncompressed_p
   return result.error_code == UHDR_CODEC_OK ? JPEGR_NO_ERROR : JPEGR_UNKNOWN_ERROR;
 }
 
+namespace {
+
+struct XmpSegmentSpan {
+  size_t begin;
+  size_t end;
+  string xml;
+  size_t payload_begin;
+  size_t payload_size;
+};
+
+struct ExtendedXmpChunk {
+  size_t segment_index;
+  uint32_t offset;
+  size_t data_begin;
+  size_t data_size;
+};
+
+struct StripXmpEdit {
+  size_t begin;
+  size_t end;
+  vector<uint8_t> replacement;
+};
+
+uint32_t ReadBigEndian32(const uint8_t* bytes) {
+  return (static_cast<uint32_t>(bytes[0]) << 24) | (static_cast<uint32_t>(bytes[1]) << 16) |
+         (static_cast<uint32_t>(bytes[2]) << 8) | static_cast<uint32_t>(bytes[3]);
+}
+
+void AppendBigEndian32(uint32_t value, string* bytes) {
+  for (int shift = 24; shift >= 0; shift -= 8) {
+    bytes->push_back(static_cast<char>((value >> shift) & 0xff));
+  }
+}
+
+bool AppendApp1Segment(const string& signature, const string& body, vector<uint8_t>* output) {
+  const size_t payload_size = signature.size() + 1 + body.size();
+  if (payload_size + 2 > kJpegSegmentMaxLength) return false;
+  const size_t length = payload_size + 2;
+  output->insert(output->end(), {JpegMarker::kStart, JpegMarker::kAPP1,
+                                 static_cast<uint8_t>(length >> 8),
+                                 static_cast<uint8_t>(length & 0xff)});
+  output->insert(output->end(), signature.begin(), signature.end());
+  output->push_back('\0');
+  output->insert(output->end(), body.begin(), body.end());
+  return true;
+}
+
+bool RewriteLinkedExtendedXmp(vector<uint8_t>* output, const vector<XmpSegmentSpan>& standard_xmp,
+                              const vector<XmpSegmentSpan>& extended_xmp, const uint8_t* input,
+                              size_t input_size, string* error) {
+  string linked_guid;
+  for (const XmpSegmentSpan& standard : standard_xmp) {
+    string guid;
+    if (!getExtendedXmpGuidFromXmp(standard.xml, &guid)) {
+      *error = "malformed HasExtendedXMP reference in standard XMP";
+      return false;
+    }
+    if (!guid.empty() && !linked_guid.empty() && guid != linked_guid) {
+      *error = "standard XMP contains ambiguous Extended XMP links";
+      return false;
+    }
+    if (!guid.empty()) linked_guid = guid;
+  }
+  if (linked_guid.empty()) return true;
+
+  const size_t extension_signature_size = kExtendedXmpNameSpace.size() + 1;
+  vector<ExtendedXmpChunk> chunks;
+  uint32_t total_size = 0;
+  size_t covered_size = 0;
+  for (size_t index = 0; index < extended_xmp.size(); ++index) {
+    const XmpSegmentSpan& segment = extended_xmp[index];
+    if (segment.payload_size < extension_signature_size ||
+        memcmp(input + segment.payload_begin, kExtendedXmpNameSpace.c_str(),
+               extension_signature_size) != 0 ||
+        segment.payload_size < extension_signature_size + 32) {
+      continue;
+    }
+    const uint8_t* payload = input + segment.payload_begin;
+    if (memcmp(payload + extension_signature_size, linked_guid.data(), linked_guid.size()) != 0) {
+      continue;
+    }
+    if (segment.payload_size < extension_signature_size + 40) {
+      *error = "linked Extended XMP chunk has a truncated header";
+      return false;
+    }
+    const uint32_t chunk_total = ReadBigEndian32(payload + extension_signature_size + 32);
+    const uint32_t chunk_offset = ReadBigEndian32(payload + extension_signature_size + 36);
+    const size_t data_offset = segment.payload_begin + extension_signature_size + 40;
+    const size_t data_size = segment.payload_size - extension_signature_size - 40;
+    if (chunk_total == 0 || chunk_total > input_size || chunk_offset > chunk_total ||
+        data_size == 0 || data_size > chunk_total - chunk_offset ||
+        data_size > input_size - covered_size ||
+        (total_size != 0 && total_size != chunk_total)) {
+      *error = "linked Extended XMP chunk has invalid bounds or length";
+      return false;
+    }
+    total_size = chunk_total;
+    covered_size += data_size;
+    chunks.push_back({index, chunk_offset, data_offset, data_size});
+  }
+  if (chunks.empty()) {
+    *error = "standard XMP links to missing Extended XMP chunks";
+    return false;
+  }
+  sort(chunks.begin(), chunks.end(), [](const ExtendedXmpChunk& left,
+                                        const ExtendedXmpChunk& right) {
+    return left.offset < right.offset;
+  });
+  size_t next_offset = 0;
+  for (const ExtendedXmpChunk& chunk : chunks) {
+    if (chunk.offset != next_offset) {
+      *error = "linked Extended XMP chunks contain a gap or overlap";
+      return false;
+    }
+    next_offset += chunk.data_size;
+  }
+  if (next_offset != total_size || covered_size != total_size) {
+    *error = "linked Extended XMP chunks do not cover the declared packet";
+    return false;
+  }
+
+  string packet;
+  packet.reserve(total_size);
+  for (const ExtendedXmpChunk& chunk : chunks) {
+    packet.append(reinterpret_cast<const char*>(input + chunk.data_begin), chunk.data_size);
+  }
+  if (computeMd5Guid(reinterpret_cast<const uint8_t*>(packet.data()), packet.size()) != linked_guid) {
+    *error = "linked Extended XMP packet MD5 does not match its GUID";
+    return false;
+  }
+  string stripped_packet;
+  if (!stripGainMapFromXmp(packet, &stripped_packet)) {
+    *error = "unable to strip gain map properties from linked Extended XMP";
+    return false;
+  }
+  if (stripped_packet == packet) return true;
+
+  string new_guid;
+  if (!stripped_packet.empty()) {
+    new_guid = computeMd5Guid(reinterpret_cast<const uint8_t*>(stripped_packet.data()),
+                              stripped_packet.size());
+  }
+
+  vector<StripXmpEdit> edits;
+  for (const XmpSegmentSpan& standard : standard_xmp) {
+    string guid;
+    if (!getExtendedXmpGuidFromXmp(standard.xml, &guid)) {
+      *error = "malformed HasExtendedXMP reference in standard XMP";
+      return false;
+    }
+    if (guid.empty()) continue;
+    if (guid != linked_guid) {
+      *error = "standard XMP references multiple Extended XMP packets";
+      return false;
+    }
+    string rewritten_xml;
+    if (!replaceExtendedXmpGuidInXmp(standard.xml, new_guid, &rewritten_xml)) {
+      *error = "unable to update standard XMP Extended XMP reference";
+      return false;
+    }
+    vector<uint8_t> replacement;
+    if (!AppendApp1Segment(kXmpNameSpace, rewritten_xml, &replacement)) {
+      *error = "rewritten standard XMP exceeds APP1 segment capacity";
+      return false;
+    }
+    edits.push_back({standard.begin, standard.end, std::move(replacement)});
+  }
+
+  size_t first_linked_segment = extended_xmp.size();
+  for (const ExtendedXmpChunk& chunk : chunks) {
+    if (first_linked_segment == extended_xmp.size() ||
+        extended_xmp[chunk.segment_index].begin < extended_xmp[first_linked_segment].begin) {
+      first_linked_segment = chunk.segment_index;
+    }
+  }
+  vector<uint8_t> replacement_chunks;
+  if (!stripped_packet.empty()) {
+    for (size_t offset = 0; offset < stripped_packet.size(); offset += kExtendedXmpMaxChunkSize) {
+      const size_t count = (std::min)(kExtendedXmpMaxChunkSize, stripped_packet.size() - offset);
+      string body = new_guid;
+      AppendBigEndian32(static_cast<uint32_t>(stripped_packet.size()), &body);
+      AppendBigEndian32(static_cast<uint32_t>(offset), &body);
+      body.append(stripped_packet, offset, count);
+      if (!AppendApp1Segment(kExtendedXmpNameSpace, body, &replacement_chunks)) {
+        *error = "rewritten Extended XMP chunk exceeds APP1 segment capacity";
+        return false;
+      }
+    }
+  }
+  for (const ExtendedXmpChunk& chunk : chunks) {
+    const XmpSegmentSpan& segment = extended_xmp[chunk.segment_index];
+    vector<uint8_t> replacement;
+    if (chunk.segment_index == first_linked_segment) replacement = replacement_chunks;
+    edits.push_back({segment.begin, segment.end, std::move(replacement)});
+  }
+
+  sort(edits.begin(), edits.end(), [](const StripXmpEdit& left, const StripXmpEdit& right) {
+    return left.begin < right.begin;
+  });
+  vector<uint8_t> rewritten;
+  rewritten.reserve(output->size());
+  size_t cursor = 0;
+  for (const StripXmpEdit& edit : edits) {
+    if (edit.begin < cursor || edit.begin > edit.end || edit.end > output->size()) {
+      *error = "overlapping Extended XMP rewrite spans";
+      return false;
+    }
+    rewritten.insert(rewritten.end(), output->begin() + cursor, output->begin() + edit.begin);
+    rewritten.insert(rewritten.end(), edit.replacement.begin(), edit.replacement.end());
+    cursor = edit.end;
+  }
+  rewritten.insert(rewritten.end(), output->begin() + cursor, output->end());
+  *output = std::move(rewritten);
+  return true;
+}
+
+}  // namespace
+
 uhdr_error_info_t JpegR::stripGainMap(uhdr_compressed_image_t* in_stream,
                                       uhdr_mem_block_t* out_stream) {
   if (in_stream == nullptr) {
@@ -3070,8 +3291,11 @@ uhdr_error_info_t JpegR::stripGainMap(uhdr_compressed_image_t* in_stream,
   out_buf.push_back(JpegMarker::kSOI);
 
   const size_t xmp_ns_len = kXmpNameSpace.size() + 1;
+  const size_t extended_xmp_ns_len = kExtendedXmpNameSpace.size() + 1;
   const size_t iso_ns_len = kIsoNameSpace.size() + 1;
   const size_t mpf_sig_len = sizeof(kMpfSig);
+  vector<XmpSegmentSpan> standard_xmp;
+  vector<XmpSegmentSpan> extended_xmp;
 
   size_t pos = 2;
   bool seen_sos = false;
@@ -3179,6 +3403,7 @@ uhdr_error_info_t JpegR::stripGainMap(uhdr_compressed_image_t* in_stream,
           return status;
         }
         if (!stripped_xmp.empty()) {
+          const size_t output_begin = out_buf.size();
           const size_t new_seg_len = 2 + xmp_ns_len + stripped_xmp.size();
           if (new_seg_len > 0xFFFF) {
             uhdr_error_info_t status;
@@ -3199,7 +3424,14 @@ uhdr_error_info_t JpegR::stripGainMap(uhdr_compressed_image_t* in_stream,
                          reinterpret_cast<const uint8_t*>(stripped_xmp.data()),
                          reinterpret_cast<const uint8_t*>(stripped_xmp.data()) +
                              stripped_xmp.size());
+          standard_xmp.push_back({output_begin, out_buf.size(), stripped_xmp, 0, 0});
         }
+      } else if (payload_len >= extended_xmp_ns_len &&
+                 memcmp(payload, kExtendedXmpNameSpace.c_str(), extended_xmp_ns_len) == 0) {
+        const size_t output_begin = out_buf.size();
+        out_buf.insert(out_buf.end(), data + marker_start, data + next_pos);
+        extended_xmp.push_back({output_begin, out_buf.size(), string(),
+                                static_cast<size_t>(payload - data), payload_len});
       } else {
         out_buf.insert(out_buf.end(), data + marker_start, data + next_pos);
       }
@@ -3253,6 +3485,17 @@ uhdr_error_info_t JpegR::stripGainMap(uhdr_compressed_image_t* in_stream,
     status.has_detail = 1;
     snprintf(status.detail, sizeof status.detail,
              "incomplete primary JPEG stream (missing SOS or EOI marker)");
+    return status;
+  }
+
+  string extended_xmp_error;
+  if (!RewriteLinkedExtendedXmp(&out_buf, standard_xmp, extended_xmp, data, size,
+                                &extended_xmp_error)) {
+    uhdr_error_info_t status;
+    status.error_code = UHDR_CODEC_INVALID_PARAM;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "unable to process linked Extended XMP: %s", extended_xmp_error.c_str());
     return status;
   }
 
