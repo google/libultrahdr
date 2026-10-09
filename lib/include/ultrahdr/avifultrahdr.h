@@ -59,6 +59,7 @@ class AvifUltraHdr : public UltraHdr {
    * sdr intent. sdr intent and gain map coefficient are compressed using heif/avif encoding.
    * compressed sdr intent is signalled as primary item and compressed gainmap is signalled as a
    * tone map derived item
+   * NOTE: Alpha is preserved as straight 8-bit alpha when hdr intent uses an RGBA pixel format.
    *
    * \param[in]       hdr_intent        hdr intent raw input image descriptor
    * \param[in, out]  dest              output image descriptor to store compressed ultrahdr image
@@ -79,6 +80,7 @@ class AvifUltraHdr : public UltraHdr {
    * coefficient are compressed using heif/avif encoding. compressed sdr intent is signalled as
    * primary item and compressed gainmap is signalled as a tone map derived item
    * NOTE: Color transfer of sdr intent is expected to be sRGB.
+   * NOTE: Alpha is preserved as straight 8-bit alpha when sdr intent uses an RGBA pixel format.
    *
    * \param[in]       hdr_intent        hdr intent raw input image descriptor
    * \param[in]       sdr_intent        sdr intent raw input image descriptor
@@ -147,6 +149,8 @@ class AvifUltraHdr : public UltraHdr {
    * primary item and compressed gainmap is signalled as a tone map derived item
    *
    * \param[in]       sdr_intent        sdr intent raw input image descriptor
+   * \param[in]       base_alpha_source optional raw RGBA image whose alpha is encoded as straight
+   *                                    8-bit alpha in the base image
    * \param[in]       gainmap_img       gainmap raw image descriptor
    * \param[in]       metadata          gainmap metadata descriptor
    * \param[in, out]  dest              output image descriptor to store compressed ultrahdr image
@@ -158,10 +162,13 @@ class AvifUltraHdr : public UltraHdr {
    *
    * \return uhdr_error_info_t #UHDR_CODEC_OK if operation succeeds, uhdr_codec_err_t otherwise.
    */
-  uhdr_error_info_t encodeAvifUltraHdr(uhdr_raw_image_t* sdr_intent, uhdr_raw_image_t* gainmap_img,
-                                uhdr_gainmap_metadata_ext_t* metadata,
-                                uhdr_compressed_image_t* dest, int quality, uhdr_mem_block_t* exif,
-                                DataStruct* baseIcc, DataStruct* alternateIcc);
+  uhdr_error_info_t encodeAvifUltraHdr(uhdr_raw_image_t* sdr_intent,
+                                       uhdr_raw_image_t* base_alpha_source,
+                                       uhdr_raw_image_t* gainmap_img,
+                                       uhdr_gainmap_metadata_ext_t* metadata,
+                                       uhdr_compressed_image_t* dest, int quality,
+                                       uhdr_mem_block_t* exif, DataStruct* baseIcc,
+                                       DataStruct* alternateIcc);
 
   uhdr_codec_t mCodec;
 };

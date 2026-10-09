@@ -553,6 +553,205 @@ TEST_F(GainMapMathTest, PutRgb888PixelWritesGreenChannel) {
   EXPECT_EQ(230, data[2]);
 }
 
+TEST_F(GainMapMathTest, ConvertRgbInputsToYuv420HandleEveryPartialBlockShape) {
+  constexpr uhdr_img_fmt_t formats[] = {
+      UHDR_IMG_FMT_24bppRGB888,
+      UHDR_IMG_FMT_32bppRGBA8888,
+  };
+  constexpr unsigned geometries[][2] = {
+      {4, 4}, {1, 1}, {1, 3}, {3, 1}, {3, 2}, {2, 3}, {3, 3},
+  };
+  for (const uhdr_img_fmt_t format : formats) {
+    const size_t bytes_per_pixel = format == UHDR_IMG_FMT_24bppRGB888 ? 3 : 4;
+    GetPixelFn get_pixel = getPixelFn(format);
+    ASSERT_NE(get_pixel, nullptr);
+    for (const auto& geometry : geometries) {
+      const unsigned width = geometry[0];
+      const unsigned height = geometry[1];
+      SCOPED_TRACE(testing::Message()
+                   << "format=" << format << ", geometry=" << width << "x" << height);
+      std::vector<uint8_t> source_data(static_cast<size_t>(width) * height * bytes_per_pixel);
+      uhdr_raw_image_t source{};
+      source.fmt = format;
+      source.cg = UHDR_CG_BT_709;
+      source.ct = UHDR_CT_SRGB;
+      source.range = UHDR_CR_FULL_RANGE;
+      source.w = width;
+      source.h = height;
+      source.planes[UHDR_PLANE_PACKED] = source_data.data();
+      source.stride[UHDR_PLANE_PACKED] = width;
+      for (unsigned y = 0; y < height; ++y) {
+        for (unsigned x = 0; x < width; ++x) {
+          const size_t offset =
+              (static_cast<size_t>(y) * source.stride[UHDR_PLANE_PACKED] + x) * bytes_per_pixel;
+          source_data[offset] = static_cast<uint8_t>(31 + x * 37 + y * 3);
+          source_data[offset + 1] = static_cast<uint8_t>(47 + x * 11 + y * 29);
+          source_data[offset + 2] = static_cast<uint8_t>(59 + x * 19 + y * 7);
+          if (bytes_per_pixel == 4) source_data[offset + 3] = 255;
+        }
+      }
+
+      auto converted = convert_raw_input_to_ycbcr(&source, true);
+      ASSERT_NE(converted, nullptr);
+      EXPECT_GE(converted->stride[UHDR_PLANE_U], (width + 1) / 2);
+      EXPECT_GE(converted->stride[UHDR_PLANE_V], (width + 1) / 2);
+
+      for (unsigned y = 0; y < height; ++y) {
+        for (unsigned x = 0; x < width; ++x) {
+          Color expected = srgbRgbToYuv(get_pixel(&source, x, y));
+          expected.y = static_cast<float>(
+                           static_cast<uint8_t>(CLIP3(expected.y * 255.0f + 0.5f, 0.0f, 255.0f))) /
+                       255.0f;
+          EXPECT_NEAR(expected.y, getYuv420Pixel(converted.get(), x, y).y, YuvConversionEpsilon());
+        }
+      }
+
+      for (unsigned y = 0; y < height; y += 2) {
+        for (unsigned x = 0; x < width; x += 2) {
+          const unsigned next_x = (std::min)(x + 1, width - 1);
+          const unsigned next_y = (std::min)(y + 1, height - 1);
+          Color samples[] = {
+              srgbRgbToYuv(get_pixel(&source, x, y)),
+              srgbRgbToYuv(get_pixel(&source, next_x, y)),
+              srgbRgbToYuv(get_pixel(&source, x, next_y)),
+              srgbRgbToYuv(get_pixel(&source, next_x, next_y)),
+          };
+          const float average_u =
+              (samples[0].u + samples[1].u + samples[2].u + samples[3].u) / 4.0f;
+          const float average_v =
+              (samples[0].v + samples[1].v + samples[2].v + samples[3].v) / 4.0f;
+          const float expected_u = static_cast<float>(static_cast<uint8_t>(
+                                       CLIP3(average_u * 255.0f + 128.0f + 0.5f, 0.0f, 255.0f))) /
+                                       255.0f -
+                                   128.0f / 255.0f;
+          const float expected_v = static_cast<float>(static_cast<uint8_t>(
+                                       CLIP3(average_v * 255.0f + 128.0f + 0.5f, 0.0f, 255.0f))) /
+                                       255.0f -
+                                   128.0f / 255.0f;
+          const Color actual = getYuv420Pixel(converted.get(), x, y);
+          EXPECT_NEAR(expected_u, actual.u, YuvConversionEpsilon());
+          EXPECT_NEAR(expected_v, actual.v, YuvConversionEpsilon());
+        }
+      }
+    }
+  }
+}
+
+TEST_F(GainMapMathTest, ConvertRgba1010102ToP010HandlesEveryPartialBlockShape) {
+  constexpr unsigned geometries[][2] = {
+      {4, 4}, {1, 1}, {1, 3}, {3, 1}, {3, 2}, {2, 3}, {3, 3},
+  };
+  for (const auto& geometry : geometries) {
+    const unsigned width = geometry[0];
+    const unsigned height = geometry[1];
+    SCOPED_TRACE(testing::Message() << "geometry=" << width << "x" << height);
+    uhdr_raw_image_ext_t source(UHDR_IMG_FMT_32bppRGBA1010102, UHDR_CG_BT_709, UHDR_CT_HLG,
+                                UHDR_CR_FULL_RANGE, width, height, 64);
+    auto* source_data = static_cast<uint32_t*>(source.planes[UHDR_PLANE_PACKED]);
+    for (unsigned y = 0; y < height; ++y) {
+      for (unsigned x = 0; x < width; ++x) {
+        const float r = static_cast<float>(x + 1) / static_cast<float>(width + 1);
+        const float g = static_cast<float>(y + 1) / static_cast<float>(height + 1);
+        const float b = static_cast<float>(x + y + 1) / static_cast<float>(width + height);
+        source_data[static_cast<size_t>(y) * source.stride[UHDR_PLANE_PACKED] + x] =
+            colorToRgba1010102({{{r, g, b}}});
+      }
+    }
+
+    auto converted = convert_raw_input_to_ycbcr(&source, true);
+    ASSERT_NE(converted, nullptr);
+    EXPECT_EQ(UHDR_IMG_FMT_24bppYCbCrP010, converted->fmt);
+    EXPECT_EQ(width, converted->w);
+    EXPECT_EQ(height, converted->h);
+    EXPECT_GE(converted->stride[UHDR_PLANE_UV], 2 * ((width + 1) / 2));
+
+    for (unsigned y = 0; y < height; ++y) {
+      for (unsigned x = 0; x < width; ++x) {
+        const Color expected = srgbRgbToYuv(getRgba1010102Pixel(&source, x, y));
+        EXPECT_NEAR(expected.y, getP010Pixel(converted.get(), x, y).y, YuvConversionEpsilon());
+      }
+    }
+
+    for (unsigned y = 0; y < height; y += 2) {
+      for (unsigned x = 0; x < width; x += 2) {
+        const unsigned next_x = (std::min)(x + 1, width - 1);
+        const unsigned next_y = (std::min)(y + 1, height - 1);
+        Color samples[] = {
+            srgbRgbToYuv(getRgba1010102Pixel(&source, x, y)),
+            srgbRgbToYuv(getRgba1010102Pixel(&source, next_x, y)),
+            srgbRgbToYuv(getRgba1010102Pixel(&source, x, next_y)),
+            srgbRgbToYuv(getRgba1010102Pixel(&source, next_x, next_y)),
+        };
+        const float expected_u = (samples[0].u + samples[1].u + samples[2].u + samples[3].u) / 4.0f;
+        const float expected_v = (samples[0].v + samples[1].v + samples[2].v + samples[3].v) / 4.0f;
+        const Color actual = getP010Pixel(converted.get(), x, y);
+        EXPECT_NEAR(expected_u, actual.u, YuvConversionEpsilon());
+        EXPECT_NEAR(expected_v, actual.v, YuvConversionEpsilon());
+      }
+    }
+  }
+}
+
+TEST_F(GainMapMathTest, CopyRawImagePreservesOddYuv420ChromaGeometry) {
+  constexpr unsigned width = 3;
+  constexpr unsigned height = 3;
+  uhdr_raw_image_ext_t source(UHDR_IMG_FMT_12bppYCbCr420, UHDR_CG_BT_709, UHDR_CT_SRGB,
+                              UHDR_CR_FULL_RANGE, width, height, 1);
+  auto* source_u = static_cast<uint8_t*>(source.planes[UHDR_PLANE_U]);
+  auto* source_v = static_cast<uint8_t*>(source.planes[UHDR_PLANE_V]);
+  for (size_t y = 0; y < 2; ++y) {
+    for (size_t x = 0; x < 2; ++x) {
+      source_u[y * source.stride[UHDR_PLANE_U] + x] = static_cast<uint8_t>(31 + y * 7 + x);
+      source_v[y * source.stride[UHDR_PLANE_V] + x] = static_cast<uint8_t>(61 + y * 7 + x);
+    }
+  }
+
+  auto copy = copy_raw_image(&source);
+  ASSERT_NE(copy, nullptr);
+  const auto* copied_u = static_cast<const uint8_t*>(copy->planes[UHDR_PLANE_U]);
+  const auto* copied_v = static_cast<const uint8_t*>(copy->planes[UHDR_PLANE_V]);
+  for (size_t y = 0; y < 2; ++y) {
+    for (size_t x = 0; x < 2; ++x) {
+      EXPECT_EQ(source_u[y * source.stride[UHDR_PLANE_U] + x],
+                copied_u[y * copy->stride[UHDR_PLANE_U] + x]);
+      EXPECT_EQ(source_v[y * source.stride[UHDR_PLANE_V] + x],
+                copied_v[y * copy->stride[UHDR_PLANE_V] + x]);
+    }
+  }
+
+  uhdr_raw_image_t malformed = source;
+  malformed.stride[UHDR_PLANE_U] = 1;
+  EXPECT_EQ(copy_raw_image(&malformed, copy.get()).error_code, UHDR_CODEC_INVALID_PARAM);
+}
+
+TEST_F(GainMapMathTest, CopyRawImagePreservesOddP010ChromaGeometry) {
+  constexpr unsigned width = 3;
+  constexpr unsigned height = 3;
+  uhdr_raw_image_ext_t source(UHDR_IMG_FMT_24bppYCbCrP010, UHDR_CG_BT_2100, UHDR_CT_HLG,
+                              UHDR_CR_FULL_RANGE, width, height, 1);
+  auto* source_uv = static_cast<uint16_t*>(source.planes[UHDR_PLANE_UV]);
+  for (size_t y = 0; y < 2; ++y) {
+    for (size_t x = 0; x < 4; ++x) {
+      source_uv[y * source.stride[UHDR_PLANE_UV] + x] =
+          static_cast<uint16_t>((101 + y * 11 + x) << 6);
+    }
+  }
+
+  auto copy = copy_raw_image(&source);
+  ASSERT_NE(copy, nullptr);
+  const auto* copied_uv = static_cast<const uint16_t*>(copy->planes[UHDR_PLANE_UV]);
+  for (size_t y = 0; y < 2; ++y) {
+    for (size_t x = 0; x < 4; ++x) {
+      EXPECT_EQ(source_uv[y * source.stride[UHDR_PLANE_UV] + x],
+                copied_uv[y * copy->stride[UHDR_PLANE_UV] + x]);
+    }
+  }
+
+  uhdr_raw_image_t malformed = source;
+  malformed.stride[UHDR_PLANE_UV] = 3;
+  EXPECT_EQ(copy_raw_image(&malformed, copy.get()).error_code, UHDR_CODEC_INVALID_PARAM);
+}
+
 TEST_F(GainMapMathTest, SrgbLuminance) {
   EXPECT_FLOAT_EQ(srgbLuminance(RgbBlack()), 0.0f);
   EXPECT_FLOAT_EQ(srgbLuminance(RgbWhite()), 1.0f);
@@ -1497,12 +1696,33 @@ TEST_F(GainMapMathTest, GetP010Pixel) {
 
 TEST_F(GainMapMathTest, GetP010PixelOddWidth) {
   auto image = P010Image();
+  Color(*colors)[4] = P010Colors();
   image.w = 3;
   for (size_t y = 0; y < 4; ++y) {
     for (size_t x = 0; x < 3; ++x) {
-      EXPECT_NO_FATAL_FAILURE(getP010Pixel(&image, x, y));
+      EXPECT_YUV_NEAR(getP010Pixel(&image, x, y), colors[y][x]);
     }
   }
+}
+
+TEST_F(GainMapMathTest, GetP010PixelOddWidthClampsToCompleteAvailablePair) {
+  auto image = P010Image();
+  Color(*colors)[4] = P010Colors();
+  image.w = 3;
+  image.stride[UHDR_PLANE_UV] = 3;
+
+  // A three-sample row cannot contain the second complete interleaved UV pair. Reuse the last
+  // complete pair instead of reading its missing V sample.
+  Color expected = colors[0][2];
+  expected.u = colors[0][0].u;
+  expected.v = colors[0][0].v;
+  EXPECT_YUV_NEAR(getP010Pixel(&image, 2, 0), expected);
+
+  image.w = 1;
+  image.stride[UHDR_PLANE_UV] = 1;
+  Color single_sample_row = getP010Pixel(&image, 0, 0);
+  EXPECT_NEAR(single_sample_row.u, 0.0f, YuvConversionEpsilon());
+  EXPECT_NEAR(single_sample_row.v, 0.0f, YuvConversionEpsilon());
 }
 
 TEST_F(GainMapMathTest, SampleYuv420) {
