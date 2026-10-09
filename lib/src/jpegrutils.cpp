@@ -10,6 +10,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
+#include <utility>
 
 #include "ultrahdr/ultrahdrcommon.h"
 #include "ultrahdr/jpegr.h"
@@ -424,6 +426,8 @@ class XMPXmlHandler : public XmlHandler {
 };
 
 // GContainer XMP constants - URI and namespace prefix
+const string kRdfUri = "http://www.w3.org/1999/02/22-rdf-syntax-ns#";
+const string kAppleGainMapUri = "http://ns.apple.com/HDRGainMap/1.0/";
 const string kContainerUri = "http://ns.google.com/photos/1.0/container/";
 const string kContainerPrefix = "Container";
 
@@ -873,10 +877,936 @@ uhdr_error_info_t getMetadataFromXMP(uint8_t* xmp_data, size_t xmp_size, uint8_t
   return uhdr_validate_gainmap_metadata_descriptor(metadata);
 }
 
+
+/*
+ * Computes 128-bit MD5 digest formatted as a 32-character uppercase hexadecimal GUID.
+ *
+ * Specification References:
+ * 1. Adobe XMP Specification Part 3 (Storage in Files - ExtendedXMP in JPEG):
+ *    https://developer.adobe.com/xmp/docs/XMPSpecifications/
+ *    Mandates linking Extended XMP segments to Standard XMP using a 128-bit GUID computed
+ *    as the MD5 message digest of the serialized Extended XMP payload.
+ *
+ * 2. IETF RFC 1321 (The MD5 Message-Digest Algorithm):
+ *    https://www.ietf.org/rfc/rfc1321.txt
+ */
+std::string computeMd5Guid(const uint8_t* data, size_t len) {
+  // Initial 128-bit chaining state registers (RFC 1321, Section 3.3)
+  uint32_t h0 = 0x67452301;
+  uint32_t h1 = 0xEFCDAB89;
+  uint32_t h2 = 0x98BADCFE;
+  uint32_t h3 = 0x10325476;
+
+  // Additive constant table T[1..64] computed as floor(2^32 * abs(sin(i + 1))) (RFC 1321, Section 3.4 / Appendix A.3)
+  static const uint32_t k[64] = {
+      // Round 1
+      0xd76aa478, 0xe8c7b756, 0x242070db, 0xc1bdceee, 0xf57c0faf, 0x4787c62a, 0xa8304613, 0xfd469501,
+      0x698098d8, 0x8b44f7af, 0xffff5bb1, 0x895cd7be, 0x6b901122, 0xfd987193, 0xa679438e, 0x49b40821,
+      // Round 2
+      0xf61e2562, 0xc040b340, 0x265e5a51, 0xe9b6c7aa, 0xd62f105d, 0x02441453, 0xd8a1e681, 0xe7d3fbc8,
+      0x21e1cde6, 0xc33707d6, 0xf4d50d87, 0x455a14ed, 0xa9e3e905, 0xfcefa3f8, 0x676f02d9, 0x8d2a4c8a,
+      // Round 3
+      0xfffa3942, 0x8771f681, 0x6d9d6122, 0xfde5380c, 0xa4beea44, 0x4bdecfa9, 0xf6bb4b60, 0xbebfbc70,
+      0x289b7ec6, 0xeaa127fa, 0xd4ef3085, 0x04881d05, 0xd9d4d039, 0xe6db99e5, 0x1fa27cf8, 0xc4ac5665,
+      // Round 4
+      0xf4292244, 0x432aff97, 0xab9423a7, 0xfc93a039, 0x655b59c3, 0x8f0ccc92, 0xffeff47d, 0x85845dd1,
+      0x6fa87e4f, 0xfe2ce6e0, 0xa3014314, 0x4e0811a1, 0xf7537e82, 0xbd3af235, 0x2ad7d2bb, 0xeb86d391};
+
+  // Per-round bitwise left rotation shift amounts S[1..64] (RFC 1321, Section 3.4)
+  static const uint32_t r[64] = {
+      // Round 1 shifts: 7, 12, 17, 22
+      7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22,
+      // Round 2 shifts: 5, 9, 14, 20
+      5,  9, 14, 20, 5,  9, 14, 20, 5,  9, 14, 20, 5,  9, 14, 20,
+      // Round 3 shifts: 4, 11, 16, 23
+      4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23,
+      // Round 4 shifts: 6, 10, 15, 21
+      6, 10, 15, 21, 6, 10, 15, 21, 6, 10, 15, 21, 6, 10, 15, 21};
+
+  uint64_t bit_len = static_cast<uint64_t>(len) * 8;
+  size_t padded_len = ((len + 8) / 64 + 1) * 64;
+  std::vector<uint8_t> msg(padded_len, 0);
+  if (len > 0) {
+    memcpy(msg.data(), data, len);
+  }
+  msg[len] = 0x80;
+  for (int i = 0; i < 8; ++i) {
+    msg[padded_len - 8 + i] = static_cast<uint8_t>((bit_len >> (i * 8)) & 0xFF);
+  }
+
+  for (size_t chunk = 0; chunk < padded_len; chunk += 64) {
+    uint32_t w[16];
+    for (int i = 0; i < 16; ++i) {
+      w[i] = static_cast<uint32_t>(msg[chunk + i * 4]) |
+             (static_cast<uint32_t>(msg[chunk + i * 4 + 1]) << 8) |
+             (static_cast<uint32_t>(msg[chunk + i * 4 + 2]) << 16) |
+             (static_cast<uint32_t>(msg[chunk + i * 4 + 3]) << 24);
+    }
+
+    uint32_t a = h0;
+    uint32_t b = h1;
+    uint32_t c = h2;
+    uint32_t d = h3;
+
+    for (int i = 0; i < 64; ++i) {
+      uint32_t f, g;
+      if (i < 16) {
+        f = (b & c) | ((~b) & d);
+        g = i;
+      } else if (i < 32) {
+        f = (d & b) | ((~d) & c);
+        g = (5 * i + 1) % 16;
+      } else if (i < 48) {
+        f = b ^ c ^ d;
+        g = (3 * i + 5) % 16;
+      } else {
+        f = c ^ (b | (~d));
+        g = (7 * i) % 16;
+      }
+      uint32_t temp = d;
+      d = c;
+      c = b;
+      uint32_t sum = a + f + k[i] + w[g];
+      uint32_t rot = (sum << r[i]) | (sum >> (32 - r[i]));
+      b = b + rot;
+      a = temp;
+    }
+
+    h0 += a;
+    h1 += b;
+    h2 += c;
+    h3 += d;
+  }
+
+  uint8_t digest[16];
+  for (int i = 0; i < 4; ++i) {
+    digest[i] = (h0 >> (i * 8)) & 0xFF;
+    digest[4 + i] = (h1 >> (i * 8)) & 0xFF;
+    digest[8 + i] = (h2 >> (i * 8)) & 0xFF;
+    digest[12 + i] = (h3 >> (i * 8)) & 0xFF;
+  }
+
+  char hex[33];
+  for (int i = 0; i < 16; ++i) {
+    snprintf(hex + i * 2, 3, "%02X", digest[i]);
+  }
+  return std::string(hex, 32);
+}
+
+std::string generateStandardXmpWithExtendedGuid(const std::string& guid) {
+  std::stringstream ss;
+  photos_editing_formats::image_io::XmlWriter writer(ss);
+  writer.StartWritingElement("x:xmpmeta");
+  writer.WriteXmlns("x", "adobe:ns:meta/");
+  writer.WriteAttributeNameAndValue("x:xmptk", "Adobe XMP Core 5.1.2");
+  writer.StartWritingElement("rdf:RDF");
+  writer.WriteXmlns("rdf", "http://www.w3.org/1999/02/22-rdf-syntax-ns#");
+  writer.StartWritingElement("rdf:Description");
+  writer.WriteXmlns("xmpNote", "http://ns.adobe.com/xmp/note/");
+  writer.WriteAttributeNameAndValue("xmpNote:HasExtendedXMP", guid);
+  writer.FinishWriting();
+  return ss.str();
+}
+namespace {
+
+constexpr size_t kNoXmpElement = (std::numeric_limits<size_t>::max)();
+
+bool IsXmlWhitespace(char c) {
+  return c == ' ' || c == '\t' || c == '\r' || c == '\n';
+}
+
+bool FindXmlMarkupEnd(const string& xml, size_t begin, size_t* end) {
+  char quote = 0;
+  for (size_t pos = begin; pos < xml.size(); ++pos) {
+    const char c = xml[pos];
+    if (quote != 0) {
+      if (c == quote) quote = 0;
+    } else if (c == '\'' || c == '"') {
+      quote = c;
+    } else if (c == '>') {
+      *end = pos + 1;
+      return true;
+    }
+  }
+  return false;
+}
+
+struct XmpAttributeSpan {
+  string qualified_name;
+  string value;
+  string uri;
+  string local_name;
+  size_t name_begin = 0;
+  size_t value_begin = 0;
+  size_t value_end = 0;
+  bool namespace_declaration = false;
+};
+
+struct XmpNamespaceDeclaration {
+  string prefix;
+  string uri;
+};
+
+struct XmpElementSpan {
+  string qualified_name;
+  string uri;
+  string local_name;
+  vector<XmpNamespaceDeclaration> namespace_declarations;
+  vector<XmpAttributeSpan> attributes;
+  size_t parent = kNoXmpElement;
+  size_t start_begin = 0;
+  size_t end_begin = 0;
+  size_t end_end = 0;
+  bool self_closing = false;
+};
+
+class XmpMergeXmlHandler : public XmlHandler {
+ public:
+  explicit XmpMergeXmlHandler(const string& xml) : xml_(xml) {}
+
+  DataMatchResult StartElement(const XmlTokenContext& context) override {
+    if (!FinalizePendingElement()) valid_ = false;
+    pending_name_.clear();
+    pending_attributes_.clear();
+    pending_attribute_index_ = kNoXmpElement;
+    pending_name_begin_ = context.GetTokenRange().GetBegin();
+    if (!context.BuildTokenValue(&pending_name_)) valid_ = false;
+    pending_element_ = true;
+    return context.GetResult();
+  }
+
+  DataMatchResult AttributeName(const XmlTokenContext& context) override {
+    if (!pending_element_ || pending_attribute_index_ != kNoXmpElement) {
+      valid_ = false;
+      return context.GetResult();
+    }
+    XmpAttributeSpan attribute;
+    attribute.name_begin = context.GetTokenRange().GetBegin();
+    if (!context.BuildTokenValue(&attribute.qualified_name)) valid_ = false;
+    pending_attributes_.push_back(std::move(attribute));
+    pending_attribute_index_ = pending_attributes_.size() - 1;
+    return context.GetResult();
+  }
+
+  DataMatchResult AttributeValue(const XmlTokenContext& context) override {
+    if (!pending_element_ || pending_attribute_index_ == kNoXmpElement) {
+      valid_ = false;
+      return context.GetResult();
+    }
+    XmpAttributeSpan& attribute = pending_attributes_[pending_attribute_index_];
+    if (!context.BuildTokenValue(&attribute.value, true)) valid_ = false;
+    attribute.value_begin = context.GetTokenRange().GetBegin() + 1;
+    attribute.value_end = context.GetTokenRange().GetEnd();
+    pending_attribute_index_ = kNoXmpElement;
+    return context.GetResult();
+  }
+
+  DataMatchResult FinishElement(const XmlTokenContext& context) override {
+    const bool had_pending_element = pending_element_;
+    if (!FinalizePendingElement()) valid_ = false;
+    if (!context.GetTokenRange().IsValid()) {
+      if (!had_pending_element || !last_element_was_self_closing_) valid_ = false;
+      last_element_was_self_closing_ = false;
+      return context.GetResult();
+    }
+
+    string closing_name;
+    if (!context.BuildTokenValue(&closing_name)) valid_ = false;
+    if (stack_.empty()) {
+      valid_ = false;
+      return context.GetResult();
+    }
+    XmpElementSpan& element = elements_[stack_.back()];
+    const size_t close_name_begin = context.GetTokenRange().GetBegin();
+    const size_t close_begin = xml_.rfind('<', close_name_begin);
+    size_t close_end = 0;
+    if (close_begin == string::npos || !FindXmlMarkupEnd(xml_, close_begin, &close_end) ||
+        closing_name != element.qualified_name) {
+      valid_ = false;
+    } else {
+      element.end_begin = close_begin;
+      element.end_end = close_end;
+      stack_.pop_back();
+      if (stack_.empty()) root_closed_ = true;
+    }
+    return context.GetResult();
+  }
+
+  DataMatchResult ElementContent(const XmlTokenContext& context) override {
+    if (!FinalizePendingElement()) valid_ = false;
+    if (!stack_.empty() && stack_.back() == root_index_) {
+      string value;
+      if (!context.BuildTokenValue(&value) || !IsOuterWhitespace(value)) valid_ = false;
+    }
+    return context.GetResult();
+  }
+
+  DataMatchResult Comment(const XmlTokenContext& context) override {
+    if (!FinalizePendingElement()) valid_ = false;
+    return context.GetResult();
+  }
+
+  DataMatchResult Cdata(const XmlTokenContext& context) override {
+    if (!FinalizePendingElement()) valid_ = false;
+    if (!stack_.empty() && stack_.back() == root_index_) valid_ = false;
+    return context.GetResult();
+  }
+
+  DataMatchResult Pi(const XmlTokenContext& context) override {
+    if (!FinalizePendingElement()) valid_ = false;
+    return context.GetResult();
+  }
+
+  bool IsComplete() const {
+    return valid_ && !pending_element_ && stack_.empty() && root_closed_ &&
+           root_index_ != kNoXmpElement;
+  }
+
+  const vector<XmpElementSpan>& elements() const { return elements_; }
+  size_t root_index() const { return root_index_; }
+
+ private:
+  bool LookupNamespace(size_t parent, const vector<XmpNamespaceDeclaration>& local,
+                       const string& prefix, string* uri) const {
+    for (auto it = local.rbegin(); it != local.rend(); ++it) {
+      if (it->prefix == prefix) {
+        *uri = it->uri;
+        return true;
+      }
+    }
+    for (size_t index = parent; index != kNoXmpElement; index = elements_[index].parent) {
+      const vector<XmpNamespaceDeclaration>& declarations = elements_[index].namespace_declarations;
+      for (auto it = declarations.rbegin(); it != declarations.rend(); ++it) {
+        if (it->prefix == prefix) {
+          *uri = it->uri;
+          return true;
+        }
+      }
+    }
+    if (prefix == "xml") {
+      *uri = "http://www.w3.org/XML/1998/namespace";
+      return true;
+    }
+    if (prefix == "xmlns") {
+      *uri = "http://www.w3.org/2000/xmlns/";
+      return true;
+    }
+    return false;
+  }
+
+  bool IsOuterWhitespace(const string& value) const {
+    size_t begin = 0;
+    if (value.compare(0, 3, "\xef\xbb\xbf") == 0) begin = 3;
+    for (; begin < value.size(); ++begin) {
+      if (!IsXmlWhitespace(value[begin])) return false;
+    }
+    return true;
+  }
+
+  bool ResolveName(const string& qualified_name, size_t parent,
+                   const vector<XmpNamespaceDeclaration>& local, bool attribute,
+                   string* uri, string* local_name) const {
+    const size_t colon = qualified_name.find(':');
+    if (colon == string::npos) {
+      *local_name = qualified_name;
+      if (attribute) {
+        uri->clear();
+        return true;
+      }
+      if (!LookupNamespace(parent, local, "", uri)) uri->clear();
+      return true;
+    }
+    if (colon == 0 || colon + 1 >= qualified_name.size() ||
+        qualified_name.find(':', colon + 1) != string::npos) {
+      return false;
+    }
+    const string prefix = qualified_name.substr(0, colon);
+    if (!LookupNamespace(parent, local, prefix, uri)) return false;
+    *local_name = qualified_name.substr(colon + 1);
+    return true;
+  }
+
+  bool FinalizePendingElement() {
+    if (!pending_element_) return true;
+    if (pending_name_.empty() || pending_attribute_index_ != kNoXmpElement) {
+      pending_element_ = false;
+      return false;
+    }
+    const size_t start_begin = xml_.rfind('<', pending_name_begin_);
+    size_t start_end = 0;
+    if (start_begin == string::npos || !FindXmlMarkupEnd(xml_, start_begin, &start_end)) {
+      pending_element_ = false;
+      return false;
+    }
+    const size_t parent = stack_.empty() ? kNoXmpElement : stack_.back();
+    vector<XmpNamespaceDeclaration> namespace_declarations;
+    for (auto& attribute : pending_attributes_) {
+      string prefix;
+      if (attribute.qualified_name == "xmlns") {
+        attribute.namespace_declaration = true;
+      } else if (attribute.qualified_name.compare(0, 6, "xmlns:") == 0) {
+        prefix = attribute.qualified_name.substr(6);
+        if (prefix.empty() || prefix.find(':') != string::npos) {
+          pending_element_ = false;
+          return false;
+        }
+        attribute.namespace_declaration = true;
+      } else {
+        continue;
+      }
+      if (attribute.value.find('&') != string::npos) {
+        pending_element_ = false;
+        return false;
+      }
+      for (const XmpNamespaceDeclaration& declaration : namespace_declarations) {
+        if (declaration.prefix == prefix) {
+          pending_element_ = false;
+          return false;
+        }
+      }
+      XmpNamespaceDeclaration declaration;
+      declaration.prefix = prefix;
+      declaration.uri = attribute.value;
+      namespace_declarations.push_back(std::move(declaration));
+    }
+
+    XmpElementSpan element;
+    element.qualified_name = pending_name_;
+    element.parent = parent;
+    element.start_begin = start_begin;
+    element.namespace_declarations = namespace_declarations;
+    if (!ResolveName(element.qualified_name, parent, namespace_declarations, false, &element.uri,
+                     &element.local_name)) {
+      pending_element_ = false;
+      return false;
+    }
+    for (auto& attribute : pending_attributes_) {
+      if (!attribute.namespace_declaration &&
+          !ResolveName(attribute.qualified_name, parent, namespace_declarations, true,
+                       &attribute.uri, &attribute.local_name)) {
+        pending_element_ = false;
+        return false;
+      }
+      element.attributes.push_back(std::move(attribute));
+    }
+    size_t last = start_end - 1;
+    while (last > start_begin && IsXmlWhitespace(xml_[last - 1])) --last;
+    element.self_closing = last > start_begin && xml_[last - 1] == '/';
+    element.end_begin = element.self_closing ? start_begin : 0;
+    element.end_end = element.self_closing ? start_end : 0;
+    elements_.push_back(std::move(element));
+    const size_t index = elements_.size() - 1;
+    if (parent == kNoXmpElement) {
+      if (root_index_ != kNoXmpElement) {
+        pending_element_ = false;
+        return false;
+      }
+      root_index_ = index;
+    }
+    last_element_was_self_closing_ = elements_[index].self_closing;
+    if (!elements_[index].self_closing) stack_.push_back(index);
+    else if (stack_.empty()) root_closed_ = true;
+    pending_element_ = false;
+    return true;
+  }
+
+  const string& xml_;
+  vector<XmpElementSpan> elements_;
+  vector<size_t> stack_;
+  size_t root_index_ = kNoXmpElement;
+  bool root_closed_ = false;
+  bool valid_ = true;
+  bool pending_element_ = false;
+  string pending_name_;
+  size_t pending_name_begin_ = 0;
+  vector<XmpAttributeSpan> pending_attributes_;
+  size_t pending_attribute_index_ = kNoXmpElement;
+  bool last_element_was_self_closing_ = false;
+};
+
+bool IsGainMapPropertyUri(const string& uri) {
+  return uri == kContainerUri || uri == kItemUri || uri == kGainMapUri || uri == kAppleGainMapUri;
+}
+
+string GeneratePrimaryDescription(size_t secondary_image_length,
+                                  uhdr_gainmap_metadata_ext_t& metadata,
+                                  const string& extended_xmp_guid) {
+  const vector<string> con_dir_seq({kConDirectory, string("rdf:Seq")});
+  stringstream ss;
+  photos_editing_formats::image_io::XmlWriter writer(ss);
+  writer.StartWritingElement("rdf:Description");
+  writer.WriteXmlns("rdf", kRdfUri);
+  writer.WriteXmlns(kContainerPrefix, kContainerUri);
+  writer.WriteXmlns(kItemPrefix, kItemUri);
+  writer.WriteXmlns(kGainMapPrefix, kGainMapUri);
+  if (!extended_xmp_guid.empty()) {
+    writer.WriteXmlns("xmpNote", "http://ns.adobe.com/xmp/note/");
+    writer.WriteAttributeNameAndValue("xmpNote:HasExtendedXMP", extended_xmp_guid);
+  }
+  writer.WriteAttributeNameAndValue(kMapVersion, metadata.version);
+  writer.StartWritingElements(con_dir_seq);
+
+  const size_t item_depth = writer.StartWritingElement("rdf:li");
+  writer.WriteAttributeNameAndValue("rdf:parseType", "Resource");
+  writer.StartWritingElement(kConItem);
+  writer.WriteAttributeNameAndValue(kItemSemantic, kSemanticPrimary);
+  writer.WriteAttributeNameAndValue(kItemMime, kMimeImageJpeg);
+  writer.FinishWritingElementsToDepth(item_depth);
+
+  writer.StartWritingElement("rdf:li");
+  writer.WriteAttributeNameAndValue("rdf:parseType", "Resource");
+  writer.StartWritingElement(kConItem);
+  writer.WriteAttributeNameAndValue(kItemSemantic, kSemanticGainMap);
+  writer.WriteAttributeNameAndValue(kItemMime, kMimeImageJpeg);
+  writer.WriteAttributeNameAndValue(kItemLength, secondary_image_length);
+  writer.FinishWriting();
+  return ss.str();
+}
+
+bool ParseRdfDescriptions(const string& parse_xml, XmpMergeXmlHandler* handler, size_t* rdf_root_out,
+                          vector<size_t>* all_descriptions_out,
+                          vector<size_t>* primary_descriptions_out) {
+  MessageHandler message_handler;
+  unique_ptr<XmlRule> rule(new XmlElementRule);
+  XmlReader reader(handler, &message_handler);
+  if (!reader.StartParse(std::move(rule)) || !reader.Parse(parse_xml) || !reader.FinishParse() ||
+      reader.HasErrors() || !handler->IsComplete()) {
+    return false;
+  }
+
+  const vector<XmpElementSpan>& elements = handler->elements();
+  const size_t synthetic_root = handler->root_index();
+  size_t packet_root = kNoXmpElement;
+  for (size_t index = 0; index < elements.size(); ++index) {
+    if (elements[index].parent == synthetic_root) {
+      if (packet_root != kNoXmpElement) return false;
+      packet_root = index;
+    }
+  }
+  if (packet_root == kNoXmpElement) return false;
+
+  size_t rdf_root = kNoXmpElement;
+  if (elements[packet_root].uri == kRdfUri && elements[packet_root].local_name == "RDF") {
+    rdf_root = packet_root;
+  } else if (elements[packet_root].local_name == "xmpmeta" &&
+             elements[packet_root].uri == "adobe:ns:meta/") {
+    for (size_t index = 0; index < elements.size(); ++index) {
+      if (elements[index].parent == packet_root && elements[index].uri == kRdfUri &&
+          elements[index].local_name == "RDF") {
+        if (rdf_root != kNoXmpElement) return false;
+        rdf_root = index;
+      }
+    }
+  } else {
+    return false;
+  }
+  if (rdf_root == kNoXmpElement) return false;
+
+  all_descriptions_out->clear();
+  primary_descriptions_out->clear();
+  for (size_t index = 0; index < elements.size(); ++index) {
+    const XmpElementSpan& element = elements[index];
+    if (element.parent != rdf_root || element.uri != kRdfUri ||
+        element.local_name != "Description") {
+      continue;
+    }
+    all_descriptions_out->push_back(index);
+    bool has_about = false;
+    bool about_empty = true;
+    bool has_non_primary_id = false;
+    for (const XmpAttributeSpan& attribute : element.attributes) {
+      if (attribute.uri == kRdfUri && attribute.local_name == "about") {
+        has_about = true;
+        about_empty = attribute.value.empty();
+      } else if (attribute.uri == kRdfUri &&
+                 (attribute.local_name == "ID" || attribute.local_name == "nodeID")) {
+        has_non_primary_id = true;
+      }
+    }
+    if (!has_non_primary_id && (!has_about || about_empty)) {
+      primary_descriptions_out->push_back(index);
+    }
+  }
+  *rdf_root_out = rdf_root;
+  return true;
+}
+
+namespace {
+
+constexpr char kXmpNoteUri[] = "http://ns.adobe.com/xmp/note/";
+
+struct ExtendedXmpReference {
+  size_t value_begin;
+  size_t value_end;
+  size_t remove_begin;
+  size_t remove_end;
+};
+
+bool IsExtendedXmpGuid(const string& guid) {
+  if (guid.size() != 32) return false;
+  for (char value : guid) {
+    if (!((value >= '0' && value <= '9') || (value >= 'A' && value <= 'F'))) return false;
+  }
+  return true;
+}
+
+bool ProcessExtendedXmpGuid(const string& xmp_data, const string* replacement_guid,
+                            string* guid_out, string* rewritten_xmp) {
+  if (guid_out != nullptr) guid_out->clear();
+  if (replacement_guid != nullptr && rewritten_xmp == nullptr) return false;
+  if (replacement_guid != nullptr && !replacement_guid->empty() &&
+      !IsExtendedXmpGuid(*replacement_guid)) {
+    return false;
+  }
+
+  size_t trimmed_size = xmp_data.size();
+  while (trimmed_size > 0 && xmp_data[trimmed_size - 1] == '\0') --trimmed_size;
+  const string clean_xmp = xmp_data.substr(0, trimmed_size);
+  if (clean_xmp.empty()) {
+    if (rewritten_xmp != nullptr) rewritten_xmp->clear();
+    return true;
+  }
+
+  const string synthetic_open = "<XmpMergeRoot>";
+  const size_t offset = synthetic_open.size();
+  const string parse_xml = synthetic_open + clean_xmp + "</XmpMergeRoot>";
+  XmpMergeXmlHandler handler(parse_xml);
+  size_t rdf_root = kNoXmpElement;
+  vector<size_t> all_descriptions;
+  vector<size_t> primary_descriptions;
+  if (!ParseRdfDescriptions(parse_xml, &handler, &rdf_root, &all_descriptions,
+                            &primary_descriptions)) {
+    return false;
+  }
+
+  const vector<XmpElementSpan>& elements = handler.elements();
+  vector<ExtendedXmpReference> references;
+  string found_guid;
+  for (size_t description : primary_descriptions) {
+    const XmpElementSpan& primary = elements[description];
+    for (const XmpAttributeSpan& attribute : primary.attributes) {
+      if (attribute.uri != kXmpNoteUri || attribute.local_name != "HasExtendedXMP") continue;
+      if (!IsExtendedXmpGuid(attribute.value)) return false;
+      if (!found_guid.empty() && found_guid != attribute.value) return false;
+      found_guid = attribute.value;
+      size_t remove_begin = attribute.name_begin;
+      while (remove_begin > primary.start_begin && IsXmlWhitespace(parse_xml[remove_begin - 1])) {
+        --remove_begin;
+      }
+      references.push_back({attribute.value_begin, attribute.value_end - 1, remove_begin,
+                            attribute.value_end});
+    }
+
+    for (size_t index = 0; index < elements.size(); ++index) {
+      const XmpElementSpan& element = elements[index];
+      if (element.parent != description || element.uri != kXmpNoteUri ||
+          element.local_name != "HasExtendedXMP") {
+        continue;
+      }
+      if (element.self_closing) return false;
+      for (const XmpElementSpan& child : elements) {
+        if (child.parent == index) return false;
+      }
+      size_t value_begin = 0;
+      if (!FindXmlMarkupEnd(parse_xml, element.start_begin, &value_begin) ||
+          element.end_begin < value_begin) {
+        return false;
+      }
+      size_t value_end = element.end_begin;
+      while (value_begin < value_end && IsXmlWhitespace(parse_xml[value_begin])) ++value_begin;
+      while (value_end > value_begin && IsXmlWhitespace(parse_xml[value_end - 1])) --value_end;
+      const string guid = parse_xml.substr(value_begin, value_end - value_begin);
+      if (!IsExtendedXmpGuid(guid) || (!found_guid.empty() && found_guid != guid)) return false;
+      found_guid = guid;
+      size_t remove_begin = element.start_begin;
+      while (remove_begin > primary.start_begin && IsXmlWhitespace(parse_xml[remove_begin - 1])) {
+        --remove_begin;
+      }
+      references.push_back({value_begin, value_end, remove_begin, element.end_end});
+    }
+  }
+
+  if (guid_out != nullptr) *guid_out = found_guid;
+  if (rewritten_xmp == nullptr || references.empty() || *replacement_guid == found_guid) {
+    if (rewritten_xmp != nullptr) *rewritten_xmp = clean_xmp;
+    return true;
+  }
+
+  vector<pair<size_t, size_t>> edits;
+  edits.reserve(references.size());
+  for (const ExtendedXmpReference& reference : references) {
+    const size_t begin = replacement_guid->empty() ? reference.remove_begin : reference.value_begin;
+    const size_t end = replacement_guid->empty() ? reference.remove_end : reference.value_end;
+    if (begin < offset || end < begin || end - offset > clean_xmp.size()) return false;
+    edits.emplace_back(begin - offset, end - offset);
+  }
+  sort(edits.begin(), edits.end());
+  for (size_t index = 1; index < edits.size(); ++index) {
+    if (edits[index].first < edits[index - 1].second) return false;
+  }
+
+  string rewritten;
+  size_t cursor = 0;
+  for (const auto& edit : edits) {
+    rewritten.append(clean_xmp, cursor, edit.first - cursor);
+    if (!replacement_guid->empty()) rewritten.append(*replacement_guid);
+    cursor = edit.second;
+  }
+  rewritten.append(clean_xmp, cursor, clean_xmp.size() - cursor);
+  *rewritten_xmp = std::move(rewritten);
+  return true;
+}
+
+}  // namespace
+
+string MergePrimaryXmp(const string& existing_xmp, size_t secondary_image_length,
+                       uhdr_gainmap_metadata_ext_t& metadata,
+                       const string& extended_xmp_guid) {
+  const string synthetic_open = "<XmpMergeRoot>";
+  const string synthetic_close = "</XmpMergeRoot>";
+  const size_t offset = synthetic_open.size();
+  const string parse_xml = synthetic_open + existing_xmp + synthetic_close;
+
+  XmpMergeXmlHandler handler(parse_xml);
+  size_t rdf_root = kNoXmpElement;
+  vector<size_t> all_descriptions;
+  vector<size_t> primary_descriptions;
+  if (!ParseRdfDescriptions(parse_xml, &handler, &rdf_root, &all_descriptions,
+                            &primary_descriptions)) {
+    return string();
+  }
+  const vector<XmpElementSpan>& elements = handler.elements();
+  if (elements[rdf_root].self_closing ||
+      elements[rdf_root].end_begin <= elements[rdf_root].start_begin) {
+    return string();
+  }
+
+  vector<pair<size_t, size_t>> removals;
+  for (const size_t description : primary_descriptions) {
+    const XmpElementSpan& primary = elements[description];
+    for (const XmpAttributeSpan& attribute : primary.attributes) {
+      if ((attribute.uri == kContainerUri && attribute.local_name == "Directory") ||
+          (attribute.uri == kGainMapUri && attribute.local_name == "Version")) {
+        removals.emplace_back(attribute.name_begin, attribute.value_end);
+      }
+    }
+    for (const XmpElementSpan& child : elements) {
+      if (child.parent == description &&
+          ((child.uri == kContainerUri && child.local_name == "Directory") ||
+           (child.uri == kGainMapUri && child.local_name == "Version"))) {
+        removals.emplace_back(child.start_begin, child.end_end);
+      }
+    }
+  }
+
+  if (elements[rdf_root].end_begin < offset ||
+      elements[rdf_root].end_begin - offset > existing_xmp.size()) {
+    return string();
+  }
+  const size_t insertion = elements[rdf_root].end_begin - offset;
+  for (auto& removal : removals) {
+    if (removal.first < offset || removal.second < removal.first) return string();
+    removal.first -= offset;
+    removal.second -= offset;
+    if (removal.second > insertion) return string();
+  }
+  sort(removals.begin(), removals.end());
+  for (size_t index = 1; index < removals.size(); ++index) {
+    if (removals[index].first < removals[index - 1].second) return string();
+  }
+
+  const string generated_description =
+      GeneratePrimaryDescription(secondary_image_length, metadata, extended_xmp_guid);
+  string merged;
+  size_t cursor = 0;
+  for (const auto& [begin, end] : removals) {
+    if (begin < cursor || end > insertion || end > existing_xmp.size()) return string();
+    merged.append(existing_xmp, cursor, begin - cursor);
+    cursor = end;
+  }
+  merged.append(existing_xmp, cursor, insertion - cursor);
+  merged.append(generated_description);
+  merged.push_back('\n');
+  merged.append(existing_xmp, insertion, existing_xmp.size() - insertion);
+  return merged;
+}
+
+}  // namespace
+
+bool getExtendedXmpGuidFromXmp(const string& xmp_data, string* guid) {
+  if (guid == nullptr) return false;
+  return ProcessExtendedXmpGuid(xmp_data, nullptr, guid, nullptr);
+}
+
+bool replaceExtendedXmpGuidInXmp(const string& xmp_data, const string& new_guid,
+                                 string* rewritten_xmp) {
+  if (rewritten_xmp == nullptr) return false;
+  return ProcessExtendedXmpGuid(xmp_data, &new_guid, nullptr, rewritten_xmp);
+}
+
+bool stripGainMapFromXmp(const std::string& xmp_data, std::string* stripped_xmp) {
+  if (stripped_xmp == nullptr) return false;
+  size_t trimmed_size = xmp_data.size();
+  while (trimmed_size > 0 && xmp_data[trimmed_size - 1] == '\0') {
+    --trimmed_size;
+  }
+  const string clean_xmp = xmp_data.substr(0, trimmed_size);
+  if (clean_xmp.empty()) {
+    stripped_xmp->clear();
+    return true;
+  }
+
+  const string synthetic_open = "<XmpMergeRoot>";
+  const string synthetic_close = "</XmpMergeRoot>";
+  const size_t offset = synthetic_open.size();
+  const string parse_xml = synthetic_open + clean_xmp + synthetic_close;
+
+  XmpMergeXmlHandler handler(parse_xml);
+  size_t rdf_root = kNoXmpElement;
+  vector<size_t> all_descriptions;
+  vector<size_t> primary_descriptions;
+  if (!ParseRdfDescriptions(parse_xml, &handler, &rdf_root, &all_descriptions,
+                            &primary_descriptions)) {
+    return false;
+  }
+
+  const vector<XmpElementSpan>& elements = handler.elements();
+  vector<pair<size_t, size_t>> removals;
+  size_t removed_descriptions = 0;
+
+  for (const size_t description : primary_descriptions) {
+    const XmpElementSpan& primary = elements[description];
+    bool has_removable = false;
+    bool has_user_attribute = false;
+    bool has_user_child = false;
+
+    for (const XmpAttributeSpan& attribute : primary.attributes) {
+      if (attribute.namespace_declaration) continue;
+      if (attribute.uri == kRdfUri && attribute.local_name == "about" &&
+          attribute.value.empty()) {
+        continue;
+      }
+      if (IsGainMapPropertyUri(attribute.uri)) {
+        has_removable = true;
+      } else {
+        has_user_attribute = true;
+      }
+    }
+
+    for (const XmpElementSpan& child : elements) {
+      if (child.parent != description) continue;
+      if (IsGainMapPropertyUri(child.uri)) {
+        has_removable = true;
+      } else {
+        has_user_child = true;
+      }
+    }
+
+    if (!has_removable) continue;
+
+    if (!has_user_attribute && !has_user_child) {
+      ++removed_descriptions;
+      size_t remove_end = primary.end_end;
+      while (remove_end < parse_xml.size() &&
+             (parse_xml[remove_end] == '\n' || parse_xml[remove_end] == '\r')) {
+        ++remove_end;
+      }
+      removals.emplace_back(primary.start_begin, remove_end);
+      continue;
+    }
+
+    for (const XmpAttributeSpan& attribute : primary.attributes) {
+      // Namespace bindings may still be used by retained descendants in a mixed description.
+      if (!attribute.namespace_declaration && IsGainMapPropertyUri(attribute.uri)) {
+        size_t attr_begin = attribute.name_begin;
+        while (attr_begin > primary.start_begin && IsXmlWhitespace(parse_xml[attr_begin - 1])) {
+          --attr_begin;
+        }
+        removals.emplace_back(attr_begin, attribute.value_end);
+      }
+    }
+
+    for (const XmpElementSpan& child : elements) {
+      if (child.parent == description && IsGainMapPropertyUri(child.uri)) {
+        size_t child_begin = child.start_begin;
+        while (child_begin > primary.start_begin &&
+               (parse_xml[child_begin - 1] == ' ' || parse_xml[child_begin - 1] == '\t')) {
+          --child_begin;
+        }
+        size_t child_end = child.end_end;
+        if (child_end + 1 < parse_xml.size() && parse_xml[child_end] == '\r' &&
+            parse_xml[child_end + 1] == '\n') {
+          child_end += 2;
+        } else if (child_end < parse_xml.size() && parse_xml[child_end] == '\n') {
+          child_end += 1;
+        }
+        removals.emplace_back(child_begin, child_end);
+      }
+    }
+  }
+
+  if (!all_descriptions.empty() && removed_descriptions == all_descriptions.size()) {
+    stripped_xmp->clear();
+    return true;
+  }
+
+  if (removals.empty()) {
+    *stripped_xmp = clean_xmp;
+    return true;
+  }
+
+  for (auto& removal : removals) {
+    if (removal.first < offset || removal.second < removal.first) return false;
+    removal.first -= offset;
+    removal.second -= offset;
+    if (removal.second > clean_xmp.size()) return false;
+  }
+  sort(removals.begin(), removals.end());
+  vector<pair<size_t, size_t>> coalesced;
+  for (const auto& [begin, end] : removals) {
+    if (!coalesced.empty() && begin <= coalesced.back().second) {
+      coalesced.back().second = (std::max)(coalesced.back().second, end);
+    } else {
+      coalesced.emplace_back(begin, end);
+    }
+  }
+
+  string result;
+  result.reserve(clean_xmp.size());
+  size_t cursor = 0;
+  for (const auto& [begin, end] : coalesced) {
+    if (begin < cursor || end > clean_xmp.size()) return false;
+    result.append(clean_xmp, cursor, begin - cursor);
+    cursor = end;
+  }
+  result.append(clean_xmp, cursor, clean_xmp.size() - cursor);
+  *stripped_xmp = std::move(result);
+  return true;
+}
+
 string generateXmpForPrimaryImage(size_t secondary_image_length,
-                                  uhdr_gainmap_metadata_ext_t& metadata) {
+                                  uhdr_gainmap_metadata_ext_t& metadata,
+                                  uhdr_mem_block_t* user_xmp,
+                                  const std::string& extended_xmp_guid) {
   const vector<string> kConDirSeq({kConDirectory, string("rdf:Seq")});
   const vector<string> kLiItem({string("rdf:li"), kConItem});
+
+  if (user_xmp != nullptr && user_xmp->data != nullptr && user_xmp->data_sz > 0) {
+    const std::string kXmpHeader = "http://ns.adobe.com/xap/1.0/";
+    std::string existing_xmp;
+    if (user_xmp->data_sz > kXmpHeader.size() &&
+        memcmp(user_xmp->data, kXmpHeader.c_str(), kXmpHeader.size()) == 0) {
+      size_t offset = kXmpHeader.size();
+      if (static_cast<const char*>(user_xmp->data)[offset] == '\0') {
+        offset++;
+      }
+      existing_xmp = std::string(static_cast<const char*>(user_xmp->data) + offset,
+                                 user_xmp->data_sz - offset);
+    } else {
+      existing_xmp = std::string(static_cast<const char*>(user_xmp->data), user_xmp->data_sz);
+    }
+    return MergePrimaryXmp(existing_xmp, secondary_image_length, metadata, extended_xmp_guid);
+  }
 
   std::stringstream ss;
   photos_editing_formats::image_io::XmlWriter writer(ss);
@@ -889,6 +1819,10 @@ string generateXmpForPrimaryImage(size_t secondary_image_length,
   writer.WriteXmlns(kContainerPrefix, kContainerUri);
   writer.WriteXmlns(kItemPrefix, kItemUri);
   writer.WriteXmlns(kGainMapPrefix, kGainMapUri);
+  if (!extended_xmp_guid.empty()) {
+    writer.WriteXmlns("xmpNote", "http://ns.adobe.com/xmp/note/");
+    writer.WriteAttributeNameAndValue("xmpNote:HasExtendedXMP", extended_xmp_guid);
+  }
   writer.WriteAttributeNameAndValue(kMapVersion, metadata.version);
 
   writer.StartWritingElements(kConDirSeq);

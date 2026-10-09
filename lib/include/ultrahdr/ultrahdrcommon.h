@@ -375,6 +375,7 @@ struct uhdr_encoder_private : uhdr_codec_private {
       m_compressed_images;
   std::map<uhdr_img_label, int> m_quality;
   std::vector<uint8_t> m_exif;
+  std::vector<uint8_t> m_xmp;
   uhdr_gainmap_metadata_t m_metadata;
   uhdr_codec_t m_output_format;
   int m_gainmap_scale_factor;
@@ -408,6 +409,8 @@ struct uhdr_decoder_private : uhdr_codec_private {
   uhdr_mem_block_t m_exif_block;
   std::vector<uint8_t> m_icc;
   uhdr_mem_block_t m_icc_block;
+  std::vector<uint8_t> m_xmp;
+  uhdr_mem_block_t m_xmp_block;
   std::vector<uint8_t> m_base_img;
   uhdr_mem_block_t m_base_img_block;
   std::vector<uint8_t> m_gainmap_img;

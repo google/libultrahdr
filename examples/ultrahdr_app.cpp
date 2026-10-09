@@ -258,8 +258,9 @@ class UltraHdrAppInput {
  public:
   UltraHdrAppInput(const char* hdrIntentRawFile, const char* sdrIntentRawFile,
                    const char* sdrIntentCompressedFile, const char* gainmapCompressedFile,
-                   const char* gainmapMetadataCfgFile, const char* exifFile, const char* outputFile,
-                   int width, int height, uhdr_img_fmt_t hdrCf = UHDR_IMG_FMT_32bppRGBA1010102,
+                   const char* gainmapMetadataCfgFile, const char* exifFile, const char* xmpFile,
+                   const char* outputFile, int width, int height,
+                   uhdr_img_fmt_t hdrCf = UHDR_IMG_FMT_32bppRGBA1010102,
                    uhdr_img_fmt_t sdrCf = UHDR_IMG_FMT_32bppRGBA8888,
                    uhdr_color_gamut_t hdrCg = UHDR_CG_DISPLAY_P3,
                    uhdr_color_gamut_t sdrCg = UHDR_CG_BT_709,
@@ -277,6 +278,7 @@ class UltraHdrAppInput {
         mGainMapCompressedFile(gainmapCompressedFile),
         mGainMapMetadataCfgFile(gainmapMetadataCfgFile),
         mExifFile(exifFile),
+        mXmpFile(xmpFile),
         mUhdrFile(nullptr),
         mOutputFile(outputFile),
         mWidth(width),
@@ -312,6 +314,7 @@ class UltraHdrAppInput {
         mGainMapCompressedFile(nullptr),
         mGainMapMetadataCfgFile(gainmapMetadataCfgFile),
         mExifFile(nullptr),
+        mXmpFile(nullptr),
         mUhdrFile(uhdrFile),
         mOutputFile(outputFile),
         mWidth(0),
@@ -370,6 +373,7 @@ class UltraHdrAppInput {
       }
     }
     if (mExifBlock.data) free(mExifBlock.data);
+    if (mXmpBlock.data) free(mXmpBlock.data);
     if (mUhdrImage.data) free(mUhdrImage.data);
   }
 
@@ -385,6 +389,7 @@ class UltraHdrAppInput {
   bool fillGainMapCompressedImageHandle();
   bool fillGainMapMetadataDescriptor();
   bool fillExifMemoryBlock();
+  bool fillXmpMemoryBlock();
   void writeGainMapMetadataToFile(uhdr_gainmap_metadata_t* metadata, std::ostream& file);
   bool convertRgba8888ToYUV444Image();
   bool convertRgba1010102ToYUV444Image();
@@ -401,6 +406,7 @@ class UltraHdrAppInput {
   const char* mGainMapCompressedFile;
   const char* mGainMapMetadataCfgFile;
   const char* mExifFile;
+  const char* mXmpFile;
   const char* mUhdrFile;
   const char* mOutputFile;
   const int mWidth;
@@ -435,6 +441,7 @@ class UltraHdrAppInput {
   uhdr_compressed_image_t mGainMapCompressedImage{};
   uhdr_gainmap_metadata mGainMapMetadata{};
   uhdr_mem_block_t mExifBlock{};
+  uhdr_mem_block_t mXmpBlock{};
   uhdr_compressed_image_t mUhdrImage{};
   uhdr_raw_image_t mDecodedUhdrRgbImage{};
   uhdr_raw_image_t mDecodedUhdrYuv444Image{};
@@ -614,6 +621,19 @@ bool UltraHdrAppInput::fillExifMemoryBlock() {
   return false;
 }
 
+bool UltraHdrAppInput::fillXmpMemoryBlock() {
+  std::ifstream ifd(mXmpFile, std::ios::binary | std::ios::ate);
+  if (ifd.good()) {
+    auto size = ifd.tellg();
+    mXmpBlock.data = nullptr;
+    mXmpBlock.data_sz = size;
+    mXmpBlock.capacity = size;
+    ifd.close();
+    return loadFile(mXmpFile, mXmpBlock.data, size);
+  }
+  return false;
+}
+
 void UltraHdrAppInput::writeGainMapMetadataToFile(uhdr_gainmap_metadata_t* metadata,
                                                   std::ostream& file) {
   bool allChannelsIdentical = metadata->max_content_boost[0] == metadata->max_content_boost[1] &&
@@ -725,6 +745,12 @@ bool UltraHdrAppInput::encode() {
       return false;
     }
   }
+  if (mXmpFile != nullptr) {
+    if (!fillXmpMemoryBlock()) {
+      std::cerr << " failed to load file " << mXmpFile << std::endl;
+      return false;
+    }
+  }
 
 #define RET_IF_ERR(x)                            \
   {                                              \
@@ -765,6 +791,9 @@ bool UltraHdrAppInput::encode() {
   }
   if (mExifFile != nullptr) {
     RET_IF_ERR(uhdr_enc_set_exif_data(handle, &mExifBlock))
+  }
+  if (mXmpFile != nullptr) {
+    RET_IF_ERR(uhdr_enc_set_xmp_data(handle, &mXmpBlock))
   }
 
   if (mOutputFile != nullptr) {
@@ -856,6 +885,11 @@ bool UltraHdrAppInput::decode() {
     if (mProbe) {
       std::cout << "Ultra HDR Image: Yes \nGainMap Metadata: " << std::endl;
       writeGainMapMetadataToFile(metadata, std::cout);
+      uhdr_mem_block_t* xmp = uhdr_dec_get_xmp(handle);
+      if (xmp != nullptr && xmp->data != nullptr && xmp->data_sz > 0) {
+        std::cout << "XMP Metadata (" << xmp->data_sz << " bytes): \n"
+                  << std::string(static_cast<const char*>(xmp->data), xmp->data_sz) << std::endl;
+      }
       uhdr_release_decoder(handle);
       return true;
     }
@@ -1501,6 +1535,7 @@ static void usage(const char* name) {
           "          For PQ content, this defaults to 10000 nits. \n"
           "          any real number in range [203, 10000]. \n");
   fprintf(stderr, "    -x    binary input resource containing exif data to insert, optional. \n");
+  fprintf(stderr, "    -X    resource containing xmp data to insert, optional. \n");
   fprintf(stderr, "\n## decoder options : \n");
   fprintf(stderr, "    -j    ultra hdr compressed input resource, required. \n");
   fprintf(stderr,
@@ -1594,10 +1629,11 @@ static void usage(const char* name) {
 }
 
 int main(int argc, char* argv[]) {
-  char opt_string[] = "p:y:i:g:f:w:h:C:c:t:q:o:O:m:j:e:a:b:z:R:s:M:Q:G:x:u:D:k:K:L:P";
+  char opt_string[] = "p:y:i:g:f:w:h:C:c:t:q:o:O:m:j:e:a:b:z:R:s:M:Q:G:x:X:u:D:k:K:L:P";
   char *hdr_intent_raw_file = nullptr, *sdr_intent_raw_file = nullptr, *uhdr_file = nullptr,
        *sdr_intent_compressed_file = nullptr, *gainmap_compressed_file = nullptr,
-       *gainmap_metadata_cfg_file = nullptr, *output_file = nullptr, *exif_file = nullptr;
+       *gainmap_metadata_cfg_file = nullptr, *output_file = nullptr, *exif_file = nullptr,
+       *xmp_file = nullptr;
   int width = 0, height = 0;
   uhdr_color_gamut_t hdr_cg = UHDR_CG_DISPLAY_P3;
   uhdr_color_gamut_t sdr_cg = UHDR_CG_BT_709;
@@ -1702,6 +1738,9 @@ int main(int argc, char* argv[]) {
       case 'x':
         exif_file = optarg_s;
         break;
+      case 'X':
+        xmp_file = optarg_s;
+        break;
       case 'u':
         enable_gles = atoi(optarg_s) == 1 ? true : false;
         break;
@@ -1744,7 +1783,7 @@ int main(int argc, char* argv[]) {
     }
     UltraHdrAppInput appInput(
         hdr_intent_raw_file, sdr_intent_raw_file, sdr_intent_compressed_file,
-        gainmap_compressed_file, gainmap_metadata_cfg_file, exif_file,
+        gainmap_compressed_file, gainmap_metadata_cfg_file, exif_file, xmp_file,
         output_file ? output_file : "out.jpeg", width, height, hdr_cf, sdr_cf, hdr_cg, sdr_cg,
         hdr_tf, quality, out_tf, out_cf, use_full_range_color_hdr, gainmap_scale_factor,
         gainmap_compression_quality, use_multi_channel_gainmap, gamma, enable_gles, enc_preset,

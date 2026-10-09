@@ -20,11 +20,14 @@
 #include <functional>
 #include <mutex>
 #include <thread>
+#include <algorithm>
+#include <cstring>
 
 #include "ultrahdr/editorhelper.h"
 #include "ultrahdr/gainmapmetadata.h"
 #include "ultrahdr/ultrahdrcommon.h"
 #include "ultrahdr/jpegr.h"
+#include "ultrahdr/jpegrutils.h"
 #include "ultrahdr/icc.h"
 #include "ultrahdr/multipictureformat.h"
 
@@ -60,6 +63,7 @@ static const bool kWriteIso21496_1Metadata = false;
 #endif
 
 static const string kXmpNameSpace = "http://ns.adobe.com/xap/1.0/";
+static const string kExtendedXmpNameSpace = "http://ns.adobe.com/xmp/extension/";
 static const string kIsoNameSpace = "urn:iso:std:iso:ts:21496:-1";
 
 static_assert(kWriteXmpMetadata || kWriteIso21496_1Metadata,
@@ -183,7 +187,8 @@ static bool copyJpegWithoutExif(uhdr_compressed_image_t* pDest, uhdr_compressed_
 
 /* Encode API-0 */
 uhdr_error_info_t JpegR::encodeJPEGR(uhdr_raw_image_t* hdr_intent, uhdr_compressed_image_t* dest,
-                                     int quality, uhdr_mem_block_t* exif) {
+                                     int quality, uhdr_mem_block_t* exif,
+                                     uhdr_mem_block_t* xmp) {
   uhdr_img_fmt_t sdr_intent_fmt;
   if (hdr_intent->fmt == UHDR_IMG_FMT_24bppYCbCrP010) {
     sdr_intent_fmt = UHDR_IMG_FMT_12bppYCbCr420;
@@ -245,14 +250,15 @@ uhdr_error_info_t JpegR::encodeJPEGR(uhdr_raw_image_t* hdr_intent, uhdr_compress
 
   // append gain map, no ICC since JPEG encode already did it
   UHDR_ERR_CHECK(appendGainMap(&sdr_intent_compressed, &gainmap_compressed, exif, /* icc */ nullptr,
-                               /* icc size */ 0, &metadata, dest));
+                               /* icc size */ 0, &metadata, dest, xmp));
   return g_no_error;
 }
 
 /* Encode API-1 */
 uhdr_error_info_t JpegR::encodeJPEGR(uhdr_raw_image_t* hdr_intent, uhdr_raw_image_t* sdr_intent,
                                      uhdr_compressed_image_t* dest, int quality,
-                                     uhdr_mem_block_t* exif) {
+                                     uhdr_mem_block_t* exif,
+                                     uhdr_mem_block_t* xmp) {
   // generate gain map
   uhdr_gainmap_metadata_ext_t metadata(kJpegrVersion);
   std::unique_ptr<uhdr_raw_image_ext_t> gainmap;
@@ -292,14 +298,15 @@ uhdr_error_info_t JpegR::encodeJPEGR(uhdr_raw_image_t* hdr_intent, uhdr_raw_imag
 
   // append gain map, no ICC since JPEG encode already did it
   UHDR_ERR_CHECK(appendGainMap(&sdr_intent_compressed, &gainmap_compressed, exif, /* icc */ nullptr,
-                               /* icc size */ 0, &metadata, dest));
+                               /* icc size */ 0, &metadata, dest, xmp));
   return g_no_error;
 }
 
 /* Encode API-2 */
 uhdr_error_info_t JpegR::encodeJPEGR(uhdr_raw_image_t* hdr_intent, uhdr_raw_image_t* sdr_intent,
                                      uhdr_compressed_image_t* sdr_intent_compressed,
-                                     uhdr_compressed_image_t* dest) {
+                                     uhdr_compressed_image_t* dest,
+                                     uhdr_mem_block_t* xmp) {
   JpegDecoderHelper jpeg_dec_obj_sdr;
   UHDR_ERR_CHECK(jpeg_dec_obj_sdr.decompressImage(sdr_intent_compressed->data,
                                                   sdr_intent_compressed->data_sz, PARSE_STREAM));
@@ -326,13 +333,14 @@ uhdr_error_info_t JpegR::encodeJPEGR(uhdr_raw_image_t* hdr_intent, uhdr_raw_imag
   UHDR_ERR_CHECK(compressGainMap(gainmap.get(), &jpeg_enc_obj_gm));
   uhdr_compressed_image_t gainmap_compressed = jpeg_enc_obj_gm.getCompressedImage();
 
-  return encodeJPEGR(sdr_intent_compressed, &gainmap_compressed, &metadata, dest);
+  return encodeJPEGR(sdr_intent_compressed, &gainmap_compressed, &metadata, dest, xmp);
 }
 
 /* Encode API-3 */
 uhdr_error_info_t JpegR::encodeJPEGR(uhdr_raw_image_t* hdr_intent,
                                      uhdr_compressed_image_t* sdr_intent_compressed,
-                                     uhdr_compressed_image_t* dest) {
+                                     uhdr_compressed_image_t* dest,
+                                     uhdr_mem_block_t* xmp) {
   // decode input jpeg, gamut is going to be bt601.
   JpegDecoderHelper jpeg_dec_obj_sdr;
   UHDR_ERR_CHECK(jpeg_dec_obj_sdr.decompressImage(sdr_intent_compressed->data,
@@ -371,8 +379,8 @@ uhdr_error_info_t JpegR::encodeJPEGR(uhdr_raw_image_t* hdr_intent,
     status.error_code = UHDR_CODEC_INVALID_PARAM;
     status.has_detail = 1;
     snprintf(status.detail, sizeof status.detail,
-             "sdr intent resolution %dx%d and hdr intent resolution %dx%d do not match",
-             sdr_intent.w, sdr_intent.h, hdr_intent->w, hdr_intent->h);
+               "sdr intent resolution %dx%d and hdr intent resolution %dx%d do not match",
+               sdr_intent.w, sdr_intent.h, hdr_intent->w, hdr_intent->h);
     return status;
   }
 
@@ -387,14 +395,15 @@ uhdr_error_info_t JpegR::encodeJPEGR(uhdr_raw_image_t* hdr_intent,
   UHDR_ERR_CHECK(compressGainMap(gainmap.get(), &jpeg_enc_obj_gm));
   uhdr_compressed_image_t gainmap_compressed = jpeg_enc_obj_gm.getCompressedImage();
 
-  return encodeJPEGR(sdr_intent_compressed, &gainmap_compressed, &metadata, dest);
+  return encodeJPEGR(sdr_intent_compressed, &gainmap_compressed, &metadata, dest, xmp);
 }
 
 /* Encode API-4 */
 uhdr_error_info_t JpegR::encodeJPEGR(uhdr_compressed_image_t* base_img_compressed,
                                      uhdr_compressed_image_t* gainmap_img_compressed,
                                      uhdr_gainmap_metadata_ext_t* metadata,
-                                     uhdr_compressed_image_t* dest) {
+                                     uhdr_compressed_image_t* dest,
+                                     uhdr_mem_block_t* xmp) {
   // We just want to check if ICC is present, so don't do a full decode. Note,
   // this doesn't verify that the ICC is valid.
   JpegDecoderHelper decoder;
@@ -419,7 +428,7 @@ uhdr_error_info_t JpegR::encodeJPEGR(uhdr_compressed_image_t* base_img_compresse
   // Add ICC if not already present.
   if (decoder.getICCSize() > 0) {
     UHDR_ERR_CHECK(appendGainMap(base_img_compressed, gainmap_img_compressed, /* exif */ nullptr,
-                                 /* icc */ nullptr, /* icc size */ 0, metadata, dest));
+                                 /* icc */ nullptr, /* icc size */ 0, metadata, dest, xmp));
   } else {
     if (base_img_compressed->cg <= UHDR_CG_UNSPECIFIED ||
         base_img_compressed->cg > UHDR_CG_BT_2100) {
@@ -433,7 +442,7 @@ uhdr_error_info_t JpegR::encodeJPEGR(uhdr_compressed_image_t* base_img_compresse
     std::shared_ptr<DataStruct> newIcc =
         IccHelper::writeIccProfile(UHDR_CT_SRGB, base_img_compressed->cg);
     UHDR_ERR_CHECK(appendGainMap(base_img_compressed, gainmap_img_compressed, /* exif */ nullptr,
-                                 newIcc->getData(), newIcc->getLength(), metadata, dest));
+                                 newIcc->getData(), newIcc->getLength(), metadata, dest, xmp));
   }
 
   return g_no_error;
@@ -1112,7 +1121,8 @@ uhdr_error_info_t JpegR::appendGainMap(uhdr_compressed_image_t* sdr_intent_compr
                                        uhdr_compressed_image_t* gainmap_compressed,
                                        uhdr_mem_block_t* pExif, void* pIcc, size_t icc_size,
                                        uhdr_gainmap_metadata_ext_t* metadata,
-                                       uhdr_compressed_image_t* dest) {
+                                       uhdr_compressed_image_t* dest,
+                                       uhdr_mem_block_t* pXmp) {
   if (kWriteXmpMetadata && !metadata->use_base_cg) {
     uhdr_error_info_t status;
     status.error_code = UHDR_CODEC_UNSUPPORTED_FEATURE;
@@ -1229,6 +1239,18 @@ uhdr_error_info_t JpegR::appendGainMap(uhdr_compressed_image_t* sdr_intent_compr
     icc_size = decoder.getICCSize();
   }
 
+  // If the primary JPEG already carries XMP and none was passed in, reuse it so the
+  // "Write XMP" block below emits/merges it; the APP marker skip in the reorder loop would otherwise
+  // silently drop it from the output.
+  uhdr_mem_block_t xmp_from_jpg;
+  xmp_from_jpg.data = nullptr;
+  xmp_from_jpg.data_sz = 0;
+  if (pXmp == nullptr && decoder.getXMPSize() > 0) {
+    xmp_from_jpg.data = decoder.getXMPPtr();
+    xmp_from_jpg.data_sz = decoder.getXMPSize();
+    pXmp = &xmp_from_jpg;
+  }
+
   size_t pos = 0;
   // Begin primary image
   // Write SOI
@@ -1262,17 +1284,116 @@ uhdr_error_info_t JpegR::appendGainMap(uhdr_compressed_image_t* sdr_intent_compr
   }
 
   // Prepare and write XMP
+  std::string xmp_primary_str;
+  std::string user_xmp_str;
+  if (pXmp != nullptr && pXmp->data != nullptr && pXmp->data_sz > 0) {
+    const std::string kXmpHeader = "http://ns.adobe.com/xap/1.0/";
+    if (pXmp->data_sz > kXmpHeader.size() &&
+        memcmp(pXmp->data, kXmpHeader.c_str(), kXmpHeader.size()) == 0) {
+      size_t offset = kXmpHeader.size();
+      if (static_cast<const char*>(pXmp->data)[offset] == 0) {
+        offset++;
+      }
+      user_xmp_str = std::string(static_cast<const char*>(pXmp->data) + offset,
+                                 pXmp->data_sz - offset);
+    } else {
+      user_xmp_str = std::string(static_cast<const char*>(pXmp->data), pXmp->data_sz);
+    }
+  }
+
+  bool spill_user_xmp_to_extended = false;
   if (kWriteXmpMetadata) {
-    const string xmp_primary = generateXmpForPrimaryImage(secondary_image_size, *metadata);
-    const size_t length = 2 + xmpNameSpaceLength + xmp_primary.size();
-    const uint8_t lengthH = ((length >> 8) & 0xff);
-    const uint8_t lengthL = (length & 0xff);
-    UHDR_ERR_CHECK(Write(dest, &photos_editing_formats::image_io::JpegMarker::kStart, 1, pos));
-    UHDR_ERR_CHECK(Write(dest, &photos_editing_formats::image_io::JpegMarker::kAPP1, 1, pos));
-    UHDR_ERR_CHECK(Write(dest, &lengthH, 1, pos));
-    UHDR_ERR_CHECK(Write(dest, &lengthL, 1, pos));
-    UHDR_ERR_CHECK(Write(dest, (void*)kXmpNameSpace.c_str(), xmpNameSpaceLength, pos));
-    UHDR_ERR_CHECK(Write(dest, (void*)xmp_primary.c_str(), xmp_primary.size(), pos));
+    if (user_xmp_str.empty()) {
+      xmp_primary_str = generateXmpForPrimaryImage(secondary_image_size, *metadata, nullptr);
+    } else if (user_xmp_str.size() <= kMaxStandardXmpPayload) {
+      uhdr_mem_block_t user_block{const_cast<char*>(user_xmp_str.data()), user_xmp_str.size(),
+                                  user_xmp_str.size()};
+      xmp_primary_str = generateXmpForPrimaryImage(secondary_image_size, *metadata, &user_block);
+      if (xmp_primary_str.empty()) {
+        uhdr_error_info_t status;
+        status.error_code = UHDR_CODEC_INVALID_PARAM;
+        status.has_detail = 1;
+        snprintf(status.detail, sizeof status.detail,
+                 "unable to safely merge supplied XMP metadata into the primary image");
+        return status;
+      }
+      if (xmp_primary_str.size() > kMaxStandardXmpPayload) {
+        xmp_primary_str = user_xmp_str;
+        spill_user_xmp_to_extended = true;
+      }
+    } else {
+      xmp_primary_str = user_xmp_str;
+      spill_user_xmp_to_extended = true;
+    }
+  } else if (!user_xmp_str.empty()) {
+    xmp_primary_str = user_xmp_str;
+    spill_user_xmp_to_extended = xmp_primary_str.size() > kMaxStandardXmpPayload;
+  }
+
+  if (!xmp_primary_str.empty()) {
+    if (!spill_user_xmp_to_extended && xmp_primary_str.size() <= kMaxStandardXmpPayload) {
+      // Write single standard XMP segment
+      const size_t length = 2 + xmpNameSpaceLength + xmp_primary_str.size();
+      const uint8_t lengthH = ((length >> 8) & 0xff);
+      const uint8_t lengthL = (length & 0xff);
+      UHDR_ERR_CHECK(Write(dest, &photos_editing_formats::image_io::JpegMarker::kStart, 1, pos));
+      UHDR_ERR_CHECK(Write(dest, &photos_editing_formats::image_io::JpegMarker::kAPP1, 1, pos));
+      UHDR_ERR_CHECK(Write(dest, &lengthH, 1, pos));
+      UHDR_ERR_CHECK(Write(dest, &lengthL, 1, pos));
+      UHDR_ERR_CHECK(Write(dest, (void*)kXmpNameSpace.c_str(), xmpNameSpaceLength, pos));
+      UHDR_ERR_CHECK(Write(dest, (void*)xmp_primary_str.c_str(), xmp_primary_str.size(), pos));
+    } else {
+      // Extended XMP (Adobe XMP Specification Part 3)
+      const std::string guid =
+          computeMd5Guid(reinterpret_cast<const uint8_t*>(xmp_primary_str.data()),
+                         xmp_primary_str.size());
+
+      // 1. Write Standard XMP segment with xmpNote:HasExtendedXMP referencing the GUID
+      std::string standard_xmp;
+      if (kWriteXmpMetadata) {
+        standard_xmp =
+            generateXmpForPrimaryImage(secondary_image_size, *metadata, nullptr, guid);
+      } else {
+        standard_xmp = generateStandardXmpWithExtendedGuid(guid);
+      }
+
+      const size_t std_length = 2 + xmpNameSpaceLength + standard_xmp.size();
+      const uint8_t std_lengthH = ((std_length >> 8) & 0xff);
+      const uint8_t std_lengthL = (std_length & 0xff);
+      UHDR_ERR_CHECK(Write(dest, &photos_editing_formats::image_io::JpegMarker::kStart, 1, pos));
+      UHDR_ERR_CHECK(Write(dest, &photos_editing_formats::image_io::JpegMarker::kAPP1, 1, pos));
+      UHDR_ERR_CHECK(Write(dest, &std_lengthH, 1, pos));
+      UHDR_ERR_CHECK(Write(dest, &std_lengthL, 1, pos));
+      UHDR_ERR_CHECK(Write(dest, (void*)kXmpNameSpace.c_str(), xmpNameSpaceLength, pos));
+      UHDR_ERR_CHECK(Write(dest, (void*)standard_xmp.c_str(), standard_xmp.size(), pos));
+
+      // 2. Write Extended XMP segments
+      const size_t extNamespaceLength = kExtendedXmpNameSpace.size() + 1;  // 35 bytes
+      const uint32_t totalLen = static_cast<uint32_t>(xmp_primary_str.size());
+      const uint32_t totalLenBE = EndianSwap32(totalLen);
+      size_t ext_offset = 0;
+      while (ext_offset < xmp_primary_str.size()) {
+        const size_t chunk_size =
+            (std::min)(xmp_primary_str.size() - ext_offset, kExtendedXmpMaxChunkSize);
+        const size_t seg_length = 2 + extNamespaceLength + 32 + 4 + 4 + chunk_size;
+        const uint8_t seg_lengthH = ((seg_length >> 8) & 0xff);
+        const uint8_t seg_lengthL = (seg_length & 0xff);
+        const uint32_t offsetBE = EndianSwap32(static_cast<uint32_t>(ext_offset));
+
+        UHDR_ERR_CHECK(Write(dest, &photos_editing_formats::image_io::JpegMarker::kStart, 1, pos));
+        UHDR_ERR_CHECK(Write(dest, &photos_editing_formats::image_io::JpegMarker::kAPP1, 1, pos));
+        UHDR_ERR_CHECK(Write(dest, &seg_lengthH, 1, pos));
+        UHDR_ERR_CHECK(Write(dest, &seg_lengthL, 1, pos));
+        UHDR_ERR_CHECK(Write(dest, (void*)kExtendedXmpNameSpace.c_str(), extNamespaceLength, pos));
+        UHDR_ERR_CHECK(Write(dest, (void*)guid.c_str(), 32, pos));
+        UHDR_ERR_CHECK(Write(dest, &totalLenBE, 4, pos));
+        UHDR_ERR_CHECK(Write(dest, &offsetBE, 4, pos));
+        UHDR_ERR_CHECK(
+            Write(dest, (void*)(xmp_primary_str.data() + ext_offset), chunk_size, pos));
+
+        ext_offset += chunk_size;
+      }
+    }
   }
 
   // Write ICC
@@ -3071,6 +3192,501 @@ status_t JpegR::decodeJPEGR(jr_compressed_ptr jpegr_image_ptr, jr_uncompressed_p
   }
 
   return result.error_code == UHDR_CODEC_OK ? JPEGR_NO_ERROR : JPEGR_UNKNOWN_ERROR;
+}
+
+namespace {
+
+struct XmpSegmentSpan {
+  size_t begin;
+  size_t end;
+  string xml;
+  size_t payload_begin;
+  size_t payload_size;
+};
+
+struct ExtendedXmpChunk {
+  size_t segment_index;
+  uint32_t offset;
+  size_t data_begin;
+  size_t data_size;
+};
+
+struct StripXmpEdit {
+  size_t begin;
+  size_t end;
+  vector<uint8_t> replacement;
+};
+
+uint32_t ReadBigEndian32(const uint8_t* bytes) {
+  return (static_cast<uint32_t>(bytes[0]) << 24) | (static_cast<uint32_t>(bytes[1]) << 16) |
+         (static_cast<uint32_t>(bytes[2]) << 8) | static_cast<uint32_t>(bytes[3]);
+}
+
+void AppendBigEndian32(uint32_t value, string* bytes) {
+  for (int shift = 24; shift >= 0; shift -= 8) {
+    bytes->push_back(static_cast<char>((value >> shift) & 0xff));
+  }
+}
+
+bool AppendApp1Segment(const string& signature, const string& body, vector<uint8_t>* output) {
+  const size_t payload_size = signature.size() + 1 + body.size();
+  if (payload_size + 2 > kJpegSegmentMaxLength) return false;
+  const size_t length = payload_size + 2;
+  output->insert(output->end(), {JpegMarker::kStart, JpegMarker::kAPP1,
+                                 static_cast<uint8_t>(length >> 8),
+                                 static_cast<uint8_t>(length & 0xff)});
+  output->insert(output->end(), signature.begin(), signature.end());
+  output->push_back('\0');
+  output->insert(output->end(), body.begin(), body.end());
+  return true;
+}
+
+bool RewriteLinkedExtendedXmp(vector<uint8_t>* output, const vector<XmpSegmentSpan>& standard_xmp,
+                              const vector<XmpSegmentSpan>& extended_xmp, const uint8_t* input,
+                              size_t input_size, string* error) {
+  string linked_guid;
+  for (const XmpSegmentSpan& standard : standard_xmp) {
+    string guid;
+    if (!getExtendedXmpGuidFromXmp(standard.xml, &guid)) {
+      *error = "malformed HasExtendedXMP reference in standard XMP";
+      return false;
+    }
+    if (!guid.empty() && !linked_guid.empty() && guid != linked_guid) {
+      *error = "standard XMP contains ambiguous Extended XMP links";
+      return false;
+    }
+    if (!guid.empty()) linked_guid = guid;
+  }
+  if (linked_guid.empty()) return true;
+
+  const size_t extension_signature_size = kExtendedXmpNameSpace.size() + 1;
+  vector<ExtendedXmpChunk> chunks;
+  uint32_t total_size = 0;
+  size_t covered_size = 0;
+  for (size_t index = 0; index < extended_xmp.size(); ++index) {
+    const XmpSegmentSpan& segment = extended_xmp[index];
+    if (segment.payload_size < extension_signature_size ||
+        memcmp(input + segment.payload_begin, kExtendedXmpNameSpace.c_str(),
+               extension_signature_size) != 0 ||
+        segment.payload_size < extension_signature_size + 32) {
+      continue;
+    }
+    const uint8_t* payload = input + segment.payload_begin;
+    if (memcmp(payload + extension_signature_size, linked_guid.data(), linked_guid.size()) != 0) {
+      continue;
+    }
+    if (segment.payload_size < extension_signature_size + 40) {
+      *error = "linked Extended XMP chunk has a truncated header";
+      return false;
+    }
+    const uint32_t chunk_total = ReadBigEndian32(payload + extension_signature_size + 32);
+    const uint32_t chunk_offset = ReadBigEndian32(payload + extension_signature_size + 36);
+    const size_t data_offset = segment.payload_begin + extension_signature_size + 40;
+    const size_t data_size = segment.payload_size - extension_signature_size - 40;
+    if (chunk_total == 0 || chunk_total > input_size || chunk_offset > chunk_total ||
+        data_size == 0 || data_size > chunk_total - chunk_offset ||
+        data_size > input_size - covered_size ||
+        (total_size != 0 && total_size != chunk_total)) {
+      *error = "linked Extended XMP chunk has invalid bounds or length";
+      return false;
+    }
+    total_size = chunk_total;
+    covered_size += data_size;
+    chunks.push_back({index, chunk_offset, data_offset, data_size});
+  }
+  if (chunks.empty()) {
+    *error = "standard XMP links to missing Extended XMP chunks";
+    return false;
+  }
+  sort(chunks.begin(), chunks.end(), [](const ExtendedXmpChunk& left,
+                                        const ExtendedXmpChunk& right) {
+    return left.offset < right.offset;
+  });
+  size_t next_offset = 0;
+  for (const ExtendedXmpChunk& chunk : chunks) {
+    if (chunk.offset != next_offset) {
+      *error = "linked Extended XMP chunks contain a gap or overlap";
+      return false;
+    }
+    next_offset += chunk.data_size;
+  }
+  if (next_offset != total_size || covered_size != total_size) {
+    *error = "linked Extended XMP chunks do not cover the declared packet";
+    return false;
+  }
+
+  string packet;
+  packet.reserve(total_size);
+  for (const ExtendedXmpChunk& chunk : chunks) {
+    packet.append(reinterpret_cast<const char*>(input + chunk.data_begin), chunk.data_size);
+  }
+  if (computeMd5Guid(reinterpret_cast<const uint8_t*>(packet.data()), packet.size()) != linked_guid) {
+    *error = "linked Extended XMP packet MD5 does not match its GUID";
+    return false;
+  }
+  string stripped_packet;
+  if (!stripGainMapFromXmp(packet, &stripped_packet)) {
+    *error = "unable to strip gain map properties from linked Extended XMP";
+    return false;
+  }
+  if (stripped_packet == packet) return true;
+
+  string new_guid;
+  if (!stripped_packet.empty()) {
+    new_guid = computeMd5Guid(reinterpret_cast<const uint8_t*>(stripped_packet.data()),
+                              stripped_packet.size());
+  }
+
+  vector<StripXmpEdit> edits;
+  for (const XmpSegmentSpan& standard : standard_xmp) {
+    string guid;
+    if (!getExtendedXmpGuidFromXmp(standard.xml, &guid)) {
+      *error = "malformed HasExtendedXMP reference in standard XMP";
+      return false;
+    }
+    if (guid.empty()) continue;
+    if (guid != linked_guid) {
+      *error = "standard XMP references multiple Extended XMP packets";
+      return false;
+    }
+    string rewritten_xml;
+    if (!replaceExtendedXmpGuidInXmp(standard.xml, new_guid, &rewritten_xml)) {
+      *error = "unable to update standard XMP Extended XMP reference";
+      return false;
+    }
+    vector<uint8_t> replacement;
+    if (!AppendApp1Segment(kXmpNameSpace, rewritten_xml, &replacement)) {
+      *error = "rewritten standard XMP exceeds APP1 segment capacity";
+      return false;
+    }
+    edits.push_back({standard.begin, standard.end, std::move(replacement)});
+  }
+
+  size_t first_linked_segment = extended_xmp.size();
+  for (const ExtendedXmpChunk& chunk : chunks) {
+    if (first_linked_segment == extended_xmp.size() ||
+        extended_xmp[chunk.segment_index].begin < extended_xmp[first_linked_segment].begin) {
+      first_linked_segment = chunk.segment_index;
+    }
+  }
+  vector<uint8_t> replacement_chunks;
+  if (!stripped_packet.empty()) {
+    for (size_t offset = 0; offset < stripped_packet.size(); offset += kExtendedXmpMaxChunkSize) {
+      const size_t count = (std::min)(kExtendedXmpMaxChunkSize, stripped_packet.size() - offset);
+      string body = new_guid;
+      AppendBigEndian32(static_cast<uint32_t>(stripped_packet.size()), &body);
+      AppendBigEndian32(static_cast<uint32_t>(offset), &body);
+      body.append(stripped_packet, offset, count);
+      if (!AppendApp1Segment(kExtendedXmpNameSpace, body, &replacement_chunks)) {
+        *error = "rewritten Extended XMP chunk exceeds APP1 segment capacity";
+        return false;
+      }
+    }
+  }
+  for (const ExtendedXmpChunk& chunk : chunks) {
+    const XmpSegmentSpan& segment = extended_xmp[chunk.segment_index];
+    vector<uint8_t> replacement;
+    if (chunk.segment_index == first_linked_segment) replacement = replacement_chunks;
+    edits.push_back({segment.begin, segment.end, std::move(replacement)});
+  }
+
+  sort(edits.begin(), edits.end(), [](const StripXmpEdit& left, const StripXmpEdit& right) {
+    return left.begin < right.begin;
+  });
+  vector<uint8_t> rewritten;
+  rewritten.reserve(output->size());
+  size_t cursor = 0;
+  for (const StripXmpEdit& edit : edits) {
+    if (edit.begin < cursor || edit.begin > edit.end || edit.end > output->size()) {
+      *error = "overlapping Extended XMP rewrite spans";
+      return false;
+    }
+    rewritten.insert(rewritten.end(), output->begin() + cursor, output->begin() + edit.begin);
+    rewritten.insert(rewritten.end(), edit.replacement.begin(), edit.replacement.end());
+    cursor = edit.end;
+  }
+  rewritten.insert(rewritten.end(), output->begin() + cursor, output->end());
+  *output = std::move(rewritten);
+  return true;
+}
+
+}  // namespace
+
+uhdr_error_info_t JpegR::stripGainMap(uhdr_compressed_image_t* in_stream,
+                                      uhdr_mem_block_t* out_stream) {
+  if (in_stream == nullptr) {
+    uhdr_error_info_t status;
+    status.error_code = UHDR_CODEC_INVALID_PARAM;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail, "received nullptr for input stream");
+    return status;
+  }
+  if (in_stream->data == nullptr || in_stream->data_sz < 4) {
+    uhdr_error_info_t status;
+    status.error_code = UHDR_CODEC_INVALID_PARAM;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "invalid input stream buffer (data=%p, data_sz=%zu)",
+             in_stream->data, in_stream->data_sz);
+    return status;
+  }
+  if (out_stream == nullptr) {
+    uhdr_error_info_t status;
+    status.error_code = UHDR_CODEC_INVALID_PARAM;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail, "received nullptr for output stream");
+    return status;
+  }
+  if (out_stream->data == nullptr && out_stream->capacity != 0) {
+    uhdr_error_info_t status;
+    status.error_code = UHDR_CODEC_INVALID_PARAM;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "received nullptr for output stream data buffer with non-zero capacity (%zu)",
+             out_stream->capacity);
+    return status;
+  }
+
+  const uint8_t* data = static_cast<const uint8_t*>(in_stream->data);
+  const size_t size = in_stream->data_sz;
+  if (data[0] != JpegMarker::kStart || data[1] != JpegMarker::kSOI) {
+    uhdr_error_info_t status;
+    status.error_code = UHDR_CODEC_INVALID_PARAM;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "input stream does not start with JPEG SOI marker");
+    return status;
+  }
+
+  std::vector<uint8_t> out_buf;
+  out_buf.reserve(size);
+  out_buf.insert(out_buf.end(), data, data + 2);
+
+  const size_t xmp_ns_len = kXmpNameSpace.size() + 1;
+  const size_t extended_xmp_ns_len = kExtendedXmpNameSpace.size() + 1;
+  const size_t iso_ns_len = kIsoNameSpace.size() + 1;
+  const size_t mpf_sig_len = sizeof(kMpfSig);
+  vector<XmpSegmentSpan> standard_xmp;
+  vector<XmpSegmentSpan> extended_xmp;
+
+  size_t pos = 2;
+  bool seen_sos = false;
+  bool seen_eoi = false;
+
+  while (pos < size) {
+    const size_t marker_start = pos;
+    if (data[pos] != JpegMarker::kStart) {
+      uhdr_error_info_t status;
+      status.error_code = UHDR_CODEC_INVALID_PARAM;
+      status.has_detail = 1;
+      snprintf(status.detail, sizeof status.detail,
+               "expected JPEG marker prefix 0xFF at offset %zu", pos);
+      return status;
+    }
+    while (pos < size && data[pos] == JpegMarker::kStart) {
+      ++pos;
+    }
+    if (pos >= size) {
+      uhdr_error_info_t status;
+      status.error_code = UHDR_CODEC_INVALID_PARAM;
+      status.has_detail = 1;
+      snprintf(status.detail, sizeof status.detail, "truncated JPEG marker at end of stream");
+      return status;
+    }
+
+    const uint8_t marker = data[pos++];
+    if (marker == 0x00 || marker == JpegMarker::kSOI) {
+      uhdr_error_info_t status;
+      status.error_code = UHDR_CODEC_INVALID_PARAM;
+      status.has_detail = 1;
+      snprintf(status.detail, sizeof status.detail,
+               "unexpected JPEG marker 0xFF%02X at offset %zu", marker, marker_start);
+      return status;
+    }
+
+    if (marker == JpegMarker::kEOI) {
+      if (!seen_sos) {
+        uhdr_error_info_t status;
+        status.error_code = UHDR_CODEC_INVALID_PARAM;
+        status.has_detail = 1;
+        snprintf(status.detail, sizeof status.detail,
+                 "encountered EOI before SOS in primary JPEG stream");
+        return status;
+      }
+      out_buf.push_back(JpegMarker::kStart);
+      out_buf.push_back(JpegMarker::kEOI);
+      seen_eoi = true;
+      break;
+    }
+
+    if (marker == 0x01 || (marker >= 0xD0 && marker <= 0xD7)) {
+      out_buf.insert(out_buf.end(), data + marker_start, data + pos);
+      continue;
+    }
+
+    if (pos + 2 > size) {
+      uhdr_error_info_t status;
+      status.error_code = UHDR_CODEC_INVALID_PARAM;
+      status.has_detail = 1;
+      snprintf(status.detail, sizeof status.detail,
+               "truncated segment length for marker 0xFF%02X at offset %zu", marker, marker_start);
+      return status;
+    }
+    const size_t seg_len = (static_cast<size_t>(data[pos]) << 8) | data[pos + 1];
+    if (seg_len < 2 || pos + seg_len > size) {
+      uhdr_error_info_t status;
+      status.error_code = UHDR_CODEC_INVALID_PARAM;
+      status.has_detail = 1;
+      snprintf(status.detail, sizeof status.detail,
+               "invalid segment length %zu for marker 0xFF%02X at offset %zu",
+               seg_len, marker, marker_start);
+      return status;
+    }
+
+    const uint8_t* payload = data + pos + 2;
+    const size_t payload_len = seg_len - 2;
+    const size_t next_pos = pos + seg_len;
+
+    if (marker == JpegMarker::kAPP2) {
+      const bool is_mpf =
+          payload_len >= mpf_sig_len && memcmp(payload, kMpfSig, mpf_sig_len) == 0;
+      const bool is_iso =
+          payload_len >= iso_ns_len && memcmp(payload, kIsoNameSpace.c_str(), iso_ns_len) == 0;
+      if (!is_mpf && !is_iso) {
+        out_buf.insert(out_buf.end(), data + marker_start, data + next_pos);
+      }
+      pos = next_pos;
+      continue;
+    }
+
+    if (marker == JpegMarker::kAPP1) {
+      const bool is_standard_xmp =
+          payload_len >= xmp_ns_len && memcmp(payload, kXmpNameSpace.c_str(), xmp_ns_len) == 0;
+      if (is_standard_xmp) {
+        const std::string xmp_xml(reinterpret_cast<const char*>(payload + xmp_ns_len),
+                                  payload_len - xmp_ns_len);
+        std::string stripped_xmp;
+        if (!stripGainMapFromXmp(xmp_xml, &stripped_xmp)) {
+          uhdr_error_info_t status;
+          status.error_code = UHDR_CODEC_INVALID_PARAM;
+          status.has_detail = 1;
+          snprintf(status.detail, sizeof status.detail,
+                   "unable to parse or strip gain map metadata from primary XMP packet");
+          return status;
+        }
+        if (!stripped_xmp.empty()) {
+          const size_t output_begin = out_buf.size();
+          const size_t new_seg_len = 2 + xmp_ns_len + stripped_xmp.size();
+          if (new_seg_len > 0xFFFF) {
+            uhdr_error_info_t status;
+            status.error_code = UHDR_CODEC_INVALID_PARAM;
+            status.has_detail = 1;
+            snprintf(status.detail, sizeof status.detail,
+                     "stripped XMP segment exceeds maximum APP1 segment size");
+            return status;
+          }
+          out_buf.push_back(JpegMarker::kStart);
+          out_buf.push_back(JpegMarker::kAPP1);
+          out_buf.push_back(static_cast<uint8_t>((new_seg_len >> 8) & 0xFF));
+          out_buf.push_back(static_cast<uint8_t>(new_seg_len & 0xFF));
+          out_buf.insert(out_buf.end(),
+                         reinterpret_cast<const uint8_t*>(kXmpNameSpace.c_str()),
+                         reinterpret_cast<const uint8_t*>(kXmpNameSpace.c_str()) + xmp_ns_len);
+          out_buf.insert(out_buf.end(),
+                         reinterpret_cast<const uint8_t*>(stripped_xmp.data()),
+                         reinterpret_cast<const uint8_t*>(stripped_xmp.data()) +
+                             stripped_xmp.size());
+          standard_xmp.push_back({output_begin, out_buf.size(), stripped_xmp, 0, 0});
+        }
+      } else if (payload_len >= extended_xmp_ns_len &&
+                 memcmp(payload, kExtendedXmpNameSpace.c_str(), extended_xmp_ns_len) == 0) {
+        const size_t output_begin = out_buf.size();
+        out_buf.insert(out_buf.end(), data + marker_start, data + next_pos);
+        extended_xmp.push_back({output_begin, out_buf.size(), string(),
+                                static_cast<size_t>(payload - data), payload_len});
+      } else {
+        out_buf.insert(out_buf.end(), data + marker_start, data + next_pos);
+      }
+      pos = next_pos;
+      continue;
+    }
+
+    out_buf.insert(out_buf.end(), data + marker_start, data + next_pos);
+    pos = next_pos;
+
+    if (marker == JpegMarker::kSOS) {
+      seen_sos = true;
+      const size_t scan_data_start = pos;
+      bool found_post_scan_marker = false;
+      while (pos < size) {
+        if (data[pos] != JpegMarker::kStart) {
+          ++pos;
+          continue;
+        }
+        const size_t ff_start = pos;
+        while (pos < size && data[pos] == JpegMarker::kStart) {
+          ++pos;
+        }
+        if (pos >= size) {
+          break;
+        }
+        const uint8_t next_marker = data[pos];
+        if (next_marker == 0x00 || (next_marker >= 0xD0 && next_marker <= 0xD7)) {
+          ++pos;
+          continue;
+        }
+        out_buf.insert(out_buf.end(), data + scan_data_start, data + ff_start);
+        pos = ff_start;
+        found_post_scan_marker = true;
+        break;
+      }
+      if (!found_post_scan_marker) {
+        uhdr_error_info_t status;
+        status.error_code = UHDR_CODEC_INVALID_PARAM;
+        status.has_detail = 1;
+        snprintf(status.detail, sizeof status.detail,
+                 "truncated entropy-coded scan data before EOI in primary JPEG stream");
+        return status;
+      }
+    }
+  }
+
+  if (!seen_sos || !seen_eoi) {
+    uhdr_error_info_t status;
+    status.error_code = UHDR_CODEC_INVALID_PARAM;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "incomplete primary JPEG stream (missing SOS or EOI marker)");
+    return status;
+  }
+
+  string extended_xmp_error;
+  if (!RewriteLinkedExtendedXmp(&out_buf, standard_xmp, extended_xmp, data, size,
+                                &extended_xmp_error)) {
+    uhdr_error_info_t status;
+    status.error_code = UHDR_CODEC_INVALID_PARAM;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "unable to process linked Extended XMP: %s", extended_xmp_error.c_str());
+    return status;
+  }
+
+  out_stream->data_sz = out_buf.size();
+  if (out_stream->data == nullptr && out_stream->capacity == 0) {
+    return g_no_error;
+  }
+  if (out_stream->capacity < out_buf.size()) {
+    uhdr_error_info_t status;
+    status.error_code = UHDR_CODEC_INVALID_PARAM;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "output buffer capacity (%zu) is smaller than required size (%zu)",
+             out_stream->capacity, out_buf.size());
+    return status;
+  }
+
+  memcpy(out_stream->data, out_buf.data(), out_buf.size());
+  return g_no_error;
 }
 
 }  // namespace ultrahdr
