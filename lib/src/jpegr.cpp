@@ -3460,8 +3460,7 @@ uhdr_error_info_t JpegR::stripGainMap(uhdr_compressed_image_t* in_stream,
 
   std::vector<uint8_t> out_buf;
   out_buf.reserve(size);
-  out_buf.push_back(JpegMarker::kStart);
-  out_buf.push_back(JpegMarker::kSOI);
+  out_buf.insert(out_buf.end(), data, data + 2);
 
   const size_t xmp_ns_len = kXmpNameSpace.size() + 1;
   const size_t extended_xmp_ns_len = kExtendedXmpNameSpace.size() + 1;
