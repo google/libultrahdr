@@ -160,6 +160,13 @@ static struct heif_error copy_img_plane(heif_image* img, heif_channel channel, v
             "supports copying only heif_channel_interleaved"};
   }
 
+  // width and height come from the image handle ('ispe'/'clap'), which need not match the coded
+  // image. Never copy more than the decoded plane holds; a missing plane has width -1.
+  if (heif_image_get_width(img, channel) < width || heif_image_get_height(img, channel) < height) {
+    return {heif_error_Invalid_input, heif_suberror_Invalid_image_size,
+            "decoded image is smaller than the image size declared in the container"};
+  }
+
   int srcStride;
   uint8_t* srcBuffer = heif_image_get_plane(img, channel, &srcStride);
   uint8_t* srcRow = static_cast<uint8_t*>(srcBuffer);

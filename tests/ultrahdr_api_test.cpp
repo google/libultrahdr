@@ -1400,6 +1400,74 @@ TEST_F(UltraHdrApiTest, HeifAndAvifPropagateGainMapMetadataErrors) {
   if (tested_formats == 0) GTEST_SKIP() << "AV1 and HEVC encoder plugins are unavailable";
 }
 
+// Returns the offset of the payload of the first box of the given type, or 0 if there is none.
+static size_t findBoxPayload(const std::vector<uint8_t>& data, const char* type) {
+  for (size_t i = 4; i + 4 <= data.size(); i++) {
+    if (memcmp(&data[i], type, 4) == 0) return i + 4;
+  }
+  return 0;
+}
+
+static void writeBigEndian32(std::vector<uint8_t>& data, size_t offset, uint32_t value) {
+  data[offset] = static_cast<uint8_t>(value >> 24);
+  data[offset + 1] = static_cast<uint8_t>(value >> 16);
+  data[offset + 2] = static_cast<uint8_t>(value >> 8);
+  data[offset + 3] = static_cast<uint8_t>(value);
+}
+
+static void expectHeifDecodeFails(std::vector<uint8_t>& data) {
+  uhdr_compressed_image_t image{};
+  image.data = data.data();
+  image.data_sz = data.size();
+  image.capacity = data.size();
+  image.cg = UHDR_CG_UNSPECIFIED;
+  image.ct = UHDR_CT_UNSPECIFIED;
+  image.range = UHDR_CR_UNSPECIFIED;
+  uhdr_codec_private_t* dec = uhdr_create_decoder();
+  ASSERT_NE(dec, nullptr);
+  ASSERT_EQ(uhdr_dec_set_image(dec, &image).error_code, UHDR_CODEC_OK);
+  ASSERT_EQ(uhdr_dec_set_out_color_transfer(dec, UHDR_CT_HLG).error_code, UHDR_CODEC_OK);
+  ASSERT_EQ(uhdr_dec_set_out_img_format(dec, UHDR_IMG_FMT_32bppRGBA1010102).error_code,
+            UHDR_CODEC_OK);
+  ASSERT_EQ(uhdr_dec_probe(dec).error_code, UHDR_CODEC_OK);
+  EXPECT_NE(uhdr_decode(dec).error_code, UHDR_CODEC_OK);
+  uhdr_release_decoder(dec);
+}
+
+// The image size reported by libheif comes from the 'ispe' and 'clap' properties, which need not
+// match the coded image. Decoding must fail instead of copying the declared size out of the
+// smaller decoded image.
+TEST_F(UltraHdrApiTest, HeifRejectsImageSizeLargerThanDecodedImage) {
+  if (!heif_have_decoder_for_format(heif_compression_HEVC)) {
+    GTEST_SKIP() << "HEVC decoder plugin not available in environment";
+  }
+  std::vector<uint8_t> valid_data;
+  ASSERT_TRUE(loadFile(kHevcGainmapFileName, valid_data));
+  // The fixture codes 64x64 images ('ispe') cropped to 16x16 by a 'clap' property.
+  const size_t ispe = findBoxPayload(valid_data, "ispe");
+  const size_t clap = findBoxPayload(valid_data, "clap");
+  ASSERT_NE(ispe, 0u);
+  ASSERT_NE(clap, 0u);
+  ASSERT_LE(ispe + 12, valid_data.size());
+  ASSERT_LE(clap + 16, valid_data.size());
+
+  {
+    SCOPED_TRACE("ispe larger than the coded image");
+    std::vector<uint8_t> data = valid_data;
+    memcpy(&data[clap - 4], "free", 4);
+    writeBigEndian32(data, ispe + 4, 128);
+    writeBigEndian32(data, ispe + 8, 128);
+    expectHeifDecodeFails(data);
+  }
+  {
+    SCOPED_TRACE("clap larger than the coded image");
+    std::vector<uint8_t> data = valid_data;
+    writeBigEndian32(data, clap, 128);
+    writeBigEndian32(data, clap + 8, 128);
+    expectHeifDecodeFails(data);
+  }
+}
+
 class OddMultichannelGainMapCodecTest : public ::testing::TestWithParam<uhdr_codec_t> {};
 
 TEST_P(OddMultichannelGainMapCodecTest, PreservesOddGainMapEdges) {
