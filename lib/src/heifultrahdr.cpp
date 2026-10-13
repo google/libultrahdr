@@ -152,6 +152,19 @@ static struct heif_error add_alpha_plane(heif_image* image, const uhdr_raw_image
   return err;
 }
 
+// Stores the image size declared by the container ('ispe'/'clap') in *width and *height. The size
+// is untrusted input: images that are empty or larger than the library supports are rejected
+// before anything is decoded, allocated or sampled with that size.
+static struct heif_error get_image_size(const heif_image_handle* handle, int* width, int* height) {
+  *width = heif_image_handle_get_width(handle);
+  *height = heif_image_handle_get_height(handle);
+  if (*width <= 0 || *height <= 0 || *width > kMaxWidth || *height > kMaxHeight) {
+    return {heif_error_Invalid_input, heif_suberror_Invalid_image_size,
+            "image dimensions are zero or exceed the maximum supported dimensions"};
+  }
+  return {heif_error_Ok, heif_suberror_Unspecified, nullptr};
+}
+
 static struct heif_error copy_img_plane(heif_image* img, heif_channel channel, void* dstBuffer,
                                         int width, int height, int dstRowStride, int bpp) {
   if (channel != heif_channel_interleaved && channel != heif_channel_Y &&
@@ -691,6 +704,7 @@ uhdr_error_info_t HeifUltraHdr::decodeHeicUltraHdr(uhdr_compressed_image_t* uhdr
       ctx, static_cast<const uint8_t*>(uhdr_compressed_img->data), uhdr_compressed_img->data_sz,
       nullptr))
   HEIF_ERR_CHECK(heif_context_get_primary_image_handle(ctx, &base_handle))
+  HEIF_ERR_CHECK(get_image_size(base_handle, &sdr_width, &sdr_height))
   decoding_options = heif_decoding_options_alloc();
   out_colorspace = heif_colorspace_RGB;
   out_chroma = heif_chroma_interleaved_RGBA;
@@ -701,8 +715,6 @@ uhdr_error_info_t HeifUltraHdr::decodeHeicUltraHdr(uhdr_compressed_image_t* uhdr
     nclx_err = heif_image_get_nclx_color_profile(sdr_image, &nclx);
   }
   HEIF_ERR_CHECK(map_heif_chroma_vars_to_fmt(out_colorspace, out_chroma, fmt))
-  sdr_width = heif_image_handle_get_width(base_handle);
-  sdr_height = heif_image_handle_get_height(base_handle);
   sdr_cg = (nclx_err.code == heif_error_Ok && nclx != nullptr)
                ? map_primaries_inverse(nclx->color_primaries)
                : UHDR_CG_BT_709;
@@ -723,6 +735,7 @@ uhdr_error_info_t HeifUltraHdr::decodeHeicUltraHdr(uhdr_compressed_image_t* uhdr
                                 sdr_intent->stride[UHDR_PLANE_PACKED] * 4, 4))
   if (gainmap_img != nullptr || gainmap_metadata != nullptr || output_ct != UHDR_CT_SRGB) {
     HEIF_ERR_CHECK(heif_image_handle_get_gain_map_image_handle(base_handle, &gainmap_handle))
+    HEIF_ERR_CHECK(get_image_size(gainmap_handle, &gainmap_width, &gainmap_height))
     status = heif_get_gainmap_metadata(base_handle, &metadata);
     if (status.error_code != UHDR_CODEC_OK) goto CleanUp;
     if (gainmap_metadata != nullptr) {
@@ -762,8 +775,6 @@ uhdr_error_info_t HeifUltraHdr::decodeHeicUltraHdr(uhdr_compressed_image_t* uhdr
       nclx_err = heif_image_get_nclx_color_profile(gainmap_image, &nclx);
     }
     HEIF_ERR_CHECK(map_heif_chroma_vars_to_fmt(out_colorspace, out_chroma, fmt))
-    gainmap_width = heif_image_handle_get_width(gainmap_handle);
-    gainmap_height = heif_image_handle_get_height(gainmap_handle);
     gm_cg = (nclx_err.code == heif_error_Ok && nclx != nullptr)
                 ? map_matrix_inverse(nclx->matrix_coefficients)
                 : UHDR_CG_BT_709;

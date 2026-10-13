@@ -533,6 +533,14 @@ bool inspect_jpeg_gainmap(const void* data, size_t size) {
              .error_code == UHDR_CODEC_OK;
 }
 
+#ifdef UHDR_ENABLE_HEIF
+bool is_supported_heif_dimensions(const heif_image_handle* handle) {
+  const int width = heif_image_handle_get_width(handle);
+  const int height = heif_image_handle_get_height(handle);
+  return width > 0 && height > 0 && width <= ultrahdr::kMaxWidth && height <= ultrahdr::kMaxHeight;
+}
+#endif
+
 #if defined(UHDR_ENABLE_HEIF) && defined(UHDR_HAS_HEIF_ITEM_API)
 
 constexpr size_t kMaxProbeMetadataSize = 64 * 1024;
@@ -545,12 +553,6 @@ struct HeifContextDeleter {
 struct HeifHandleDeleter {
   void operator()(heif_image_handle* handle) const { heif_image_handle_release(handle); }
 };
-
-bool is_supported_heif_dimensions(const heif_image_handle* handle) {
-  const int width = heif_image_handle_get_width(handle);
-  const int height = heif_image_handle_get_height(handle);
-  return width > 0 && height > 0 && width <= ultrahdr::kMaxWidth && height <= ultrahdr::kMaxHeight;
-}
 
 bool is_supported_heif_layout(const heif_image_handle* handle, bool allow_monochrome) {
   heif_colorspace colorspace;
@@ -1945,16 +1947,31 @@ uhdr_error_info_t uhdr_dec_probe(uhdr_codec_private_t* dec) {
           if (err.code == heif_error_Ok && base_handle != nullptr) {
             handle->m_img_wd = heif_image_handle_get_width(base_handle);
             handle->m_img_ht = heif_image_handle_get_height(base_handle);
+            if (!is_supported_heif_dimensions(base_handle)) {
+              status.error_code = UHDR_CODEC_ERROR;
+              status.has_detail = 1;
+              snprintf(status.detail, sizeof status.detail,
+                       "unsupported primary image dimensions %dx%d", handle->m_img_wd,
+                       handle->m_img_ht);
+            }
 
             struct heif_image_handle* gainmap_handle = nullptr;
-            err = heif_image_handle_get_gain_map_image_handle(base_handle, &gainmap_handle);
+            if (status.error_code == UHDR_CODEC_OK) {
+              err = heif_image_handle_get_gain_map_image_handle(base_handle, &gainmap_handle);
+            }
             if (err.code == heif_error_Ok && gainmap_handle != nullptr) {
               handle->m_gainmap_wd = heif_image_handle_get_width(gainmap_handle);
               handle->m_gainmap_ht = heif_image_handle_get_height(gainmap_handle);
               handle->m_gainmap_num_comp = 1;
 
               size_t meta_len = heif_image_handle_get_gain_map_metadata_size(base_handle);
-              if (meta_len > 0) {
+              if (!is_supported_heif_dimensions(gainmap_handle)) {
+                status.error_code = UHDR_CODEC_ERROR;
+                status.has_detail = 1;
+                snprintf(status.detail, sizeof status.detail,
+                         "unsupported gain map image dimensions %dx%d", handle->m_gainmap_wd,
+                         handle->m_gainmap_ht);
+              } else if (meta_len > 0) {
                 std::vector<uint8_t> meta(meta_len);
                 err = heif_image_handle_get_gain_map_metadata(base_handle, meta.data());
                 if (err.code != heif_error_Ok) {
