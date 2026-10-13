@@ -413,6 +413,11 @@ UHDR_EXTERN uhdr_error_info_t uhdr_enc_set_exif_data(uhdr_codec_private_t* enc,
  * does not generate or validate xmp data on its own. It merely copies the supplied information
  * into the bitstream (or merges with gain map metadata in xmp mode).
  *
+ * NOTE: XMP metadata insertion is currently supported only when the output compression format is
+ * #UHDR_CODEC_JPG. Attempting to encode with XMP data configured when the output format is
+ * #UHDR_CODEC_HEIF or #UHDR_CODEC_AVIF will cause uhdr_encode() to return
+ * #UHDR_CODEC_UNSUPPORTED_FEATURE.
+ *
  * \param[in]  enc  encoder instance
  * \param[in]  xmp  xmp data memory block.
  *

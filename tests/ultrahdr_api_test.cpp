@@ -1809,6 +1809,296 @@ TEST_F(UltraHdrApiTest, ExtendedXmpElementLinkIsUpdatedAndRemovedByNamespace) {
   EXPECT_NE(removed.find("dc:title=\"Keep this title\""), std::string::npos);
 }
 
+TEST_F(UltraHdrApiTest, SplitStandardAndExtendedXmpPreservesBothOnProbeAndApi4Reencode) {
+  const std::string std_title = "Standard title payload " + std::string(40000, 'S');
+  const std::string ext_desc = "Extended description payload " + std::string(40000, 'E');
+  const std::string ext_xmp =
+      "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF "
+      "xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description "
+      "rdf:about=\"\" xmlns:dc=\"http://purl.org/dc/elements/1.1/\">"
+      "<dc:description>" +
+      ext_desc +
+      "</dc:description>"
+      "</rdf:Description></rdf:RDF></x:xmpmeta>";
+  const std::string ext_guid =
+      computeMd5Guid(reinterpret_cast<const uint8_t*>(ext_xmp.data()), ext_xmp.size());
+  // Declare xmlns:dc on the ancestor <rdf:RDF> element rather than <rdf:Description> to verify
+  // that mergeStandardAndExtendedXmp propagates inherited ancestor namespaces onto merged blocks.
+  const std::string std_xmp =
+      "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF "
+      "xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\" "
+      "xmlns:dc=\"http://purl.org/dc/elements/1.1/\"><rdf:Description "
+      "rdf:about=\"\" "
+      "xmlns:xmpNote=\"http://ns.adobe.com/xmp/note/\" "
+      "dc:title=\"" +
+      std_title +
+      "\" "
+      "xmpNote:HasExtendedXMP=\"" +
+      ext_guid + "\"/></rdf:RDF></x:xmpmeta>";
+
+  // Encode a normal Ultra HDR JPEG with std_xmp, then insert the linked Extended XMP segment.
+  uhdr_mem_block_t std_xmp_block{const_cast<char*>(std_xmp.data()), std_xmp.size(),
+                                 std_xmp.size()};
+  EncoderPtr enc = makeEncoder();
+  ASSERT_NE(enc, nullptr);
+  uhdr_gainmap_metadata_t metadata = makeTestGainmapMetadata();
+  ASSERT_EQ(configureJpegGainmapEncoder(enc.get(), &mSdrCompressed, &mSdrCompressed, &metadata,
+                                        &std_xmp_block)
+                .error_code,
+            UHDR_CODEC_OK);
+  ASSERT_EQ(uhdr_encode(enc.get()).error_code, UHDR_CODEC_OK);
+  uhdr_compressed_image_t* encoded = uhdr_get_encoded_stream(enc.get());
+  ASSERT_NE(encoded, nullptr);
+
+  std::vector<uint8_t> jpeg(static_cast<const uint8_t*>(encoded->data),
+                            static_cast<const uint8_t*>(encoded->data) + encoded->data_sz);
+  const std::vector<JpegSegmentSpan> std_segments =
+      findApp1Segments(jpeg, "http://ns.adobe.com/xap/1.0/");
+  ASSERT_FALSE(std_segments.empty());
+
+  auto makeApp1 = [](std::string_view ns, const std::string& body) {
+    std::vector<uint8_t> seg;
+    const size_t len = 2 + ns.size() + 1 + body.size();
+    seg.push_back(0xFF);
+    seg.push_back(0xE1);
+    seg.push_back(static_cast<uint8_t>((len >> 8) & 0xFF));
+    seg.push_back(static_cast<uint8_t>(len & 0xFF));
+    seg.insert(seg.end(), ns.begin(), ns.end());
+    seg.push_back(0);
+    seg.insert(seg.end(), body.begin(), body.end());
+    return seg;
+  };
+
+  std::string ext_body = ext_guid;
+  const uint32_t ext_len = static_cast<uint32_t>(ext_xmp.size());
+  ext_body.push_back(static_cast<char>((ext_len >> 24) & 0xFF));
+  ext_body.push_back(static_cast<char>((ext_len >> 16) & 0xFF));
+  ext_body.push_back(static_cast<char>((ext_len >> 8) & 0xFF));
+  ext_body.push_back(static_cast<char>(ext_len & 0xFF));
+  ext_body.append(4, '\0');  // offset = 0
+  ext_body.append(ext_xmp);
+
+  const std::vector<uint8_t> new_std_seg = makeApp1("http://ns.adobe.com/xap/1.0/", std_xmp);
+  const std::vector<uint8_t> new_ext_seg = makeApp1("http://ns.adobe.com/xmp/extension/", ext_body);
+  std::vector<uint8_t> replacement_segs = new_std_seg;
+  replacement_segs.insert(replacement_segs.end(), new_ext_seg.begin(), new_ext_seg.end());
+
+  jpeg.erase(jpeg.begin() + std_segments[0].begin, jpeg.begin() + std_segments[0].end);
+  jpeg.insert(jpeg.begin() + std_segments[0].begin, replacement_segs.begin(),
+              replacement_segs.end());
+
+  uhdr_compressed_image_t split_uhdr{jpeg.data(), jpeg.size(), jpeg.size(), UHDR_CG_UNSPECIFIED,
+                                     UHDR_CT_UNSPECIFIED, UHDR_CR_UNSPECIFIED};
+  DecoderPtr dec = makeDecoder();
+  ASSERT_NE(dec, nullptr);
+  ASSERT_EQ(uhdr_dec_set_image(dec.get(), &split_uhdr).error_code, UHDR_CODEC_OK);
+  ASSERT_EQ(uhdr_dec_probe(dec.get()).error_code, UHDR_CODEC_OK);
+
+  uhdr_mem_block_t* decoded_xmp = uhdr_dec_get_xmp(dec.get());
+  ASSERT_NE(decoded_xmp, nullptr);
+  const std::string decoded_packet = getXmpPacket(decoded_xmp);
+  EXPECT_NE(decoded_packet.find(std_title), std::string::npos);
+  EXPECT_NE(decoded_packet.find(ext_desc), std::string::npos);
+
+  // Re-encode the extracted compressed base through API-4 without explicit XMP setter.
+  // Because ~40 KB (Standard) + ~40 KB (Extended) > 65,458 bytes (kExtendedXmpMaxChunkSize),
+  // re-encoding must split the combined payload across 2 Extended XMP APP1 blocks.
+  uhdr_mem_block_t* base_block = uhdr_dec_get_base_image(dec.get());
+  uhdr_mem_block_t* gainmap_block = uhdr_dec_get_gainmap_image(dec.get());
+  uhdr_gainmap_metadata_t* gm_meta = uhdr_dec_get_gainmap_metadata(dec.get());
+  ASSERT_NE(base_block, nullptr);
+  ASSERT_NE(gainmap_block, nullptr);
+  ASSERT_NE(gm_meta, nullptr);
+
+  uhdr_compressed_image_t base_img{base_block->data, base_block->data_sz, base_block->capacity,
+                                   UHDR_CG_BT_709, UHDR_CT_SRGB, UHDR_CR_FULL_RANGE};
+  uhdr_compressed_image_t gm_img{gainmap_block->data, gainmap_block->data_sz,
+                                 gainmap_block->capacity, UHDR_CG_UNSPECIFIED,
+                                 UHDR_CT_UNSPECIFIED, UHDR_CR_UNSPECIFIED};
+  JpegXmpRoundTrip reencoded;
+  ASSERT_TRUE(encodeAndProbeJpegXmp(&base_img, &gm_img, gm_meta, nullptr, reencoded));
+  uhdr_compressed_image_t* reencoded_stream = uhdr_get_encoded_stream(reencoded.encoder.get());
+  ASSERT_NE(reencoded_stream, nullptr);
+  const std::vector<uint8_t> reencoded_bytes(
+      static_cast<const uint8_t*>(reencoded_stream->data),
+      static_cast<const uint8_t*>(reencoded_stream->data) + reencoded_stream->data_sz);
+  EXPECT_EQ(findApp1Segments(reencoded_bytes, "http://ns.adobe.com/xmp/extension/").size(), 2u);
+  uhdr_mem_block_t* reencoded_xmp = uhdr_dec_get_xmp(reencoded.decoder.get());
+  ASSERT_NE(reencoded_xmp, nullptr);
+  const std::string reencoded_packet = getXmpPacket(reencoded_xmp);
+  EXPECT_NE(reencoded_packet.find(std_title), std::string::npos);
+  EXPECT_NE(reencoded_packet.find(ext_desc), std::string::npos);
+}
+
+TEST_F(UltraHdrApiTest, ElementFormExtendedXmpLinkSelectsCorrectExtensionOverUnrelatedFirst) {
+  const std::string unrelated_ext =
+      "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF "
+      "xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description "
+      "rdf:about=\"\" xmlns:dc=\"http://purl.org/dc/elements/1.1/\">"
+      "<dc:description>Unrelated extension packet</dc:description>"
+      "</rdf:Description></rdf:RDF></x:xmpmeta>";
+  const std::string linked_ext =
+      "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF "
+      "xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description "
+      "rdf:about=\"\" xmlns:dc=\"http://purl.org/dc/elements/1.1/\">"
+      "<dc:description>Correctly linked extension packet</dc:description>"
+      "</rdf:Description></rdf:RDF></x:xmpmeta>";
+  const std::string unrelated_guid =
+      computeMd5Guid(reinterpret_cast<const uint8_t*>(unrelated_ext.data()), unrelated_ext.size());
+  const std::string linked_guid =
+      computeMd5Guid(reinterpret_cast<const uint8_t*>(linked_ext.data()), linked_ext.size());
+  const std::string std_xmp =
+      "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF "
+      "xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description "
+      "rdf:about=\"\" xmlns:n=\"http://ns.adobe.com/xmp/note/\">"
+      "<n:HasExtendedXMP>" +
+      linked_guid + "</n:HasExtendedXMP></rdf:Description></rdf:RDF></x:xmpmeta>";
+
+  std::vector<uint8_t> jpeg(static_cast<const uint8_t*>(mSdrCompressed.data),
+                            static_cast<const uint8_t*>(mSdrCompressed.data) +
+                                mSdrCompressed.data_sz);
+  auto makeApp1 = [](std::string_view ns, const std::string& body) {
+    std::vector<uint8_t> seg;
+    const size_t len = 2 + ns.size() + 1 + body.size();
+    seg.push_back(0xFF);
+    seg.push_back(0xE1);
+    seg.push_back(static_cast<uint8_t>((len >> 8) & 0xFF));
+    seg.push_back(static_cast<uint8_t>(len & 0xFF));
+    seg.insert(seg.end(), ns.begin(), ns.end());
+    seg.push_back(0);
+    seg.insert(seg.end(), body.begin(), body.end());
+    return seg;
+  };
+  auto makeExtBody = [](const std::string& guid, const std::string& payload) {
+    std::string body = guid;
+    const uint32_t len = static_cast<uint32_t>(payload.size());
+    body.push_back(static_cast<char>((len >> 24) & 0xFF));
+    body.push_back(static_cast<char>((len >> 16) & 0xFF));
+    body.push_back(static_cast<char>((len >> 8) & 0xFF));
+    body.push_back(static_cast<char>(len & 0xFF));
+    body.append(4, '\0');
+    body.append(payload);
+    return body;
+  };
+
+  const std::vector<uint8_t> std_seg = makeApp1("http://ns.adobe.com/xap/1.0/", std_xmp);
+  const std::vector<uint8_t> unrelated_seg =
+      makeApp1("http://ns.adobe.com/xmp/extension/", makeExtBody(unrelated_guid, unrelated_ext));
+  const std::vector<uint8_t> linked_seg =
+      makeApp1("http://ns.adobe.com/xmp/extension/", makeExtBody(linked_guid, linked_ext));
+  std::vector<uint8_t> all_segs = std_seg;
+  all_segs.insert(all_segs.end(), unrelated_seg.begin(), unrelated_seg.end());
+  all_segs.insert(all_segs.end(), linked_seg.begin(), linked_seg.end());
+  jpeg.insert(jpeg.begin() + 2, all_segs.begin(), all_segs.end());
+
+  JpegDecoderHelper decoder;
+  ASSERT_EQ(decoder.parseImage(jpeg.data(), jpeg.size()).error_code, UHDR_CODEC_OK);
+  ASSERT_NE(decoder.getXMPPtr(), nullptr);
+  uhdr_mem_block_t decoded_block{decoder.getXMPPtr(), decoder.getXMPSize(), decoder.getXMPSize()};
+  const std::string packet = getXmpPacket(&decoded_block);
+  EXPECT_NE(packet.find("Correctly linked extension packet"), std::string::npos) << packet;
+  EXPECT_EQ(packet.find("Unrelated extension packet"), std::string::npos) << packet;
+}
+
+TEST_F(UltraHdrApiTest, TinyInputWithHugeDeclaredExtendedXmpLengthDoesNotOverAllocate) {
+  const std::string guid = "0123456789ABCDEF0123456789ABCDEF";
+  const std::string std_xmp = generateStandardXmpWithExtendedGuid(guid);
+  uhdr_mem_block_t std_xmp_block{const_cast<char*>(std_xmp.data()), std_xmp.size(),
+                                 std_xmp.size()};
+
+  EncoderPtr enc = makeEncoder();
+  ASSERT_NE(enc, nullptr);
+  uhdr_gainmap_metadata_t metadata = makeTestGainmapMetadata();
+  ASSERT_EQ(configureJpegGainmapEncoder(enc.get(), &mSdrCompressed, &mSdrCompressed, &metadata,
+                                        &std_xmp_block)
+                .error_code,
+            UHDR_CODEC_OK);
+  ASSERT_EQ(uhdr_encode(enc.get()).error_code, UHDR_CODEC_OK);
+  uhdr_compressed_image_t* encoded = uhdr_get_encoded_stream(enc.get());
+  ASSERT_NE(encoded, nullptr);
+
+  std::vector<uint8_t> jpeg(static_cast<const uint8_t*>(encoded->data),
+                            static_cast<const uint8_t*>(encoded->data) + encoded->data_sz);
+  auto makeApp1 = [](std::string_view ns, const std::string& body) {
+    std::vector<uint8_t> seg;
+    const size_t len = 2 + ns.size() + 1 + body.size();
+    seg.push_back(0xFF);
+    seg.push_back(0xE1);
+    seg.push_back(static_cast<uint8_t>((len >> 8) & 0xFF));
+    seg.push_back(static_cast<uint8_t>(len & 0xFF));
+    seg.insert(seg.end(), ns.begin(), ns.end());
+    seg.push_back(0);
+    seg.insert(seg.end(), body.begin(), body.end());
+    return seg;
+  };
+
+  // Craft an Extended XMP segment declaring 1 GiB (0x40000000) total_length with a 16-byte chunk.
+  std::string huge_ext_body = guid;
+  huge_ext_body.append("\x40\x00\x00\x00", 4);  // 1 GiB declared total_length
+  huge_ext_body.append("\x00\x00\x00\x00", 4);  // offset = 0
+  huge_ext_body.append(16, 'A');
+
+  const std::vector<uint8_t> std_seg = makeApp1("http://ns.adobe.com/xap/1.0/", std_xmp);
+  const std::vector<uint8_t> ext_seg =
+      makeApp1("http://ns.adobe.com/xmp/extension/", huge_ext_body);
+  const std::vector<JpegSegmentSpan> std_segments =
+      findApp1Segments(jpeg, "http://ns.adobe.com/xap/1.0/");
+  ASSERT_FALSE(std_segments.empty());
+  std::vector<uint8_t> replacement = std_seg;
+  replacement.insert(replacement.end(), ext_seg.begin(), ext_seg.end());
+  jpeg.erase(jpeg.begin() + std_segments[0].begin, jpeg.begin() + std_segments[0].end);
+  jpeg.insert(jpeg.begin() + std_segments[0].begin, replacement.begin(), replacement.end());
+
+  uhdr_compressed_image_t crafted{jpeg.data(), jpeg.size(), jpeg.size(), UHDR_CG_UNSPECIFIED,
+                                  UHDR_CT_UNSPECIFIED, UHDR_CR_UNSPECIFIED};
+  DecoderPtr dec = makeDecoder();
+  ASSERT_NE(dec, nullptr);
+  ASSERT_EQ(uhdr_dec_set_image(dec.get(), &crafted).error_code, UHDR_CODEC_OK);
+  // Must not throw std::bad_alloc or accept the truncated/oversized Extended XMP chunk.
+  EXPECT_EQ(uhdr_dec_probe(dec.get()).error_code, UHDR_CODEC_OK);
+  uhdr_mem_block_t* probed_xmp = uhdr_dec_get_xmp(dec.get());
+  ASSERT_NE(probed_xmp, nullptr);
+  EXPECT_EQ(getXmpPacket(probed_xmp), std_xmp);
+
+  // Also verify that a valid-sized Extended XMP with a corrupted MD5 digest is rejected on probe.
+  const std::string valid_ext_payload =
+      "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF "
+      "xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description "
+      "rdf:about=\"\" xmlns:dc=\"http://purl.org/dc/elements/1.1/\">"
+      "<dc:description>Tampered payload</dc:description>"
+      "</rdf:Description></rdf:RDF></x:xmpmeta>";
+  std::string bad_md5_body = guid;  // Does not match MD5(valid_ext_payload)
+  const uint32_t ext_len = static_cast<uint32_t>(valid_ext_payload.size());
+  bad_md5_body.push_back(static_cast<char>((ext_len >> 24) & 0xFF));
+  bad_md5_body.push_back(static_cast<char>((ext_len >> 16) & 0xFF));
+  bad_md5_body.push_back(static_cast<char>((ext_len >> 8) & 0xFF));
+  bad_md5_body.push_back(static_cast<char>(ext_len & 0xFF));
+  bad_md5_body.append(4, '\0');
+  bad_md5_body.append(valid_ext_payload);
+
+  std::vector<uint8_t> bad_md5_jpeg(static_cast<const uint8_t*>(encoded->data),
+                                    static_cast<const uint8_t*>(encoded->data) + encoded->data_sz);
+  const std::vector<uint8_t> bad_md5_seg =
+      makeApp1("http://ns.adobe.com/xmp/extension/", bad_md5_body);
+  std::vector<uint8_t> bad_md5_replacement = std_seg;
+  bad_md5_replacement.insert(bad_md5_replacement.end(), bad_md5_seg.begin(), bad_md5_seg.end());
+  bad_md5_jpeg.erase(bad_md5_jpeg.begin() + std_segments[0].begin,
+                     bad_md5_jpeg.begin() + std_segments[0].end);
+  bad_md5_jpeg.insert(bad_md5_jpeg.begin() + std_segments[0].begin, bad_md5_replacement.begin(),
+                      bad_md5_replacement.end());
+
+  uhdr_compressed_image_t bad_md5_img{bad_md5_jpeg.data(), bad_md5_jpeg.size(),
+                                      bad_md5_jpeg.size(), UHDR_CG_UNSPECIFIED,
+                                      UHDR_CT_UNSPECIFIED, UHDR_CR_UNSPECIFIED};
+  DecoderPtr dec2 = makeDecoder();
+  ASSERT_NE(dec2, nullptr);
+  ASSERT_EQ(uhdr_dec_set_image(dec2.get(), &bad_md5_img).error_code, UHDR_CODEC_OK);
+  EXPECT_EQ(uhdr_dec_probe(dec2.get()).error_code, UHDR_CODEC_OK);
+  uhdr_mem_block_t* probed_xmp2 = uhdr_dec_get_xmp(dec2.get());
+  ASSERT_NE(probed_xmp2, nullptr);
+  EXPECT_EQ(getXmpPacket(probed_xmp2), std_xmp);
+}
+
 TEST_F(UltraHdrApiTest, StripGainMapKeepsNamespaceUsedByRetainedDescendant) {
   const std::string shared_xmp =
       "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF "
@@ -3030,6 +3320,33 @@ TEST_F(UltraHdrApiTest, AvifCompressedIntentsUnsupported) {
   EXPECT_EQ(err.error_code, UHDR_CODEC_UNSUPPORTED_FEATURE);
 
   uhdr_release_encoder(enc);
+}
+
+TEST_F(UltraHdrApiTest, HeifAndAvifXmpDataUnsupported) {
+  const std::string kXmpPacket =
+      "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\">"
+      "<rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">"
+      "<rdf:Description rdf:about=\"\" xmlns:dc=\"http://purl.org/dc/elements/1.1/\" "
+      "dc:creator=\"test\"/>"
+      "</rdf:RDF>"
+      "</x:xmpmeta>";
+  uhdr_mem_block_t xmp_block{const_cast<char*>(kXmpPacket.data()), kXmpPacket.size(),
+                             kXmpPacket.size()};
+
+  for (uhdr_codec_t codec : {UHDR_CODEC_HEIF, UHDR_CODEC_AVIF}) {
+    SCOPED_TRACE(codec == UHDR_CODEC_AVIF ? "AVIF" : "HEIF");
+    uhdr_codec_private_t* enc = uhdr_create_encoder();
+    ASSERT_NE(enc, nullptr);
+
+    EXPECT_EQ(uhdr_enc_set_raw_image(enc, &mHdrRaw, UHDR_HDR_IMG).error_code, UHDR_CODEC_OK);
+    EXPECT_EQ(uhdr_enc_set_output_format(enc, codec).error_code, UHDR_CODEC_OK);
+    EXPECT_EQ(uhdr_enc_set_xmp_data(enc, &xmp_block).error_code, UHDR_CODEC_OK);
+
+    uhdr_error_info_t err = uhdr_encode(enc);
+    EXPECT_EQ(err.error_code, UHDR_CODEC_UNSUPPORTED_FEATURE);
+
+    uhdr_release_encoder(enc);
+  }
 }
 
 TEST_F(UltraHdrApiTest, AvifPreservesRawAlpha) {

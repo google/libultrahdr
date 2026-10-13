@@ -1543,6 +1543,13 @@ uhdr_error_info_t uhdr_encode(uhdr_codec_private_t* enc) {
 
   uhdr_mem_block_t xmp{};
   if (handle->m_xmp.size() > 0) {
+    if (handle->m_output_format != UHDR_CODEC_JPG) {
+      status.error_code = UHDR_CODEC_UNSUPPORTED_FEATURE;
+      status.has_detail = 1;
+      snprintf(status.detail, sizeof status.detail,
+               "xmp metadata insertion is currently supported only for UHDR_CODEC_JPG output");
+      return status;
+    }
     xmp.data = handle->m_xmp.data();
     xmp.capacity = xmp.data_sz = handle->m_xmp.size();
   }
@@ -1551,7 +1558,14 @@ uhdr_error_info_t uhdr_encode(uhdr_codec_private_t* enc) {
     const bool mayWriteXmp = !handle->m_xmp.empty() || !handle->m_compressed_images.empty();
     size_t xmpAllowance = 0;
     if (mayWriteXmp) {
-      const size_t xmp_sz = handle->m_xmp.size();
+      size_t xmp_sz = handle->m_xmp.size();
+      if (xmp_sz == 0) {
+        for (const auto& entry : handle->m_compressed_images) {
+          if (entry.second != nullptr) {
+            xmp_sz = (std::max)(xmp_sz, entry.second->data_sz);
+          }
+        }
+      }
       const size_t num_chunks =
           (xmp_sz + ultrahdr::kExtendedXmpMaxChunkSize - 1) / ultrahdr::kExtendedXmpMaxChunkSize;
       xmpAllowance = ultrahdr::kJpegAppSegmentTotalMaxBytes + xmp_sz + num_chunks * 79;

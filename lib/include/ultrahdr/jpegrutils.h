@@ -161,6 +161,12 @@ bool getExtendedXmpGuidFromXmp(const std::string& xmp_data, std::string* guid);
 bool replaceExtendedXmpGuidInXmp(const std::string& xmp_data, const std::string& new_guid,
                                  std::string* rewritten_xmp);
 
+/* Merges user RDF descriptions from a standard XMP packet (removing xmpNote:HasExtendedXMP and
+ * encoder-generated gain-map properties) into a linked Extended XMP packet so user properties
+ * split across Standard and Extended XMP packets are both preserved. */
+bool mergeStandardAndExtendedXmp(const std::string& standard_xmp, const std::string& extended_xmp,
+                                 std::string* merged_xmp);
+
 /*
  * This method generates XMP metadata for the recovery map image.
  * Link: https://developer.android.com/media/platform/hdr-image-format#XMP-attributes

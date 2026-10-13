@@ -1784,6 +1784,168 @@ bool stripGainMapFromXmp(const std::string& xmp_data, std::string* stripped_xmp)
   return true;
 }
 
+bool mergeStandardAndExtendedXmp(const std::string& standard_xmp, const std::string& extended_xmp,
+                                 std::string* merged_xmp) {
+  if (merged_xmp == nullptr) return false;
+  size_t ext_trimmed = extended_xmp.size();
+  while (ext_trimmed > 0 && extended_xmp[ext_trimmed - 1] == '\0') {
+    --ext_trimmed;
+  }
+  const string clean_ext = extended_xmp.substr(0, ext_trimmed);
+
+  string std_without_guid;
+  if (!replaceExtendedXmpGuidInXmp(standard_xmp, "", &std_without_guid)) {
+    return false;
+  }
+  string std_user_only;
+  if (!stripGainMapFromXmp(std_without_guid, &std_user_only)) {
+    return false;
+  }
+  if (std_user_only.empty()) {
+    *merged_xmp = clean_ext;
+    return true;
+  }
+
+  const string synthetic_open = "<XmpMergeRoot>";
+  const string synthetic_close = "</XmpMergeRoot>";
+  const size_t offset = synthetic_open.size();
+  const string std_parse_xml = synthetic_open + std_user_only + synthetic_close;
+
+  XmpMergeXmlHandler std_handler(std_parse_xml);
+  size_t std_rdf_root = kNoXmpElement;
+  vector<size_t> std_all_descriptions;
+  vector<size_t> std_primary_descriptions;
+  if (!ParseRdfDescriptions(std_parse_xml, &std_handler, &std_rdf_root, &std_all_descriptions,
+                            &std_primary_descriptions)) {
+    return false;
+  }
+
+  const vector<XmpElementSpan>& std_elements = std_handler.elements();
+  vector<size_t> retained_descriptions;
+  for (size_t desc_idx : std_all_descriptions) {
+    const XmpElementSpan& desc = std_elements[desc_idx];
+    const bool is_primary =
+        std::find(std_primary_descriptions.begin(), std_primary_descriptions.end(), desc_idx) !=
+        std_primary_descriptions.end();
+    if (!is_primary) {
+      retained_descriptions.push_back(desc_idx);
+      continue;
+    }
+    bool has_user_attribute = false;
+    for (const XmpAttributeSpan& attribute : desc.attributes) {
+      if (attribute.namespace_declaration) continue;
+      if (attribute.uri == kRdfUri && attribute.local_name == "about" && attribute.value.empty()) {
+        continue;
+      }
+      has_user_attribute = true;
+      break;
+    }
+    bool has_user_child = false;
+    for (const XmpElementSpan& child : std_elements) {
+      if (child.parent == desc_idx) {
+        has_user_child = true;
+        break;
+      }
+    }
+    if (has_user_attribute || has_user_child) {
+      retained_descriptions.push_back(desc_idx);
+    }
+  }
+
+  if (retained_descriptions.empty()) {
+    *merged_xmp = clean_ext;
+    return true;
+  }
+  if (clean_ext.empty()) {
+    *merged_xmp = std_user_only;
+    return true;
+  }
+
+  const string ext_parse_xml = synthetic_open + clean_ext + synthetic_close;
+  XmpMergeXmlHandler ext_handler(ext_parse_xml);
+  size_t ext_rdf_root = kNoXmpElement;
+  vector<size_t> ext_all_descriptions;
+  vector<size_t> ext_primary_descriptions;
+  if (!ParseRdfDescriptions(ext_parse_xml, &ext_handler, &ext_rdf_root, &ext_all_descriptions,
+                            &ext_primary_descriptions)) {
+    return false;
+  }
+  const vector<XmpElementSpan>& ext_elements = ext_handler.elements();
+  if (ext_elements[ext_rdf_root].self_closing ||
+      ext_elements[ext_rdf_root].end_begin <= ext_elements[ext_rdf_root].start_begin) {
+    return false;
+  }
+  size_t ext_rdf_open_end = 0;
+  if (!FindXmlMarkupEnd(ext_parse_xml, ext_elements[ext_rdf_root].start_begin, &ext_rdf_open_end) ||
+      ext_rdf_open_end < offset || ext_rdf_open_end - offset > clean_ext.size()) {
+    return false;
+  }
+
+  // Collect ancestor namespace declarations in standard XMP that may be inherited by descriptions.
+  vector<XmpNamespaceDeclaration> std_ancestor_ns;
+  for (size_t ancestor = std_rdf_root; ancestor != kNoXmpElement;
+       ancestor = std_elements[ancestor].parent) {
+    for (const XmpNamespaceDeclaration& decl : std_elements[ancestor].namespace_declarations) {
+      bool exists = false;
+      for (const XmpNamespaceDeclaration& existing : std_ancestor_ns) {
+        if (existing.prefix == decl.prefix) {
+          exists = true;
+          break;
+        }
+      }
+      if (!exists) std_ancestor_ns.push_back(decl);
+    }
+  }
+
+  string descriptions_to_insert;
+  for (size_t desc_idx : retained_descriptions) {
+    const XmpElementSpan& desc = std_elements[desc_idx];
+    size_t desc_open_end = 0;
+    if (!FindXmlMarkupEnd(std_parse_xml, desc.start_begin, &desc_open_end) ||
+        desc.end_end < desc.start_begin) {
+      return false;
+    }
+    string extra_xmlns;
+    for (const XmpNamespaceDeclaration& decl : std_ancestor_ns) {
+      if (decl.prefix.empty() || decl.prefix == "rdf" || decl.prefix == "x") continue;
+      bool declared_locally = false;
+      for (const XmpNamespaceDeclaration& local_decl : desc.namespace_declarations) {
+        if (local_decl.prefix == decl.prefix) {
+          declared_locally = true;
+          break;
+        }
+      }
+      if (!declared_locally) {
+        extra_xmlns += " xmlns:" + decl.prefix + "=\"" + decl.uri + "\"";
+      }
+    }
+    if (extra_xmlns.empty()) {
+      descriptions_to_insert.append(std_parse_xml, desc.start_begin,
+                                    desc.end_end - desc.start_begin);
+    } else {
+      size_t insert_at = desc_open_end - 1;
+      while (insert_at > desc.start_begin && IsXmlWhitespace(std_parse_xml[insert_at - 1])) {
+        --insert_at;
+      }
+      if (insert_at > desc.start_begin && std_parse_xml[insert_at - 1] == '/') {
+        --insert_at;
+      }
+      descriptions_to_insert.append(std_parse_xml, desc.start_begin, insert_at - desc.start_begin);
+      descriptions_to_insert.append(extra_xmlns);
+      descriptions_to_insert.append(std_parse_xml, insert_at, desc.end_end - insert_at);
+    }
+  }
+
+  const size_t insert_pos = ext_rdf_open_end - offset;
+  string result;
+  result.reserve(clean_ext.size() + descriptions_to_insert.size());
+  result.append(clean_ext, 0, insert_pos);
+  result.append(descriptions_to_insert);
+  result.append(clean_ext, insert_pos, clean_ext.size() - insert_pos);
+  *merged_xmp = std::move(result);
+  return true;
+}
+
 string generateXmpForPrimaryImage(size_t secondary_image_length,
                                   uhdr_gainmap_metadata_ext_t& metadata,
                                   uhdr_mem_block_t* user_xmp,
