@@ -1434,6 +1434,28 @@ static void expectHeifDecodeFails(std::vector<uint8_t>& data) {
   uhdr_release_decoder(dec);
 }
 
+// Expects the HEIF probe to reject the file, and decoding (which probes first) to fail too.
+static void expectHeifProbeFails(std::vector<uint8_t>& data, const char* detail) {
+  uhdr_compressed_image_t image{};
+  image.data = data.data();
+  image.data_sz = data.size();
+  image.capacity = data.size();
+  image.cg = UHDR_CG_UNSPECIFIED;
+  image.ct = UHDR_CT_UNSPECIFIED;
+  image.range = UHDR_CR_UNSPECIFIED;
+  uhdr_codec_private_t* dec = uhdr_create_decoder();
+  ASSERT_NE(dec, nullptr);
+  ASSERT_EQ(uhdr_dec_set_image(dec, &image).error_code, UHDR_CODEC_OK);
+  ASSERT_EQ(uhdr_dec_set_out_color_transfer(dec, UHDR_CT_HLG).error_code, UHDR_CODEC_OK);
+  ASSERT_EQ(uhdr_dec_set_out_img_format(dec, UHDR_IMG_FMT_32bppRGBA1010102).error_code,
+            UHDR_CODEC_OK);
+  uhdr_error_info_t status = uhdr_dec_probe(dec);
+  EXPECT_NE(status.error_code, UHDR_CODEC_OK);
+  EXPECT_NE(strstr(status.detail, detail), nullptr) << status.detail;
+  EXPECT_NE(uhdr_decode(dec).error_code, UHDR_CODEC_OK);
+  uhdr_release_decoder(dec);
+}
+
 // The image size reported by libheif comes from the 'ispe' and 'clap' properties, which need not
 // match the coded image. Decoding must fail instead of copying the declared size out of the
 // smaller decoded image.
@@ -1465,6 +1487,64 @@ TEST_F(UltraHdrApiTest, HeifRejectsImageSizeLargerThanDecodedImage) {
     writeBigEndian32(data, clap, 128);
     writeBigEndian32(data, clap + 8, 128);
     expectHeifDecodeFails(data);
+  }
+}
+
+// Removes the association of the given 1-based property index from an item in the 'ipma' box.
+static bool dropItemProperty(std::vector<uint8_t>& data, uint16_t item_id, uint8_t property) {
+  const size_t ipma = findBoxPayload(data, "ipma");
+  if (ipma == 0 || ipma + 8 > data.size() || data[ipma] != 0 || (data[ipma + 3] & 1) != 0) {
+    return false;
+  }
+  const uint32_t entries = (data[ipma + 4] << 24) | (data[ipma + 5] << 16) |
+                           (data[ipma + 6] << 8) | data[ipma + 7];
+  size_t pos = ipma + 8;
+  for (uint32_t i = 0; i < entries && pos + 3 <= data.size(); i++) {
+    const uint16_t id = (data[pos] << 8) | data[pos + 1];
+    const size_t count = data[pos + 2];
+    pos += 3;
+    if (pos + count > data.size()) return false;
+    for (size_t j = 0; id == item_id && j < count; j++) {
+      if ((data[pos + j] & 0x7f) == property) {
+        data[pos + j] = 0;
+        return true;
+      }
+    }
+    pos += count;
+  }
+  return false;
+}
+
+// The image size is read from the container. An image item without an 'ispe' property has no size
+// and one with a huge 'ispe' cannot be decoded; both must be rejected instead of being allocated,
+// copied or sampled with that size.
+TEST_F(UltraHdrApiTest, HeifRejectsUnsupportedImageSizes) {
+  if (!heif_have_decoder_for_format(heif_compression_HEVC)) {
+    GTEST_SKIP() << "HEVC decoder plugin not available in environment";
+  }
+  std::vector<uint8_t> valid_data;
+  ASSERT_TRUE(loadFile(kHevcGainmapFileName, valid_data));
+  const size_t ispe = findBoxPayload(valid_data, "ispe");
+  ASSERT_NE(ispe, 0u);
+  ASSERT_LE(ispe + 12, valid_data.size());
+
+  {
+    SCOPED_TRACE("gain map without 'ispe'");
+    std::vector<uint8_t> data = valid_data;
+    // In the fixture, item 3 is the gain map; property 4 is its 'ispe' and property 5 its 'clap'.
+    ASSERT_TRUE(dropItemProperty(data, 3, 4));
+    ASSERT_TRUE(dropItemProperty(data, 3, 5));
+    expectHeifProbeFails(data, "unsupported gain map image dimensions 0x0");
+  }
+  {
+    SCOPED_TRACE("'ispe' larger than the maximum supported dimensions");
+    std::vector<uint8_t> data = valid_data;
+    ASSERT_TRUE(dropItemProperty(data, 1, 5));
+    ASSERT_TRUE(dropItemProperty(data, 3, 5));
+    // Above the default UHDR_MAX_DIMENSION (8192), within libheif's own limits.
+    writeBigEndian32(data, ispe + 4, 16384);
+    writeBigEndian32(data, ispe + 8, 16384);
+    expectHeifProbeFails(data, "unsupported primary image dimensions 16384x16384");
   }
 }
 
