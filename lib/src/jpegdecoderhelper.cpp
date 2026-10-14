@@ -383,26 +383,31 @@ uhdr_error_info_t JpegDecoderHelper::decode(const void* image, size_t length, de
                                 sizeof kIsoMetadataNameSpace / sizeof kIsoMetadataNameSpace[0],
                                 mIsoMetadataBuffer, payloadOffset);
 
-    std::string std_xmp;
-    std::string expected_guid;
-    constexpr size_t kXmpNsLen = sizeof(kXmpNameSpace) / sizeof(kXmpNameSpace[0]);
-    if (mXMPBuffer.size() > kXmpNsLen) {
-      std_xmp.assign(reinterpret_cast<const char*>(mXMPBuffer.data()) + kXmpNsLen,
-                     mXMPBuffer.size() - kXmpNsLen);
-      getExtendedXmpGuidFromXmp(std_xmp, &expected_guid);
-    }
-    std::vector<JOCTET> extXmpBuffer;
-    if (!expected_guid.empty()) {
-      jpeg_extract_extended_xmp(&cinfo, expected_guid, extXmpBuffer);
-    }
-    if (!extXmpBuffer.empty()) {
-      std::string ext_xmp(reinterpret_cast<const char*>(extXmpBuffer.data()), extXmpBuffer.size());
-      std::string merged_xmp;
-      if (mergeStandardAndExtendedXmp(std_xmp, ext_xmp, &merged_xmp)) {
-        mXMPBuffer.assign(reinterpret_cast<const JOCTET*>(merged_xmp.data()),
-                          reinterpret_cast<const JOCTET*>(merged_xmp.data()) + merged_xmp.size());
-      } else {
-        mXMPBuffer = std::move(extXmpBuffer);
+    // Scope all temporary heap-owning XMP objects (std::string, std::vector) so their destructors
+    // run before jpeg_start_decompress() / scanline reads, which may longjmp via jpegrerror_exit.
+    {
+      constexpr size_t kXmpNsLen = sizeof(kXmpNameSpace) / sizeof(kXmpNameSpace[0]);
+      if (mXMPBuffer.size() > kXmpNsLen) {
+        std::string std_xmp(reinterpret_cast<const char*>(mXMPBuffer.data()) + kXmpNsLen,
+                            mXMPBuffer.size() - kXmpNsLen);
+        std::string expected_guid;
+        getExtendedXmpGuidFromXmp(std_xmp, &expected_guid);
+        if (!expected_guid.empty()) {
+          std::vector<JOCTET> extXmpBuffer;
+          jpeg_extract_extended_xmp(&cinfo, expected_guid, extXmpBuffer);
+          if (!extXmpBuffer.empty()) {
+            std::string ext_xmp(reinterpret_cast<const char*>(extXmpBuffer.data()),
+                                extXmpBuffer.size());
+            std::string merged_xmp;
+            if (mergeStandardAndExtendedXmp(std_xmp, ext_xmp, &merged_xmp)) {
+              mXMPBuffer.assign(
+                  reinterpret_cast<const JOCTET*>(merged_xmp.data()),
+                  reinterpret_cast<const JOCTET*>(merged_xmp.data()) + merged_xmp.size());
+            } else {
+              mXMPBuffer = std::move(extXmpBuffer);
+            }
+          }
+        }
       }
     }
 
