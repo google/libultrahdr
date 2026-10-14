@@ -509,6 +509,21 @@ static bool readS32(const uint8_t* data, size_t size, int32_t* value, size_t* of
   return true;
 }
 
+// Resolves an offset stored in the EXIF data, relative to base, to an offset in
+// the buffer. Fails if the result lies past the end of the buffer. Every offset
+// read from the EXIF data must go through this, so that the sum never wraps.
+static bool resolveOffset(size_t base, uint32_t relOffset, size_t size, size_t* offset) {
+  if (base > size || relOffset > size - base) return false;
+  *offset = base + relOffset;
+  return true;
+}
+
+static bool matchBytes(const uint8_t* data, size_t size, size_t offset, const uint8_t* expected,
+                       size_t expectedSize) {
+  if (offset > size || size - offset < expectedSize) return false;
+  return !memcmp(&data[offset], expected, expectedSize);
+}
+
 static bool getExifAppleHeadroom(const uint8_t* exif, size_t size, float* altHeadroom) {
   *altHeadroom = 0.0f;
   size_t offset = 0;
@@ -554,7 +569,9 @@ static bool getExifAppleHeadroom(const uint8_t* exif, size_t size, float* altHea
   const size_t tiffHeaderOffset = offset - 8;
 
   while (offsetToIfd != 0 && numIfds++ < maxIfds) {
-    offset = tiffHeaderOffset + offsetToIfd;
+    size_t ifdOffset;
+    if (!resolveOffset(tiffHeaderOffset, offsetToIfd, size, &ifdOffset)) return false;
+    offset = ifdOffset;
     bool offsetToNextIfdAlreadySet = false;
 
     uint16_t fieldCount;
@@ -575,30 +592,24 @@ static bool getExifAppleHeadroom(const uint8_t* exif, size_t size, float* altHea
         offsetToNextIfdAlreadySet = true;
         break;
       } else if (tagId == 0x927c) {  // Maker Notes
-        uint32_t makerNotesOffset = tagData;
-        if (tiffHeaderOffset + makerNotesOffset + appleMakerNotesHeaderSize <= size &&
-            !memcmp(&exif[tiffHeaderOffset + makerNotesOffset], appleMakerNotesHeader,
-                    appleMakerNotesHeaderSize)) {
-          offsetToIfd = makerNotesOffset + (uint32_t)appleMakerNotesHeaderSize;
+        size_t makerNotesOffset;
+        if (resolveOffset(tiffHeaderOffset, tagData, size, &makerNotesOffset) &&
+            matchBytes(exif, size, makerNotesOffset, appleMakerNotesHeader,
+                       appleMakerNotesHeaderSize)) {
+          offsetToIfd = tagData + (uint32_t)appleMakerNotesHeaderSize;
           inAppleMakerNotes = true;
           offsetToNextIfdAlreadySet = true;
           isBigEndian = true;  // Apple Maker Notes are always big endian.
           break;
         }
       } else if (inAppleMakerNotes && (tagId == 33 || tagId == 48) && dataFormat == 10) {
-        // Guard against size_t underflow before the subtraction. If
-        // (tiffHeaderOffset + offsetToIfd) is smaller than the Apple Maker
-        // Notes header size, the unsigned arithmetic would wrap around to a
-        // value close to SIZE_MAX, and the subsequent readU32/readS32 bounds
-        // check (*offset + 4 > size) would also overflow and silently pass,
-        // resulting in an out-of-bounds read.
-        if (tiffHeaderOffset + offsetToIfd < appleMakerNotesHeaderSize) return false;
-        size_t tmpOffset =
-            tiffHeaderOffset + offsetToIfd - appleMakerNotesHeaderSize;
-        // Guard against size_t overflow when adding the attacker-controlled
-        // tagData to the computed base offset.
-        if (tmpOffset > SIZE_MAX - (size_t)tagData) return false;
-        tmpOffset += (size_t)tagData;
+        // Offsets in the Apple Maker Notes are relative to the Maker Notes
+        // header, which precedes their first IFD.
+        if (ifdOffset < appleMakerNotesHeaderSize) return false;
+        size_t tmpOffset;
+        if (!resolveOffset(ifdOffset - appleMakerNotesHeaderSize, tagData, size, &tmpOffset)) {
+          return false;
+        }
         int32_t numerator;
         uint32_t denominator;
         if (!readS32(exif, size, &numerator, &tmpOffset, isBigEndian)) return false;
