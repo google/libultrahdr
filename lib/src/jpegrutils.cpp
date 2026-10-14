@@ -593,7 +593,9 @@ static bool getExifAppleHeadroom(const uint8_t* exif, size_t size, float* altHea
         break;
       } else if (tagId == 0x927c) {  // Maker Notes
         size_t makerNotesOffset;
-        if (resolveOffset(tiffHeaderOffset, tagData, size, &makerNotesOffset) &&
+        // The first IFD follows the header; its offset must fit in 32 bits too.
+        if (tagData <= UINT32_MAX - appleMakerNotesHeaderSize &&
+            resolveOffset(tiffHeaderOffset, tagData, size, &makerNotesOffset) &&
             matchBytes(exif, size, makerNotesOffset, appleMakerNotesHeader,
                        appleMakerNotesHeaderSize)) {
           offsetToIfd = tagData + (uint32_t)appleMakerNotesHeaderSize;
