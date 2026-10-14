@@ -13,6 +13,7 @@
 #include <limits>
 #include <vector>
 #include <memory>
+#include <string>
 #include <vector>
 
 #include "ultrahdr_api.h"
@@ -1536,15 +1537,31 @@ TEST_F(UltraHdrApiTest, HeifRejectsUnsupportedImageSizes) {
     ASSERT_TRUE(dropItemProperty(data, 3, 5));
     expectHeifProbeFails(data, "unsupported gain map image dimensions 0x0");
   }
-  {
-    SCOPED_TRACE("'ispe' larger than the maximum supported dimensions");
+  // One dimension just above the configured maximum, the other kept at the fixture's 64, so that
+  // libheif's own image size limits are not hit first.
+  const uint64_t heif_max_pixels = heif_get_global_security_limits()->max_image_size_pixels;
+  const struct {
+    const char* name;
+    uint64_t width, height;
+  } oversized[] = {
+      {"'ispe' wider than the maximum supported width", uint64_t(ultrahdr::kMaxWidth) + 1, 64},
+      {"'ispe' taller than the maximum supported height", 64, uint64_t(ultrahdr::kMaxHeight) + 1},
+  };
+  for (const auto& size : oversized) {
+    SCOPED_TRACE(size.name);
+    if (size.width > uint64_t(std::numeric_limits<int>::max()) ||
+        size.height > uint64_t(std::numeric_limits<int>::max()) ||
+        (heif_max_pixels != 0 && size.width * size.height > heif_max_pixels)) {
+      GTEST_SKIP() << "maximum supported dimensions are beyond libheif's image size limits";
+    }
     std::vector<uint8_t> data = valid_data;
     ASSERT_TRUE(dropItemProperty(data, 1, 5));
     ASSERT_TRUE(dropItemProperty(data, 3, 5));
-    // Above the default UHDR_MAX_DIMENSION (8192), within libheif's own limits.
-    writeBigEndian32(data, ispe + 4, 16384);
-    writeBigEndian32(data, ispe + 8, 16384);
-    expectHeifProbeFails(data, "unsupported primary image dimensions 16384x16384");
+    writeBigEndian32(data, ispe + 4, static_cast<uint32_t>(size.width));
+    writeBigEndian32(data, ispe + 8, static_cast<uint32_t>(size.height));
+    const std::string detail = "unsupported primary image dimensions " +
+                               std::to_string(size.width) + "x" + std::to_string(size.height);
+    expectHeifProbeFails(data, detail.c_str());
   }
 }
 
