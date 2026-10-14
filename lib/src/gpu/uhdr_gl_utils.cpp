@@ -67,6 +67,11 @@ void uhdr_opengl_ctxt::init_opengl_ctxt() {
               "eglMakeCurrent() failed")
 #undef RET_IF_TRUE
 
+  // Image buffers handed to and read from this context are tightly packed (rows are w * bpp
+  // bytes), so texture uploads and read backs must not assume the default 4-byte row alignment.
+  glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+  glPixelStorei(GL_PACK_ALIGNMENT, 1);
+
   setup_quad();
 }
 
@@ -184,9 +189,7 @@ GLuint uhdr_opengl_ctxt::create_texture(uhdr_img_fmt_t fmt, int w, int h, void* 
       glTexImage2D(GL_TEXTURE_2D, 0, GL_R8, w, h * 3 / 2, 0, GL_RED, GL_UNSIGNED_BYTE, data);
       break;
     case UHDR_IMG_FMT_8bppYCbCr400:
-      glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
       glTexImage2D(GL_TEXTURE_2D, 0, GL_R8, w, h, 0, GL_RED, GL_UNSIGNED_BYTE, data);
-      glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
       break;
     case UHDR_IMG_FMT_32bppRGBA8888:
       glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, data);
@@ -343,9 +346,7 @@ void uhdr_opengl_ctxt::read_texture(GLuint* texture, uhdr_img_fmt_t fmt, int w, 
   } else if (fmt == UHDR_IMG_FMT_64bppRGBAHalfFloat) {
     glReadPixels(0, 0, w, h, GL_RGBA, GL_HALF_FLOAT, data);
   } else if (fmt == UHDR_IMG_FMT_8bppYCbCr400) {
-    glPixelStorei(GL_PACK_ALIGNMENT, 1);
     glReadPixels(0, 0, w, h, GL_RED, GL_UNSIGNED_BYTE, data);
-    glPixelStorei(GL_PACK_ALIGNMENT, 4);
   }
   glBindFramebuffer(GL_FRAMEBUFFER, 0);
   glDeleteFramebuffers(1, &frm_buffer);

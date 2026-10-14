@@ -498,4 +498,48 @@ INSTANTIATE_TEST_SUITE_P(
                                          UHDR_IMG_FMT_64bppRGBAHalfFloat,
                                          UHDR_IMG_FMT_32bppRGBA8888)));
 
+#ifdef UHDR_ENABLE_GLES
+// Planes are tightly packed, so textures must hold exactly the bytes of the buffer for widths
+// whose rows are not a multiple of 4 bytes.
+TEST(OpenGLContextTest, TextureUploadOfTightlyPackedRows) {
+  uhdr_opengl_ctxt opengl_ctxt;
+  opengl_ctxt.init_opengl_ctxt();
+  if (opengl_ctxt.mErrorStatus.error_code != UHDR_CODEC_OK) {
+    GTEST_SKIP() << "opengl context unavailable";
+  }
+  struct {
+    uhdr_img_fmt_t fmt;
+    int rows_per_line;  // texture rows per image row, in halves
+    int bpp;
+  } formats[] = {
+      {UHDR_IMG_FMT_8bppYCbCr400, 2, 1},  {UHDR_IMG_FMT_12bppYCbCr420, 3, 1},
+      {UHDR_IMG_FMT_16bppYCbCr422, 4, 1}, {UHDR_IMG_FMT_24bppYCbCr444, 6, 1},
+      {UHDR_IMG_FMT_24bppRGB888, 2, 3},
+  };
+  const int ht = 8;
+  for (const auto& f : formats) {
+    for (int wd = 1; wd <= 10; wd++) {
+      std::string msg = "format: " + std::to_string(f.fmt) + " width: " + std::to_string(wd);
+      const int tex_ht = ht * f.rows_per_line / 2;
+      std::vector<uint8_t> src(static_cast<size_t>(wd) * tex_ht * f.bpp);
+      for (size_t i = 0; i < src.size(); i++) src[i] = static_cast<uint8_t>(i * 7 + 1);
+      GLuint texture = opengl_ctxt.create_texture(f.fmt, wd, ht, src.data());
+      ASSERT_NE(texture, 0u) << msg;
+      std::vector<uint8_t> dst;
+      if (f.bpp == 1) {
+        dst.resize(src.size());
+        opengl_ctxt.read_texture(&texture, UHDR_IMG_FMT_8bppYCbCr400, wd, tex_ht, dst.data());
+      } else {
+        std::vector<uint8_t> rgba(static_cast<size_t>(wd) * tex_ht * 4);
+        opengl_ctxt.read_texture(&texture, UHDR_IMG_FMT_32bppRGBA8888, wd, tex_ht, rgba.data());
+        for (size_t i = 0; i < rgba.size(); i += 4) dst.insert(dst.end(), &rgba[i], &rgba[i + 3]);
+      }
+      glDeleteTextures(1, &texture);
+      ASSERT_EQ(opengl_ctxt.mErrorStatus.error_code, UHDR_CODEC_OK) << msg;
+      ASSERT_EQ(src, dst) << msg;
+    }
+  }
+}
+#endif
+
 }  // namespace ultrahdr
