@@ -2006,6 +2006,19 @@ uhdr_error_info_t uhdr_dec_set_out_max_display_boost(uhdr_codec_private_t* dec,
   return status;
 }
 
+static void stripXmpApp1Header(std::vector<uint8_t>& xmp_buf) {
+  constexpr char kXmpHeader[] = "http://ns.adobe.com/xap/1.0/";
+  constexpr size_t kXmpHeaderLen = sizeof(kXmpHeader) - 1;
+  if (xmp_buf.size() >= kXmpHeaderLen &&
+      memcmp(xmp_buf.data(), kXmpHeader, kXmpHeaderLen) == 0) {
+    size_t offset = kXmpHeaderLen;
+    if (offset < xmp_buf.size() && xmp_buf[offset] == '\0') {
+      ++offset;
+    }
+    xmp_buf.erase(xmp_buf.begin(), xmp_buf.begin() + static_cast<ptrdiff_t>(offset));
+  }
+}
+
 uhdr_error_info_t uhdr_dec_probe(uhdr_codec_private_t* dec) {
   if (dynamic_cast<uhdr_decoder_private*>(dec) == nullptr) {
     uhdr_error_info_t status;
@@ -2100,6 +2113,7 @@ uhdr_error_info_t uhdr_dec_probe(uhdr_codec_private_t* dec) {
                             heif_error xmp_err = heif_image_handle_get_metadata(
                                 base_handle, mime_ids[i], xmp_buf.data());
                             if (xmp_err.code == heif_error_Ok) {
+                              stripXmpApp1Header(xmp_buf);
                               handle->m_xmp = std::move(xmp_buf);
                               handle->m_xmp_block.data = handle->m_xmp.data();
                               handle->m_xmp_block.data_sz = handle->m_xmp_block.capacity =
@@ -2168,6 +2182,7 @@ uhdr_error_info_t uhdr_dec_probe(uhdr_codec_private_t* dec) {
     handle->m_icc_block.data = handle->m_icc.data();
     handle->m_icc_block.data_sz = handle->m_icc_block.capacity = handle->m_icc.size();
     handle->m_xmp = std::move(primary_image.xmpData);
+    stripXmpApp1Header(handle->m_xmp);
     handle->m_xmp_block.data = handle->m_xmp.data();
     handle->m_xmp_block.data_sz = handle->m_xmp_block.capacity = handle->m_xmp.size();
     handle->m_base_img = std::move(primary_image.imgData);

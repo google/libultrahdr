@@ -2407,6 +2407,9 @@ TEST_F(UltraHdrApiTest, JpegEncodeWithXmpAndDecode) {
 
   std::string decoded_xmp_str(static_cast<const char*>(decoded_xmp->data), decoded_xmp->data_sz);
 
+  // Verify uhdr_dec_get_xmp returns bare XML without the 29-byte JPEG APP1 header prefix
+  EXPECT_EQ(decoded_xmp_str.find("http://ns.adobe.com/xap/1.0/"), std::string::npos);
+
   // Verify that user custom metadata was preserved
   EXPECT_NE(decoded_xmp_str.find("Greg Benz"), std::string::npos);
   EXPECT_NE(decoded_xmp_str.find("Copyright 2026 Greg Benz"), std::string::npos);
