@@ -171,6 +171,8 @@ class AvifUltraHdr : public UltraHdr {
                                        DataStruct* alternateIcc);
 
   uhdr_codec_t mCodec;
+  // Preserve the caller's preset; API-0 changes mEncPreset for gain-map generation.
+  bool mUseRealtimeAomSpeed;
 };
 
 }  // namespace ultrahdr
