@@ -3415,7 +3415,181 @@ TEST_F(UltraHdrApiTest, AvifCompressedIntentsUnsupported) {
   uhdr_release_encoder(enc);
 }
 
-TEST_F(UltraHdrApiTest, HeifAndAvifXmpDataUnsupported) {
+}  // namespace ultrahdr
+#include "libheif/heif_plugin.h"
+namespace ultrahdr {
+
+namespace {
+
+bool g_mock_heif_encoder_enabled = false;
+
+struct MockHeifEncoderState {
+  int step = 0;
+};
+
+constexpr uint8_t kMockHevcVpsNal[] = {
+    0x40, 0x01, 0x0c, 0x01, 0xff, 0xff, 0x03, 0x70, 0x00, 0x00, 0x03, 0x00,
+    0x90, 0x00, 0x00, 0x03, 0x00, 0x00, 0x03, 0x00, 0x1e, 0xba, 0x02, 0x40,
+};
+constexpr uint8_t kMockHevcSpsNal[] = {
+    0x42, 0x01, 0x01, 0x03, 0x70, 0x00, 0x00, 0x03, 0x00, 0x90, 0x00, 0x00, 0x03, 0x00,
+    0x00, 0x03, 0x00, 0x1e, 0xa0, 0x20, 0x81, 0x05, 0x96, 0xea, 0xae, 0x9a, 0xe6, 0xe1,
+    0x80, 0x20, 0xc0, 0x80, 0x00, 0x00, 0x03, 0x00, 0x80, 0x00, 0x00, 0x03, 0x00, 0x84,
+};
+constexpr uint8_t kMockHevcPpsNal[] = {0x44, 0x01, 0xc1, 0x73, 0xc1, 0x89};
+constexpr uint8_t kMockHevcSliceNal[] = {0x26, 0x01, 0xaf, 0x08};
+constexpr uint8_t kMockAv1Obu[] = {0x12, 0x00};
+
+heif_error mockEncoderNew(void** out) {
+  *out = new MockHeifEncoderState();
+  return {heif_error_Ok, heif_suberror_Unspecified, ""};
+}
+
+void mockEncoderFree(void* raw) { delete static_cast<MockHeifEncoderState*>(raw); }
+
+heif_error mockEncoderNoopInt(void*, int) { return {heif_error_Ok, heif_suberror_Unspecified, ""}; }
+heif_error mockEncoderNoopStr(void*, const char*, const char*) {
+  return {heif_error_Ok, heif_suberror_Unspecified, ""};
+}
+void mockEncoderQueryInputColorspace(heif_colorspace* inout_cs, heif_chroma* inout_ch) {
+  if (*inout_cs == heif_colorspace_monochrome) {
+    *inout_ch = heif_chroma_monochrome;
+  } else {
+    *inout_cs = heif_colorspace_YCbCr;
+    if (*inout_ch != heif_chroma_444) *inout_ch = heif_chroma_420;
+  }
+}
+void mockEncoderQueryInputColorspace2(void*, heif_colorspace* inout_cs, heif_chroma* inout_ch) {
+  mockEncoderQueryInputColorspace(inout_cs, inout_ch);
+}
+
+heif_error mockEncoderEncodeImage(void* raw, const heif_image* img, heif_image_input_class) {
+  if (!g_mock_heif_encoder_enabled &&
+      heif_image_get_colorspace(img) != heif_colorspace_RGB &&
+      !heif_image_has_channel(img, heif_channel_Alpha)) {
+    return {heif_error_Unsupported_filetype, heif_suberror_Unspecified,
+            "Unsupported file-type: No encoder available"};
+  }
+  static_cast<MockHeifEncoderState*>(raw)->step = 0;
+  return {heif_error_Ok, heif_suberror_Unspecified, ""};
+}
+
+heif_error mockHevcGetCompressedData(void* raw, uint8_t** data, int* size,
+                                     heif_encoded_data_type*) {
+  auto* st = static_cast<MockHeifEncoderState*>(raw);
+  switch (st->step++) {
+    case 0:
+      *data = const_cast<uint8_t*>(kMockHevcVpsNal);
+      *size = sizeof(kMockHevcVpsNal);
+      break;
+    case 1:
+      *data = const_cast<uint8_t*>(kMockHevcSpsNal);
+      *size = sizeof(kMockHevcSpsNal);
+      break;
+    case 2:
+      *data = const_cast<uint8_t*>(kMockHevcPpsNal);
+      *size = sizeof(kMockHevcPpsNal);
+      break;
+    case 3:
+      *data = const_cast<uint8_t*>(kMockHevcSliceNal);
+      *size = sizeof(kMockHevcSliceNal);
+      break;
+    default:
+      *data = nullptr;
+      *size = 0;
+      break;
+  }
+  return {heif_error_Ok, heif_suberror_Unspecified, ""};
+}
+
+heif_error mockAv1GetCompressedData(void* raw, uint8_t** data, int* size,
+                                    heif_encoded_data_type*) {
+  auto* st = static_cast<MockHeifEncoderState*>(raw);
+  if (st->step++ == 0) {
+    *data = const_cast<uint8_t*>(kMockAv1Obu);
+    *size = sizeof(kMockAv1Obu);
+  } else {
+    *data = nullptr;
+    *size = 0;
+  }
+  return {heif_error_Ok, heif_suberror_Unspecified, ""};
+}
+
+class ScopedMockHeifEncoders {
+ public:
+  ScopedMockHeifEncoders() {
+    static const bool kRealHevc = heif_have_encoder_for_format(heif_compression_HEVC) != 0;
+    static const bool kRealAv1 = heif_have_encoder_for_format(heif_compression_AV1) != 0;
+    had_real_hevc_ = kRealHevc;
+    had_real_av1_ = kRealAv1;
+
+    static bool hevc_registered = false;
+    static bool av1_registered = false;
+    static heif_encoder_plugin hevc_plugin{};
+    static heif_encoder_plugin av1_plugin{};
+
+    if (!kRealHevc && !hevc_registered) {
+      hevc_plugin.plugin_api_version = 3;
+      hevc_plugin.compression_format = heif_compression_HEVC;
+      hevc_plugin.id_name = "uhdr-test-hevc";
+      hevc_plugin.priority = 1;
+      hevc_plugin.get_plugin_name = []() { return "uhdr-test-hevc"; };
+      hevc_plugin.new_encoder = mockEncoderNew;
+      hevc_plugin.free_encoder = mockEncoderFree;
+      hevc_plugin.set_parameter_quality = mockEncoderNoopInt;
+      hevc_plugin.set_parameter_lossless = mockEncoderNoopInt;
+      hevc_plugin.set_parameter_logging_level = mockEncoderNoopInt;
+      hevc_plugin.set_parameter_integer = [](void*, const char*, int) -> heif_error {
+        return {heif_error_Ok, heif_suberror_Unspecified, ""};
+      };
+      hevc_plugin.set_parameter_boolean = [](void*, const char*, int) -> heif_error {
+        return {heif_error_Ok, heif_suberror_Unspecified, ""};
+      };
+      hevc_plugin.set_parameter_string = mockEncoderNoopStr;
+      hevc_plugin.list_parameters = [](void*) -> const heif_encoder_parameter** {
+        static const heif_encoder_parameter* kEmpty[] = {nullptr};
+        return kEmpty;
+      };
+      hevc_plugin.query_input_colorspace = mockEncoderQueryInputColorspace;
+      hevc_plugin.query_input_colorspace2 = mockEncoderQueryInputColorspace2;
+      hevc_plugin.encode_image = mockEncoderEncodeImage;
+      hevc_plugin.get_compressed_data = mockHevcGetCompressedData;
+      heif_register_encoder_plugin(&hevc_plugin);
+      hevc_registered = true;
+    }
+    if (!kRealAv1 && !av1_registered) {
+      av1_plugin = hevc_plugin;
+      av1_plugin.compression_format = heif_compression_AV1;
+      av1_plugin.id_name = "uhdr-test-av1";
+      av1_plugin.get_plugin_name = []() { return "uhdr-test-av1"; };
+      av1_plugin.get_compressed_data = mockAv1GetCompressedData;
+      heif_register_encoder_plugin(&av1_plugin);
+      av1_registered = true;
+    }
+    g_mock_heif_encoder_enabled = true;
+  }
+
+  ~ScopedMockHeifEncoders() { g_mock_heif_encoder_enabled = false; }
+
+  bool hadRealHevcEncoder() const { return had_real_hevc_; }
+  bool hadRealAv1Encoder() const { return had_real_av1_; }
+
+ private:
+  bool had_real_hevc_ = false;
+  bool had_real_av1_ = false;
+};
+
+}  // namespace
+
+class UltraHdrHeifXmpTest : public UltraHdrApiTest {};
+
+TEST_F(UltraHdrHeifXmpTest, HeicAndAvifEncodeAndProbeXmpMetadata) {
+  const bool have_real_hevc_decoder = heif_have_decoder_for_format(heif_compression_HEVC);
+  const bool have_real_av1_decoder = heif_have_decoder_for_format(heif_compression_AV1);
+  ScopedMockHeifEncoders mock_encoders;
+  const bool have_real_hevc_encoder = mock_encoders.hadRealHevcEncoder();
+  const bool have_real_av1_encoder = mock_encoders.hadRealAv1Encoder();
+
   const std::string kXmpPacket =
       "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\">"
       "<rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">"
@@ -3423,23 +3597,207 @@ TEST_F(UltraHdrApiTest, HeifAndAvifXmpDataUnsupported) {
       "dc:creator=\"test\"/>"
       "</rdf:RDF>"
       "</x:xmpmeta>";
-  uhdr_mem_block_t xmp_block{const_cast<char*>(kXmpPacket.data()), kXmpPacket.size(),
-                             kXmpPacket.size()};
+  const std::string kApp1Header("http://ns.adobe.com/xap/1.0/\0", 29);
+  const std::string kApp1PrefixedXmp = kApp1Header + kXmpPacket;
+  const std::string kLargeXmpPacket =
+      "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\">"
+      "<rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">"
+      "<rdf:Description rdf:about=\"\" xmlns:dc=\"http://purl.org/dc/elements/1.1/\" "
+      "dc:description=\"" +
+      std::string(70000, 'x') +
+      "\"/>"
+      "</rdf:RDF>"
+      "</x:xmpmeta>";
+
+  struct XmpTestCase {
+    const char* name;
+    std::string input_xmp;
+    std::string expected_xmp;
+    bool use_api1;
+  };
+  const std::vector<XmpTestCase> cases = {
+      {"Api0StandardXmp", kXmpPacket, kXmpPacket, false},
+      {"Api1StandardXmp", kXmpPacket, kXmpPacket, true},
+      {"Api0App1PrefixedXmp", kApp1PrefixedXmp, kXmpPacket, false},
+      {"Api0LargeXmpOver64KB", kLargeXmpPacket, kLargeXmpPacket, false},
+  };
 
   for (uhdr_codec_t codec : {UHDR_CODEC_HEIF, UHDR_CODEC_AVIF}) {
     SCOPED_TRACE(codec == UHDR_CODEC_AVIF ? "AVIF" : "HEIF");
-    uhdr_codec_private_t* enc = uhdr_create_encoder();
-    ASSERT_NE(enc, nullptr);
+    const bool can_decode = (codec == UHDR_CODEC_AVIF)
+                                ? (have_real_av1_encoder && have_real_av1_decoder)
+                                : (have_real_hevc_encoder && have_real_hevc_decoder);
+    for (const auto& tc : cases) {
+      SCOPED_TRACE(tc.name);
+      uhdr_codec_private_t* enc = uhdr_create_encoder();
+      ASSERT_NE(enc, nullptr);
 
-    EXPECT_EQ(uhdr_enc_set_raw_image(enc, &mHdrRaw, UHDR_HDR_IMG).error_code, UHDR_CODEC_OK);
-    EXPECT_EQ(uhdr_enc_set_output_format(enc, codec).error_code, UHDR_CODEC_OK);
-    EXPECT_EQ(uhdr_enc_set_xmp_data(enc, &xmp_block).error_code, UHDR_CODEC_OK);
+      EXPECT_EQ(uhdr_enc_set_raw_image(enc, &mHdrRaw, UHDR_HDR_IMG).error_code, UHDR_CODEC_OK);
+      if (tc.use_api1) {
+        EXPECT_EQ(uhdr_enc_set_raw_image(enc, &mSdrRaw, UHDR_SDR_IMG).error_code, UHDR_CODEC_OK);
+      }
+      EXPECT_EQ(uhdr_enc_set_output_format(enc, codec).error_code, UHDR_CODEC_OK);
+      uhdr_mem_block_t xmp_block{const_cast<char*>(tc.input_xmp.data()), tc.input_xmp.size(),
+                                 tc.input_xmp.size()};
+      EXPECT_EQ(uhdr_enc_set_xmp_data(enc, &xmp_block).error_code, UHDR_CODEC_OK);
 
-    uhdr_error_info_t err = uhdr_encode(enc);
-    EXPECT_EQ(err.error_code, UHDR_CODEC_UNSUPPORTED_FEATURE);
+      uhdr_error_info_t err = uhdr_encode(enc);
+      ASSERT_EQ(err.error_code, UHDR_CODEC_OK) << (err.has_detail ? err.detail : "no detail");
+      uhdr_compressed_image_t* output = uhdr_get_encoded_stream(enc);
+      ASSERT_NE(output, nullptr);
+      ASSERT_GT(output->data_sz, 0u);
 
-    uhdr_release_encoder(enc);
+      uhdr_codec_private_t* dec = uhdr_create_decoder();
+      ASSERT_NE(dec, nullptr);
+      ASSERT_EQ(uhdr_dec_set_image(dec, output).error_code, UHDR_CODEC_OK);
+      ASSERT_EQ(uhdr_dec_probe(dec).error_code, UHDR_CODEC_OK);
+
+      uhdr_mem_block_t* decoded_xmp = uhdr_dec_get_xmp(dec);
+      ASSERT_NE(decoded_xmp, nullptr);
+      ASSERT_NE(decoded_xmp->data, nullptr);
+      EXPECT_EQ(std::string(static_cast<const char*>(decoded_xmp->data), decoded_xmp->data_sz),
+                tc.expected_xmp);
+
+      if (can_decode) {
+        EXPECT_EQ(uhdr_decode(dec).error_code, UHDR_CODEC_OK);
+      }
+
+      uhdr_release_decoder(dec);
+      uhdr_release_encoder(enc);
+    }
+
+    // Also verify direct HeifUltraHdr / AvifUltraHdr rejects invalid non-empty nullptr XMP block.
+    std::vector<uint8_t> backing_store(64 * 1024);
+    uhdr_compressed_image_t dest{};
+    dest.data = backing_store.data();
+    dest.capacity = backing_store.size();
+    uhdr_mem_block_t bad_xmp{nullptr, 16, 16};
+    if (codec == UHDR_CODEC_HEIF) {
+      HeifUltraHdr heif_codec;
+      EXPECT_EQ(heif_codec.encodeHeicUltraHdr(&mHdrRaw, &dest, 85, nullptr, &bad_xmp).error_code,
+                UHDR_CODEC_INVALID_PARAM);
+    } else {
+      AvifUltraHdr avif_codec;
+      EXPECT_EQ(avif_codec.encodeAvifUltraHdr(&mHdrRaw, &dest, 85, nullptr, &bad_xmp).error_code,
+                UHDR_CODEC_INVALID_PARAM);
+    }
   }
+}
+
+TEST_F(UltraHdrApiTest, HeifProbeExtractsXmpMetadataFromContainer) {
+  std::vector<uint8_t> hevc_gainmap;
+  ASSERT_TRUE(loadFile(kHevcGainmapFileName, hevc_gainmap));
+
+  // Verify uhdr_dec_get_xmp returns nullptr when the HEIC container has no XMP item.
+  {
+    uhdr_compressed_image_t input{};
+    input.data = hevc_gainmap.data();
+    input.data_sz = hevc_gainmap.size();
+    input.capacity = hevc_gainmap.size();
+    uhdr_codec_private_t* dec = uhdr_create_decoder();
+    ASSERT_NE(dec, nullptr);
+    ASSERT_EQ(uhdr_dec_set_image(dec, &input).error_code, UHDR_CODEC_OK);
+    ASSERT_EQ(uhdr_dec_probe(dec).error_code, UHDR_CODEC_OK);
+    EXPECT_EQ(uhdr_dec_get_xmp(dec), nullptr);
+    uhdr_release_decoder(dec);
+  }
+
+  // Attach an XMP ("mime" / "application/rdf+xml") item to the primary image and re-serialize.
+  const std::string kXmpPacket =
+      "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\">"
+      "<rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">"
+      "<rdf:Description rdf:about=\"\" xmlns:dc=\"http://purl.org/dc/elements/1.1/\" "
+      "dc:creator=\"heic-xmp-test\"/>"
+      "</rdf:RDF>"
+      "</x:xmpmeta>";
+
+  HeifContextPtr ctx(heif_context_alloc(), heif_context_free);
+  ASSERT_NE(ctx, nullptr);
+  ASSERT_EQ(heif_context_read_from_memory_without_copy(ctx.get(), hevc_gainmap.data(),
+                                                       hevc_gainmap.size(), nullptr)
+                .code,
+            heif_error_Ok);
+
+  heif_image_handle* raw_primary = nullptr;
+  ASSERT_EQ(heif_context_get_primary_image_handle(ctx.get(), &raw_primary).code, heif_error_Ok);
+  HeifHandlePtr primary(raw_primary, heif_image_handle_release);
+  ASSERT_NE(primary, nullptr);
+
+  ASSERT_EQ(heif_context_add_XMP_metadata(ctx.get(), primary.get(), kXmpPacket.data(),
+                                          static_cast<int>(kXmpPacket.size()))
+                .code,
+            heif_error_Ok);
+
+  std::vector<uint8_t> hevc_with_xmp;
+  heif_writer writer{};
+  writer.writer_api_version = 1;
+  writer.write = [](heif_context*, const void* data, size_t size, void* userdata) -> heif_error {
+    auto* out = static_cast<std::vector<uint8_t>*>(userdata);
+    const auto* bytes = static_cast<const uint8_t*>(data);
+    out->insert(out->end(), bytes, bytes + size);
+    return {heif_error_Ok, heif_suberror_Unspecified, ""};
+  };
+  ASSERT_EQ(heif_context_write(ctx.get(), &writer, &hevc_with_xmp).code, heif_error_Ok);
+  ASSERT_GT(hevc_with_xmp.size(), kXmpPacket.size() + 8);
+
+  // libheif's writer only serializes in-memory item extents (the newly added XMP item) into mdat
+  // while accounting for all item lengths in the mdat box header and iloc table. Splice the
+  // original mdat payload bytes from the fixture and update the running iloc base_offsets so all
+  // items resolve in the serialized container without requiring an HEVC encoder plugin.
+  const std::string kMdatFourcc("mdat", 4);
+  const auto orig_mdat_it =
+      std::search(hevc_gainmap.begin(), hevc_gainmap.end(), kMdatFourcc.begin(), kMdatFourcc.end());
+  ASSERT_NE(orig_mdat_it, hevc_gainmap.end());
+  const size_t orig_mdat_payload_offset =
+      static_cast<size_t>(std::distance(hevc_gainmap.begin(), orig_mdat_it)) + 4;
+  ASSERT_LT(orig_mdat_payload_offset, hevc_gainmap.size());
+
+  const size_t new_mdat_payload_offset = hevc_with_xmp.size() - kXmpPacket.size();
+  hevc_with_xmp.insert(hevc_with_xmp.begin() + static_cast<ptrdiff_t>(new_mdat_payload_offset),
+                       hevc_gainmap.begin() + static_cast<ptrdiff_t>(orig_mdat_payload_offset),
+                       hevc_gainmap.end());
+
+  const std::string kIlocFourcc("iloc", 4);
+  const auto iloc_it =
+      std::search(hevc_with_xmp.begin(), hevc_with_xmp.end(), kIlocFourcc.begin(), kIlocFourcc.end());
+  ASSERT_NE(iloc_it, hevc_with_xmp.end());
+  const size_t iloc_offset = static_cast<size_t>(std::distance(hevc_with_xmp.begin(), iloc_it)) - 4;
+  const uint16_t item_count =
+      (static_cast<uint16_t>(hevc_with_xmp[iloc_offset + 14]) << 8) |
+      static_cast<uint16_t>(hevc_with_xmp[iloc_offset + 15]);
+  ASSERT_EQ(item_count, 4u);
+  uint32_t running_offset = static_cast<uint32_t>(new_mdat_payload_offset);
+  for (uint16_t i = 0; i < item_count; ++i) {
+    const size_t entry_offset = iloc_offset + 16 + static_cast<size_t>(i) * 18;
+    hevc_with_xmp[entry_offset + 4] = static_cast<uint8_t>((running_offset >> 24) & 0xFF);
+    hevc_with_xmp[entry_offset + 5] = static_cast<uint8_t>((running_offset >> 16) & 0xFF);
+    hevc_with_xmp[entry_offset + 6] = static_cast<uint8_t>((running_offset >> 8) & 0xFF);
+    hevc_with_xmp[entry_offset + 7] = static_cast<uint8_t>(running_offset & 0xFF);
+    const uint32_t item_len =
+        (static_cast<uint32_t>(hevc_with_xmp[entry_offset + 14]) << 24) |
+        (static_cast<uint32_t>(hevc_with_xmp[entry_offset + 15]) << 16) |
+        (static_cast<uint32_t>(hevc_with_xmp[entry_offset + 16]) << 8) |
+        static_cast<uint32_t>(hevc_with_xmp[entry_offset + 17]);
+    running_offset += item_len;
+  }
+
+  uhdr_compressed_image_t input_with_xmp{};
+  input_with_xmp.data = hevc_with_xmp.data();
+  input_with_xmp.data_sz = hevc_with_xmp.size();
+  input_with_xmp.capacity = hevc_with_xmp.size();
+
+  uhdr_codec_private_t* dec = uhdr_create_decoder();
+  ASSERT_NE(dec, nullptr);
+  ASSERT_EQ(uhdr_dec_set_image(dec, &input_with_xmp).error_code, UHDR_CODEC_OK);
+  ASSERT_EQ(uhdr_dec_probe(dec).error_code, UHDR_CODEC_OK);
+
+  uhdr_mem_block_t* decoded_xmp = uhdr_dec_get_xmp(dec);
+  ASSERT_NE(decoded_xmp, nullptr);
+  ASSERT_NE(decoded_xmp->data, nullptr);
+  EXPECT_EQ(std::string(static_cast<const char*>(decoded_xmp->data), decoded_xmp->data_sz),
+            kXmpPacket);
+
+  uhdr_release_decoder(dec);
 }
 
 TEST_F(UltraHdrApiTest, AvifPreservesRawAlpha) {
