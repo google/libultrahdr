@@ -1010,9 +1010,20 @@ std::string generateStandardXmpWithExtendedGuid(const std::string& guid) {
 namespace {
 
 constexpr size_t kNoXmpElement = (std::numeric_limits<size_t>::max)();
+constexpr char kSyntheticOpen[] = "<XmpMergeRoot>";
+constexpr char kSyntheticClose[] = "</XmpMergeRoot>";
+constexpr size_t kSyntheticOffset = sizeof(kSyntheticOpen) - 1;
+constexpr char kXmpNoteUri[] = "http://ns.adobe.com/xmp/note/";
+constexpr char kXmlNamespaceUri[] = "http://www.w3.org/XML/1998/namespace";
 
 bool IsXmlWhitespace(char c) {
   return c == ' ' || c == '\t' || c == '\r' || c == '\n';
+}
+
+string TrimTrailingNulls(const string& xmp) {
+  size_t end = xmp.size();
+  while (end > 0 && xmp[end - 1] == '\0') --end;
+  return xmp.substr(0, end);
 }
 
 bool FindXmlMarkupEnd(const string& xml, size_t begin, size_t* end) {
@@ -1184,7 +1195,7 @@ class XmpMergeXmlHandler : public XmlHandler {
       }
     }
     if (prefix == "xml") {
-      *uri = "http://www.w3.org/XML/1998/namespace";
+      *uri = kXmlNamespaceUri;
       return true;
     }
     if (prefix == "xmlns") {
@@ -1264,10 +1275,7 @@ class XmpMergeXmlHandler : public XmlHandler {
           return false;
         }
       }
-      XmpNamespaceDeclaration declaration;
-      declaration.prefix = prefix;
-      declaration.uri = attribute.value;
-      namespace_declarations.push_back(std::move(declaration));
+      namespace_declarations.push_back({prefix, attribute.value});
     }
 
     XmpElementSpan element;
@@ -1328,54 +1336,62 @@ bool IsGainMapPropertyUri(const string& uri) {
   return uri == kContainerUri || uri == kItemUri || uri == kGainMapUri || uri == kAppleGainMapUri;
 }
 
-string GeneratePrimaryDescription(size_t secondary_image_length,
-                                  uhdr_gainmap_metadata_ext_t& metadata,
-                                  const string& extended_xmp_guid) {
+void WritePrimaryDescriptionElement(photos_editing_formats::image_io::XmlWriter* writer,
+                                    bool write_rdf_xmlns, size_t secondary_image_length,
+                                    uhdr_gainmap_metadata_ext_t& metadata,
+                                    const string& extended_xmp_guid) {
   const vector<string> con_dir_seq({kConDirectory, string("rdf:Seq")});
-  stringstream ss;
-  photos_editing_formats::image_io::XmlWriter writer(ss);
-  writer.StartWritingElement("rdf:Description");
-  writer.WriteXmlns("rdf", kRdfUri);
-  writer.WriteXmlns(kContainerPrefix, kContainerUri);
-  writer.WriteXmlns(kItemPrefix, kItemUri);
-  writer.WriteXmlns(kGainMapPrefix, kGainMapUri);
+  writer->StartWritingElement("rdf:Description");
+  if (write_rdf_xmlns) writer->WriteXmlns("rdf", kRdfUri);
+  writer->WriteXmlns(kContainerPrefix, kContainerUri);
+  writer->WriteXmlns(kItemPrefix, kItemUri);
+  writer->WriteXmlns(kGainMapPrefix, kGainMapUri);
   if (!extended_xmp_guid.empty()) {
-    writer.WriteXmlns("xmpNote", "http://ns.adobe.com/xmp/note/");
-    writer.WriteAttributeNameAndValue("xmpNote:HasExtendedXMP", extended_xmp_guid);
+    writer->WriteXmlns("xmpNote", kXmpNoteUri);
+    writer->WriteAttributeNameAndValue("xmpNote:HasExtendedXMP", extended_xmp_guid);
   }
-  writer.WriteAttributeNameAndValue(kMapVersion, metadata.version);
-  writer.StartWritingElements(con_dir_seq);
+  writer->WriteAttributeNameAndValue(kMapVersion, metadata.version);
+  writer->StartWritingElements(con_dir_seq);
 
-  const size_t item_depth = writer.StartWritingElement("rdf:li");
-  writer.WriteAttributeNameAndValue("rdf:parseType", "Resource");
-  writer.StartWritingElement(kConItem);
-  writer.WriteAttributeNameAndValue(kItemSemantic, kSemanticPrimary);
-  writer.WriteAttributeNameAndValue(kItemMime, kMimeImageJpeg);
-  writer.FinishWritingElementsToDepth(item_depth);
+  const size_t item_depth = writer->StartWritingElement("rdf:li");
+  writer->WriteAttributeNameAndValue("rdf:parseType", "Resource");
+  writer->StartWritingElement(kConItem);
+  writer->WriteAttributeNameAndValue(kItemSemantic, kSemanticPrimary);
+  writer->WriteAttributeNameAndValue(kItemMime, kMimeImageJpeg);
+  writer->FinishWritingElementsToDepth(item_depth);
 
-  writer.StartWritingElement("rdf:li");
-  writer.WriteAttributeNameAndValue("rdf:parseType", "Resource");
-  writer.StartWritingElement(kConItem);
-  writer.WriteAttributeNameAndValue(kItemSemantic, kSemanticGainMap);
-  writer.WriteAttributeNameAndValue(kItemMime, kMimeImageJpeg);
-  writer.WriteAttributeNameAndValue(kItemLength, secondary_image_length);
-  writer.FinishWriting();
-  return ss.str();
+  writer->StartWritingElement("rdf:li");
+  writer->WriteAttributeNameAndValue("rdf:parseType", "Resource");
+  writer->StartWritingElement(kConItem);
+  writer->WriteAttributeNameAndValue(kItemSemantic, kSemanticGainMap);
+  writer->WriteAttributeNameAndValue(kItemMime, kMimeImageJpeg);
+  writer->WriteAttributeNameAndValue(kItemLength, secondary_image_length);
+  writer->FinishWriting();
 }
 
-bool ParseRdfDescriptions(const string& parse_xml, XmpMergeXmlHandler* handler, size_t* rdf_root_out,
-                          vector<size_t>* all_descriptions_out,
-                          vector<size_t>* primary_descriptions_out) {
+struct ParsedXmpPacket {
+  string parse_xml;
+  unique_ptr<XmpMergeXmlHandler> handler;
+  size_t rdf_root = kNoXmpElement;
+  vector<size_t> all_descriptions;
+  vector<size_t> primary_descriptions;
+  const vector<XmpElementSpan>& elements() const { return handler->elements(); }
+  size_t root_index() const { return handler->root_index(); }
+};
+
+bool ParseXmpPacket(const string& clean_xmp, ParsedXmpPacket* packet) {
+  packet->parse_xml = string(kSyntheticOpen) + clean_xmp + kSyntheticClose;
+  packet->handler = std::make_unique<XmpMergeXmlHandler>(packet->parse_xml);
   MessageHandler message_handler;
   unique_ptr<XmlRule> rule(new XmlElementRule);
-  XmlReader reader(handler, &message_handler);
-  if (!reader.StartParse(std::move(rule)) || !reader.Parse(parse_xml) || !reader.FinishParse() ||
-      reader.HasErrors() || !handler->IsComplete()) {
+  XmlReader reader(packet->handler.get(), &message_handler);
+  if (!reader.StartParse(std::move(rule)) || !reader.Parse(packet->parse_xml) ||
+      !reader.FinishParse() || reader.HasErrors() || !packet->handler->IsComplete()) {
     return false;
   }
 
-  const vector<XmpElementSpan>& elements = handler->elements();
-  const size_t synthetic_root = handler->root_index();
+  const vector<XmpElementSpan>& elements = packet->elements();
+  const size_t synthetic_root = packet->root_index();
   size_t packet_root = kNoXmpElement;
   for (size_t index = 0; index < elements.size(); ++index) {
     if (elements[index].parent == synthetic_root) {
@@ -1402,15 +1418,15 @@ bool ParseRdfDescriptions(const string& parse_xml, XmpMergeXmlHandler* handler, 
   }
   if (rdf_root == kNoXmpElement) return false;
 
-  all_descriptions_out->clear();
-  primary_descriptions_out->clear();
+  packet->all_descriptions.clear();
+  packet->primary_descriptions.clear();
   for (size_t index = 0; index < elements.size(); ++index) {
     const XmpElementSpan& element = elements[index];
     if (element.parent != rdf_root || element.uri != kRdfUri ||
         element.local_name != "Description") {
       continue;
     }
-    all_descriptions_out->push_back(index);
+    packet->all_descriptions.push_back(index);
     bool has_about = false;
     bool about_empty = true;
     bool has_non_primary_id = false;
@@ -1424,23 +1440,31 @@ bool ParseRdfDescriptions(const string& parse_xml, XmpMergeXmlHandler* handler, 
       }
     }
     if (!has_non_primary_id && (!has_about || about_empty)) {
-      primary_descriptions_out->push_back(index);
+      packet->primary_descriptions.push_back(index);
     }
   }
-  *rdf_root_out = rdf_root;
+  packet->rdf_root = rdf_root;
   return true;
 }
 
-namespace {
-
-constexpr char kXmpNoteUri[] = "http://ns.adobe.com/xmp/note/";
-
-struct ExtendedXmpReference {
-  size_t value_begin;
-  size_t value_end;
-  size_t remove_begin;
-  size_t remove_end;
-};
+void ClassifyPrimaryDescription(const vector<XmpElementSpan>& elements, size_t desc_idx,
+                                bool* has_removable, bool* has_user) {
+  *has_removable = false;
+  *has_user = false;
+  for (const XmpAttributeSpan& attribute : elements[desc_idx].attributes) {
+    if (attribute.namespace_declaration) continue;
+    if (attribute.uri == kRdfUri && attribute.local_name == "about" && attribute.value.empty()) {
+      continue;
+    }
+    if (IsGainMapPropertyUri(attribute.uri)) *has_removable = true;
+    else *has_user = true;
+  }
+  for (const XmpElementSpan& child : elements) {
+    if (child.parent != desc_idx) continue;
+    if (IsGainMapPropertyUri(child.uri)) *has_removable = true;
+    else *has_user = true;
+  }
+}
 
 bool IsExtendedXmpGuid(const string& guid) {
   if (guid.size() != 32) return false;
@@ -1459,42 +1483,37 @@ bool ProcessExtendedXmpGuid(const string& xmp_data, const string* replacement_gu
     return false;
   }
 
-  size_t trimmed_size = xmp_data.size();
-  while (trimmed_size > 0 && xmp_data[trimmed_size - 1] == '\0') --trimmed_size;
-  const string clean_xmp = xmp_data.substr(0, trimmed_size);
+  const string clean_xmp = TrimTrailingNulls(xmp_data);
   if (clean_xmp.empty()) {
     if (rewritten_xmp != nullptr) rewritten_xmp->clear();
     return true;
   }
 
-  const string synthetic_open = "<XmpMergeRoot>";
-  const size_t offset = synthetic_open.size();
-  const string parse_xml = synthetic_open + clean_xmp + "</XmpMergeRoot>";
-  XmpMergeXmlHandler handler(parse_xml);
-  size_t rdf_root = kNoXmpElement;
-  vector<size_t> all_descriptions;
-  vector<size_t> primary_descriptions;
-  if (!ParseRdfDescriptions(parse_xml, &handler, &rdf_root, &all_descriptions,
-                            &primary_descriptions)) {
-    return false;
-  }
+  ParsedXmpPacket pkt;
+  if (!ParseXmpPacket(clean_xmp, &pkt)) return false;
 
-  const vector<XmpElementSpan>& elements = handler.elements();
-  vector<ExtendedXmpReference> references;
+  const vector<XmpElementSpan>& elements = pkt.elements();
+  vector<pair<size_t, size_t>> edits;
   string found_guid;
-  for (size_t description : primary_descriptions) {
+  for (size_t description : pkt.primary_descriptions) {
     const XmpElementSpan& primary = elements[description];
     for (const XmpAttributeSpan& attribute : primary.attributes) {
       if (attribute.uri != kXmpNoteUri || attribute.local_name != "HasExtendedXMP") continue;
-      if (!IsExtendedXmpGuid(attribute.value)) return false;
-      if (!found_guid.empty() && found_guid != attribute.value) return false;
+      if (!IsExtendedXmpGuid(attribute.value) ||
+          (!found_guid.empty() && found_guid != attribute.value)) {
+        return false;
+      }
       found_guid = attribute.value;
       size_t remove_begin = attribute.name_begin;
-      while (remove_begin > primary.start_begin && IsXmlWhitespace(parse_xml[remove_begin - 1])) {
+      while (remove_begin > primary.start_begin &&
+             IsXmlWhitespace(pkt.parse_xml[remove_begin - 1])) {
         --remove_begin;
       }
-      references.push_back({attribute.value_begin, attribute.value_end - 1, remove_begin,
-                            attribute.value_end});
+      if (replacement_guid != nullptr) {
+        edits.emplace_back(
+            replacement_guid->empty() ? remove_begin : attribute.value_begin,
+            replacement_guid->empty() ? attribute.value_end : attribute.value_end - 1);
+      }
     }
 
     for (size_t index = 0; index < elements.size(); ++index) {
@@ -1508,37 +1527,40 @@ bool ProcessExtendedXmpGuid(const string& xmp_data, const string* replacement_gu
         if (child.parent == index) return false;
       }
       size_t value_begin = 0;
-      if (!FindXmlMarkupEnd(parse_xml, element.start_begin, &value_begin) ||
+      if (!FindXmlMarkupEnd(pkt.parse_xml, element.start_begin, &value_begin) ||
           element.end_begin < value_begin) {
         return false;
       }
       size_t value_end = element.end_begin;
-      while (value_begin < value_end && IsXmlWhitespace(parse_xml[value_begin])) ++value_begin;
-      while (value_end > value_begin && IsXmlWhitespace(parse_xml[value_end - 1])) --value_end;
-      const string guid = parse_xml.substr(value_begin, value_end - value_begin);
+      while (value_begin < value_end && IsXmlWhitespace(pkt.parse_xml[value_begin])) ++value_begin;
+      while (value_end > value_begin && IsXmlWhitespace(pkt.parse_xml[value_end - 1])) --value_end;
+      const string guid = pkt.parse_xml.substr(value_begin, value_end - value_begin);
       if (!IsExtendedXmpGuid(guid) || (!found_guid.empty() && found_guid != guid)) return false;
       found_guid = guid;
       size_t remove_begin = element.start_begin;
-      while (remove_begin > primary.start_begin && IsXmlWhitespace(parse_xml[remove_begin - 1])) {
+      while (remove_begin > primary.start_begin &&
+             IsXmlWhitespace(pkt.parse_xml[remove_begin - 1])) {
         --remove_begin;
       }
-      references.push_back({value_begin, value_end, remove_begin, element.end_end});
+      if (replacement_guid != nullptr) {
+        edits.emplace_back(replacement_guid->empty() ? remove_begin : value_begin,
+                           replacement_guid->empty() ? element.end_end : value_end);
+      }
     }
   }
 
   if (guid_out != nullptr) *guid_out = found_guid;
-  if (rewritten_xmp == nullptr || references.empty() || *replacement_guid == found_guid) {
+  if (rewritten_xmp == nullptr || edits.empty() || *replacement_guid == found_guid) {
     if (rewritten_xmp != nullptr) *rewritten_xmp = clean_xmp;
     return true;
   }
 
-  vector<pair<size_t, size_t>> edits;
-  edits.reserve(references.size());
-  for (const ExtendedXmpReference& reference : references) {
-    const size_t begin = replacement_guid->empty() ? reference.remove_begin : reference.value_begin;
-    const size_t end = replacement_guid->empty() ? reference.remove_end : reference.value_end;
-    if (begin < offset || end < begin || end - offset > clean_xmp.size()) return false;
-    edits.emplace_back(begin - offset, end - offset);
+  for (auto& [begin, end] : edits) {
+    if (begin < kSyntheticOffset || end < begin || end - kSyntheticOffset > clean_xmp.size()) {
+      return false;
+    }
+    begin -= kSyntheticOffset;
+    end -= kSyntheticOffset;
   }
   sort(edits.begin(), edits.end());
   for (size_t index = 1; index < edits.size(); ++index) {
@@ -1547,42 +1569,32 @@ bool ProcessExtendedXmpGuid(const string& xmp_data, const string* replacement_gu
 
   string rewritten;
   size_t cursor = 0;
-  for (const auto& edit : edits) {
-    rewritten.append(clean_xmp, cursor, edit.first - cursor);
+  for (const auto& [begin, end] : edits) {
+    rewritten.append(clean_xmp, cursor, begin - cursor);
     if (!replacement_guid->empty()) rewritten.append(*replacement_guid);
-    cursor = edit.second;
+    cursor = end;
   }
   rewritten.append(clean_xmp, cursor, clean_xmp.size() - cursor);
   *rewritten_xmp = std::move(rewritten);
   return true;
 }
 
-}  // namespace
-
 string MergePrimaryXmp(const string& existing_xmp, size_t secondary_image_length,
                        uhdr_gainmap_metadata_ext_t& metadata,
                        const string& extended_xmp_guid) {
-  const string synthetic_open = "<XmpMergeRoot>";
-  const string synthetic_close = "</XmpMergeRoot>";
-  const size_t offset = synthetic_open.size();
-  const string parse_xml = synthetic_open + existing_xmp + synthetic_close;
+  ParsedXmpPacket pkt;
+  if (!ParseXmpPacket(existing_xmp, &pkt)) return string();
 
-  XmpMergeXmlHandler handler(parse_xml);
-  size_t rdf_root = kNoXmpElement;
-  vector<size_t> all_descriptions;
-  vector<size_t> primary_descriptions;
-  if (!ParseRdfDescriptions(parse_xml, &handler, &rdf_root, &all_descriptions,
-                            &primary_descriptions)) {
-    return string();
-  }
-  const vector<XmpElementSpan>& elements = handler.elements();
-  if (elements[rdf_root].self_closing ||
-      elements[rdf_root].end_begin <= elements[rdf_root].start_begin) {
+  const vector<XmpElementSpan>& elements = pkt.elements();
+  if (elements[pkt.rdf_root].self_closing ||
+      elements[pkt.rdf_root].end_begin <= elements[pkt.rdf_root].start_begin ||
+      elements[pkt.rdf_root].end_begin < kSyntheticOffset ||
+      elements[pkt.rdf_root].end_begin - kSyntheticOffset > existing_xmp.size()) {
     return string();
   }
 
   vector<pair<size_t, size_t>> removals;
-  for (const size_t description : primary_descriptions) {
+  for (const size_t description : pkt.primary_descriptions) {
     const XmpElementSpan& primary = elements[description];
     for (const XmpAttributeSpan& attribute : primary.attributes) {
       if ((attribute.uri == kContainerUri && attribute.local_name == "Directory") ||
@@ -1599,24 +1611,22 @@ string MergePrimaryXmp(const string& existing_xmp, size_t secondary_image_length
     }
   }
 
-  if (elements[rdf_root].end_begin < offset ||
-      elements[rdf_root].end_begin - offset > existing_xmp.size()) {
-    return string();
-  }
-  const size_t insertion = elements[rdf_root].end_begin - offset;
-  for (auto& removal : removals) {
-    if (removal.first < offset || removal.second < removal.first) return string();
-    removal.first -= offset;
-    removal.second -= offset;
-    if (removal.second > insertion) return string();
+  const size_t insertion = elements[pkt.rdf_root].end_begin - kSyntheticOffset;
+  for (auto& [begin, end] : removals) {
+    if (begin < kSyntheticOffset || end < begin) return string();
+    begin -= kSyntheticOffset;
+    end -= kSyntheticOffset;
+    if (end > insertion) return string();
   }
   sort(removals.begin(), removals.end());
   for (size_t index = 1; index < removals.size(); ++index) {
     if (removals[index].first < removals[index - 1].second) return string();
   }
 
-  const string generated_description =
-      GeneratePrimaryDescription(secondary_image_length, metadata, extended_xmp_guid);
+  stringstream ss;
+  photos_editing_formats::image_io::XmlWriter writer(ss);
+  WritePrimaryDescriptionElement(&writer, true, secondary_image_length, metadata,
+                                 extended_xmp_guid);
   string merged;
   size_t cursor = 0;
   for (const auto& [begin, end] : removals) {
@@ -1625,7 +1635,7 @@ string MergePrimaryXmp(const string& existing_xmp, size_t secondary_image_length
     cursor = end;
   }
   merged.append(existing_xmp, cursor, insertion - cursor);
-  merged.append(generated_description);
+  merged.append(ss.str());
   merged.push_back('\n');
   merged.append(existing_xmp, insertion, existing_xmp.size() - insertion);
   return merged;
@@ -1646,69 +1656,31 @@ bool replaceExtendedXmpGuidInXmp(const string& xmp_data, const string& new_guid,
 
 bool stripGainMapFromXmp(const std::string& xmp_data, std::string* stripped_xmp) {
   if (stripped_xmp == nullptr) return false;
-  size_t trimmed_size = xmp_data.size();
-  while (trimmed_size > 0 && xmp_data[trimmed_size - 1] == '\0') {
-    --trimmed_size;
-  }
-  const string clean_xmp = xmp_data.substr(0, trimmed_size);
+  const string clean_xmp = TrimTrailingNulls(xmp_data);
   if (clean_xmp.empty()) {
     stripped_xmp->clear();
     return true;
   }
 
-  const string synthetic_open = "<XmpMergeRoot>";
-  const string synthetic_close = "</XmpMergeRoot>";
-  const size_t offset = synthetic_open.size();
-  const string parse_xml = synthetic_open + clean_xmp + synthetic_close;
+  ParsedXmpPacket pkt;
+  if (!ParseXmpPacket(clean_xmp, &pkt)) return false;
 
-  XmpMergeXmlHandler handler(parse_xml);
-  size_t rdf_root = kNoXmpElement;
-  vector<size_t> all_descriptions;
-  vector<size_t> primary_descriptions;
-  if (!ParseRdfDescriptions(parse_xml, &handler, &rdf_root, &all_descriptions,
-                            &primary_descriptions)) {
-    return false;
-  }
-
-  const vector<XmpElementSpan>& elements = handler.elements();
+  const vector<XmpElementSpan>& elements = pkt.elements();
   vector<pair<size_t, size_t>> removals;
   size_t removed_descriptions = 0;
 
-  for (const size_t description : primary_descriptions) {
+  for (const size_t description : pkt.primary_descriptions) {
     const XmpElementSpan& primary = elements[description];
     bool has_removable = false;
-    bool has_user_attribute = false;
-    bool has_user_child = false;
-
-    for (const XmpAttributeSpan& attribute : primary.attributes) {
-      if (attribute.namespace_declaration) continue;
-      if (attribute.uri == kRdfUri && attribute.local_name == "about" &&
-          attribute.value.empty()) {
-        continue;
-      }
-      if (IsGainMapPropertyUri(attribute.uri)) {
-        has_removable = true;
-      } else {
-        has_user_attribute = true;
-      }
-    }
-
-    for (const XmpElementSpan& child : elements) {
-      if (child.parent != description) continue;
-      if (IsGainMapPropertyUri(child.uri)) {
-        has_removable = true;
-      } else {
-        has_user_child = true;
-      }
-    }
-
+    bool has_user = false;
+    ClassifyPrimaryDescription(elements, description, &has_removable, &has_user);
     if (!has_removable) continue;
 
-    if (!has_user_attribute && !has_user_child) {
+    if (!has_user) {
       ++removed_descriptions;
       size_t remove_end = primary.end_end;
-      while (remove_end < parse_xml.size() &&
-             (parse_xml[remove_end] == '\n' || parse_xml[remove_end] == '\r')) {
+      while (remove_end < pkt.parse_xml.size() &&
+             (pkt.parse_xml[remove_end] == '\n' || pkt.parse_xml[remove_end] == '\r')) {
         ++remove_end;
       }
       removals.emplace_back(primary.start_begin, remove_end);
@@ -1719,7 +1691,8 @@ bool stripGainMapFromXmp(const std::string& xmp_data, std::string* stripped_xmp)
       // Namespace bindings may still be used by retained descendants in a mixed description.
       if (!attribute.namespace_declaration && IsGainMapPropertyUri(attribute.uri)) {
         size_t attr_begin = attribute.name_begin;
-        while (attr_begin > primary.start_begin && IsXmlWhitespace(parse_xml[attr_begin - 1])) {
+        while (attr_begin > primary.start_begin &&
+               IsXmlWhitespace(pkt.parse_xml[attr_begin - 1])) {
           --attr_begin;
         }
         removals.emplace_back(attr_begin, attribute.value_end);
@@ -1730,14 +1703,14 @@ bool stripGainMapFromXmp(const std::string& xmp_data, std::string* stripped_xmp)
       if (child.parent == description && IsGainMapPropertyUri(child.uri)) {
         size_t child_begin = child.start_begin;
         while (child_begin > primary.start_begin &&
-               (parse_xml[child_begin - 1] == ' ' || parse_xml[child_begin - 1] == '\t')) {
+               (pkt.parse_xml[child_begin - 1] == ' ' || pkt.parse_xml[child_begin - 1] == '\t')) {
           --child_begin;
         }
         size_t child_end = child.end_end;
-        if (child_end + 1 < parse_xml.size() && parse_xml[child_end] == '\r' &&
-            parse_xml[child_end + 1] == '\n') {
+        if (child_end + 1 < pkt.parse_xml.size() && pkt.parse_xml[child_end] == '\r' &&
+            pkt.parse_xml[child_end + 1] == '\n') {
           child_end += 2;
-        } else if (child_end < parse_xml.size() && parse_xml[child_end] == '\n') {
+        } else if (child_end < pkt.parse_xml.size() && pkt.parse_xml[child_end] == '\n') {
           child_end += 1;
         }
         removals.emplace_back(child_begin, child_end);
@@ -1745,21 +1718,20 @@ bool stripGainMapFromXmp(const std::string& xmp_data, std::string* stripped_xmp)
     }
   }
 
-  if (!all_descriptions.empty() && removed_descriptions == all_descriptions.size()) {
+  if (!pkt.all_descriptions.empty() && removed_descriptions == pkt.all_descriptions.size()) {
     stripped_xmp->clear();
     return true;
   }
-
   if (removals.empty()) {
     *stripped_xmp = clean_xmp;
     return true;
   }
 
-  for (auto& removal : removals) {
-    if (removal.first < offset || removal.second < removal.first) return false;
-    removal.first -= offset;
-    removal.second -= offset;
-    if (removal.second > clean_xmp.size()) return false;
+  for (auto& [begin, end] : removals) {
+    if (begin < kSyntheticOffset || end < begin) return false;
+    begin -= kSyntheticOffset;
+    end -= kSyntheticOffset;
+    if (end > clean_xmp.size()) return false;
   }
   sort(removals.begin(), removals.end());
   vector<pair<size_t, size_t>> coalesced;
@@ -1787,18 +1759,12 @@ bool stripGainMapFromXmp(const std::string& xmp_data, std::string* stripped_xmp)
 bool mergeStandardAndExtendedXmp(const std::string& standard_xmp, const std::string& extended_xmp,
                                  std::string* merged_xmp) {
   if (merged_xmp == nullptr) return false;
-  size_t ext_trimmed = extended_xmp.size();
-  while (ext_trimmed > 0 && extended_xmp[ext_trimmed - 1] == '\0') {
-    --ext_trimmed;
-  }
-  const string clean_ext = extended_xmp.substr(0, ext_trimmed);
+  const string clean_ext = TrimTrailingNulls(extended_xmp);
 
   string std_without_guid;
-  if (!replaceExtendedXmpGuidInXmp(standard_xmp, "", &std_without_guid)) {
-    return false;
-  }
   string std_user_only;
-  if (!stripGainMapFromXmp(std_without_guid, &std_user_only)) {
+  if (!replaceExtendedXmpGuidInXmp(standard_xmp, "", &std_without_guid) ||
+      !stripGainMapFromXmp(std_without_guid, &std_user_only)) {
     return false;
   }
   if (std_user_only.empty()) {
@@ -1806,50 +1772,21 @@ bool mergeStandardAndExtendedXmp(const std::string& standard_xmp, const std::str
     return true;
   }
 
-  const string synthetic_open = "<XmpMergeRoot>";
-  const string synthetic_close = "</XmpMergeRoot>";
-  const size_t offset = synthetic_open.size();
-  const string std_parse_xml = synthetic_open + std_user_only + synthetic_close;
+  ParsedXmpPacket std_pkt;
+  if (!ParseXmpPacket(std_user_only, &std_pkt)) return false;
 
-  XmpMergeXmlHandler std_handler(std_parse_xml);
-  size_t std_rdf_root = kNoXmpElement;
-  vector<size_t> std_all_descriptions;
-  vector<size_t> std_primary_descriptions;
-  if (!ParseRdfDescriptions(std_parse_xml, &std_handler, &std_rdf_root, &std_all_descriptions,
-                            &std_primary_descriptions)) {
-    return false;
-  }
-
-  const vector<XmpElementSpan>& std_elements = std_handler.elements();
+  const vector<XmpElementSpan>& std_elements = std_pkt.elements();
   vector<size_t> retained_descriptions;
-  for (size_t desc_idx : std_all_descriptions) {
-    const XmpElementSpan& desc = std_elements[desc_idx];
+  for (size_t desc_idx : std_pkt.all_descriptions) {
     const bool is_primary =
-        std::find(std_primary_descriptions.begin(), std_primary_descriptions.end(), desc_idx) !=
-        std_primary_descriptions.end();
-    if (!is_primary) {
-      retained_descriptions.push_back(desc_idx);
-      continue;
+        std::find(std_pkt.primary_descriptions.begin(), std_pkt.primary_descriptions.end(),
+                  desc_idx) != std_pkt.primary_descriptions.end();
+    bool has_removable = false;
+    bool has_user = false;
+    if (is_primary) {
+      ClassifyPrimaryDescription(std_elements, desc_idx, &has_removable, &has_user);
     }
-    bool has_user_attribute = false;
-    for (const XmpAttributeSpan& attribute : desc.attributes) {
-      if (attribute.namespace_declaration) continue;
-      if (attribute.uri == kRdfUri && attribute.local_name == "about" && attribute.value.empty()) {
-        continue;
-      }
-      has_user_attribute = true;
-      break;
-    }
-    bool has_user_child = false;
-    for (const XmpElementSpan& child : std_elements) {
-      if (child.parent == desc_idx) {
-        has_user_child = true;
-        break;
-      }
-    }
-    if (has_user_attribute || has_user_child) {
-      retained_descriptions.push_back(desc_idx);
-    }
+    if (!is_primary || has_user) retained_descriptions.push_back(desc_idx);
   }
 
   if (retained_descriptions.empty()) {
@@ -1861,206 +1798,127 @@ bool mergeStandardAndExtendedXmp(const std::string& standard_xmp, const std::str
     return true;
   }
 
-  const string ext_parse_xml = synthetic_open + clean_ext + synthetic_close;
-  XmpMergeXmlHandler ext_handler(ext_parse_xml);
-  size_t ext_rdf_root = kNoXmpElement;
-  vector<size_t> ext_all_descriptions;
-  vector<size_t> ext_primary_descriptions;
-  if (!ParseRdfDescriptions(ext_parse_xml, &ext_handler, &ext_rdf_root, &ext_all_descriptions,
-                            &ext_primary_descriptions)) {
-    return false;
-  }
-  const vector<XmpElementSpan>& ext_elements = ext_handler.elements();
-  if (ext_elements[ext_rdf_root].self_closing ||
-      ext_elements[ext_rdf_root].end_begin <= ext_elements[ext_rdf_root].start_begin) {
+  ParsedXmpPacket ext_pkt;
+  if (!ParseXmpPacket(clean_ext, &ext_pkt)) return false;
+  const vector<XmpElementSpan>& ext_elements = ext_pkt.elements();
+  if (ext_elements[ext_pkt.rdf_root].self_closing ||
+      ext_elements[ext_pkt.rdf_root].end_begin <= ext_elements[ext_pkt.rdf_root].start_begin) {
     return false;
   }
   size_t ext_rdf_open_end = 0;
-  if (!FindXmlMarkupEnd(ext_parse_xml, ext_elements[ext_rdf_root].start_begin, &ext_rdf_open_end) ||
-      ext_rdf_open_end < offset || ext_rdf_open_end - offset > clean_ext.size()) {
+  if (!FindXmlMarkupEnd(ext_pkt.parse_xml, ext_elements[ext_pkt.rdf_root].start_begin,
+                        &ext_rdf_open_end) ||
+      ext_rdf_open_end < kSyntheticOffset ||
+      ext_rdf_open_end - kSyntheticOffset > clean_ext.size()) {
     return false;
   }
 
   // Collect ancestor namespace declarations and xml:* scoped attributes (e.g. xml:lang) in both
   // packets so moved <rdf:Description> elements retain their original XML context.
-  constexpr char kXmlNamespaceUri[] = "http://www.w3.org/XML/1998/namespace";
-  auto collect_ancestor_namespaces = [](const vector<XmpElementSpan>& elements, size_t start_elem,
-                                        size_t stop_root) {
+  auto find_ns = [](const vector<XmpNamespaceDeclaration>& list,
+                    const string& prefix) -> const string* {
+    for (const auto& d : list) {
+      if (d.prefix == prefix) return &d.uri;
+    }
+    return nullptr;
+  };
+  auto collect_ancestor_ns = [&](const ParsedXmpPacket& pkt) {
     vector<XmpNamespaceDeclaration> result;
-    for (size_t ancestor = start_elem; ancestor != kNoXmpElement && ancestor != stop_root;
-         ancestor = elements[ancestor].parent) {
-      for (const XmpNamespaceDeclaration& decl : elements[ancestor].namespace_declarations) {
-        bool exists = false;
-        for (const XmpNamespaceDeclaration& existing : result) {
-          if (existing.prefix == decl.prefix) {
-            exists = true;
-            break;
-          }
-        }
-        if (!exists) result.push_back(decl);
+    for (size_t anc = pkt.rdf_root; anc != kNoXmpElement && anc != pkt.root_index();
+         anc = pkt.elements()[anc].parent) {
+      for (const auto& decl : pkt.elements()[anc].namespace_declarations) {
+        if (!find_ns(result, decl.prefix)) result.push_back(decl);
       }
     }
     return result;
   };
-
-  struct XmlScopedAttribute {
-    string local_name;
-    string value;
+  auto find_xml_attr = [](const vector<XmpAttributeSpan>& list,
+                          const string& local_name) -> const string* {
+    for (const auto& a : list) {
+      if (!a.namespace_declaration && a.uri == kXmlNamespaceUri && a.local_name == local_name) {
+        return &a.value;
+      }
+    }
+    return nullptr;
   };
-  auto collect_ancestor_xml_attributes = [&](const vector<XmpElementSpan>& elements,
-                                             size_t start_elem, size_t stop_root) {
-    vector<XmlScopedAttribute> result;
-    for (size_t ancestor = start_elem; ancestor != kNoXmpElement && ancestor != stop_root;
-         ancestor = elements[ancestor].parent) {
-      for (const XmpAttributeSpan& attr : elements[ancestor].attributes) {
-        if (attr.namespace_declaration || attr.uri != kXmlNamespaceUri) continue;
-        bool exists = false;
-        for (const XmlScopedAttribute& existing : result) {
-          if (existing.local_name == attr.local_name) {
-            exists = true;
-            break;
-          }
+  auto collect_ancestor_xml_attrs = [&](const ParsedXmpPacket& pkt) {
+    vector<XmpAttributeSpan> result;
+    for (size_t anc = pkt.rdf_root; anc != kNoXmpElement && anc != pkt.root_index();
+         anc = pkt.elements()[anc].parent) {
+      for (const auto& attr : pkt.elements()[anc].attributes) {
+        if (!attr.namespace_declaration && attr.uri == kXmlNamespaceUri &&
+            !find_xml_attr(result, attr.local_name)) {
+          result.push_back(attr);
         }
-        if (!exists) result.push_back({attr.local_name, attr.value});
       }
     }
     return result;
   };
-
   auto format_xml_attr = [](const string& name, const string& value) {
     const char quote = (value.find('"') == string::npos) ? '"' : '\'';
     return string(" ") + name + "=" + quote + value + quote;
   };
 
-  const vector<XmpNamespaceDeclaration> std_ancestor_ns =
-      collect_ancestor_namespaces(std_elements, std_rdf_root, std_handler.root_index());
-  const vector<XmpNamespaceDeclaration> ext_ancestor_ns =
-      collect_ancestor_namespaces(ext_elements, ext_rdf_root, ext_handler.root_index());
-  const vector<XmlScopedAttribute> std_ancestor_xml_attrs =
-      collect_ancestor_xml_attributes(std_elements, std_rdf_root, std_handler.root_index());
-  const vector<XmlScopedAttribute> ext_ancestor_xml_attrs =
-      collect_ancestor_xml_attributes(ext_elements, ext_rdf_root, ext_handler.root_index());
+  const vector<XmpNamespaceDeclaration> std_ancestor_ns = collect_ancestor_ns(std_pkt);
+  const vector<XmpNamespaceDeclaration> ext_ancestor_ns = collect_ancestor_ns(ext_pkt);
+  const vector<XmpAttributeSpan> std_ancestor_xml_attrs = collect_ancestor_xml_attrs(std_pkt);
+  const vector<XmpAttributeSpan> ext_ancestor_xml_attrs = collect_ancestor_xml_attrs(ext_pkt);
 
   string descriptions_to_insert;
   for (size_t desc_idx : retained_descriptions) {
     const XmpElementSpan& desc = std_elements[desc_idx];
     size_t desc_open_end = 0;
-    if (!FindXmlMarkupEnd(std_parse_xml, desc.start_begin, &desc_open_end) ||
+    if (!FindXmlMarkupEnd(std_pkt.parse_xml, desc.start_begin, &desc_open_end) ||
         desc.end_end < desc.start_begin) {
       return false;
     }
     string extra_attrs;
-    for (const XmpNamespaceDeclaration& decl : std_ancestor_ns) {
-      bool declared_locally = false;
-      for (const XmpNamespaceDeclaration& local_decl : desc.namespace_declarations) {
-        if (local_decl.prefix == decl.prefix) {
-          declared_locally = true;
-          break;
-        }
-      }
-      if (declared_locally) continue;
-
-      bool same_in_ext = false;
-      for (const XmpNamespaceDeclaration& ext_decl : ext_ancestor_ns) {
-        if (ext_decl.prefix == decl.prefix) {
-          same_in_ext = (ext_decl.uri == decl.uri);
-          break;
-        }
-      }
-      if (!same_in_ext) {
-        const string attr_name = decl.prefix.empty() ? "xmlns" : ("xmlns:" + decl.prefix);
-        extra_attrs += format_xml_attr(attr_name, decl.uri);
+    for (const auto& decl : std_ancestor_ns) {
+      if (find_ns(desc.namespace_declarations, decl.prefix)) continue;
+      const string* ext_uri = find_ns(ext_ancestor_ns, decl.prefix);
+      if (!ext_uri || *ext_uri != decl.uri) {
+        extra_attrs +=
+            format_xml_attr(decl.prefix.empty() ? "xmlns" : "xmlns:" + decl.prefix, decl.uri);
       }
     }
-
-    bool has_default_ns_in_std = false;
-    for (const XmpNamespaceDeclaration& local_decl : desc.namespace_declarations) {
-      if (local_decl.prefix.empty()) {
-        has_default_ns_in_std = true;
-        break;
+    if (!find_ns(desc.namespace_declarations, "") && !find_ns(std_ancestor_ns, "")) {
+      if (const string* ext_def = find_ns(ext_ancestor_ns, ""); ext_def && !ext_def->empty()) {
+        extra_attrs += format_xml_attr("xmlns", "");
       }
     }
-    if (!has_default_ns_in_std) {
-      for (const XmpNamespaceDeclaration& decl : std_ancestor_ns) {
-        if (decl.prefix.empty()) {
-          has_default_ns_in_std = true;
-          break;
-        }
-      }
-    }
-    if (!has_default_ns_in_std) {
-      for (const XmpNamespaceDeclaration& ext_decl : ext_ancestor_ns) {
-        if (ext_decl.prefix.empty() && !ext_decl.uri.empty()) {
-          extra_attrs += format_xml_attr("xmlns", "");
-          break;
-        }
-      }
-    }
-
-    for (const XmlScopedAttribute& xml_attr : std_ancestor_xml_attrs) {
-      bool declared_locally = false;
-      for (const XmpAttributeSpan& local_attr : desc.attributes) {
-        if (!local_attr.namespace_declaration && local_attr.uri == kXmlNamespaceUri &&
-            local_attr.local_name == xml_attr.local_name) {
-          declared_locally = true;
-          break;
-        }
-      }
-      if (declared_locally) continue;
-
-      bool same_in_ext = false;
-      for (const XmlScopedAttribute& ext_attr : ext_ancestor_xml_attrs) {
-        if (ext_attr.local_name == xml_attr.local_name) {
-          same_in_ext = (ext_attr.value == xml_attr.value);
-          break;
-        }
-      }
-      if (!same_in_ext) {
+    for (const auto& xml_attr : std_ancestor_xml_attrs) {
+      if (find_xml_attr(desc.attributes, xml_attr.local_name)) continue;
+      const string* ext_val = find_xml_attr(ext_ancestor_xml_attrs, xml_attr.local_name);
+      if (!ext_val || *ext_val != xml_attr.value) {
         extra_attrs += format_xml_attr("xml:" + xml_attr.local_name, xml_attr.value);
       }
     }
-
-    for (const XmlScopedAttribute& ext_attr : ext_ancestor_xml_attrs) {
-      if (ext_attr.local_name != "lang" || ext_attr.value.empty()) continue;
-      bool has_lang_in_std = false;
-      for (const XmpAttributeSpan& local_attr : desc.attributes) {
-        if (!local_attr.namespace_declaration && local_attr.uri == kXmlNamespaceUri &&
-            local_attr.local_name == "lang") {
-          has_lang_in_std = true;
-          break;
-        }
-      }
-      if (!has_lang_in_std) {
-        for (const XmlScopedAttribute& std_attr : std_ancestor_xml_attrs) {
-          if (std_attr.local_name == "lang") {
-            has_lang_in_std = true;
-            break;
-          }
-        }
-      }
-      if (!has_lang_in_std) {
+    if (!find_xml_attr(desc.attributes, "lang") && !find_xml_attr(std_ancestor_xml_attrs, "lang")) {
+      if (const string* ext_lang = find_xml_attr(ext_ancestor_xml_attrs, "lang");
+          ext_lang && !ext_lang->empty()) {
         extra_attrs += format_xml_attr("xml:lang", "");
       }
     }
 
     if (extra_attrs.empty()) {
-      descriptions_to_insert.append(std_parse_xml, desc.start_begin,
+      descriptions_to_insert.append(std_pkt.parse_xml, desc.start_begin,
                                     desc.end_end - desc.start_begin);
     } else {
       size_t insert_at = desc_open_end - 1;
-      while (insert_at > desc.start_begin && IsXmlWhitespace(std_parse_xml[insert_at - 1])) {
+      while (insert_at > desc.start_begin && IsXmlWhitespace(std_pkt.parse_xml[insert_at - 1])) {
         --insert_at;
       }
-      if (insert_at > desc.start_begin && std_parse_xml[insert_at - 1] == '/') {
+      if (insert_at > desc.start_begin && std_pkt.parse_xml[insert_at - 1] == '/') {
         --insert_at;
       }
-      descriptions_to_insert.append(std_parse_xml, desc.start_begin, insert_at - desc.start_begin);
+      descriptions_to_insert.append(std_pkt.parse_xml, desc.start_begin,
+                                    insert_at - desc.start_begin);
       descriptions_to_insert.append(extra_attrs);
-      descriptions_to_insert.append(std_parse_xml, insert_at, desc.end_end - insert_at);
+      descriptions_to_insert.append(std_pkt.parse_xml, insert_at, desc.end_end - insert_at);
     }
   }
 
-  const size_t insert_pos = ext_rdf_open_end - offset;
+  const size_t insert_pos = ext_rdf_open_end - kSyntheticOffset;
   string result;
   result.reserve(clean_ext.size() + descriptions_to_insert.size());
   result.append(clean_ext, 0, insert_pos);
@@ -2074,9 +1932,6 @@ string generateXmpForPrimaryImage(size_t secondary_image_length,
                                   uhdr_gainmap_metadata_ext_t& metadata,
                                   uhdr_mem_block_t* user_xmp,
                                   const std::string& extended_xmp_guid) {
-  const vector<string> kConDirSeq({kConDirectory, string("rdf:Seq")});
-  const vector<string> kLiItem({string("rdf:li"), kConItem});
-
   if (user_xmp != nullptr && user_xmp->data != nullptr && user_xmp->data_sz > 0) {
     const std::string kXmpHeader = "http://ns.adobe.com/xap/1.0/";
     std::string existing_xmp;
@@ -2100,35 +1955,9 @@ string generateXmpForPrimaryImage(size_t secondary_image_length,
   writer.WriteXmlns("x", "adobe:ns:meta/");
   writer.WriteAttributeNameAndValue("x:xmptk", "Adobe XMP Core 5.1.2");
   writer.StartWritingElement("rdf:RDF");
-  writer.WriteXmlns("rdf", "http://www.w3.org/1999/02/22-rdf-syntax-ns#");
-  writer.StartWritingElement("rdf:Description");
-  writer.WriteXmlns(kContainerPrefix, kContainerUri);
-  writer.WriteXmlns(kItemPrefix, kItemUri);
-  writer.WriteXmlns(kGainMapPrefix, kGainMapUri);
-  if (!extended_xmp_guid.empty()) {
-    writer.WriteXmlns("xmpNote", "http://ns.adobe.com/xmp/note/");
-    writer.WriteAttributeNameAndValue("xmpNote:HasExtendedXMP", extended_xmp_guid);
-  }
-  writer.WriteAttributeNameAndValue(kMapVersion, metadata.version);
-
-  writer.StartWritingElements(kConDirSeq);
-
-  size_t item_depth = writer.StartWritingElement("rdf:li");
-  writer.WriteAttributeNameAndValue("rdf:parseType", "Resource");
-  writer.StartWritingElement(kConItem);
-  writer.WriteAttributeNameAndValue(kItemSemantic, kSemanticPrimary);
-  writer.WriteAttributeNameAndValue(kItemMime, kMimeImageJpeg);
-  writer.FinishWritingElementsToDepth(item_depth);
-
-  writer.StartWritingElement("rdf:li");
-  writer.WriteAttributeNameAndValue("rdf:parseType", "Resource");
-  writer.StartWritingElement(kConItem);
-  writer.WriteAttributeNameAndValue(kItemSemantic, kSemanticGainMap);
-  writer.WriteAttributeNameAndValue(kItemMime, kMimeImageJpeg);
-  writer.WriteAttributeNameAndValue(kItemLength, secondary_image_length);
-
-  writer.FinishWriting();
-
+  writer.WriteXmlns("rdf", kRdfUri);
+  WritePrimaryDescriptionElement(&writer, false, secondary_image_length, metadata,
+                                 extended_xmp_guid);
   return ss.str();
 }
 
