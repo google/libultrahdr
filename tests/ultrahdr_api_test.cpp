@@ -1930,6 +1930,99 @@ TEST_F(UltraHdrApiTest, SplitStandardAndExtendedXmpPreservesBothOnProbeAndApi4Re
   EXPECT_NE(reencoded_packet.find(ext_desc), std::string::npos);
 }
 
+TEST_F(UltraHdrApiTest, MergeStandardAndExtendedXmpPreservesRdfAliasDefaultNamespaceAndXmlLang) {
+  // Case 1: Standard XMP uses prefix `rdf`, while Extended XMP uses prefix `r`.
+  {
+    const std::string ext_xmp =
+        "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><r:RDF "
+        "xmlns:r=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><r:Description "
+        "r:about=\"\" xmlns:dc=\"http://purl.org/dc/elements/1.1/\">"
+        "<dc:description>Extended via r prefix</dc:description>"
+        "</r:Description></r:RDF></x:xmpmeta>";
+    const std::string ext_guid =
+        computeMd5Guid(reinterpret_cast<const uint8_t*>(ext_xmp.data()), ext_xmp.size());
+    const std::string std_xmp =
+        "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF "
+        "xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description "
+        "rdf:about=\"\" xmlns:dc=\"http://purl.org/dc/elements/1.1/\" "
+        "xmlns:xmpNote=\"http://ns.adobe.com/xmp/note/\" "
+        "dc:title=\"Standard via rdf prefix\" "
+        "xmpNote:HasExtendedXMP=\"" +
+        ext_guid + "\"/></rdf:RDF></x:xmpmeta>";
+
+    std::string merged;
+    ASSERT_TRUE(mergeStandardAndExtendedXmp(std_xmp, ext_xmp, &merged));
+    EXPECT_NE(merged.find("xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\""),
+              std::string::npos)
+        << merged;
+    // Verify the merged XML is namespace-valid and accepted by the strict XMP parser/stripper.
+    std::string re_stripped;
+    ASSERT_TRUE(stripGainMapFromXmp(merged, &re_stripped)) << merged;
+    EXPECT_NE(re_stripped.find("Standard via rdf prefix"), std::string::npos);
+    EXPECT_NE(re_stripped.find("Extended via r prefix"), std::string::npos);
+  }
+
+  // Case 2: A property in Standard XMP inherits the default namespace (`xmlns="..."`).
+  {
+    const std::string ext_xmp =
+        "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF "
+        "xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description "
+        "rdf:about=\"\" xmlns:dc=\"http://purl.org/dc/elements/1.1/\">"
+        "<dc:description>Extended description</dc:description>"
+        "</rdf:Description></rdf:RDF></x:xmpmeta>";
+    const std::string ext_guid =
+        computeMd5Guid(reinterpret_cast<const uint8_t*>(ext_xmp.data()), ext_xmp.size());
+    const std::string std_xmp =
+        "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF "
+        "xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\" "
+        "xmlns=\"http://purl.org/dc/elements/1.1/\"><rdf:Description "
+        "rdf:about=\"\" xmlns:xmpNote=\"http://ns.adobe.com/xmp/note/\" "
+        "xmpNote:HasExtendedXMP=\"" +
+        ext_guid +
+        "\"><title>Inherited default namespace title</title>"
+        "</rdf:Description></rdf:RDF></x:xmpmeta>";
+
+    std::string merged;
+    ASSERT_TRUE(mergeStandardAndExtendedXmp(std_xmp, ext_xmp, &merged));
+    EXPECT_NE(merged.find("xmlns=\"http://purl.org/dc/elements/1.1/\""), std::string::npos)
+        << merged;
+    std::string re_stripped;
+    ASSERT_TRUE(stripGainMapFromXmp(merged, &re_stripped)) << merged;
+    EXPECT_NE(re_stripped.find("<title>Inherited default namespace title</title>"),
+              std::string::npos);
+  }
+
+  // Case 3: A title in Standard XMP inherits `xml:lang="en"`, while Extended XMP has `xml:lang="fr"`.
+  {
+    const std::string ext_xmp =
+        "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF "
+        "xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\" xml:lang=\"fr\">"
+        "<rdf:Description rdf:about=\"\" xmlns:dc=\"http://purl.org/dc/elements/1.1/\">"
+        "<dc:description>Description en francais</dc:description>"
+        "</rdf:Description></rdf:RDF></x:xmpmeta>";
+    const std::string ext_guid =
+        computeMd5Guid(reinterpret_cast<const uint8_t*>(ext_xmp.data()), ext_xmp.size());
+    const std::string std_xmp =
+        "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF "
+        "xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\" xml:lang=\"en\">"
+        "<rdf:Description rdf:about=\"\" xmlns:dc=\"http://purl.org/dc/elements/1.1/\" "
+        "xmlns:xmpNote=\"http://ns.adobe.com/xmp/note/\" "
+        "xmpNote:HasExtendedXMP=\"" +
+        ext_guid +
+        "\"><dc:title>English title</dc:title>"
+        "</rdf:Description></rdf:RDF></x:xmpmeta>";
+
+    std::string merged;
+    ASSERT_TRUE(mergeStandardAndExtendedXmp(std_xmp, ext_xmp, &merged));
+    EXPECT_NE(merged.find("xml:lang=\"en\""), std::string::npos) << merged;
+    EXPECT_NE(merged.find("xml:lang=\"fr\""), std::string::npos) << merged;
+    std::string re_stripped;
+    ASSERT_TRUE(stripGainMapFromXmp(merged, &re_stripped)) << merged;
+    EXPECT_NE(re_stripped.find("English title"), std::string::npos);
+    EXPECT_NE(re_stripped.find("Description en francais"), std::string::npos);
+  }
+}
+
 TEST_F(UltraHdrApiTest, ElementFormExtendedXmpLinkSelectsCorrectExtensionOverUnrelatedFirst) {
   const std::string unrelated_ext =
       "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF "

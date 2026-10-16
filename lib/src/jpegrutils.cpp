@@ -1881,21 +1881,65 @@ bool mergeStandardAndExtendedXmp(const std::string& standard_xmp, const std::str
     return false;
   }
 
-  // Collect ancestor namespace declarations in standard XMP that may be inherited by descriptions.
-  vector<XmpNamespaceDeclaration> std_ancestor_ns;
-  for (size_t ancestor = std_rdf_root; ancestor != kNoXmpElement;
-       ancestor = std_elements[ancestor].parent) {
-    for (const XmpNamespaceDeclaration& decl : std_elements[ancestor].namespace_declarations) {
-      bool exists = false;
-      for (const XmpNamespaceDeclaration& existing : std_ancestor_ns) {
-        if (existing.prefix == decl.prefix) {
-          exists = true;
-          break;
+  // Collect ancestor namespace declarations and xml:* scoped attributes (e.g. xml:lang) in both
+  // packets so moved <rdf:Description> elements retain their original XML context.
+  constexpr char kXmlNamespaceUri[] = "http://www.w3.org/XML/1998/namespace";
+  auto collect_ancestor_namespaces = [](const vector<XmpElementSpan>& elements, size_t start_elem,
+                                        size_t stop_root) {
+    vector<XmpNamespaceDeclaration> result;
+    for (size_t ancestor = start_elem; ancestor != kNoXmpElement && ancestor != stop_root;
+         ancestor = elements[ancestor].parent) {
+      for (const XmpNamespaceDeclaration& decl : elements[ancestor].namespace_declarations) {
+        bool exists = false;
+        for (const XmpNamespaceDeclaration& existing : result) {
+          if (existing.prefix == decl.prefix) {
+            exists = true;
+            break;
+          }
         }
+        if (!exists) result.push_back(decl);
       }
-      if (!exists) std_ancestor_ns.push_back(decl);
     }
-  }
+    return result;
+  };
+
+  struct XmlScopedAttribute {
+    string local_name;
+    string value;
+  };
+  auto collect_ancestor_xml_attributes = [&](const vector<XmpElementSpan>& elements,
+                                             size_t start_elem, size_t stop_root) {
+    vector<XmlScopedAttribute> result;
+    for (size_t ancestor = start_elem; ancestor != kNoXmpElement && ancestor != stop_root;
+         ancestor = elements[ancestor].parent) {
+      for (const XmpAttributeSpan& attr : elements[ancestor].attributes) {
+        if (attr.namespace_declaration || attr.uri != kXmlNamespaceUri) continue;
+        bool exists = false;
+        for (const XmlScopedAttribute& existing : result) {
+          if (existing.local_name == attr.local_name) {
+            exists = true;
+            break;
+          }
+        }
+        if (!exists) result.push_back({attr.local_name, attr.value});
+      }
+    }
+    return result;
+  };
+
+  auto format_xml_attr = [](const string& name, const string& value) {
+    const char quote = (value.find('"') == string::npos) ? '"' : '\'';
+    return string(" ") + name + "=" + quote + value + quote;
+  };
+
+  const vector<XmpNamespaceDeclaration> std_ancestor_ns =
+      collect_ancestor_namespaces(std_elements, std_rdf_root, std_handler.root_index());
+  const vector<XmpNamespaceDeclaration> ext_ancestor_ns =
+      collect_ancestor_namespaces(ext_elements, ext_rdf_root, ext_handler.root_index());
+  const vector<XmlScopedAttribute> std_ancestor_xml_attrs =
+      collect_ancestor_xml_attributes(std_elements, std_rdf_root, std_handler.root_index());
+  const vector<XmlScopedAttribute> ext_ancestor_xml_attrs =
+      collect_ancestor_xml_attributes(ext_elements, ext_rdf_root, ext_handler.root_index());
 
   string descriptions_to_insert;
   for (size_t desc_idx : retained_descriptions) {
@@ -1905,9 +1949,8 @@ bool mergeStandardAndExtendedXmp(const std::string& standard_xmp, const std::str
         desc.end_end < desc.start_begin) {
       return false;
     }
-    string extra_xmlns;
+    string extra_attrs;
     for (const XmpNamespaceDeclaration& decl : std_ancestor_ns) {
-      if (decl.prefix.empty() || decl.prefix == "rdf" || decl.prefix == "x") continue;
       bool declared_locally = false;
       for (const XmpNamespaceDeclaration& local_decl : desc.namespace_declarations) {
         if (local_decl.prefix == decl.prefix) {
@@ -1915,11 +1958,92 @@ bool mergeStandardAndExtendedXmp(const std::string& standard_xmp, const std::str
           break;
         }
       }
-      if (!declared_locally) {
-        extra_xmlns += " xmlns:" + decl.prefix + "=\"" + decl.uri + "\"";
+      if (declared_locally) continue;
+
+      bool same_in_ext = false;
+      for (const XmpNamespaceDeclaration& ext_decl : ext_ancestor_ns) {
+        if (ext_decl.prefix == decl.prefix) {
+          same_in_ext = (ext_decl.uri == decl.uri);
+          break;
+        }
+      }
+      if (!same_in_ext) {
+        const string attr_name = decl.prefix.empty() ? "xmlns" : ("xmlns:" + decl.prefix);
+        extra_attrs += format_xml_attr(attr_name, decl.uri);
       }
     }
-    if (extra_xmlns.empty()) {
+
+    bool has_default_ns_in_std = false;
+    for (const XmpNamespaceDeclaration& local_decl : desc.namespace_declarations) {
+      if (local_decl.prefix.empty()) {
+        has_default_ns_in_std = true;
+        break;
+      }
+    }
+    if (!has_default_ns_in_std) {
+      for (const XmpNamespaceDeclaration& decl : std_ancestor_ns) {
+        if (decl.prefix.empty()) {
+          has_default_ns_in_std = true;
+          break;
+        }
+      }
+    }
+    if (!has_default_ns_in_std) {
+      for (const XmpNamespaceDeclaration& ext_decl : ext_ancestor_ns) {
+        if (ext_decl.prefix.empty() && !ext_decl.uri.empty()) {
+          extra_attrs += format_xml_attr("xmlns", "");
+          break;
+        }
+      }
+    }
+
+    for (const XmlScopedAttribute& xml_attr : std_ancestor_xml_attrs) {
+      bool declared_locally = false;
+      for (const XmpAttributeSpan& local_attr : desc.attributes) {
+        if (!local_attr.namespace_declaration && local_attr.uri == kXmlNamespaceUri &&
+            local_attr.local_name == xml_attr.local_name) {
+          declared_locally = true;
+          break;
+        }
+      }
+      if (declared_locally) continue;
+
+      bool same_in_ext = false;
+      for (const XmlScopedAttribute& ext_attr : ext_ancestor_xml_attrs) {
+        if (ext_attr.local_name == xml_attr.local_name) {
+          same_in_ext = (ext_attr.value == xml_attr.value);
+          break;
+        }
+      }
+      if (!same_in_ext) {
+        extra_attrs += format_xml_attr("xml:" + xml_attr.local_name, xml_attr.value);
+      }
+    }
+
+    for (const XmlScopedAttribute& ext_attr : ext_ancestor_xml_attrs) {
+      if (ext_attr.local_name != "lang" || ext_attr.value.empty()) continue;
+      bool has_lang_in_std = false;
+      for (const XmpAttributeSpan& local_attr : desc.attributes) {
+        if (!local_attr.namespace_declaration && local_attr.uri == kXmlNamespaceUri &&
+            local_attr.local_name == "lang") {
+          has_lang_in_std = true;
+          break;
+        }
+      }
+      if (!has_lang_in_std) {
+        for (const XmlScopedAttribute& std_attr : std_ancestor_xml_attrs) {
+          if (std_attr.local_name == "lang") {
+            has_lang_in_std = true;
+            break;
+          }
+        }
+      }
+      if (!has_lang_in_std) {
+        extra_attrs += format_xml_attr("xml:lang", "");
+      }
+    }
+
+    if (extra_attrs.empty()) {
       descriptions_to_insert.append(std_parse_xml, desc.start_begin,
                                     desc.end_end - desc.start_begin);
     } else {
@@ -1931,7 +2055,7 @@ bool mergeStandardAndExtendedXmp(const std::string& standard_xmp, const std::str
         --insert_at;
       }
       descriptions_to_insert.append(std_parse_xml, desc.start_begin, insert_at - desc.start_begin);
-      descriptions_to_insert.append(extra_xmlns);
+      descriptions_to_insert.append(extra_attrs);
       descriptions_to_insert.append(std_parse_xml, insert_at, desc.end_end - insert_at);
     }
   }
