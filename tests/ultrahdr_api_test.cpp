@@ -3611,6 +3611,36 @@ TEST_F(UltraHdrHeifXmpTest, HeicAndAvifEncodeAndProbeXmpMetadata) {
       "\"/>"
       "</rdf:RDF>"
       "</x:xmpmeta>";
+  const std::string kMixedGainMapAndUserXmp =
+      "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\">"
+      "<rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">"
+      "<rdf:Description rdf:about=\"\" xmlns:dc=\"http://purl.org/dc/elements/1.1/\" "
+      "dc:creator=\"test\"/>"
+      "<rdf:Description rdf:about=\"\" "
+      "xmlns:Container=\"http://ns.google.com/photos/1.0/container/\" "
+      "xmlns:Item=\"http://ns.google.com/photos/1.0/container/item/\" "
+      "xmlns:hdrgm=\"http://ns.adobe.com/hdr-gain-map/1.0/\" "
+      "hdrgm:Version=\"1.0\">"
+      "<Container:Directory><rdf:Seq>"
+      "<rdf:li rdf:parseType=\"Resource\">"
+      "<Container:Item Item:Semantic=\"Primary\" Item:Mime=\"image/jpeg\"/>"
+      "</rdf:li>"
+      "<rdf:li rdf:parseType=\"Resource\">"
+      "<Container:Item Item:Semantic=\"GainMap\" Item:Mime=\"image/jpeg\" Item:Length=\"1234\"/>"
+      "</rdf:li>"
+      "</rdf:Seq></Container:Directory>"
+      "</rdf:Description>"
+      "</rdf:RDF>"
+      "</x:xmpmeta>";
+  const std::string kGainMapOnlyXmp =
+      "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\">"
+      "<rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">"
+      "<rdf:Description rdf:about=\"\" "
+      "xmlns:Container=\"http://ns.google.com/photos/1.0/container/\" "
+      "xmlns:hdrgm=\"http://ns.adobe.com/hdr-gain-map/1.0/\" "
+      "hdrgm:Version=\"1.0\"/>"
+      "</rdf:RDF>"
+      "</x:xmpmeta>";
 
   struct XmpTestCase {
     const char* name;
@@ -3623,6 +3653,8 @@ TEST_F(UltraHdrHeifXmpTest, HeicAndAvifEncodeAndProbeXmpMetadata) {
       {"Api1StandardXmp", kXmpPacket, kXmpPacket, true},
       {"Api0App1PrefixedXmp", kApp1PrefixedXmp, kXmpPacket, false},
       {"Api0LargeXmpOver64KB", kLargeXmpPacket, kLargeXmpPacket, false},
+      {"Api0StripsJpegGainMapXmpKeepsUserXmp", kMixedGainMapAndUserXmp, kXmpPacket, false},
+      {"Api0GainMapOnlyXmpOmitted", kGainMapOnlyXmp, "", false},
   };
 
   for (uhdr_codec_t codec : {UHDR_CODEC_HEIF, UHDR_CODEC_AVIF}) {
@@ -3656,10 +3688,14 @@ TEST_F(UltraHdrHeifXmpTest, HeicAndAvifEncodeAndProbeXmpMetadata) {
       ASSERT_EQ(uhdr_dec_probe(dec).error_code, UHDR_CODEC_OK);
 
       uhdr_mem_block_t* decoded_xmp = uhdr_dec_get_xmp(dec);
-      ASSERT_NE(decoded_xmp, nullptr);
-      ASSERT_NE(decoded_xmp->data, nullptr);
-      EXPECT_EQ(std::string(static_cast<const char*>(decoded_xmp->data), decoded_xmp->data_sz),
-                tc.expected_xmp);
+      if (tc.expected_xmp.empty()) {
+        EXPECT_EQ(decoded_xmp, nullptr);
+      } else {
+        ASSERT_NE(decoded_xmp, nullptr);
+        ASSERT_NE(decoded_xmp->data, nullptr);
+        EXPECT_EQ(std::string(static_cast<const char*>(decoded_xmp->data), decoded_xmp->data_sz),
+                  tc.expected_xmp);
+      }
 
       if (can_decode) {
         EXPECT_EQ(uhdr_decode(dec).error_code, UHDR_CODEC_OK);

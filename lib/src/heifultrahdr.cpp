@@ -25,6 +25,7 @@
 #include "ultrahdr/heifultrahdr.h"
 #include "ultrahdr/gainmapmath.h"
 #include "ultrahdr/gainmapmetadata.h"
+#include "ultrahdr/jpegrutils.h"
 
 #define UHDR_CG_BT_601 static_cast<uhdr_color_gamut_t>(3)
 
@@ -553,6 +554,14 @@ uhdr_error_info_t HeifUltraHdr::encodeHeicUltraHdr(uhdr_raw_image_t* sdr_intent,
       snprintf(status.detail, sizeof status.detail,
                "xmp size %zu exceeds maximum supported size", xmp_size);
       goto CleanUp;
+    }
+    std::string cleaned_xmp;
+    if (xmp_data != nullptr && xmp_size > 0) {
+      std::string raw_xmp(xmp_data, xmp_size);
+      if (stripGainMapFromXmp(raw_xmp, &cleaned_xmp)) {
+        xmp_data = cleaned_xmp.data();
+        xmp_size = cleaned_xmp.size();
+      }
     }
     if (xmp_data != nullptr && xmp_size > 0) {
       HEIF_ERR_CHECK(
