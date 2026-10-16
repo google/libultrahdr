@@ -69,6 +69,14 @@ void UltraHdrDecFuzzer::process() {
 
   (void)is_uhdr_image(buffer.data(), buffer.size());
 
+  uhdr_mem_block_t stripped_size{nullptr, 0, 0};
+  if (uhdr_strip_gain_map(&jpegImgR, &stripped_size).error_code == UHDR_CODEC_OK &&
+      stripped_size.data_sz > 0 && stripped_size.data_sz <= buffer.size() + 65536) {
+    std::vector<uint8_t> stripped_buf(stripped_size.data_sz);
+    uhdr_mem_block_t stripped_out{stripped_buf.data(), 0, stripped_buf.size()};
+    (void)uhdr_strip_gain_map(&jpegImgR, &stripped_out);
+  }
+
   uhdr_codec_private_t* dec_handle = uhdr_create_decoder();
   if (dec_handle) {
     ON_ERR(uhdr_dec_set_image(dec_handle, &jpegImgR))
@@ -106,6 +114,7 @@ void UltraHdrDecFuzzer::process() {
 
     uhdr_dec_get_exif(dec_handle);
     uhdr_dec_get_icc(dec_handle);
+    uhdr_dec_get_xmp(dec_handle);
     uhdr_dec_get_base_image(dec_handle);
     uhdr_dec_get_gainmap_image(dec_handle);
     uhdr_dec_get_gainmap_metadata(dec_handle);

@@ -66,11 +66,14 @@ class HeifUltraHdr : public UltraHdr {
    * \param[in]       quality           quality factor for sdr intent heif/avif compression
    * \param[in]       exif              optional exif metadata that needs to be inserted in
    *                                    compressed output
+   * \param[in]       xmp               optional xmp metadata that needs to be inserted in
+   *                                    compressed output
    *
    * \return uhdr_error_info_t #UHDR_CODEC_OK if operation succeeds, uhdr_codec_err_t otherwise.
    */
   uhdr_error_info_t encodeHeicUltraHdr(uhdr_raw_image_t* hdr_intent, uhdr_compressed_image_t* dest,
-                                int quality, uhdr_mem_block_t* exif);
+                                       int quality, uhdr_mem_block_t* exif,
+                                       uhdr_mem_block_t* xmp = nullptr);
 
   /*!\brief Encode API-1.
    *
@@ -88,11 +91,14 @@ class HeifUltraHdr : public UltraHdr {
    * \param[in]       quality           quality factor for sdr intent heif/avif compression
    * \param[in]       exif              optional exif metadata that needs to be inserted in
    *                                    compressed output
+   * \param[in]       xmp               optional xmp metadata that needs to be inserted in
+   *                                    compressed output
    *
    * \return uhdr_error_info_t #UHDR_CODEC_OK if operation succeeds, uhdr_codec_err_t otherwise.
    */
   uhdr_error_info_t encodeHeicUltraHdr(uhdr_raw_image_t* hdr_intent, uhdr_raw_image_t* sdr_intent,
-                                uhdr_compressed_image_t* dest, int quality, uhdr_mem_block_t* exif);
+                                       uhdr_compressed_image_t* dest, int quality,
+                                       uhdr_mem_block_t* exif, uhdr_mem_block_t* xmp = nullptr);
 
   /*!\brief Decode API.
    *
@@ -159,6 +165,8 @@ class HeifUltraHdr : public UltraHdr {
    *                                    compressed output
    * \param[in]       baseIcc           base image icc
    * \param[in]       alternateIcc      alternate image icc
+   * \param[in]       xmp               optional xmp metadata that needs to be inserted in
+   *                                    compressed output
    *
    * \return uhdr_error_info_t #UHDR_CODEC_OK if operation succeeds, uhdr_codec_err_t otherwise.
    */
@@ -168,7 +176,8 @@ class HeifUltraHdr : public UltraHdr {
                                        uhdr_gainmap_metadata_ext_t* metadata,
                                        uhdr_compressed_image_t* dest, int quality,
                                        uhdr_mem_block_t* exif, DataStruct* baseIcc,
-                                       DataStruct* alternateIcc);
+                                       DataStruct* alternateIcc,
+                                       uhdr_mem_block_t* xmp = nullptr);
 
   uhdr_codec_t mCodec;
 };

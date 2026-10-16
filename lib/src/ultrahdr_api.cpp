@@ -1389,6 +1389,45 @@ uhdr_error_info_t uhdr_enc_set_exif_data(uhdr_codec_private_t* enc, uhdr_mem_blo
   return status;
 }
 
+uhdr_error_info_t uhdr_enc_set_xmp_data(uhdr_codec_private_t* enc, uhdr_mem_block_t* xmp) {
+  uhdr_error_info_t status = g_no_error;
+  if (dynamic_cast<uhdr_encoder_private*>(enc) == nullptr) {
+    status.error_code = UHDR_CODEC_INVALID_PARAM;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail, "received nullptr for uhdr codec instance");
+  } else if (xmp == nullptr) {
+    status.error_code = UHDR_CODEC_INVALID_PARAM;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail, "received nullptr for xmp image handle");
+  } else if (xmp->data == nullptr) {
+    status.error_code = UHDR_CODEC_INVALID_PARAM;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail, "received nullptr for xmp->data field");
+  } else if (xmp->capacity < xmp->data_sz) {
+    status.error_code = UHDR_CODEC_INVALID_PARAM;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "xmp->capacity %zd is less than xmp->data_sz %zd", xmp->capacity, xmp->data_sz);
+  }
+  if (status.error_code != UHDR_CODEC_OK) return status;
+
+  uhdr_encoder_private* handle = dynamic_cast<uhdr_encoder_private*>(enc);
+  if (handle->m_sailed) {
+    status.error_code = UHDR_CODEC_INVALID_OPERATION;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "An earlier call to uhdr_encode() has switched the context from configurable state to "
+             "end state. The context is no longer configurable. To reuse, call reset()");
+    return status;
+  }
+
+  uint8_t* data = static_cast<uint8_t*>(xmp->data);
+  std::vector<uint8_t> entry(data, data + xmp->data_sz);
+  handle->m_xmp = std::move(entry);
+
+  return status;
+}
+
 uhdr_error_info_t uhdr_enc_set_output_format(uhdr_codec_private_t* enc, uhdr_codec_t media_type) {
   uhdr_error_info_t status = g_no_error;
 
@@ -1502,6 +1541,38 @@ uhdr_error_info_t uhdr_encode(uhdr_codec_private_t* enc) {
     exif.capacity = exif.data_sz = handle->m_exif.size();
   }
 
+  uhdr_mem_block_t xmp{};
+  if (handle->m_xmp.size() > 0) {
+    xmp.data = handle->m_xmp.data();
+    xmp.capacity = xmp.data_sz = handle->m_xmp.size();
+  }
+
+  const bool mayWriteXmp = !handle->m_xmp.empty() || !handle->m_compressed_images.empty();
+  size_t xmpAllowance = 0;
+  if (mayWriteXmp) {
+    size_t xmp_sz = handle->m_xmp.size();
+    if (xmp_sz == 0) {
+      for (const auto& entry : handle->m_compressed_images) {
+        if (entry.second != nullptr) {
+          xmp_sz = (std::max)(xmp_sz, entry.second->data_sz);
+        }
+      }
+    }
+    const size_t num_chunks =
+        (xmp_sz + ultrahdr::kExtendedXmpMaxChunkSize - 1) / ultrahdr::kExtendedXmpMaxChunkSize;
+    xmpAllowance = ultrahdr::kJpegAppSegmentTotalMaxBytes + xmp_sz + num_chunks * 79;
+  }
+  auto addXmpAllowance = [xmpAllowance](size_t base_size, size_t* output_size) {
+    if (xmpAllowance > (std::numeric_limits<size_t>::max)() - base_size) return false;
+    *output_size = base_size + xmpAllowance;
+    return true;
+  };
+  auto reportOutputSizeOverflow = [&status]() {
+    status.error_code = UHDR_CODEC_ERROR;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail, "compressed output size calculation overflowed");
+  };
+
   if (handle->m_output_format == UHDR_CODEC_JPG) {
     ultrahdr::JpegR jpegr(nullptr, handle->m_gainmap_scale_factor,
                           handle->m_quality.find(UHDR_GAIN_MAP_IMG)->second,
@@ -1515,6 +1586,10 @@ uhdr_error_info_t uhdr_encode(uhdr_codec_private_t* enc) {
 
       size_t size =
           (std::max)(((size_t)64 * 1024), 2 * (base_entry->data_sz + gainmap_entry->data_sz));
+      if (!addXmpAllowance(size, &size)) {
+        reportOutputSizeOverflow();
+        return status;
+      }
       handle->m_compressed_output_buffer = std::make_unique<ultrahdr::uhdr_compressed_image_ext_t>(
           UHDR_CG_UNSPECIFIED, UHDR_CT_UNSPECIFIED, UHDR_CR_UNSPECIFIED, size);
 
@@ -1522,11 +1597,16 @@ uhdr_error_info_t uhdr_encode(uhdr_codec_private_t* enc) {
 
       // api - 4
       status = jpegr.encodeJPEGR(base_entry.get(), gainmap_entry.get(), &metadata,
-                                 handle->m_compressed_output_buffer.get());
+                                 handle->m_compressed_output_buffer.get(),
+                                 handle->m_xmp.size() > 0 ? &xmp : nullptr);
     } else if (handle->m_raw_images.find(UHDR_HDR_IMG) != handle->m_raw_images.end()) {
       auto& hdr_raw_entry = handle->m_raw_images.find(UHDR_HDR_IMG)->second;
 
       size_t size = (std::max)((64u * 1024), hdr_raw_entry->w * hdr_raw_entry->h * 3 * 2);
+      if (!addXmpAllowance(size, &size)) {
+        reportOutputSizeOverflow();
+        return status;
+      }
       handle->m_compressed_output_buffer = std::make_unique<ultrahdr::uhdr_compressed_image_ext_t>(
           UHDR_CG_UNSPECIFIED, UHDR_CT_UNSPECIFIED, UHDR_CR_UNSPECIFIED, size);
 
@@ -1535,14 +1615,16 @@ uhdr_error_info_t uhdr_encode(uhdr_codec_private_t* enc) {
         // api - 0
         status = jpegr.encodeJPEGR(hdr_raw_entry.get(), handle->m_compressed_output_buffer.get(),
                                    handle->m_quality.find(UHDR_BASE_IMG)->second,
-                                   handle->m_exif.size() > 0 ? &exif : nullptr);
+                                   handle->m_exif.size() > 0 ? &exif : nullptr,
+                                   handle->m_xmp.size() > 0 ? &xmp : nullptr);
       } else if (handle->m_compressed_images.find(UHDR_SDR_IMG) !=
                      handle->m_compressed_images.end() &&
                  handle->m_raw_images.find(UHDR_SDR_IMG) == handle->m_raw_images.end()) {
         auto& sdr_compressed_entry = handle->m_compressed_images.find(UHDR_SDR_IMG)->second;
         // api - 3
         status = jpegr.encodeJPEGR(hdr_raw_entry.get(), sdr_compressed_entry.get(),
-                                   handle->m_compressed_output_buffer.get());
+                                   handle->m_compressed_output_buffer.get(),
+                                   handle->m_xmp.size() > 0 ? &xmp : nullptr);
       } else if (handle->m_raw_images.find(UHDR_SDR_IMG) != handle->m_raw_images.end()) {
         auto& sdr_raw_entry = handle->m_raw_images.find(UHDR_SDR_IMG)->second;
 
@@ -1551,13 +1633,15 @@ uhdr_error_info_t uhdr_encode(uhdr_codec_private_t* enc) {
           status = jpegr.encodeJPEGR(hdr_raw_entry.get(), sdr_raw_entry.get(),
                                      handle->m_compressed_output_buffer.get(),
                                      handle->m_quality.find(UHDR_BASE_IMG)->second,
-                                     handle->m_exif.size() > 0 ? &exif : nullptr);
+                                     handle->m_exif.size() > 0 ? &exif : nullptr,
+                                     handle->m_xmp.size() > 0 ? &xmp : nullptr);
         } else {
           auto& sdr_compressed_entry = handle->m_compressed_images.find(UHDR_SDR_IMG)->second;
           // api - 2
           status = jpegr.encodeJPEGR(hdr_raw_entry.get(), sdr_raw_entry.get(),
                                      sdr_compressed_entry.get(),
-                                     handle->m_compressed_output_buffer.get());
+                                     handle->m_compressed_output_buffer.get(),
+                                     handle->m_xmp.size() > 0 ? &xmp : nullptr);
         }
       }
     } else {
@@ -1584,15 +1668,21 @@ uhdr_error_info_t uhdr_encode(uhdr_codec_private_t* enc) {
       auto& hdr_raw_entry = handle->m_raw_images.find(UHDR_HDR_IMG)->second;
 
       size_t size = (std::max)((64u * 1024), hdr_raw_entry->w * hdr_raw_entry->h * 3 * 2);
+      if (!addXmpAllowance(size, &size)) {
+        reportOutputSizeOverflow();
+        return status;
+      }
       handle->m_compressed_output_buffer = std::make_unique<ultrahdr::uhdr_compressed_image_ext_t>(
           UHDR_CG_UNSPECIFIED, UHDR_CT_UNSPECIFIED, UHDR_CR_UNSPECIFIED, size);
 
       if (handle->m_compressed_images.find(UHDR_SDR_IMG) == handle->m_compressed_images.end() &&
           handle->m_raw_images.find(UHDR_SDR_IMG) == handle->m_raw_images.end()) {
         // api - 0
-        status = avifultrahdr.encodeAvifUltraHdr(hdr_raw_entry.get(), handle->m_compressed_output_buffer.get(),
-                                   handle->m_quality.find(UHDR_BASE_IMG)->second,
-                                   handle->m_exif.size() > 0 ? &exif : nullptr);
+        status = avifultrahdr.encodeAvifUltraHdr(
+            hdr_raw_entry.get(), handle->m_compressed_output_buffer.get(),
+            handle->m_quality.find(UHDR_BASE_IMG)->second,
+            handle->m_exif.size() > 0 ? &exif : nullptr,
+            handle->m_xmp.size() > 0 ? &xmp : nullptr);
       } else if (handle->m_compressed_images.find(UHDR_SDR_IMG) !=
                      handle->m_compressed_images.end() &&
                  handle->m_raw_images.find(UHDR_SDR_IMG) == handle->m_raw_images.end()) {
@@ -1604,10 +1694,11 @@ uhdr_error_info_t uhdr_encode(uhdr_codec_private_t* enc) {
         auto& sdr_raw_entry = handle->m_raw_images.find(UHDR_SDR_IMG)->second;
         if (handle->m_compressed_images.find(UHDR_SDR_IMG) == handle->m_compressed_images.end()) {
           // api - 1
-          status = avifultrahdr.encodeAvifUltraHdr(hdr_raw_entry.get(), sdr_raw_entry.get(),
-                                     handle->m_compressed_output_buffer.get(),
-                                     handle->m_quality.find(UHDR_BASE_IMG)->second,
-                                     handle->m_exif.size() > 0 ? &exif : nullptr);
+          status = avifultrahdr.encodeAvifUltraHdr(
+              hdr_raw_entry.get(), sdr_raw_entry.get(), handle->m_compressed_output_buffer.get(),
+              handle->m_quality.find(UHDR_BASE_IMG)->second,
+              handle->m_exif.size() > 0 ? &exif : nullptr,
+              handle->m_xmp.size() > 0 ? &xmp : nullptr);
         } else {
           status.error_code = UHDR_CODEC_UNSUPPORTED_FEATURE;
           status.has_detail = 1;
@@ -1633,15 +1724,21 @@ uhdr_error_info_t uhdr_encode(uhdr_codec_private_t* enc) {
       auto& hdr_raw_entry = handle->m_raw_images.find(UHDR_HDR_IMG)->second;
 
       size_t size = (std::max)((64u * 1024), hdr_raw_entry->w * hdr_raw_entry->h * 3 * 2);
+      if (!addXmpAllowance(size, &size)) {
+        reportOutputSizeOverflow();
+        return status;
+      }
       handle->m_compressed_output_buffer = std::make_unique<ultrahdr::uhdr_compressed_image_ext_t>(
           UHDR_CG_UNSPECIFIED, UHDR_CT_UNSPECIFIED, UHDR_CR_UNSPECIFIED, size);
 
       if (handle->m_compressed_images.find(UHDR_SDR_IMG) == handle->m_compressed_images.end() &&
           handle->m_raw_images.find(UHDR_SDR_IMG) == handle->m_raw_images.end()) {
         // api - 0
-        status = heifultrahdr.encodeHeicUltraHdr(hdr_raw_entry.get(), handle->m_compressed_output_buffer.get(),
-                                   handle->m_quality.find(UHDR_BASE_IMG)->second,
-                                   handle->m_exif.size() > 0 ? &exif : nullptr);
+        status = heifultrahdr.encodeHeicUltraHdr(
+            hdr_raw_entry.get(), handle->m_compressed_output_buffer.get(),
+            handle->m_quality.find(UHDR_BASE_IMG)->second,
+            handle->m_exif.size() > 0 ? &exif : nullptr,
+            handle->m_xmp.size() > 0 ? &xmp : nullptr);
       } else if (handle->m_compressed_images.find(UHDR_SDR_IMG) !=
                      handle->m_compressed_images.end() &&
                  handle->m_raw_images.find(UHDR_SDR_IMG) == handle->m_raw_images.end()) {
@@ -1653,10 +1750,11 @@ uhdr_error_info_t uhdr_encode(uhdr_codec_private_t* enc) {
         auto& sdr_raw_entry = handle->m_raw_images.find(UHDR_SDR_IMG)->second;
         if (handle->m_compressed_images.find(UHDR_SDR_IMG) == handle->m_compressed_images.end()) {
           // api - 1
-          status = heifultrahdr.encodeHeicUltraHdr(hdr_raw_entry.get(), sdr_raw_entry.get(),
-                                     handle->m_compressed_output_buffer.get(),
-                                     handle->m_quality.find(UHDR_BASE_IMG)->second,
-                                     handle->m_exif.size() > 0 ? &exif : nullptr);
+          status = heifultrahdr.encodeHeicUltraHdr(
+              hdr_raw_entry.get(), sdr_raw_entry.get(), handle->m_compressed_output_buffer.get(),
+              handle->m_quality.find(UHDR_BASE_IMG)->second,
+              handle->m_exif.size() > 0 ? &exif : nullptr,
+              handle->m_xmp.size() > 0 ? &xmp : nullptr);
         } else {
           status.error_code = UHDR_CODEC_UNSUPPORTED_FEATURE;
           status.has_detail = 1;
@@ -1704,6 +1802,7 @@ void uhdr_reset_encoder(uhdr_codec_private_t* enc) {
     handle->m_quality.emplace(UHDR_BASE_IMG, ultrahdr::kBaseCompressQualityDefault);
     handle->m_quality.emplace(UHDR_GAIN_MAP_IMG, ultrahdr::kMapCompressQualityDefault);
     handle->m_exif.clear();
+    handle->m_xmp.clear();
     handle->m_output_format = UHDR_CODEC_JPG;
     handle->m_gainmap_scale_factor = ultrahdr::kMapDimensionScaleFactorDefault;
     handle->m_use_multi_channel_gainmap = ultrahdr::kUseMultiChannelGainMapDefault;
@@ -1907,6 +2006,19 @@ uhdr_error_info_t uhdr_dec_set_out_max_display_boost(uhdr_codec_private_t* dec,
   return status;
 }
 
+static void stripXmpApp1Header(std::vector<uint8_t>& xmp_buf) {
+  constexpr char kXmpHeader[] = "http://ns.adobe.com/xap/1.0/";
+  constexpr size_t kXmpHeaderLen = sizeof(kXmpHeader) - 1;
+  if (xmp_buf.size() >= kXmpHeaderLen &&
+      memcmp(xmp_buf.data(), kXmpHeader, kXmpHeaderLen) == 0) {
+    size_t offset = kXmpHeaderLen;
+    if (offset < xmp_buf.size() && xmp_buf[offset] == '\0') {
+      ++offset;
+    }
+    xmp_buf.erase(xmp_buf.begin(), xmp_buf.begin() + static_cast<ptrdiff_t>(offset));
+  }
+}
+
 uhdr_error_info_t uhdr_dec_probe(uhdr_codec_private_t* dec) {
   if (dynamic_cast<uhdr_decoder_private*>(dec) == nullptr) {
     uhdr_error_info_t status;
@@ -1982,6 +2094,78 @@ uhdr_error_info_t uhdr_dec_probe(uhdr_codec_private_t* dec) {
                     handle->m_metadata.hdr_capacity_min = metadata.hdr_capacity_min;
                     handle->m_metadata.hdr_capacity_max = metadata.hdr_capacity_max;
                     handle->m_metadata.use_base_cg = metadata.use_base_cg;
+
+                    const int num_exif_blocks =
+                        heif_image_handle_get_number_of_metadata_blocks(base_handle, "Exif");
+                    if (num_exif_blocks > 0) {
+                      std::vector<heif_item_id> exif_ids(num_exif_blocks);
+                      const int fetched_exif = heif_image_handle_get_list_of_metadata_block_IDs(
+                          base_handle, "Exif", exif_ids.data(), num_exif_blocks);
+                      for (int i = 0; i < fetched_exif; ++i) {
+                        const size_t exif_size =
+                            heif_image_handle_get_metadata_size(base_handle, exif_ids[i]);
+                        if (exif_size > 4) {
+                          std::vector<uint8_t> exif_buf(exif_size);
+                          heif_error exif_err = heif_image_handle_get_metadata(
+                              base_handle, exif_ids[i], exif_buf.data());
+                          if (exif_err.code == heif_error_Ok) {
+                            handle->m_exif.assign(exif_buf.begin() + 4, exif_buf.end());
+                            handle->m_exif_block.data = handle->m_exif.data();
+                            handle->m_exif_block.data_sz = handle->m_exif_block.capacity =
+                                handle->m_exif.size();
+                          }
+                          break;
+                        }
+                      }
+                    }
+
+                    const size_t icc_size =
+                        heif_image_handle_get_raw_color_profile_size(base_handle);
+                    if (icc_size > 0) {
+                      std::vector<uint8_t> icc_buf(icc_size);
+                      heif_error icc_err =
+                          heif_image_handle_get_raw_color_profile(base_handle, icc_buf.data());
+                      if (icc_err.code == heif_error_Ok) {
+                        handle->m_icc = std::move(icc_buf);
+                        handle->m_icc_block.data = handle->m_icc.data();
+                        handle->m_icc_block.data_sz = handle->m_icc_block.capacity =
+                            handle->m_icc.size();
+                      }
+                    }
+
+                    const int num_mime_blocks =
+                        heif_image_handle_get_number_of_metadata_blocks(base_handle, "mime");
+                    if (num_mime_blocks > 0) {
+                      std::vector<heif_item_id> mime_ids(num_mime_blocks);
+                      const int fetched_blocks = heif_image_handle_get_list_of_metadata_block_IDs(
+                          base_handle, "mime", mime_ids.data(), num_mime_blocks);
+                      for (int i = 0; i < fetched_blocks; ++i) {
+                        const char* content_type =
+                            heif_image_handle_get_metadata_content_type(base_handle, mime_ids[i]);
+                        if (content_type != nullptr &&
+                            strcmp(content_type, "application/rdf+xml") == 0) {
+                          const size_t xmp_size =
+                              heif_image_handle_get_metadata_size(base_handle, mime_ids[i]);
+                          if (xmp_size > 0) {
+                            std::vector<uint8_t> xmp_buf(xmp_size);
+                            heif_error xmp_err = heif_image_handle_get_metadata(
+                                base_handle, mime_ids[i], xmp_buf.data());
+                            if (xmp_err.code == heif_error_Ok) {
+                              stripXmpApp1Header(xmp_buf);
+                              handle->m_xmp = std::move(xmp_buf);
+                              handle->m_xmp_block.data = handle->m_xmp.data();
+                              handle->m_xmp_block.data_sz = handle->m_xmp_block.capacity =
+                                  handle->m_xmp.size();
+                            } else {
+                              status.error_code = UHDR_CODEC_ERROR;
+                              status.has_detail = 1;
+                              snprintf(status.detail, sizeof status.detail, "%s", xmp_err.message);
+                            }
+                            break;
+                          }
+                        }
+                      }
+                    }
                   }
                 }
               } else {
@@ -2039,6 +2223,10 @@ uhdr_error_info_t uhdr_dec_probe(uhdr_codec_private_t* dec) {
     handle->m_icc = std::move(primary_image.iccData);
     handle->m_icc_block.data = handle->m_icc.data();
     handle->m_icc_block.data_sz = handle->m_icc_block.capacity = handle->m_icc.size();
+    handle->m_xmp = std::move(primary_image.xmpData);
+    stripXmpApp1Header(handle->m_xmp);
+    handle->m_xmp_block.data = handle->m_xmp.data();
+    handle->m_xmp_block.data_sz = handle->m_xmp_block.capacity = handle->m_xmp.size();
     handle->m_base_img = std::move(primary_image.imgData);
     handle->m_base_img_block.data = handle->m_base_img.data();
     handle->m_base_img_block.data_sz = handle->m_base_img_block.capacity =
@@ -2128,6 +2316,19 @@ uhdr_mem_block_t* uhdr_dec_get_icc(uhdr_codec_private_t* dec) {
   }
 
   return &handle->m_icc_block;
+}
+
+uhdr_mem_block_t* uhdr_dec_get_xmp(uhdr_codec_private_t* dec) {
+  if (dynamic_cast<uhdr_decoder_private*>(dec) == nullptr) {
+    return nullptr;
+  }
+
+  uhdr_decoder_private* handle = dynamic_cast<uhdr_decoder_private*>(dec);
+  if (!handle->m_probed || handle->m_probe_call_status.error_code != UHDR_CODEC_OK) {
+    return nullptr;
+  }
+
+  return handle->m_xmp.size() > 0 ? &handle->m_xmp_block : nullptr;
 }
 
 uhdr_mem_block_t* uhdr_dec_get_base_image(uhdr_codec_private_t* dec) {
@@ -2328,6 +2529,8 @@ void uhdr_reset_decoder(uhdr_codec_private_t* dec) {
     memset(&handle->m_exif_block, 0, sizeof handle->m_exif_block);
     handle->m_icc.clear();
     memset(&handle->m_icc_block, 0, sizeof handle->m_icc_block);
+    handle->m_xmp.clear();
+    memset(&handle->m_xmp_block, 0, sizeof handle->m_xmp_block);
     handle->m_base_img.clear();
     memset(&handle->m_base_img_block, 0, sizeof handle->m_base_img_block);
     handle->m_gainmap_img.clear();
@@ -2483,4 +2686,10 @@ uhdr_error_info_t uhdr_add_effect_resize(uhdr_codec_private_t* codec, int width,
   codec->m_effects.push_back(new ultrahdr::uhdr_resize_effect_t(width, height));
 
   return status;
+}
+
+uhdr_error_info_t uhdr_strip_gain_map(uhdr_compressed_image_t* in_stream,
+                                      uhdr_mem_block_t* out_stream) {
+  ultrahdr::JpegR jpegr;
+  return jpegr.stripGainMap(in_stream, out_stream);
 }

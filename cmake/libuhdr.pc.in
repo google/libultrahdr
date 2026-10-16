@@ -5,7 +5,7 @@ includedir=${prefix}/@CMAKE_INSTALL_INCLUDEDIR@
 Name: @PROJECT_NAME@
 Description: @CMAKE_PROJECT_DESCRIPTION@
 Version: @PROJECT_VERSION@
-Requires.private: libjpeg
+Requires.private: libjpeg@UHDR_PC_REQUIRES_PRIVATE@
 Cflags: -I${includedir}
 Libs: -L${libdir} -l@UHDR_TARGET_NAME@
 Libs.private: @CMAKE_THREAD_LIBS_INIT@ @UHDR_GL_DEPS@
