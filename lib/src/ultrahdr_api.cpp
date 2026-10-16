@@ -2095,6 +2095,44 @@ uhdr_error_info_t uhdr_dec_probe(uhdr_codec_private_t* dec) {
                     handle->m_metadata.hdr_capacity_max = metadata.hdr_capacity_max;
                     handle->m_metadata.use_base_cg = metadata.use_base_cg;
 
+                    const int num_exif_blocks =
+                        heif_image_handle_get_number_of_metadata_blocks(base_handle, "Exif");
+                    if (num_exif_blocks > 0) {
+                      std::vector<heif_item_id> exif_ids(num_exif_blocks);
+                      const int fetched_exif = heif_image_handle_get_list_of_metadata_block_IDs(
+                          base_handle, "Exif", exif_ids.data(), num_exif_blocks);
+                      for (int i = 0; i < fetched_exif; ++i) {
+                        const size_t exif_size =
+                            heif_image_handle_get_metadata_size(base_handle, exif_ids[i]);
+                        if (exif_size > 4) {
+                          std::vector<uint8_t> exif_buf(exif_size);
+                          heif_error exif_err = heif_image_handle_get_metadata(
+                              base_handle, exif_ids[i], exif_buf.data());
+                          if (exif_err.code == heif_error_Ok) {
+                            handle->m_exif.assign(exif_buf.begin() + 4, exif_buf.end());
+                            handle->m_exif_block.data = handle->m_exif.data();
+                            handle->m_exif_block.data_sz = handle->m_exif_block.capacity =
+                                handle->m_exif.size();
+                          }
+                          break;
+                        }
+                      }
+                    }
+
+                    const size_t icc_size =
+                        heif_image_handle_get_raw_color_profile_size(base_handle);
+                    if (icc_size > 0) {
+                      std::vector<uint8_t> icc_buf(icc_size);
+                      heif_error icc_err =
+                          heif_image_handle_get_raw_color_profile(base_handle, icc_buf.data());
+                      if (icc_err.code == heif_error_Ok) {
+                        handle->m_icc = std::move(icc_buf);
+                        handle->m_icc_block.data = handle->m_icc.data();
+                        handle->m_icc_block.data_sz = handle->m_icc_block.capacity =
+                            handle->m_icc.size();
+                      }
+                    }
+
                     const int num_mime_blocks =
                         heif_image_handle_get_number_of_metadata_blocks(base_handle, "mime");
                     if (num_mime_blocks > 0) {

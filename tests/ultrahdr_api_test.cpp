@@ -3672,6 +3672,10 @@ TEST_F(UltraHdrHeifXmpTest, HeicAndAvifEncodeAndProbeXmpMetadata) {
         EXPECT_EQ(uhdr_enc_set_raw_image(enc, &mSdrRaw, UHDR_SDR_IMG).error_code, UHDR_CODEC_OK);
       }
       EXPECT_EQ(uhdr_enc_set_output_format(enc, codec).error_code, UHDR_CODEC_OK);
+      const std::string kExifPayload("Exif\0\0II*\0\x08\0\0\0\0\0", 16);
+      uhdr_mem_block_t exif_block{const_cast<char*>(kExifPayload.data()), kExifPayload.size(),
+                                  kExifPayload.size()};
+      EXPECT_EQ(uhdr_enc_set_exif_data(enc, &exif_block).error_code, UHDR_CODEC_OK);
       uhdr_mem_block_t xmp_block{const_cast<char*>(tc.input_xmp.data()), tc.input_xmp.size(),
                                  tc.input_xmp.size()};
       EXPECT_EQ(uhdr_enc_set_xmp_data(enc, &xmp_block).error_code, UHDR_CODEC_OK);
@@ -3686,6 +3690,17 @@ TEST_F(UltraHdrHeifXmpTest, HeicAndAvifEncodeAndProbeXmpMetadata) {
       ASSERT_NE(dec, nullptr);
       ASSERT_EQ(uhdr_dec_set_image(dec, output).error_code, UHDR_CODEC_OK);
       ASSERT_EQ(uhdr_dec_probe(dec).error_code, UHDR_CODEC_OK);
+
+      uhdr_mem_block_t* decoded_exif = uhdr_dec_get_exif(dec);
+      ASSERT_NE(decoded_exif, nullptr);
+      ASSERT_NE(decoded_exif->data, nullptr);
+      EXPECT_EQ(std::string(static_cast<const char*>(decoded_exif->data), decoded_exif->data_sz),
+                kExifPayload);
+
+      uhdr_mem_block_t* decoded_icc = uhdr_dec_get_icc(dec);
+      ASSERT_NE(decoded_icc, nullptr);
+      EXPECT_NE(decoded_icc->data, nullptr);
+      EXPECT_GT(decoded_icc->data_sz, 0u);
 
       uhdr_mem_block_t* decoded_xmp = uhdr_dec_get_xmp(dec);
       if (tc.expected_xmp.empty()) {
