@@ -2118,9 +2118,13 @@ uhdr_error_info_t uhdr_dec_probe(uhdr_codec_private_t* dec) {
                               handle->m_xmp_block.data = handle->m_xmp.data();
                               handle->m_xmp_block.data_sz = handle->m_xmp_block.capacity =
                                   handle->m_xmp.size();
+                            } else {
+                              status.error_code = UHDR_CODEC_ERROR;
+                              status.has_detail = 1;
+                              snprintf(status.detail, sizeof status.detail, "%s", xmp_err.message);
                             }
+                            break;
                           }
-                          break;
                         }
                       }
                     }

@@ -3762,6 +3762,9 @@ TEST_F(UltraHdrApiTest, HeifProbeExtractsXmpMetadataFromContainer) {
   HeifHandlePtr primary(raw_primary, heif_image_handle_release);
   ASSERT_NE(primary, nullptr);
 
+  // Attach an empty XMP item followed by the valid XMP ("mime" / "application/rdf+xml") item to
+  // verify probe skips empty "application/rdf+xml" blocks and extracts the non-empty XMP packet.
+  ASSERT_EQ(heif_context_add_XMP_metadata(ctx.get(), primary.get(), "", 0).code, heif_error_Ok);
   ASSERT_EQ(heif_context_add_XMP_metadata(ctx.get(), primary.get(), kXmpPacket.data(),
                                           static_cast<int>(kXmpPacket.size()))
                 .code,
@@ -3804,7 +3807,7 @@ TEST_F(UltraHdrApiTest, HeifProbeExtractsXmpMetadataFromContainer) {
   const uint16_t item_count =
       (static_cast<uint16_t>(hevc_with_xmp[iloc_offset + 14]) << 8) |
       static_cast<uint16_t>(hevc_with_xmp[iloc_offset + 15]);
-  ASSERT_EQ(item_count, 4u);
+  ASSERT_EQ(item_count, 5u);
   uint32_t running_offset = static_cast<uint32_t>(new_mdat_payload_offset);
   for (uint16_t i = 0; i < item_count; ++i) {
     const size_t entry_offset = iloc_offset + 16 + static_cast<size_t>(i) * 18;
