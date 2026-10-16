@@ -194,6 +194,15 @@ void UltraHdrEncFuzzer::process() {
     uhdr_mem_block_t exif{greeting, mFdp.ConsumeIntegralInRange<uint8_t>(0, sizeof greeting * 2),
                           sizeof greeting};
 
+    // xmp
+    std::string xmp_str = mFdp.ConsumeRandomLengthString(128 * 1024);
+    uhdr_mem_block_t xmp{xmp_str.empty() ? nullptr : const_cast<char*>(xmp_str.data()),
+                         xmp_str.size(), xmp_str.size()};
+
+    // output format
+    uhdr_codec_t output_codec =
+        mFdp.PickValueInArray({UHDR_CODEC_JPG, UHDR_CODEC_HEIF, UHDR_CODEC_AVIF});
+
     ALOGV("encoding configuration options : ");
     ALOGV("encoding api - %d ", (int)muxSwitch);
     ALOGV("image dimensions %d x %d ", (int)width, (int)height);
@@ -376,6 +385,10 @@ void UltraHdrEncFuzzer::process() {
     ON_ERR(uhdr_enc_set_quality(enc_handle, base_quality, UHDR_BASE_IMG))
     ON_ERR(uhdr_enc_set_quality(enc_handle, gainmap_quality, UHDR_GAIN_MAP_IMG))
     ON_ERR(uhdr_enc_set_exif_data(enc_handle, &exif))
+    if (mFdp.ConsumeBool()) {
+      ON_ERR(uhdr_enc_set_xmp_data(enc_handle, &xmp))
+    }
+    ON_ERR(uhdr_enc_set_output_format(enc_handle, output_codec))
     ON_ERR(uhdr_enc_set_using_multi_channel_gainmap(enc_handle, multi_channel_gainmap))
     ON_ERR(uhdr_enc_set_gainmap_scale_factor(enc_handle, gm_scale_factor))
     ON_ERR(uhdr_enc_set_gainmap_gamma(enc_handle, gamma[0]))
@@ -445,6 +458,8 @@ void UltraHdrEncFuzzer::process() {
           else
             ON_ERR(uhdr_dec_set_out_img_format(dec_handle, UHDR_IMG_FMT_32bppRGBA1010102))
           ON_ERR(uhdr_decode(dec_handle))
+          uhdr_dec_get_exif(dec_handle);
+          uhdr_dec_get_icc(dec_handle);
           uhdr_dec_get_xmp(dec_handle);
           uhdr_release_decoder(dec_handle);
         }
