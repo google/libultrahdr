@@ -524,6 +524,42 @@ TEST(ResizeImageTest, InterpolatesInBothDirections) {
   }
 }
 
+// Each channel of an RGB image is interpolated likewise, also with different horizontal and
+// vertical scale factors, as when a gain map is resized to the aspect ratio of its base image.
+TEST(ResizeImageTest, InterpolatesRgbWithUnequalScaleFactors) {
+  uhdr_raw_image_ext_t src(UHDR_IMG_FMT_24bppRGB888, UHDR_CG_UNSPECIFIED, UHDR_CT_UNSPECIFIED,
+                           UHDR_CR_FULL_RANGE, 2, 2, 1);
+  uint8_t* src_data = static_cast<uint8_t*>(src.planes[UHDR_PLANE_PACKED]);
+  const uint8_t src_values[2][2][3] = {{{0, 210, 240}, {60, 150, 0}},
+                                       {{120, 30, 0}, {180, 90, 240}}};
+  for (int y = 0; y < 2; y++) {
+    for (int x = 0; x < 2; x++) {
+      for (int c = 0; c < 3; c++) {
+        src_data[(y * src.stride[UHDR_PLANE_PACKED] + x) * 3 + c] = src_values[y][x][c];
+      }
+    }
+  }
+
+  auto dst = resize_image(&src, 4, 3);
+  ASSERT_NE(dst, nullptr);
+  ASSERT_EQ(dst->w, 4u);
+  ASSERT_EQ(dst->h, 3u);
+  // Pixel (x, y) samples the source at (x / 2, y * 2 / 3), clamped at the right and bottom edges.
+  const int expected[3][4][3] = {{{0, 210, 240}, {30, 180, 120}, {60, 150, 0}, {60, 150, 0}},
+                                 {{80, 90, 80}, {110, 100, 120}, {140, 110, 160}, {140, 110, 160}},
+                                 {{120, 30, 0}, {150, 60, 120}, {180, 90, 240}, {180, 90, 240}}};
+  uint8_t* dst_data = static_cast<uint8_t*>(dst->planes[UHDR_PLANE_PACKED]);
+  for (int y = 0; y < 3; y++) {
+    for (int x = 0; x < 4; x++) {
+      for (int c = 0; c < 3; c++) {
+        EXPECT_EQ(static_cast<int>(dst_data[(y * dst->stride[UHDR_PLANE_PACKED] + x) * 3 + c]),
+                  expected[y][x][c])
+            << "x: " << x << " y: " << y << " channel: " << c;
+      }
+    }
+  }
+}
+
 #ifdef UHDR_ENABLE_GLES
 // Planes are tightly packed, so textures must hold exactly the bytes of the buffer for widths
 // whose rows are not a multiple of 4 bytes.
