@@ -498,6 +498,32 @@ INSTANTIATE_TEST_SUITE_P(
                                          UHDR_IMG_FMT_64bppRGBAHalfFloat,
                                          UHDR_IMG_FMT_32bppRGBA8888)));
 
+// resize_image() interpolates between the four neighboring pixels, horizontally and vertically.
+TEST(ResizeImageTest, InterpolatesInBothDirections) {
+  uhdr_raw_image_ext_t src(UHDR_IMG_FMT_8bppYCbCr400, UHDR_CG_UNSPECIFIED, UHDR_CT_UNSPECIFIED,
+                           UHDR_CR_FULL_RANGE, 2, 2, 1);
+  uint8_t* src_data = static_cast<uint8_t*>(src.planes[UHDR_PLANE_Y]);
+  const uint8_t src_values[2][2] = {{0, 100}, {200, 40}};
+  for (int y = 0; y < 2; y++) {
+    for (int x = 0; x < 2; x++) src_data[y * src.stride[UHDR_PLANE_Y] + x] = src_values[y][x];
+  }
+
+  auto dst = resize_image(&src, 4, 4);
+  ASSERT_NE(dst, nullptr);
+  ASSERT_EQ(dst->w, 4u);
+  ASSERT_EQ(dst->h, 4u);
+  // Pixel (x, y) samples the source at (x / 2, y / 2), clamped at the right and bottom edges.
+  const int expected[4][4] = {
+      {0, 50, 100, 100}, {100, 85, 70, 70}, {200, 120, 40, 40}, {200, 120, 40, 40}};
+  uint8_t* dst_data = static_cast<uint8_t*>(dst->planes[UHDR_PLANE_Y]);
+  for (int y = 0; y < 4; y++) {
+    for (int x = 0; x < 4; x++) {
+      EXPECT_EQ(static_cast<int>(dst_data[y * dst->stride[UHDR_PLANE_Y] + x]), expected[y][x])
+          << "x: " << x << " y: " << y;
+    }
+  }
+}
+
 #ifdef UHDR_ENABLE_GLES
 // Planes are tightly packed, so textures must hold exactly the bytes of the buffer for widths
 // whose rows are not a multiple of 4 bytes.

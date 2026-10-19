@@ -85,16 +85,12 @@ void resize_buffer(T* src_buffer, T* dst_buffer, int src_w, int src_h, int dst_w
   }
 }
 
-// This function performs bicubic interpolation on a 1D signal.
-double bicubic_interpolate(double p0, double p1, double p2, double p3, double x) {
-  // Calculate the weights for the four neighboring points.
-  double w0 = (1 - x) * (1 - x) * (1 - x);
-  double w1 = 3 * x * (1 - x) * (1 - x);
-  double w2 = 3 * x * x * (1 - x);
-  double w3 = x * x * x;
-
-  // Calculate the interpolated value.
-  return w0 * p0 + w1 * p1 + w2 * p2 + w3 * p3;
+// This function performs bilinear interpolation between the four neighboring points p0 (top
+// left), p1 (top right), p2 (bottom left) and p3 (bottom right), at offset (x, y) from p0.
+static double bilinear_interpolate(double p0, double p1, double p2, double p3, double x, double y) {
+  double top = p0 + (p1 - p0) * x;
+  double bottom = p2 + (p3 - p2) * x;
+  return top + (bottom - top) * y;
 }
 
 std::unique_ptr<uhdr_raw_image_ext_t> resize_image(uhdr_raw_image_t* src, int dst_w, int dst_h) {
@@ -133,11 +129,13 @@ std::unique_ptr<uhdr_raw_image_ext_t> resize_image(uhdr_raw_image_t* src, int ds
       Color p2 = get_pixel_fn(src, p2_x, p2_y);
       Color p3 = get_pixel_fn(src, p3_x, p3_y);
 
+      double dx = ori_x - p0_x;
+      double dy = ori_y - p0_y;
       Color interp;
-      interp.r = (float)bicubic_interpolate(p0.r, p1.r, p2.r, p3.r, ori_x - p0_x);
+      interp.r = (float)bilinear_interpolate(p0.r, p1.r, p2.r, p3.r, dx, dy);
       if (src->fmt != UHDR_IMG_FMT_8bppYCbCr400) {
-        interp.g = (float)bicubic_interpolate(p0.g, p1.g, p2.g, p3.g, ori_x - p0_x);
-        interp.b = (float)bicubic_interpolate(p0.b, p1.b, p2.b, p3.b, ori_x - p0_x);
+        interp.g = (float)bilinear_interpolate(p0.g, p1.g, p2.g, p3.g, dx, dy);
+        interp.b = (float)bilinear_interpolate(p0.b, p1.b, p2.b, p3.b, dx, dy);
       }
       put_pixel_fn(dst.get(), x, y, interp);
     }
