@@ -65,6 +65,91 @@ static const string kIsoNameSpace = "urn:iso:std:iso:ts:21496:-1";
 static_assert(kWriteXmpMetadata || kWriteIso21496_1Metadata,
               "Must write gain map metadata in XMP format, or iso 21496-1 format, or both.");
 
+namespace {
+
+// Matches GLES linear texture sampling at output pixel centers.
+class GainMapBilinearSampler {
+ public:
+  GainMapBilinearSampler(const uhdr_raw_image_t* map, size_t base_width, size_t base_height)
+      : mMap(map),
+        mScaleX(static_cast<float>(map->w) / base_width),
+        mScaleY(static_cast<float>(map->h) / base_height),
+        mStride(
+            map->stride[map->fmt == UHDR_IMG_FMT_8bppYCbCr400 ? UHDR_PLANE_Y : UHDR_PLANE_PACKED]),
+        mChannels(map->fmt == UHDR_IMG_FMT_8bppYCbCr400
+                      ? 1
+                      : (map->fmt == UHDR_IMG_FMT_32bppRGBA8888 ? 4 : 3)),
+        mData(reinterpret_cast<const uint8_t*>(
+            map->planes[map->fmt == UHDR_IMG_FMT_8bppYCbCr400 ? UHDR_PLANE_Y
+                                                              : UHDR_PLANE_PACKED])) {}
+
+  Color direct(size_t x, size_t y) const {
+    const size_t pixel = x + y * mStride;
+    const float r = read(pixel, 0);
+    if (mChannels == 1) return {{{r, r, r}}};
+    return {{{r, read(pixel, 1), read(pixel, 2)}}};
+  }
+
+  class Row {
+   public:
+    Row(const GainMapBilinearSampler* sampler, size_t y0, size_t y1, float fy)
+        : mSampler(sampler), mY0(y0), mY1(y1), mFy(fy) {}
+
+    Color sample(size_t x) const {
+      const float map_x =
+          fminf(fmaxf((static_cast<float>(x) + 0.5f) * mSampler->mScaleX - 0.5f, 0.0f),
+                static_cast<float>(mSampler->mMap->w - 1));
+      const size_t x0 = static_cast<size_t>(map_x);  // Clamped nonnegative, so truncation floors.
+      const size_t x1 = (std::min)(x0 + 1, static_cast<size_t>(mSampler->mMap->w - 1));
+      const float fx = map_x - static_cast<float>(x0);
+      auto sample_channel = [&](size_t channel) {
+        const size_t pixel00 = x0 + mY0 * mSampler->mStride;
+        const size_t pixel10 = x1 + mY0 * mSampler->mStride;
+        const size_t pixel01 = x0 + mY1 * mSampler->mStride;
+        const size_t pixel11 = x1 + mY1 * mSampler->mStride;
+        const size_t channel_offset = mSampler->mChannels == 1 ? 0 : channel;
+        const float top = mSampler->read(pixel00, channel_offset) * (1.0f - fx) +
+                          mSampler->read(pixel10, channel_offset) * fx;
+        const float bottom = mSampler->read(pixel01, channel_offset) * (1.0f - fx) +
+                             mSampler->read(pixel11, channel_offset) * fx;
+        return top * (1.0f - mFy) + bottom * mFy;
+      };
+      const float r = sample_channel(0);
+      if (mSampler->mChannels == 1) return {{{r, r, r}}};
+      return {{{r, sample_channel(1), sample_channel(2)}}};
+    }
+
+   private:
+    const GainMapBilinearSampler* mSampler;
+    size_t mY0;
+    size_t mY1;
+    float mFy;
+  };
+
+  Row row(size_t y) const {
+    const float map_y = fminf(fmaxf((static_cast<float>(y) + 0.5f) * mScaleY - 0.5f, 0.0f),
+                              static_cast<float>(mMap->h - 1));
+    const size_t y0 = static_cast<size_t>(map_y);  // Clamped nonnegative, so truncation floors.
+    const size_t y1 = (std::min)(y0 + 1, static_cast<size_t>(mMap->h - 1));
+    return Row(this, y0, y1, map_y - static_cast<float>(y0));
+  }
+
+ private:
+  float read(size_t pixel, size_t channel) const {
+    const size_t offset = mChannels == 1 ? pixel : pixel * mChannels + channel;
+    return static_cast<float>(mData[offset]) / 255.0f;
+  }
+
+  const uhdr_raw_image_t* mMap;
+  float mScaleX;
+  float mScaleY;
+  size_t mStride;
+  size_t mChannels;
+  const uint8_t* mData;
+};
+
+}  // namespace
+
 class JobQueue {
  public:
   bool dequeueJob(unsigned int& rowStart, unsigned int& rowEnd);
@@ -1692,33 +1777,10 @@ uhdr_error_info_t UltraHdr::applyGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_
   }
 #endif
 
-  std::unique_ptr<uhdr_raw_image_ext_t> resized_gainmap = nullptr;
-  {
-    float primary_aspect_ratio = (float)sdr_intent->w / sdr_intent->h;
-    float gainmap_aspect_ratio = (float)gainmap_img->w / gainmap_img->h;
-    float delta_aspect_ratio = fabs(primary_aspect_ratio - gainmap_aspect_ratio);
-    // Allow 1% delta
-    const float delta_tolerance = 0.01f;
-    if (delta_aspect_ratio / primary_aspect_ratio > delta_tolerance) {
-      resized_gainmap = resize_image(gainmap_img, sdr_intent->w, sdr_intent->h);
-      if (resized_gainmap == nullptr) {
-        uhdr_error_info_t status;
-        status.error_code = UHDR_CODEC_UNSUPPORTED_FEATURE;
-        status.has_detail = 1;
-        snprintf(status.detail, sizeof status.detail,
-                 "encountered error while resizing the gainmap image from %ux%u to %ux%u",
-                 gainmap_img->w, gainmap_img->h, sdr_intent->w, sdr_intent->h);
-        return status;
-      }
-      gainmap_img = resized_gainmap.get();
-    }
-  }
-
-  float map_scale_factor = (float)sdr_intent->w / gainmap_img->w;
-  int map_scale_factor_rnd = (std::max)(1, (int)std::roundf(map_scale_factor));
-
-  // Table will only be used when map scale factor is integer.
-  ShepardsIDW idwTable(map_scale_factor_rnd);
+  const bool gainmap_is_same_size =
+      gainmap_img->w == sdr_intent->w && gainmap_img->h == sdr_intent->h;
+  const bool gainmap_is_monochrome = gainmap_img->fmt == UHDR_IMG_FMT_8bppYCbCr400;
+  GainMapBilinearSampler gainmapSampler(gainmap_img, sdr_intent->w, sdr_intent->h);
   float display_boost = (std::min)(max_display_boost, gainmap_metadata->hdr_capacity_max);
 
   float gainmap_weight;
@@ -1744,19 +1806,20 @@ uhdr_error_info_t UltraHdr::applyGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_
   }
 
   JobQueue jobQueue;
-  std::function<void()> applyRecMap = [sdr_intent, gainmap_img, dest, &jobQueue, &idwTable,
-                                       output_ct, &gainLUT, gainmap_metadata, hdrGamutConversionFn,
-                                       sdrGamutConversionFn,
+  std::function<void()> applyRecMap =
+      [sdr_intent, dest, &jobQueue, &gainmapSampler, output_ct, &gainLUT, gainmap_metadata,
+       hdrGamutConversionFn, sdrGamutConversionFn,
 #if !USE_APPLY_GAIN_LUT
-                                       gainmap_weight,
+       gainmap_weight,
 #endif
-                                       map_scale_factor, get_pixel_fn]() -> void {
+       gainmap_is_same_size, gainmap_is_monochrome, get_pixel_fn]() -> void {
     unsigned int width = sdr_intent->w;
     unsigned int rowStart, rowEnd;
     const bool isSdrIntentRgb = isPixelFormatRgb(sdr_intent->fmt);
 
     while (jobQueue.dequeueJob(rowStart, rowEnd)) {
       for (size_t y = rowStart; y < rowEnd; ++y) {
+        const GainMapBilinearSampler::Row gainmap_row = gainmapSampler.row(y);
         for (size_t x = 0; x < width; ++x) {
           Color rgb_gamma_sdr;
 
@@ -1774,14 +1837,9 @@ uhdr_error_info_t UltraHdr::applyGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_
 #endif
           rgb_sdr = sdrGamutConversionFn(rgb_sdr);
           Color rgb_hdr;
-          if (gainmap_img->fmt == UHDR_IMG_FMT_8bppYCbCr400) {
+          if (gainmap_is_monochrome) {
             float gain;
-
-            if (map_scale_factor != floorf(map_scale_factor)) {
-              gain = sampleMap(gainmap_img, map_scale_factor, x, y);
-            } else {
-              gain = sampleMap(gainmap_img, map_scale_factor, x, y, idwTable);
-            }
+            gain = gainmap_is_same_size ? gainmapSampler.direct(x, y).r : gainmap_row.sample(x).r;
 
 #if USE_APPLY_GAIN_LUT
             rgb_hdr = applyGainLUT(rgb_sdr, gain, gainLUT, gainmap_metadata);
@@ -1790,14 +1848,7 @@ uhdr_error_info_t UltraHdr::applyGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_
 #endif
           } else {
             Color gain;
-
-            if (map_scale_factor != floorf(map_scale_factor)) {
-              gain = sampleMap3Channel(gainmap_img, map_scale_factor, x, y,
-                                       gainmap_img->fmt == UHDR_IMG_FMT_32bppRGBA8888);
-            } else {
-              gain = sampleMap3Channel(gainmap_img, map_scale_factor, x, y, idwTable,
-                                       gainmap_img->fmt == UHDR_IMG_FMT_32bppRGBA8888);
-            }
+            gain = gainmap_is_same_size ? gainmapSampler.direct(x, y) : gainmap_row.sample(x);
 
 #if USE_APPLY_GAIN_LUT
             rgb_hdr = applyGainLUT(rgb_sdr, gain, gainLUT, gainmap_metadata);
@@ -1861,7 +1912,17 @@ uhdr_error_info_t UltraHdr::applyGainMap(uhdr_raw_image_t* sdr_intent, uhdr_raw_
   for (int th = 0; th < threads - 1; th++) {
     workers.push_back(std::thread(applyRecMap));
   }
-  const unsigned int rowStep = threads == 1 ? sdr_intent->h : map_scale_factor_rnd;
+  const float primary_aspect_ratio = static_cast<float>(sdr_intent->w) / sdr_intent->h;
+  const float gainmap_aspect_ratio = static_cast<float>(gainmap_img->w) / gainmap_img->h;
+  const float relative_aspect_delta =
+      fabs(primary_aspect_ratio - gainmap_aspect_ratio) / primary_aspect_ratio;
+  // Keep the previous job granularity for mismatched aspect ratios. This affects scheduling only;
+  // the sampler above always reads the original gain map dimensions.
+  const float map_scale_for_scheduling =
+      relative_aspect_delta > 0.01f ? 1.0f : static_cast<float>(sdr_intent->w) / gainmap_img->w;
+  const unsigned int rowStep =
+      threads == 1 ? sdr_intent->h
+                   : (std::max)(1, static_cast<int>(std::roundf(map_scale_for_scheduling)));
   for (unsigned int rowStart = 0; rowStart < sdr_intent->h;) {
     unsigned int rowEnd = (std::min)(rowStart + rowStep, sdr_intent->h);
     jobQueue.enqueueJob(rowStart, rowEnd);

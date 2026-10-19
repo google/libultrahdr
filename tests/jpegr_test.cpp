@@ -15,14 +15,15 @@
 #endif
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
 #include <fstream>
 #include <iostream>
-
 #include "ultrahdr_api.h"
 
+#include "ultrahdr/gainmapmath.h"
 #include "ultrahdr/ultrahdrcommon.h"
 #include "ultrahdr/jpegr.h"
 #include "ultrahdr/jpegrutils.h"
@@ -1634,11 +1635,7 @@ TEST(JpegRTest, ApplyGainMapInvalidArgs) {
 
   // Test destination dimensions that do not match the output dimensions
   dest.w = 8;
-  EXPECT_EQ(
-      uHdrLib
-          .applyGainMap(&sdr_intent, &gainmap_img, &metadata, UHDR_CT_LINEAR, dest.fmt, 2.0f, &dest)
-          .error_code,
-      UHDR_CODEC_INVALID_PARAM);
+  EXPECT_EQ(uHdrLib.applyGainMap(&sdr_intent, &gainmap_img, &metadata, UHDR_CT_LINEAR, dest.fmt, 2.0f, &dest).error_code, UHDR_CODEC_INVALID_PARAM);
   dest.w = 16;
 
   dest.h = 8;
@@ -1671,7 +1668,222 @@ TEST(JpegRTest, ApplyGainMapInvalidArgs) {
 
   // Test format mismatch (LINEAR ct with non-64bpp format)
   dest.fmt = UHDR_IMG_FMT_32bppRGBA1010102;
-  EXPECT_EQ(uHdrLib.applyGainMap(&sdr_intent, &gainmap_img, &metadata, UHDR_CT_LINEAR, dest.fmt, 2.0f, &dest).error_code, UHDR_CODEC_INVALID_PARAM);
+  EXPECT_EQ(
+      uHdrLib
+          .applyGainMap(&sdr_intent, &gainmap_img, &metadata, UHDR_CT_LINEAR, dest.fmt, 2.0f, &dest)
+          .error_code,
+      UHDR_CODEC_INVALID_PARAM);
+}
+
+TEST(JpegRTest, ApplyGainMapSamplesAtCenteredGainMapTexelCoordinates) {
+  struct SamplingCase {
+    size_t base_width;
+    size_t base_height;
+    size_t map_width;
+    size_t map_height;
+  };
+  const SamplingCase common_cases[] = {
+      {4, 2, 2, 2},   // [0, 255] rows anchor x=1 at a gain of 0.25
+      {6, 4, 3, 2},   // 2x reduction
+      {12, 8, 3, 2},  // 4x reduction
+      {3, 4, 3, 2},   // Width matches while height is scaled
+      {5, 3, 1, 1},   // Single texel
+      {3, 2, 3, 2},   // Same size identity
+      {3, 2, 6, 4},   // Gain map is larger than the base
+      {4, 3, 1, 3},   // Degenerate horizontal axis
+      {4, 3, 4, 1},   // Degenerate vertical axis
+  };
+  const SamplingCase aspect_cases[] = {
+      {240, 135, 120, 67},  // Below the old 1% resize threshold
+      {240, 135, 120, 66},  // Above the old 1% resize threshold
+  };
+  const uhdr_img_fmt_t map_formats[] = {UHDR_IMG_FMT_8bppYCbCr400, UHDR_IMG_FMT_24bppRGB888,
+                                        UHDR_IMG_FMT_32bppRGBA8888};
+  constexpr uint8_t kPadding = 0xa5;
+  bool passed = true;
+
+  auto run_case = [&](uhdr_img_fmt_t map_format, const SamplingCase& dimensions) {
+    if (!passed) return;
+    SCOPED_TRACE(testing::Message() << "format=" << map_format << " base=" << dimensions.base_width
+                                    << "x" << dimensions.base_height << " map="
+                                    << dimensions.map_width << "x" << dimensions.map_height);
+    const size_t base_stride = dimensions.base_width + 2;
+    const size_t map_stride = dimensions.map_width + 1;
+    const size_t dest_stride = dimensions.base_width + 3;
+    const size_t map_channels = map_format == UHDR_IMG_FMT_8bppYCbCr400
+                                    ? 1
+                                    : (map_format == UHDR_IMG_FMT_32bppRGBA8888 ? 4 : 3);
+    const size_t map_plane =
+        map_format == UHDR_IMG_FMT_8bppYCbCr400 ? UHDR_PLANE_Y : UHDR_PLANE_PACKED;
+    std::vector<uint8_t> base_storage(base_stride * dimensions.base_height * 4, kPadding);
+    std::vector<uint8_t> map_storage(map_stride * dimensions.map_height * map_channels, kPadding);
+    std::vector<uint8_t> dest_storage(dest_stride * dimensions.base_height * 8, kPadding);
+
+    for (size_t y = 0; y < dimensions.base_height; ++y) {
+      for (size_t x = 0; x < dimensions.base_width; ++x) {
+        const size_t offset = (x + y * base_stride) * 4;
+        base_storage[offset] = base_storage[offset + 1] = base_storage[offset + 2] = 255;
+        base_storage[offset + 3] = static_cast<uint8_t>((x + y) % 2 == 0 ? 0 : 255);
+      }
+    }
+    for (size_t y = 0; y < dimensions.map_height; ++y) {
+      for (size_t x = 0; x < dimensions.map_width; ++x) {
+        for (size_t channel = 0; channel < map_channels; ++channel) {
+          const size_t offset = (x + y * map_stride) * map_channels + channel;
+          if (channel == 3) {
+            map_storage[offset] = static_cast<uint8_t>((x + y) % 2 == 0 ? 0 : 255);
+          } else if (dimensions.base_width == 4 && dimensions.base_height == 2 &&
+                     dimensions.map_width == 2 && dimensions.map_height == 2) {
+            map_storage[offset] = static_cast<uint8_t>(x == 0 ? 0 : 255);
+          } else {
+            map_storage[offset] =
+                static_cast<uint8_t>((x * 71 + y * 43 + channel * 59 + x * y * 13) % 256);
+          }
+        }
+      }
+    }
+
+    uhdr_raw_image_t base{};
+    base.fmt = UHDR_IMG_FMT_32bppRGBA8888;
+    base.cg = UHDR_CG_BT_709;
+    base.ct = UHDR_CT_SRGB;
+    base.w = dimensions.base_width;
+    base.h = dimensions.base_height;
+    base.planes[UHDR_PLANE_PACKED] = base_storage.data();
+    base.stride[UHDR_PLANE_PACKED] = base_stride;
+
+    uhdr_raw_image_t gainmap{};
+    gainmap.fmt = map_format;
+    gainmap.cg = UHDR_CG_BT_709;
+    gainmap.w = dimensions.map_width;
+    gainmap.h = dimensions.map_height;
+    gainmap.planes[map_plane] = map_storage.data();
+    gainmap.stride[map_plane] = map_stride;
+
+    uhdr_gainmap_metadata_ext_t metadata("1.0");
+    const float gamma[] = {1.0f, 2.0f, 0.5f};
+    const float max_boost[] = {4.0f, 8.0f, 16.0f};
+    for (size_t channel = 0; channel < 3; ++channel) {
+      metadata.min_content_boost[channel] = 1.0f;
+      metadata.max_content_boost[channel] = max_boost[channel];
+      metadata.gamma[channel] = gamma[channel];
+      metadata.offset_sdr[channel] = 0.0f;
+      metadata.offset_hdr[channel] = 0.0f;
+    }
+    metadata.hdr_capacity_min = 1.0f;
+    metadata.hdr_capacity_max = 16.0f;
+
+    uhdr_raw_image_t dest{};
+    dest.fmt = UHDR_IMG_FMT_64bppRGBAHalfFloat;
+    dest.w = dimensions.base_width;
+    dest.h = dimensions.base_height;
+    dest.planes[UHDR_PLANE_PACKED] = dest_storage.data();
+    dest.stride[UHDR_PLANE_PACKED] = dest_stride;
+
+    const std::vector<uint8_t> base_before = base_storage;
+    const std::vector<uint8_t> map_before = map_storage;
+    TestJpegR decoder;
+    const uhdr_error_info_t status =
+        decoder.applyGainMap(&base, &gainmap, &metadata, UHDR_CT_LINEAR, dest.fmt, 16.0f, &dest);
+    if (status.error_code != UHDR_CODEC_OK) {
+      ADD_FAILURE() << "applyGainMap failed: " << status.detail;
+      passed = false;
+      return;
+    }
+
+    GainLUT gain_lut(&metadata, 1.0f);
+    auto sample_channel = [&](size_t x, size_t y, size_t channel) {
+      if (dimensions.base_width == dimensions.map_width &&
+          dimensions.base_height == dimensions.map_height) {
+        const size_t offset =
+            (x + y * map_stride) * map_channels + (map_channels == 1 ? 0 : channel);
+        return static_cast<float>(map_storage[offset]) / 255.0f;
+      }
+      double map_x =
+          (static_cast<double>(x) + 0.5) * dimensions.map_width / dimensions.base_width - 0.5;
+      double map_y =
+          (static_cast<double>(y) + 0.5) * dimensions.map_height / dimensions.base_height - 0.5;
+      map_x = (std::max)(0.0, (std::min)(map_x, static_cast<double>(dimensions.map_width - 1)));
+      map_y = (std::max)(0.0, (std::min)(map_y, static_cast<double>(dimensions.map_height - 1)));
+      const size_t x0 = static_cast<size_t>(std::floor(map_x));
+      const size_t y0 = static_cast<size_t>(std::floor(map_y));
+      const size_t x1 = (std::min)(x0 + 1, dimensions.map_width - 1);
+      const size_t y1 = (std::min)(y0 + 1, dimensions.map_height - 1);
+      const double fx = map_x - x0;
+      const double fy = map_y - y0;
+      auto value = [&](size_t map_column, size_t map_row) {
+        const size_t offset =
+            (map_column + map_row * map_stride) * map_channels + (map_channels == 1 ? 0 : channel);
+        return static_cast<double>(map_storage[offset]) / 255.0;
+      };
+      const double top = value(x0, y0) * (1.0 - fx) + value(x1, y0) * fx;
+      const double bottom = value(x0, y1) * (1.0 - fx) + value(x1, y1) * fx;
+      return static_cast<float>(top * (1.0 - fy) + bottom * fy);
+    };
+
+    if (dimensions.base_width == 4 && dimensions.base_height == 2 && dimensions.map_width == 2 &&
+        dimensions.map_height == 2) {
+      EXPECT_FLOAT_EQ(sample_channel(1, 0, 0), 0.25f);
+    }
+
+    for (size_t y = 0; y < dimensions.base_height; ++y) {
+      for (size_t x = 0; x < dimensions.base_width; ++x) {
+        const Color gain = {
+            {{sample_channel(x, y, 0), sample_channel(x, y, 1), sample_channel(x, y, 2)}}};
+        const Color expected =
+            map_channels == 1
+                ? applyGainLUT(Color{{{1.0f, 1.0f, 1.0f}}}, gain.r, gain_lut, &metadata)
+                : applyGainLUT(Color{{{1.0f, 1.0f, 1.0f}}}, gain, gain_lut, &metadata);
+        const uint64_t actual =
+            reinterpret_cast<const uint64_t*>(dest_storage.data())[x + y * dest_stride];
+        const uint64_t expected_packed = colorToRgbaF16(expected);
+        const bool same_size = dimensions.base_width == dimensions.map_width &&
+                               dimensions.base_height == dimensions.map_height;
+        const float expected_values[] = {
+            halfToFloat(static_cast<uint16_t>(expected_packed & 0xffff)),
+            halfToFloat(static_cast<uint16_t>((expected_packed >> 16) & 0xffff)),
+            halfToFloat(static_cast<uint16_t>((expected_packed >> 32) & 0xffff))};
+        const float actual_values[] = {halfToFloat(static_cast<uint16_t>(actual & 0xffff)),
+                                       halfToFloat(static_cast<uint16_t>((actual >> 16) & 0xffff)),
+                                       halfToFloat(static_cast<uint16_t>((actual >> 32) & 0xffff))};
+        const float lut_relative_step = std::expm1(std::log(16.0f) / (kGainFactorNumEntries - 1));
+        const float allowed_error = same_size ? 0.0f : lut_relative_step + 0.0005f;
+        bool matches = (actual >> 48) == (expected_packed >> 48);
+        for (size_t channel = 0; channel < 3; ++channel) {
+          matches = matches && std::abs(actual_values[channel] - expected_values[channel]) <=
+                                   (same_size ? 0.0f : expected_values[channel] * allowed_error);
+        }
+        if (!matches) {
+          ADD_FAILURE() << "sample mismatch at (" << x << ", " << y << ") expected "
+                        << expected_values[0] << ", " << expected_values[1] << ", "
+                        << expected_values[2] << " but got " << actual_values[0] << ", "
+                        << actual_values[1] << ", " << actual_values[2] << " with gain " << gain.r
+                        << ", " << gain.g << ", " << gain.b << " and allowed error "
+                        << allowed_error;
+          passed = false;
+          return;
+        }
+      }
+      for (size_t byte = dimensions.base_width * 8; byte < dest_stride * 8; ++byte) {
+        if (dest_storage[y * dest_stride * 8 + byte] != kPadding) {
+          ADD_FAILURE() << "destination padding changed at row " << y;
+          passed = false;
+          return;
+        }
+      }
+    }
+    if (base_storage != base_before || map_storage != map_before) {
+      ADD_FAILURE() << "applyGainMap modified an input buffer";
+      passed = false;
+    }
+  };
+
+  for (uhdr_img_fmt_t format : map_formats) {
+    for (const SamplingCase& dimensions : common_cases) run_case(format, dimensions);
+  }
+  for (const SamplingCase& dimensions : aspect_cases) {
+    run_case(UHDR_IMG_FMT_8bppYCbCr400, dimensions);
+  }
 }
 
 TEST(JpegRTest, writeXmpThenRead) {
