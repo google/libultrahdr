@@ -575,6 +575,98 @@ TEST_F(UltraHdrApiTest, InvalidTargetBrightnessDoesNotMutateEncoder) {
   uhdr_release_encoder(enc);
 }
 
+// A valid min/max content boost range that does not overlap the computed gains must still produce
+// metadata with min <= max, so that the encoded stream can be probed by the library itself.
+TEST(UltraHdrContentBoostTest, NonOverlappingBoostRangeKeepsComputedRange) {
+  constexpr unsigned width = 16;
+  constexpr unsigned height = 16;
+  // Bright HDR intent against a dimmer SDR intent: every gain is well above log2(1.5).
+  std::vector<uint32_t> hdr_pixels(static_cast<size_t>(width) * height,
+                                   900u | (900u << 10) | (900u << 20) | (3u << 30));
+  std::vector<uint8_t> sdr_pixels(static_cast<size_t>(width) * height * 4, 200);
+  for (size_t i = 3; i < sdr_pixels.size(); i += 4) sdr_pixels[i] = 255;
+
+  // Encodes the images, checks that the stream is accepted by the library's own decoder and
+  // returns its gain map metadata.
+  auto encode_and_probe = [&](bool multichannel, bool set_range, float min_boost, float max_boost,
+                              uhdr_gainmap_metadata_t* out) {
+    uhdr_raw_image_t hdr{};
+    hdr.fmt = UHDR_IMG_FMT_32bppRGBA1010102;
+    hdr.cg = UHDR_CG_BT_2100;
+    hdr.ct = UHDR_CT_PQ;
+    hdr.range = UHDR_CR_FULL_RANGE;
+    hdr.w = width;
+    hdr.h = height;
+    hdr.planes[UHDR_PLANE_PACKED] = hdr_pixels.data();
+    hdr.stride[UHDR_PLANE_PACKED] = width;
+
+    uhdr_raw_image_t sdr{};
+    sdr.fmt = UHDR_IMG_FMT_32bppRGBA8888;
+    sdr.cg = UHDR_CG_BT_709;
+    sdr.ct = UHDR_CT_SRGB;
+    sdr.range = UHDR_CR_FULL_RANGE;
+    sdr.w = width;
+    sdr.h = height;
+    sdr.planes[UHDR_PLANE_PACKED] = sdr_pixels.data();
+    sdr.stride[UHDR_PLANE_PACKED] = width;
+
+    uhdr_codec_private_t* enc = uhdr_create_encoder();
+    ASSERT_NE(enc, nullptr);
+    ASSERT_EQ(UHDR_CODEC_OK, uhdr_enc_set_raw_image(enc, &hdr, UHDR_HDR_IMG).error_code);
+    ASSERT_EQ(UHDR_CODEC_OK, uhdr_enc_set_raw_image(enc, &sdr, UHDR_SDR_IMG).error_code);
+    ASSERT_EQ(UHDR_CODEC_OK,
+              uhdr_enc_set_using_multi_channel_gainmap(enc, multichannel).error_code);
+    if (set_range) {
+      ASSERT_EQ(UHDR_CODEC_OK,
+                uhdr_enc_set_min_max_content_boost(enc, min_boost, max_boost).error_code);
+    }
+    uhdr_error_info_t status = uhdr_encode(enc);
+    ASSERT_EQ(UHDR_CODEC_OK, status.error_code) << status.detail;
+    uhdr_compressed_image_t* output = uhdr_get_encoded_stream(enc);
+    ASSERT_NE(output, nullptr);
+
+    EXPECT_EQ(1, uhdr_is_supported_gainmap_image(output->data, output->data_sz));
+    uhdr_codec_private_t* dec = uhdr_create_decoder();
+    ASSERT_NE(dec, nullptr);
+    ASSERT_EQ(UHDR_CODEC_OK, uhdr_dec_set_image(dec, output).error_code);
+    status = uhdr_dec_probe(dec);
+    EXPECT_EQ(UHDR_CODEC_OK, status.error_code) << status.detail;
+    if (status.error_code == UHDR_CODEC_OK) {
+      uhdr_gainmap_metadata_t* metadata = uhdr_dec_get_gainmap_metadata(dec);
+      ASSERT_NE(metadata, nullptr);
+      *out = *metadata;
+    }
+    uhdr_release_decoder(dec);
+    uhdr_release_encoder(enc);
+  };
+
+  const struct {
+    float min_boost;
+    float max_boost;
+    bool overlaps_computed_range;
+  } ranges[] = {{1.0f, 1.5f, false}, {0.5f, 1.0f, false}, {1.0f, 32.0f, true}};
+
+  for (bool multichannel : {false, true}) {
+    uhdr_gainmap_metadata_t reference{};
+    ASSERT_NO_FATAL_FAILURE(encode_and_probe(multichannel, false, 0.0f, 0.0f, &reference));
+    for (const auto& range : ranges) {
+      SCOPED_TRACE(testing::Message() << "boost [" << range.min_boost << ", " << range.max_boost
+                                      << "], multichannel " << multichannel);
+      uhdr_gainmap_metadata_t metadata{};
+      ASSERT_NO_FATAL_FAILURE(
+          encode_and_probe(multichannel, true, range.min_boost, range.max_boost, &metadata));
+      for (int i = 0; i < 3; i++) {
+        EXPECT_LE(metadata.min_content_boost[i], metadata.max_content_boost[i]);
+        if (!range.overlaps_computed_range) {
+          // A recommendation that does not overlap the computed range is ignored.
+          EXPECT_FLOAT_EQ(reference.min_content_boost[i], metadata.min_content_boost[i]);
+          EXPECT_FLOAT_EQ(reference.max_content_boost[i], metadata.max_content_boost[i]);
+        }
+      }
+    }
+  }
+}
+
 // ============================================================================
 // JPEG Tests (API-0 through API-4)
 // ============================================================================
