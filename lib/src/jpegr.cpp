@@ -978,13 +978,17 @@ uhdr_error_info_t UltraHdr::generateGainMap(uhdr_raw_image_t* sdr_intent,
       // error during affine map and inverse affine map.
       gainmap_min[index] = (std::clamp)(gainmap_min[index], -14.3f, 15.6f);
       gainmap_max[index] = (std::clamp)(gainmap_max[index], -14.3f, 15.6f);
-      if (this->mMaxContentBoost != FLT_MAX) {
-        float suggestion = log2(this->mMaxContentBoost);
-        gainmap_max[index] = (std::min)(gainmap_max[index], suggestion);
-      }
-      if (this->mMinContentBoost != FLT_MIN) {
-        float suggestion = log2(this->mMinContentBoost);
-        gainmap_min[index] = (std::max)(gainmap_min[index], suggestion);
+      // The client's min and max content boost are recommendations. Apply them only where they
+      // overlap the computed range. If they do not overlap, keep the computed range: clamping
+      // each end on its own would leave max < min, and clamping both ends to one bound would
+      // collapse the range and flatten the gain map.
+      const float lo =
+          this->mMinContentBoost != FLT_MIN ? log2(this->mMinContentBoost) : gainmap_min[index];
+      const float hi =
+          this->mMaxContentBoost != FLT_MAX ? log2(this->mMaxContentBoost) : gainmap_max[index];
+      if ((std::max)(gainmap_min[index], lo) <= (std::min)(gainmap_max[index], hi)) {
+        gainmap_min[index] = (std::max)(gainmap_min[index], lo);
+        gainmap_max[index] = (std::min)(gainmap_max[index], hi);
       }
       if (fabs(gainmap_max[index] - gainmap_min[index]) < FLT_EPSILON) {
         gainmap_max[index] += 0.1f;  // to avoid div by zero during affine transform
