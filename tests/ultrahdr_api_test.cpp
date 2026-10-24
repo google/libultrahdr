@@ -8,6 +8,7 @@
 #include <gtest/gtest.h>
 #endif
 #include <algorithm>
+#include <cmath>
 #include <cstdlib>
 #include <fstream>
 #include <cstring>
@@ -573,6 +574,51 @@ TEST_F(UltraHdrApiTest, InvalidTargetBrightnessDoesNotMutateEncoder) {
   EXPECT_EQ(UHDR_CODEC_INVALID_PARAM, status.error_code) << status.detail;
   EXPECT_FLOAT_EQ(1000.0f, handle->m_target_disp_max_brightness);
   uhdr_release_encoder(enc);
+}
+
+// A target display peak brightness equal to SDR reference white would give hdr_capacity_max ==
+// hdr_capacity_min, which the library's own metadata validation rejects at decode. The setter must
+// refuse it, and values just above it must produce a stream the library can probe.
+TEST(UltraHdrTargetBrightnessTest, SdrWhiteIsRejectedAndValuesAboveItRoundTrip) {
+  uhdr_codec_private_t* enc = uhdr_create_encoder();
+  ASSERT_NE(enc, nullptr);
+  uhdr_error_info_t status = uhdr_enc_set_target_display_peak_brightness(enc, 203.0f);
+  EXPECT_EQ(UHDR_CODEC_INVALID_PARAM, status.error_code) << status.detail;
+  uhdr_release_encoder(enc);
+
+  constexpr unsigned width = 16;
+  constexpr unsigned height = 16;
+  std::vector<uint32_t> hdr_pixels(static_cast<size_t>(width) * height,
+                                   600u | (600u << 10) | (600u << 20) | (3u << 30));
+  uhdr_raw_image_t hdr{};
+  hdr.fmt = UHDR_IMG_FMT_32bppRGBA1010102;
+  hdr.cg = UHDR_CG_BT_2100;
+  hdr.ct = UHDR_CT_HLG;
+  hdr.range = UHDR_CR_FULL_RANGE;
+  hdr.w = width;
+  hdr.h = height;
+  hdr.planes[UHDR_PLANE_PACKED] = hdr_pixels.data();
+  hdr.stride[UHDR_PLANE_PACKED] = width;
+
+  for (float nits : {std::nextafter(203.0f, 204.0f), 203.0001f, 203.5f, 1000.0f, 10000.0f}) {
+    SCOPED_TRACE(testing::Message() << "target display peak brightness " << nits);
+    enc = uhdr_create_encoder();
+    ASSERT_NE(enc, nullptr);
+    ASSERT_EQ(UHDR_CODEC_OK, uhdr_enc_set_raw_image(enc, &hdr, UHDR_HDR_IMG).error_code);
+    ASSERT_EQ(UHDR_CODEC_OK, uhdr_enc_set_target_display_peak_brightness(enc, nits).error_code);
+    status = uhdr_encode(enc);
+    ASSERT_EQ(UHDR_CODEC_OK, status.error_code) << status.detail;
+    uhdr_compressed_image_t* output = uhdr_get_encoded_stream(enc);
+    ASSERT_NE(output, nullptr);
+    EXPECT_EQ(1, uhdr_is_supported_gainmap_image(output->data, output->data_sz));
+    uhdr_codec_private_t* dec = uhdr_create_decoder();
+    ASSERT_NE(dec, nullptr);
+    ASSERT_EQ(UHDR_CODEC_OK, uhdr_dec_set_image(dec, output).error_code);
+    status = uhdr_dec_probe(dec);
+    EXPECT_EQ(UHDR_CODEC_OK, status.error_code) << status.detail;
+    uhdr_release_decoder(dec);
+    uhdr_release_encoder(enc);
+  }
 }
 
 // ============================================================================

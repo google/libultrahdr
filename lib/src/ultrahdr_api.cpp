@@ -1105,12 +1105,12 @@ uhdr_error_info_t uhdr_enc_set_target_display_peak_brightness(uhdr_codec_private
     return status;
   }
 
-  if (!std::isfinite(nits) || nits < ultrahdr::kSdrWhiteNits || nits > ultrahdr::kPqMaxNits) {
+  if (!std::isfinite(nits) || nits <= ultrahdr::kSdrWhiteNits || nits > ultrahdr::kPqMaxNits) {
     status.error_code = UHDR_CODEC_INVALID_PARAM;
     status.has_detail = 1;
     snprintf(
         status.detail, sizeof status.detail,
-        "unexpected target display peak brightness nits %f, expects to be with in range [%f, %f]",
+        "unexpected target display peak brightness nits %f, expects to be with in range (%f, %f]",
         nits, ultrahdr::kSdrWhiteNits, ultrahdr::kPqMaxNits);
     return status;
   }

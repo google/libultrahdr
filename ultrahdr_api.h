@@ -467,7 +467,8 @@ UHDR_EXTERN uhdr_error_info_t uhdr_enc_set_min_max_content_boost(uhdr_codec_priv
  *
  * \param[in]  enc  encoder instance.
  * \param[in]  nits  target display peak brightness in nits. Any positive real number in range
- *                   [203, 10000].
+ *                   (203, 10000]. At exactly 203 nits (SDR reference white) hdr_capacity_max would
+ *                   equal hdr_capacity_min, which gain map metadata does not allow.
  *
  * \return uhdr_error_info_t #UHDR_CODEC_OK if operation succeeds,
  *                           #UHDR_CODEC_INVALID_PARAM otherwise.
