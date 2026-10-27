@@ -1863,6 +1863,10 @@ uhdr_error_info_t uhdr_dec_set_image(uhdr_codec_private_t* dec, uhdr_compressed_
     status.has_detail = 1;
     snprintf(status.detail, sizeof status.detail,
              "received nullptr for compressed img->data field");
+  } else if (img->data_sz == 0) {
+    status.error_code = UHDR_CODEC_INVALID_PARAM;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail, "received empty compressed image, data_sz is 0");
   } else if (img->capacity < img->data_sz) {
     status.error_code = UHDR_CODEC_INVALID_PARAM;
     status.has_detail = 1;
