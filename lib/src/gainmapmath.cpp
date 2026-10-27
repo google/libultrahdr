@@ -418,8 +418,9 @@ Color getYuv444Pixel10bit(uhdr_raw_image_t* image, size_t x, size_t y) {
   uint16_t v_uint = cr_data[pixel_v_idx];
 
   if (image->range == UHDR_CR_FULL_RANGE) {
-    return {{{static_cast<float>(y_uint) / 1023.0f, static_cast<float>(u_uint) / 1023.0f - 0.5f,
-              static_cast<float>(v_uint) / 1023.0f - 0.5f}}};
+    // The 10-bit YCbCr writers place neutral chroma at code value 512.
+    return {{{static_cast<float>(y_uint) / 1023.0f, (static_cast<float>(u_uint) - 512.0f) / 1023.0f,
+              (static_cast<float>(v_uint) - 512.0f) / 1023.0f}}};
   }
 
   // Conversions include taking narrow-range into account.
@@ -454,8 +455,9 @@ Color getP010Pixel(uhdr_raw_image_t* image, size_t x, size_t y) {
   }
 
   if (image->range == UHDR_CR_FULL_RANGE) {
-    return {{{static_cast<float>(y_uint) / 1023.0f, static_cast<float>(u_uint) / 1023.0f - 0.5f,
-              static_cast<float>(v_uint) / 1023.0f - 0.5f}}};
+    // The 10-bit YCbCr writers place neutral chroma at code value 512.
+    return {{{static_cast<float>(y_uint) / 1023.0f, (static_cast<float>(u_uint) - 512.0f) / 1023.0f,
+              (static_cast<float>(v_uint) - 512.0f) / 1023.0f}}};
   }
 
   // Conversions include taking narrow-range into account.
@@ -610,6 +612,28 @@ void putYuv444Pixel(uhdr_raw_image_t* image, size_t x, size_t y, Color& pixel) {
   luma_data[x + y * luma_stride] = uint8_t(pixel.y);
   cb_data[x + y * cb_stride] = uint8_t(pixel.u);
   cr_data[x + y * cr_stride] = uint8_t(pixel.v);
+}
+
+uint16_t quantizeFullRangeChroma10Bit(float biased_chroma) {
+  const float code = (biased_chroma - 0.5f) * 1023.0f + 512.5f;
+  return static_cast<uint16_t>(CLIP3(std::floor(code), 0.0f, 1023.0f));
+}
+
+void putYuv444Pixel10bit(uhdr_raw_image_t* image, size_t x, size_t y, Color& pixel) {
+  uint16_t* luma_data = reinterpret_cast<uint16_t*>(image->planes[UHDR_PLANE_Y]);
+  uint16_t* cb_data = reinterpret_cast<uint16_t*>(image->planes[UHDR_PLANE_U]);
+  uint16_t* cr_data = reinterpret_cast<uint16_t*>(image->planes[UHDR_PLANE_V]);
+  size_t luma_stride = image->stride[UHDR_PLANE_Y];
+  size_t cb_stride = image->stride[UHDR_PLANE_U];
+  size_t cr_stride = image->stride[UHDR_PLANE_V];
+
+  auto to10Bit = [](float value) -> uint16_t {
+    return static_cast<uint16_t>(CLIP3(value * 1023.0f + 0.5f, 0.0f, 1023.0f));
+  };
+
+  luma_data[x + y * luma_stride] = to10Bit(pixel.y);
+  cb_data[x + y * cb_stride] = quantizeFullRangeChroma10Bit(pixel.u);
+  cr_data[x + y * cr_stride] = quantizeFullRangeChroma10Bit(pixel.v);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1264,6 +1288,8 @@ GetPixelFn getPixelFn(uhdr_img_fmt_t format) {
 
 PutPixelFn putPixelFn(uhdr_img_fmt_t format) {
   switch (format) {
+    case UHDR_IMG_FMT_30bppYCbCr444:
+      return putYuv444Pixel10bit;
     case UHDR_IMG_FMT_24bppYCbCr444:
       return putYuv444Pixel;
     case UHDR_IMG_FMT_32bppRGBA8888:
@@ -1532,6 +1558,36 @@ std::unique_ptr<uhdr_raw_image_ext_t> convert_raw_input_to_ycbcr(uhdr_raw_image_
                                                            src->w, src->h, 64);
     auto status = copy_raw_image(src, dst.get());
     if (status.error_code != UHDR_CODEC_OK) return nullptr;
+  }
+  return dst;
+}
+
+std::unique_ptr<uhdr_raw_image_ext_t> convert_rgb_to_ycbcr_10bit444(uhdr_raw_image_t* src) {
+  if (src == nullptr || (src->fmt != UHDR_IMG_FMT_32bppRGBA8888 &&
+                         src->fmt != UHDR_IMG_FMT_32bppRGBA1010102)) {
+    return nullptr;
+  }
+
+  ColorTransformFn rgb_to_yuv = nullptr;
+  if (src->cg == UHDR_CG_BT_709) {
+    rgb_to_yuv = srgbRgbToYuv;
+  } else if (src->cg == UHDR_CG_BT_2100) {
+    rgb_to_yuv = bt2100RgbToYuv;
+  } else if (src->cg == UHDR_CG_DISPLAY_P3) {
+    rgb_to_yuv = p3RgbToYuv;
+  }
+  GetPixelFn get_pixel = getPixelFn(src->fmt);
+  if (rgb_to_yuv == nullptr || get_pixel == nullptr) return nullptr;
+
+  auto dst = std::make_unique<uhdr_raw_image_ext_t>(
+      UHDR_IMG_FMT_30bppYCbCr444, src->cg, src->ct, UHDR_CR_FULL_RANGE, src->w, src->h, 64);
+  for (size_t y = 0; y < dst->h; ++y) {
+    for (size_t x = 0; x < dst->w; ++x) {
+      Color pixel = rgb_to_yuv(get_pixel(src, x, y));
+      pixel.u += 0.5f;
+      pixel.v += 0.5f;
+      putYuv444Pixel10bit(dst.get(), x, y, pixel);
+    }
   }
   return dst;
 }

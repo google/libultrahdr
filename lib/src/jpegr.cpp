@@ -541,15 +541,16 @@ uhdr_error_info_t UltraHdr::generateGainMap(uhdr_raw_image_t* sdr_intent,
   uhdr_error_info_t status = g_no_error;
 
   if (sdr_intent->fmt != UHDR_IMG_FMT_24bppYCbCr444 &&
+      sdr_intent->fmt != UHDR_IMG_FMT_30bppYCbCr444 &&
       sdr_intent->fmt != UHDR_IMG_FMT_16bppYCbCr422 &&
       sdr_intent->fmt != UHDR_IMG_FMT_12bppYCbCr420 &&
+      sdr_intent->fmt != UHDR_IMG_FMT_24bppYCbCrP010 &&
+      sdr_intent->fmt != UHDR_IMG_FMT_32bppRGBA1010102 &&
       sdr_intent->fmt != UHDR_IMG_FMT_32bppRGBA8888) {
     status.error_code = UHDR_CODEC_UNSUPPORTED_FEATURE;
     status.has_detail = 1;
     snprintf(status.detail, sizeof status.detail,
-             "generate gainmap method expects sdr intent color format to be one of "
-             "{UHDR_IMG_FMT_24bppYCbCr444, UHDR_IMG_FMT_16bppYCbCr422, "
-             "UHDR_IMG_FMT_12bppYCbCr420, UHDR_IMG_FMT_32bppRGBA8888}. Received %d",
+             "unsupported SDR intent color format %d for gain-map generation",
              sdr_intent->fmt);
     return status;
   }
@@ -2166,6 +2167,13 @@ uint8_t ScaleTo8Bit(float value) {
   return std::clamp(static_cast<int>(std::round(value * kMaxValFloat)), 0, kMaxValInt);
 }
 
+static uint16_t ScaleTo10Bit(float value) {
+  constexpr float kMaxValFloat = 1023.0f;
+  constexpr int kMaxValInt = 1023;
+  return static_cast<uint16_t>(
+      std::clamp(static_cast<int>(std::round(value * kMaxValFloat)), 0, kMaxValInt));
+}
+
 uhdr_error_info_t UltraHdr::toneMap(uhdr_raw_image_t* hdr_intent, uhdr_raw_image_t* sdr_intent) {
   if (hdr_intent->fmt != UHDR_IMG_FMT_24bppYCbCrP010 &&
       hdr_intent->fmt != UHDR_IMG_FMT_30bppYCbCr444 &&
@@ -2183,14 +2191,28 @@ uhdr_error_info_t UltraHdr::toneMap(uhdr_raw_image_t* hdr_intent, uhdr_raw_image
   }
 
   if (hdr_intent->fmt == UHDR_IMG_FMT_24bppYCbCrP010 &&
-      sdr_intent->fmt != UHDR_IMG_FMT_12bppYCbCr420) {
+      sdr_intent->fmt != UHDR_IMG_FMT_12bppYCbCr420 &&
+      sdr_intent->fmt != UHDR_IMG_FMT_24bppYCbCrP010) {
     uhdr_error_info_t status;
     status.error_code = UHDR_CODEC_UNSUPPORTED_FEATURE;
     status.has_detail = 1;
     snprintf(status.detail, sizeof status.detail,
-             "tonemap method expects sdr intent color format to be UHDR_IMG_FMT_12bppYCbCr420, if "
+             "tonemap method expects sdr intent color format to be UHDR_IMG_FMT_12bppYCbCr420 or "
+             "UHDR_IMG_FMT_24bppYCbCrP010, if "
              "hdr intent color format is UHDR_IMG_FMT_24bppYCbCrP010. Received %d",
              sdr_intent->fmt);
+    return status;
+  }
+
+  if (sdr_intent->fmt == UHDR_IMG_FMT_24bppYCbCrP010 &&
+      hdr_intent->fmt != UHDR_IMG_FMT_24bppYCbCrP010) {
+    uhdr_error_info_t status;
+    status.error_code = UHDR_CODEC_UNSUPPORTED_FEATURE;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "tonemap method supports UHDR_IMG_FMT_24bppYCbCrP010 output only for "
+             "UHDR_IMG_FMT_24bppYCbCrP010 HDR input. Received %d",
+             hdr_intent->fmt);
     return status;
   }
 
@@ -2206,16 +2228,29 @@ uhdr_error_info_t UltraHdr::toneMap(uhdr_raw_image_t* hdr_intent, uhdr_raw_image
     return status;
   }
 
-  if ((hdr_intent->fmt == UHDR_IMG_FMT_32bppRGBA1010102 ||
-       hdr_intent->fmt == UHDR_IMG_FMT_64bppRGBAHalfFloat) &&
+  if (hdr_intent->fmt == UHDR_IMG_FMT_64bppRGBAHalfFloat &&
       sdr_intent->fmt != UHDR_IMG_FMT_32bppRGBA8888) {
     uhdr_error_info_t status;
     status.error_code = UHDR_CODEC_UNSUPPORTED_FEATURE;
     status.has_detail = 1;
     snprintf(status.detail, sizeof status.detail,
              "tonemap method expects sdr intent color format to be UHDR_IMG_FMT_32bppRGBA8888, if "
-             "hdr intent color format is UHDR_IMG_FMT_32bppRGBA1010102 or "
-             "UHDR_IMG_FMT_64bppRGBAHalfFloat. Received %d",
+             "hdr intent color format is UHDR_IMG_FMT_64bppRGBAHalfFloat. Received %d",
+             sdr_intent->fmt);
+    return status;
+  }
+
+  if (hdr_intent->fmt == UHDR_IMG_FMT_32bppRGBA1010102 &&
+      sdr_intent->fmt != UHDR_IMG_FMT_32bppRGBA8888 &&
+      sdr_intent->fmt != UHDR_IMG_FMT_30bppYCbCr444) {
+    uhdr_error_info_t status;
+    status.error_code = UHDR_CODEC_UNSUPPORTED_FEATURE;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "tonemap method expects sdr intent color format to be UHDR_IMG_FMT_32bppRGBA8888 or "
+             "UHDR_IMG_FMT_30bppYCbCr444, if hdr intent color "
+             "format is "
+             "UHDR_IMG_FMT_32bppRGBA1010102. Received %d",
              sdr_intent->fmt);
     return status;
   }
@@ -2289,7 +2324,8 @@ uhdr_error_info_t UltraHdr::toneMap(uhdr_raw_image_t* hdr_intent, uhdr_raw_image
   PutPixelFn put_pixel_fn = putPixelFn(sdr_intent->fmt);
   // for subsampled formats, we are writing to raw image buffers directly instead of using
   // put_pixel_fn
-  if (put_pixel_fn == nullptr && sdr_intent->fmt != UHDR_IMG_FMT_12bppYCbCr420) {
+  if (put_pixel_fn == nullptr && sdr_intent->fmt != UHDR_IMG_FMT_12bppYCbCr420 &&
+      sdr_intent->fmt != UHDR_IMG_FMT_24bppYCbCrP010) {
     uhdr_error_info_t status;
     status.error_code = UHDR_CODEC_UNSUPPORTED_FEATURE;
     status.has_detail = 1;
@@ -2324,6 +2360,9 @@ uhdr_error_info_t UltraHdr::toneMap(uhdr_raw_image_t* hdr_intent, uhdr_raw_image
     uint8_t* luma_data = reinterpret_cast<uint8_t*>(sdr_intent->planes[UHDR_PLANE_Y]);
     uint8_t* cb_data = reinterpret_cast<uint8_t*>(sdr_intent->planes[UHDR_PLANE_U]);
     uint8_t* cr_data = reinterpret_cast<uint8_t*>(sdr_intent->planes[UHDR_PLANE_V]);
+    uint16_t* luma_data_10 = reinterpret_cast<uint16_t*>(sdr_intent->planes[UHDR_PLANE_Y]);
+    uint16_t* chroma_data_10 =
+        reinterpret_cast<uint16_t*>(sdr_intent->planes[UHDR_PLANE_UV]);
     size_t luma_stride = sdr_intent->stride[UHDR_PLANE_Y];
     size_t cb_stride = sdr_intent->stride[UHDR_PLANE_U];
     size_t cr_stride = sdr_intent->stride[UHDR_PLANE_V];
@@ -2364,19 +2403,33 @@ uhdr_error_info_t UltraHdr::toneMap(uhdr_raw_image_t* hdr_intent, uhdr_raw_image
               } else {
                 Color sdr_yuv_gamma = p3RgbToYuv(sdr_rgb_gamma);
                 sdr_yuv_gamma += {{{0.0f, 0.5f, 0.5f}}};
-                if (sdr_intent->fmt != UHDR_IMG_FMT_12bppYCbCr420) {
+                if (sdr_intent->fmt == UHDR_IMG_FMT_24bppYCbCrP010) {
+                  size_t out_y_idx = (y + i) * luma_stride + x + j;
+                  luma_data_10[out_y_idx] =
+                      static_cast<uint16_t>(ScaleTo10Bit(sdr_yuv_gamma.y)) << 6;
+                } else if (sdr_intent->fmt != UHDR_IMG_FMT_12bppYCbCr420) {
                   put_pixel_fn(sdr_intent, (x + j), (y + i), sdr_yuv_gamma);
                 } else {
                   size_t out_y_idx = (y + i) * luma_stride + x + j;
                   luma_data[out_y_idx] = ScaleTo8Bit(sdr_yuv_gamma.y);
-
+                }
+                if (sdr_intent->fmt == UHDR_IMG_FMT_24bppYCbCrP010 ||
+                    sdr_intent->fmt == UHDR_IMG_FMT_12bppYCbCr420) {
                   sdr_u_gamma += sdr_yuv_gamma.u;
                   sdr_v_gamma += sdr_yuv_gamma.v;
                 }
               }
             }
           }
-          if (sdr_intent->fmt == UHDR_IMG_FMT_12bppYCbCr420) {
+          if (sdr_intent->fmt == UHDR_IMG_FMT_24bppYCbCrP010) {
+            sdr_u_gamma /= (hfactor * vfactor);
+            sdr_v_gamma /= (hfactor * vfactor);
+            size_t out_uv_idx = (y / vfactor) * sdr_intent->stride[UHDR_PLANE_UV] + x;
+            chroma_data_10[out_uv_idx] =
+                static_cast<uint16_t>(quantizeFullRangeChroma10Bit(sdr_u_gamma)) << 6;
+            chroma_data_10[out_uv_idx + 1] =
+                static_cast<uint16_t>(quantizeFullRangeChroma10Bit(sdr_v_gamma)) << 6;
+          } else if (sdr_intent->fmt == UHDR_IMG_FMT_12bppYCbCr420) {
             sdr_u_gamma /= (hfactor * vfactor);
             sdr_v_gamma /= (hfactor * vfactor);
             cb_data[x / hfactor + (y / vfactor) * cb_stride] = ScaleTo8Bit(sdr_u_gamma);

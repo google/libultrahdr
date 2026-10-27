@@ -71,6 +71,14 @@ void UltraHdrEncFuzzer::process() {
 
     // which encode api to select
     int muxSwitch = mFdp.ConsumeIntegralInRange<int8_t>(0, 4);
+    uhdr_codec_t output_format = UHDR_CODEC_JPG;
+    int max_base_image_bit_depth = 8;
+#ifdef UHDR_ENABLE_HEIF
+    if (muxSwitch <= 1 && mFdp.ConsumeBool()) {
+      output_format = UHDR_CODEC_AVIF;
+      max_base_image_bit_depth = mFdp.ConsumeBool() ? 8 : 10;
+    }
+#endif
 
     // hdr_img_fmt
     uhdr_img_fmt_t hdr_img_fmt =
@@ -373,6 +381,8 @@ void UltraHdrEncFuzzer::process() {
     if (muxSwitch == 1 || muxSwitch == 2) {
       ON_ERR(uhdr_enc_set_raw_image(enc_handle, &sdrImg, UHDR_SDR_IMG))
     }
+    ON_ERR(uhdr_enc_set_output_format(enc_handle, output_format))
+    ON_ERR(uhdr_enc_set_max_base_image_bit_depth(enc_handle, max_base_image_bit_depth))
     ON_ERR(uhdr_enc_set_quality(enc_handle, base_quality, UHDR_BASE_IMG))
     ON_ERR(uhdr_enc_set_quality(enc_handle, gainmap_quality, UHDR_GAIN_MAP_IMG))
     ON_ERR(uhdr_enc_set_exif_data(enc_handle, &exif))

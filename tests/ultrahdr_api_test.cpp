@@ -575,6 +575,44 @@ TEST_F(UltraHdrApiTest, InvalidTargetBrightnessDoesNotMutateEncoder) {
   uhdr_release_encoder(enc);
 }
 
+TEST(UltraHdrEncoderConfigTest, MaxBaseImageBitDepthValidation) {
+  EXPECT_EQ(uhdr_enc_set_max_base_image_bit_depth(nullptr, 10).error_code,
+            UHDR_CODEC_INVALID_PARAM);
+
+  uhdr_codec_private_t* enc = uhdr_create_encoder();
+  ASSERT_NE(enc, nullptr);
+  EXPECT_EQ(uhdr_enc_set_max_base_image_bit_depth(enc, 7).error_code,
+            UHDR_CODEC_INVALID_PARAM);
+  EXPECT_EQ(uhdr_enc_set_max_base_image_bit_depth(enc, 9).error_code,
+            UHDR_CODEC_INVALID_PARAM);
+  EXPECT_EQ(uhdr_enc_set_max_base_image_bit_depth(enc, 12).error_code,
+            UHDR_CODEC_INVALID_PARAM);
+  EXPECT_EQ(uhdr_enc_set_max_base_image_bit_depth(enc, 8).error_code, UHDR_CODEC_OK);
+  EXPECT_EQ(uhdr_enc_set_max_base_image_bit_depth(enc, 10).error_code, UHDR_CODEC_OK);
+  uhdr_reset_encoder(enc);
+  uhdr_release_encoder(enc);
+}
+
+TEST(UltraHdrEncoderConfigTest, MaxBaseImageBitDepthCannotChangeAfterEncodeAndResetRestoresDefault) {
+  uhdr_codec_private_t* enc = uhdr_create_encoder();
+  ASSERT_NE(enc, nullptr);
+  auto* handle = dynamic_cast<uhdr_encoder_private*>(enc);
+  ASSERT_NE(handle, nullptr);
+  EXPECT_EQ(handle->m_max_base_image_bit_depth, ultrahdr::kMaxBaseImageBitDepthDefault);
+  ASSERT_EQ(uhdr_enc_set_max_base_image_bit_depth(enc, 10).error_code, UHDR_CODEC_OK);
+  EXPECT_EQ(handle->m_max_base_image_bit_depth, 10);
+
+  // An empty encode fails validation but still closes the configuration state.
+  EXPECT_EQ(uhdr_encode(enc).error_code, UHDR_CODEC_INVALID_OPERATION);
+  EXPECT_EQ(uhdr_enc_set_max_base_image_bit_depth(enc, 8).error_code,
+            UHDR_CODEC_INVALID_OPERATION);
+
+  uhdr_reset_encoder(enc);
+  EXPECT_EQ(handle->m_max_base_image_bit_depth, ultrahdr::kMaxBaseImageBitDepthDefault);
+  EXPECT_EQ(uhdr_enc_set_max_base_image_bit_depth(enc, 10).error_code, UHDR_CODEC_OK);
+  uhdr_release_encoder(enc);
+}
+
 // ============================================================================
 // JPEG Tests (API-0 through API-4)
 // ============================================================================
@@ -937,10 +975,17 @@ struct AlphaTestImages {
   void makeHdr1010102AlphaOpaque() {
     for (uint32_t& pixel : hdr1010102) pixel |= 3u << 30;
   }
+
+  void makeHdrHalfFloatAlphaOpaque() {
+    for (size_t pixel = 3; pixel < hdrHalfFloat.size(); pixel += 4) {
+      hdrHalfFloat[pixel] = floatToHalf(1.0f);
+    }
+  }
 };
 
 uhdr_error_info_t encodeRawAlphaImage(uhdr_codec_t codec, uhdr_raw_image_t* hdr,
-                                      uhdr_raw_image_t* sdr, std::vector<uint8_t>* encoded) {
+                                      uhdr_raw_image_t* sdr, std::vector<uint8_t>* encoded,
+                                      int max_base_image_bit_depth = 8) {
   uhdr_codec_private_t* enc = uhdr_create_encoder();
   if (enc == nullptr) {
     uhdr_error_info_t status{};
@@ -954,6 +999,9 @@ uhdr_error_info_t encodeRawAlphaImage(uhdr_codec_t codec, uhdr_raw_image_t* hdr,
   }
   if (status.error_code == UHDR_CODEC_OK) status = uhdr_enc_set_output_format(enc, codec);
   if (status.error_code == UHDR_CODEC_OK) status = uhdr_enc_set_quality(enc, 100, UHDR_BASE_IMG);
+  if (status.error_code == UHDR_CODEC_OK && max_base_image_bit_depth != 8) {
+    status = uhdr_enc_set_max_base_image_bit_depth(enc, max_base_image_bit_depth);
+  }
   if (status.error_code == UHDR_CODEC_OK) status = uhdr_encode(enc);
   if (status.error_code == UHDR_CODEC_OK) {
     uhdr_compressed_image_t* output = uhdr_get_encoded_stream(enc);
@@ -968,7 +1016,8 @@ uhdr_error_info_t encodeRawAlphaImage(uhdr_codec_t codec, uhdr_raw_image_t* hdr,
   return status;
 }
 
-::testing::AssertionResult containerHasStraightAlpha(const std::vector<uint8_t>& encoded) {
+::testing::AssertionResult containerHasStraightAlpha(const std::vector<uint8_t>& encoded,
+                                                     int expected_base_bit_depth = 0) {
   heif_context* context = heif_context_alloc();
   if (context == nullptr) return ::testing::AssertionFailure() << "libheif allocation failed";
 
@@ -990,11 +1039,19 @@ uhdr_error_info_t encodeRawAlphaImage(uhdr_codec_t codec, uhdr_raw_image_t* hdr,
 
   const bool has_alpha = heif_image_handle_has_alpha_channel(primary);
   const bool is_premultiplied = heif_image_handle_is_premultiplied_alpha(primary);
+  const int luma_bits = heif_image_handle_get_luma_bits_per_pixel(primary);
+  const int chroma_bits = heif_image_handle_get_chroma_bits_per_pixel(primary);
   heif_image_handle_release(primary);
   heif_context_free(context);
   if (!has_alpha) return ::testing::AssertionFailure() << "base image has no alpha channel";
   if (is_premultiplied) {
     return ::testing::AssertionFailure() << "base image alpha is marked premultiplied";
+  }
+  if (expected_base_bit_depth > 0 &&
+      (luma_bits != expected_base_bit_depth || chroma_bits != expected_base_bit_depth)) {
+    return ::testing::AssertionFailure()
+           << "base image depth was " << luma_bits << "/" << chroma_bits << " bits, expected "
+           << expected_base_bit_depth;
   }
   return ::testing::AssertionSuccess();
 }
@@ -1953,6 +2010,33 @@ TEST_F(UltraHdrApiTest, AvifPreservesRawAlpha) {
   expectRawAlphaPreserved(UHDR_CODEC_AVIF, &images.hdrHalfFloatDesc);
   images.makeHdr1010102AlphaOpaque();
   expectRawAlphaPreserved(UHDR_CODEC_AVIF, &images.hdr1010102Desc, &images.sdr8888Desc);
+}
+
+TEST_F(UltraHdrApiTest, AvifApi1Native10PreservesSdrAlpha) {
+  AlphaTestImages images;
+  images.makeHdrHalfFloatAlphaOpaque();
+  std::vector<uint8_t> encoded;
+  uhdr_error_info_t status = encodeRawAlphaImage(UHDR_CODEC_AVIF, &images.hdrHalfFloatDesc,
+                                                  &images.sdr8888Desc, &encoded, 10);
+  if (encoderUnavailable(status)) {
+    GTEST_SKIP() << "AV1 encoder plugin not available in environment: " << status.detail;
+  }
+  ASSERT_EQ(status.error_code, UHDR_CODEC_OK) << (status.has_detail ? status.detail : "no detail");
+  EXPECT_TRUE(containerHasStraightAlpha(encoded, 10));
+  EXPECT_TRUE(decodedAlphaMatches(encoded));
+}
+
+TEST_F(UltraHdrApiTest, AvifApi0Native10PreservesRgba1010102Alpha) {
+  AlphaTestImages images;
+  std::vector<uint8_t> encoded;
+  uhdr_error_info_t status = encodeRawAlphaImage(UHDR_CODEC_AVIF, &images.hdr1010102Desc, nullptr,
+                                                  &encoded, 10);
+  if (encoderUnavailable(status)) {
+    GTEST_SKIP() << "AV1 encoder plugin not available in environment: " << status.detail;
+  }
+  ASSERT_EQ(status.error_code, UHDR_CODEC_OK) << (status.has_detail ? status.detail : "no detail");
+  EXPECT_TRUE(containerHasStraightAlpha(encoded, 10));
+  EXPECT_TRUE(decodedAlphaMatches(encoded));
 }
 
 TEST_F(UltraHdrApiTest, HeifPreservesRawAlpha) {

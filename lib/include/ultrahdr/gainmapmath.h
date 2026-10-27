@@ -387,6 +387,8 @@ void putRgba8888Pixel(uhdr_raw_image_t* image, size_t x, size_t y, Color& pixel)
 void putRgb888Pixel(uhdr_raw_image_t* image, size_t x, size_t y, Color& pixel);
 void putYuv400Pixel(uhdr_raw_image_t* image, size_t x, size_t y, Color& pixel);
 void putYuv444Pixel(uhdr_raw_image_t* image, size_t x, size_t y, Color& pixel);
+void putYuv444Pixel10bit(uhdr_raw_image_t* image, size_t x, size_t y, Color& pixel);
+uint16_t quantizeFullRangeChroma10Bit(float biased_chroma);
 
 ////////////////////////////////////////////////////////////////////////////////
 // Color space conversions
@@ -603,6 +605,7 @@ uhdr_error_info_t copy_raw_image(uhdr_raw_image_t* src, uhdr_raw_image_t* dst);
 
 std::unique_ptr<uhdr_raw_image_ext_t> convert_raw_input_to_ycbcr(
     uhdr_raw_image_t* src, bool chroma_sampling_enabled = false);
+std::unique_ptr<uhdr_raw_image_ext_t> convert_rgb_to_ycbcr_10bit444(uhdr_raw_image_t* src);
 
 #if (defined(UHDR_ENABLE_INTRINSICS) && (defined(__ARM_NEON__) || defined(__ARM_NEON)))
 std::unique_ptr<uhdr_raw_image_ext_t> convert_raw_input_to_ycbcr_neon(uhdr_raw_image_t* src);

@@ -164,6 +164,14 @@ namespace ultrahdr {
 extern const int kMinWidth, kMinHeight;
 extern const int kMaxWidth, kMaxHeight;
 
+// Keep the public C encoder and the internal HEIF/AVIF encoder on one default policy. Callers may
+// override this per encoder instance with uhdr_enc_set_max_base_image_bit_depth().
+constexpr int kMaxBaseImageBitDepthDefault = 8;
+
+inline bool isValidMaxBaseImageBitDepth(int bitDepth) {
+  return bitDepth == 8 || bitDepth == 10;
+}
+
 // ===============================================================================================
 // Structure Definitions
 // ===============================================================================================
@@ -404,6 +412,7 @@ struct uhdr_encoder_private : uhdr_codec_private {
   std::vector<uint8_t> m_exif;
   uhdr_gainmap_metadata_t m_metadata;
   uhdr_codec_t m_output_format;
+  int m_max_base_image_bit_depth;
   int m_gainmap_scale_factor;
   bool m_use_multi_channel_gainmap;
   float m_gamma;
