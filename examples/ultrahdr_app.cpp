@@ -1499,7 +1499,7 @@ static void usage(const char* name) {
           "    -L    set target display peak brightness in nits, optional. \n"
           "          For HLG content, this defaults to 1000 nits. \n"
           "          For PQ content, this defaults to 10000 nits. \n"
-          "          any real number in range [203, 10000]. \n");
+          "          any real number in range (203, 10000]. \n");
   fprintf(stderr, "    -x    binary input resource containing exif data to insert, optional. \n");
   fprintf(stderr, "\n## decoder options : \n");
   fprintf(stderr, "    -j    ultra hdr compressed input resource, required. \n");

@@ -2477,10 +2477,10 @@ status_t JpegR::areInputArgumentsValid(jr_uncompressed_ptr p010_image_ptr,
     return ERROR_JPEGR_INVALID_DISPLAY_BOOST;
   }
   if ((!std::isfinite(mTargetDispPeakBrightness) ||
-       mTargetDispPeakBrightness < ultrahdr::kSdrWhiteNits ||
+       mTargetDispPeakBrightness <= ultrahdr::kSdrWhiteNits ||
        mTargetDispPeakBrightness > ultrahdr::kPqMaxNits) &&
       mTargetDispPeakBrightness != -1.0f) {
-    ALOGE("unexpected target display peak brightness nits %f, expects to be with in range [%f %f]",
+    ALOGE("unexpected target display peak brightness nits %f, expects to be with in range (%f %f]",
           mTargetDispPeakBrightness, ultrahdr::kSdrWhiteNits, ultrahdr::kPqMaxNits);
     return ERROR_JPEGR_INVALID_TARGET_DISP_PEAK_BRIGHTNESS;
   }
