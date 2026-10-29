@@ -502,6 +502,7 @@ uint8_t encodeGain(float y_sdr, float y_hdr, uhdr_gainmap_metadata_ext_t* metada
 uint8_t encodeGain(float y_sdr, float y_hdr, uhdr_gainmap_metadata_ext_t* metadata,
                    float log2MinContentBoost, float log2MaxContentBoost, int index);
 float computeGain(float sdr, float hdr);
+float computeGain(float sdr, float hdr, float sdr_offset_nits, float hdr_offset_nits);
 uint8_t affineMapGain(float gainlog2, float mingainlog2, float maxgainlog2, float gamma);
 
 /*
@@ -546,8 +547,9 @@ PutPixelFn putPixelFn(uhdr_img_fmt_t format);
 
 ////////////////////////////////////////////////////////////////////////////////
 // common utils
-static const float kHdrOffset = 1e-7f;
-static const float kSdrOffset = 1e-7f;
+// https://developer.android.com/media/platform/hdr-image-format#XMP-attributes
+static const float kHdrOffset = 1.0f / 64.0f;
+static const float kSdrOffset = 1.0f / 64.0f;
 
 static inline float clipNegatives(float value) { return (value < 0.0f) ? 0.0f : value; }
 

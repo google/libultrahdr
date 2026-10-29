@@ -788,7 +788,11 @@ uint8_t encodeGain(float y_sdr, float y_hdr, uhdr_gainmap_metadata_ext_t* metada
 }
 
 float computeGain(float sdr, float hdr) {
-  float gain = log2((hdr + kHdrOffset) / (sdr + kSdrOffset));
+  return computeGain(sdr, hdr, kSdrOffset, kHdrOffset);
+}
+
+float computeGain(float sdr, float hdr, float sdr_offset_nits, float hdr_offset_nits) {
+  float gain = log2((hdr + hdr_offset_nits) / (sdr + sdr_offset_nits));
   if (sdr < 2.f / 255.0f) {
     // If sdr is zero and hdr is non zero, it can result in very large gain values. In compression -
     // decompression process, if the same sdr pixel increases to 1, the hdr recovered pixel will
