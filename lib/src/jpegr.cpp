@@ -845,6 +845,9 @@ uhdr_error_info_t UltraHdr::generateGainMap(uhdr_raw_image_t* sdr_intent,
                                  hdrGamutConversionFn, sdrGamutConversionFn, luminanceFn,
                                  sdrYuvToRgbFn, hdrYuvToRgbFn, sdr_sample_pixel_fn,
                                  hdr_sample_pixel_fn, hdr_white_nits, use_luminance]() -> void {
+    const float sdr_offset_nits = kSdrOffset * kSdrWhiteNits;
+    const float hdr_offset_nits = kHdrOffset * kSdrWhiteNits;
+
     uhdr_memory_block_t gainmap_mem((size_t)map_width * map_height * sizeof(float) *
                                     (mUseMultiChannelGainMap ? 3 : 1));
     float* gainmap_data = reinterpret_cast<float*>(gainmap_mem.m_buffer.get());
@@ -860,7 +863,8 @@ uhdr_error_info_t UltraHdr::generateGainMap(uhdr_raw_image_t* sdr_intent,
         [this, sdr_intent, hdr_intent, gainmap_data, map_width, hdrInvOetf, hdrLuminanceFn,
          hdrOotfFn, hdrGamutConversionFn, sdrGamutConversionFn, luminanceFn, sdrYuvToRgbFn,
          hdrYuvToRgbFn, sdr_sample_pixel_fn, hdr_sample_pixel_fn, hdr_white_nits, use_luminance,
-         &gainmap_min, &gainmap_max, &gainmap_minmax, &jobQueue]() -> void {
+         sdr_offset_nits, hdr_offset_nits, &gainmap_min, &gainmap_max, &gainmap_minmax,
+         &jobQueue]() -> void {
       unsigned int rowStart, rowEnd;
       const bool isHdrIntentRgb = isPixelFormatRgb(hdr_intent->fmt);
       const bool isSdrIntentRgb = isPixelFormatRgb(sdr_intent->fmt);
@@ -908,9 +912,12 @@ uhdr_error_info_t UltraHdr::generateGainMap(uhdr_raw_image_t* sdr_intent,
               Color hdr_rgb_nits = hdr_rgb * hdrSampleToNitsFactor;
               size_t pixel_idx = (x + y * map_width) * 3;
 
-              gainmap_data[pixel_idx] = computeGain(sdr_rgb_nits.r, hdr_rgb_nits.r);
-              gainmap_data[pixel_idx + 1] = computeGain(sdr_rgb_nits.g, hdr_rgb_nits.g);
-              gainmap_data[pixel_idx + 2] = computeGain(sdr_rgb_nits.b, hdr_rgb_nits.b);
+              gainmap_data[pixel_idx] =
+                  computeGain(sdr_rgb_nits.r, hdr_rgb_nits.r, sdr_offset_nits, hdr_offset_nits);
+              gainmap_data[pixel_idx + 1] =
+                  computeGain(sdr_rgb_nits.g, hdr_rgb_nits.g, sdr_offset_nits, hdr_offset_nits);
+              gainmap_data[pixel_idx + 2] =
+                  computeGain(sdr_rgb_nits.b, hdr_rgb_nits.b, sdr_offset_nits, hdr_offset_nits);
               for (int i = 0; i < 3; i++) {
                 gainmap_min_th[i] = (std::min)(gainmap_data[pixel_idx + i], gainmap_min_th[i]);
                 gainmap_max_th[i] = (std::max)(gainmap_data[pixel_idx + i], gainmap_max_th[i]);
@@ -928,7 +935,8 @@ uhdr_error_info_t UltraHdr::generateGainMap(uhdr_raw_image_t* sdr_intent,
               }
 
               size_t pixel_idx = x + y * map_width;
-              gainmap_data[pixel_idx] = computeGain(sdr_y_nits, hdr_y_nits);
+              gainmap_data[pixel_idx] =
+                  computeGain(sdr_y_nits, hdr_y_nits, sdr_offset_nits, hdr_offset_nits);
               gainmap_min_th[0] = (std::min)(gainmap_data[pixel_idx], gainmap_min_th[0]);
               gainmap_max_th[0] = (std::max)(gainmap_data[pixel_idx], gainmap_max_th[0]);
             }
