@@ -19,6 +19,8 @@
 #include <deque>
 #include <functional>
 #include <mutex>
+#include <new>
+#include <system_error>
 #include <thread>
 
 #include "ultrahdr/editorhelper.h"
@@ -824,18 +826,29 @@ uhdr_error_info_t UltraHdr::generateGainMap(uhdr_raw_image_t* sdr_intent,
       }
     };
 
-    // generate map
-    std::vector<std::thread> workers;
-    for (int th = 0; th < threads - 1; th++) {
-      workers.push_back(std::thread(generateMap));
-    }
-
+    // Queue allocation must finish before any worker is started. If startup is
+    // partial, the main worker drains the closed queue and joins started workers.
     for (unsigned int rowStart = 0; rowStart < map_height;) {
       unsigned int rowEnd = (std::min)(rowStart + rowStep, map_height);
       jobQueue.enqueueJob(rowStart, rowEnd);
       rowStart = rowEnd;
     }
     jobQueue.markQueueForEnd();
+    std::vector<std::thread> workers;
+#if defined(__cpp_exceptions) || defined(__EXCEPTIONS) || defined(_CPPUNWIND)
+    try {
+#endif
+      workers.reserve(threads - 1);
+      for (int th = 0; th < threads - 1; th++) {
+        workers.emplace_back(generateMap);
+      }
+#if defined(__cpp_exceptions) || defined(__EXCEPTIONS) || defined(_CPPUNWIND)
+    } catch (const std::system_error&) {
+      // Continue with the main worker and join every worker that started.
+    } catch (const std::bad_alloc&) {
+      // The main worker needs no more queue entries or worker storage.
+    }
+#endif
     generateMap();
     std::for_each(workers.begin(), workers.end(), [](std::thread& t) { t.join(); });
   };
@@ -944,18 +957,29 @@ uhdr_error_info_t UltraHdr::generateGainMap(uhdr_raw_image_t* sdr_intent,
       }
     };
 
-    // generate map
-    std::vector<std::thread> workers;
-    for (int th = 0; th < threads - 1; th++) {
-      workers.push_back(std::thread(generateMap));
-    }
-
+    // Queue allocation must finish before any worker is started. If startup is
+    // partial, the main worker drains the closed queue and joins started workers.
     for (unsigned int rowStart = 0; rowStart < map_height;) {
       unsigned int rowEnd = (std::min)(rowStart + rowStep, map_height);
       jobQueue.enqueueJob(rowStart, rowEnd);
       rowStart = rowEnd;
     }
     jobQueue.markQueueForEnd();
+    std::vector<std::thread> workers;
+#if defined(__cpp_exceptions) || defined(__EXCEPTIONS) || defined(_CPPUNWIND)
+    try {
+#endif
+      workers.reserve(threads - 1);
+      for (int th = 0; th < threads - 1; th++) {
+        workers.emplace_back(generateMap);
+      }
+#if defined(__cpp_exceptions) || defined(__EXCEPTIONS) || defined(_CPPUNWIND)
+    } catch (const std::system_error&) {
+      // Continue with the main worker and join every worker that started.
+    } catch (const std::bad_alloc&) {
+      // The main worker needs no more queue entries or worker storage.
+    }
+#endif
     generateMap();
     std::for_each(workers.begin(), workers.end(), [](std::thread& t) { t.join(); });
 
@@ -1022,15 +1046,27 @@ uhdr_error_info_t UltraHdr::generateGainMap(uhdr_raw_image_t* sdr_intent,
     workers.clear();
     jobQueue.reset();
     rowStep = threads == 1 ? map_height : 1;
-    for (int th = 0; th < threads - 1; th++) {
-      workers.push_back(std::thread(encodeMap));
-    }
     for (unsigned int rowStart = 0; rowStart < map_height;) {
       unsigned int rowEnd = (std::min)(rowStart + rowStep, map_height);
       jobQueue.enqueueJob(rowStart, rowEnd);
       rowStart = rowEnd;
     }
     jobQueue.markQueueForEnd();
+    // Reuse the capacity reserved by the first phase when it is available.
+#if defined(__cpp_exceptions) || defined(__EXCEPTIONS) || defined(_CPPUNWIND)
+    try {
+#endif
+      workers.reserve(threads - 1);
+      for (int th = 0; th < threads - 1; th++) {
+        workers.emplace_back(encodeMap);
+      }
+#if defined(__cpp_exceptions) || defined(__EXCEPTIONS) || defined(_CPPUNWIND)
+    } catch (const std::system_error&) {
+      // Continue with the main worker and join every worker that started.
+    } catch (const std::bad_alloc&) {
+      // The main worker needs no more queue entries or worker storage.
+    }
+#endif
     encodeMap();
     std::for_each(workers.begin(), workers.end(), [](std::thread& t) { t.join(); });
 
