@@ -1585,6 +1585,62 @@ class TestJpegR : public JpegR {
   using JpegR::applyGainMap;
 };
 
+TEST(JpegRTest, ApplyGainMapClassifiesRgb888BaseAsRgb) {
+  TestJpegR jpegr;
+  uint8_t base_pixels[] = {85, 85, 85};
+  uhdr_raw_image_t base{};
+  base.fmt = UHDR_IMG_FMT_24bppRGB888;
+  base.cg = UHDR_CG_DISPLAY_P3;
+  base.ct = UHDR_CT_SRGB;
+  base.range = UHDR_CR_FULL_RANGE;
+  base.w = 1;
+  base.h = 1;
+  base.planes[UHDR_PLANE_PACKED] = base_pixels;
+  base.stride[UHDR_PLANE_PACKED] = 1;
+
+  uint8_t map_pixel = 0;
+  uhdr_raw_image_t gainmap{};
+  gainmap.fmt = UHDR_IMG_FMT_8bppYCbCr400;
+  gainmap.cg = UHDR_CG_DISPLAY_P3;
+  gainmap.range = UHDR_CR_FULL_RANGE;
+  gainmap.w = 1;
+  gainmap.h = 1;
+  gainmap.planes[UHDR_PLANE_PACKED] = &map_pixel;
+  gainmap.stride[UHDR_PLANE_PACKED] = 1;
+
+  uhdr_gainmap_metadata_ext_t metadata("1.0");
+  std::fill_n(metadata.max_content_boost, 3, 2.0f);
+  std::fill_n(metadata.min_content_boost, 3, 1.0f);
+  std::fill_n(metadata.gamma, 3, 1.0f);
+  std::fill_n(metadata.offset_sdr, 3, 0.0f);
+  std::fill_n(metadata.offset_hdr, 3, 0.0f);
+  metadata.hdr_capacity_min = 1.0f;
+  metadata.hdr_capacity_max = 2.0f;
+  metadata.use_base_cg = 1;
+
+  uint64_t output_pixel = 0;
+  uhdr_raw_image_t output{};
+  output.fmt = UHDR_IMG_FMT_64bppRGBAHalfFloat;
+  output.cg = UHDR_CG_DISPLAY_P3;
+  output.ct = UHDR_CT_LINEAR;
+  output.range = UHDR_CR_FULL_RANGE;
+  output.w = 1;
+  output.h = 1;
+  output.planes[UHDR_PLANE_PACKED] = &output_pixel;
+  output.stride[UHDR_PLANE_PACKED] = 1;
+
+  ASSERT_EQ(UHDR_CODEC_OK,
+            jpegr.applyGainMap(&base, &gainmap, &metadata, UHDR_CT_LINEAR, output.fmt, 1.0f,
+                               &output)
+                .error_code);
+
+  const uint16_t red = static_cast<uint16_t>(output_pixel);
+  EXPECT_EQ(0x2dd0u, red);  // sRGB 85/255 linearizes to binary16 0.0908203125.
+  EXPECT_EQ(red, static_cast<uint16_t>(output_pixel >> 16));
+  EXPECT_EQ(red, static_cast<uint16_t>(output_pixel >> 32));
+  EXPECT_EQ(0x3c00u, static_cast<uint16_t>(output_pixel >> 48));
+}
+
 TEST(JpegRTest, ApplyGainMapInvalidArgs) {
   TestJpegR uHdrLib;
   uhdr_raw_image_t sdr_intent{};

@@ -1314,7 +1314,7 @@ SamplePixelFn getSamplePixelFn(uhdr_img_fmt_t format) {
 
 bool isPixelFormatRgb(uhdr_img_fmt_t format) {
   return format == UHDR_IMG_FMT_64bppRGBAHalfFloat || format == UHDR_IMG_FMT_32bppRGBA8888 ||
-         format == UHDR_IMG_FMT_32bppRGBA1010102;
+         format == UHDR_IMG_FMT_32bppRGBA1010102 || format == UHDR_IMG_FMT_24bppRGB888;
 }
 
 uint32_t colorToRgba1010102(Color e_gamma) {
