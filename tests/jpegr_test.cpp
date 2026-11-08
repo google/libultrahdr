@@ -1587,26 +1587,12 @@ class TestJpegR : public JpegR {
 
 TEST(JpegRTest, ApplyGainMapClassifiesRgb888BaseAsRgb) {
   TestJpegR jpegr;
-  uint8_t base_pixels[] = {85, 85, 85};
-  uhdr_raw_image_t base{};
-  base.fmt = UHDR_IMG_FMT_24bppRGB888;
-  base.cg = UHDR_CG_DISPLAY_P3;
-  base.ct = UHDR_CT_SRGB;
-  base.range = UHDR_CR_FULL_RANGE;
-  base.w = 1;
-  base.h = 1;
-  base.planes[UHDR_PLANE_PACKED] = base_pixels;
-  base.stride[UHDR_PLANE_PACKED] = 1;
-
-  uint8_t map_pixel = 0;
-  uhdr_raw_image_t gainmap{};
-  gainmap.fmt = UHDR_IMG_FMT_8bppYCbCr400;
-  gainmap.cg = UHDR_CG_DISPLAY_P3;
-  gainmap.range = UHDR_CR_FULL_RANGE;
-  gainmap.w = 1;
-  gainmap.h = 1;
-  gainmap.planes[UHDR_PLANE_PACKED] = &map_pixel;
-  gainmap.stride[UHDR_PLANE_PACKED] = 1;
+  uhdr_raw_image_ext_t base(UHDR_IMG_FMT_24bppRGB888, UHDR_CG_DISPLAY_P3, UHDR_CT_SRGB,
+                            UHDR_CR_FULL_RANGE, 1, 1, 1);
+  std::memset(base.planes[UHDR_PLANE_PACKED], 85, 3);
+  uhdr_raw_image_ext_t gainmap(UHDR_IMG_FMT_8bppYCbCr400, UHDR_CG_DISPLAY_P3,
+                               UHDR_CT_LINEAR, UHDR_CR_FULL_RANGE, 1, 1, 1);
+  *static_cast<uint8_t*>(gainmap.planes[UHDR_PLANE_PACKED]) = 0;
 
   uhdr_gainmap_metadata_ext_t metadata("1.0");
   std::fill_n(metadata.max_content_boost, 3, 2.0f);
@@ -1618,27 +1604,20 @@ TEST(JpegRTest, ApplyGainMapClassifiesRgb888BaseAsRgb) {
   metadata.hdr_capacity_max = 2.0f;
   metadata.use_base_cg = 1;
 
-  uint64_t output_pixel = 0;
-  uhdr_raw_image_t output{};
-  output.fmt = UHDR_IMG_FMT_64bppRGBAHalfFloat;
-  output.cg = UHDR_CG_DISPLAY_P3;
-  output.ct = UHDR_CT_LINEAR;
-  output.range = UHDR_CR_FULL_RANGE;
-  output.w = 1;
-  output.h = 1;
-  output.planes[UHDR_PLANE_PACKED] = &output_pixel;
-  output.stride[UHDR_PLANE_PACKED] = 1;
+  uhdr_raw_image_ext_t output(UHDR_IMG_FMT_64bppRGBAHalfFloat, UHDR_CG_DISPLAY_P3,
+                              UHDR_CT_LINEAR, UHDR_CR_FULL_RANGE, 1, 1, 1);
 
   ASSERT_EQ(UHDR_CODEC_OK,
             jpegr.applyGainMap(&base, &gainmap, &metadata, UHDR_CT_LINEAR, output.fmt, 1.0f,
                                &output)
                 .error_code);
 
-  const uint16_t red = static_cast<uint16_t>(output_pixel);
-  EXPECT_EQ(0x2dd0u, red);  // sRGB 85/255 linearizes to binary16 0.0908203125.
-  EXPECT_EQ(red, static_cast<uint16_t>(output_pixel >> 16));
-  EXPECT_EQ(red, static_cast<uint16_t>(output_pixel >> 32));
-  EXPECT_EQ(0x3c00u, static_cast<uint16_t>(output_pixel >> 48));
+  const uint64_t pixel = static_cast<const uint64_t*>(output.planes[UHDR_PLANE_PACKED])[0];
+  // sRGB 85/255 linearizes to binary16 0.0908203125.
+  EXPECT_EQ(0x2dd0u, static_cast<uint16_t>(pixel));
+  EXPECT_EQ(0x2dd0u, static_cast<uint16_t>(pixel >> 16));
+  EXPECT_EQ(0x2dd0u, static_cast<uint16_t>(pixel >> 32));
+  EXPECT_EQ(0x3c00u, static_cast<uint16_t>(pixel >> 48));
 }
 
 TEST(JpegRTest, ApplyGainMapInvalidArgs) {
