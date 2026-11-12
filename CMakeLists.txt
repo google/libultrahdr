@@ -605,6 +605,21 @@ if(UHDR_ENABLE_HEIF)
                             COMMAND git apply --ignore-space-change --whitespace=nowarn ${CMAKE_CURRENT_SOURCE_DIR}/cmake/patches/libheif_pr1503.patch)
     endif()
 
+    # For fuzzing, link codecs (AOM/HEVC decode, encode when available) directly
+    # into libheif: with plugin loading enabled the codecs are built as
+    # runtime-loaded modules that no fuzz target installs, so decode/encode of
+    # av01/hvc1 items would always fail at runtime. Scoped to UHDR_BUILD_FUZZERS
+    # so that non-fuzzer dependency builds keep plugin semantics unchanged.
+    set(LIBHEIF_CMAKE_ARGS "")
+    set(LIBHEIF_CODEC_LIBS "")
+    if(UHDR_BUILD_FUZZERS)
+      # with plugin loading off the codec modules are compiled into libheif.a;
+      # their libraries must be propagated to every consumer of the imported
+      # target or the fuzz targets fail to link
+      set(LIBHEIF_CMAKE_ARGS -DENABLE_PLUGIN_LOADING=OFF)
+      set(LIBHEIF_CODEC_LIBS -laom)
+    endif()
+
     ExternalProject_Add(${LIBHEIF_TARGET_NAME}
         GIT_REPOSITORY https://github.com/strukturag/libheif.git
         GIT_TAG 4a3f74bc593ebfc29becc1ed5dd0a61cc66d40e1
@@ -615,6 +630,7 @@ if(UHDR_ENABLE_HEIF)
         BUILD_COMMAND ${CMAKE_COMMAND} --build <BINARY_DIR> --config $<CONFIG> --target heif
         INSTALL_COMMAND ""
         CMAKE_ARGS ${UHDR_CMAKE_ARGS}
+                   ${LIBHEIF_CMAKE_ARGS}
                    -DBUILD_SHARED_LIBS=OFF
                    -DCMAKE_DISABLE_FIND_PACKAGE_Doxygen=ON
                    -DWITH_DOCS=OFF
@@ -641,7 +657,7 @@ if(UHDR_ENABLE_HEIF)
         IMPORTED_LOCATION "${LIBHEIF_LIBRARIES}"
         INTERFACE_INCLUDE_DIRECTORIES "${LIBHEIF_INCLUDE_DIRS}"
         INTERFACE_COMPILE_DEFINITIONS "LIBHEIF_STATIC_BUILD;WITH_EXPERIMENTAL_GAIN_MAP=1"
-        INTERFACE_LINK_LIBRARIES "${CMAKE_DL_LIBS}"
+        INTERFACE_LINK_LIBRARIES "${CMAKE_DL_LIBS} ${LIBHEIF_CODEC_LIBS}"
       )
     endif()
     set(LIBHEIF_HAS_GAIN_MAP TRUE)
@@ -864,6 +880,17 @@ if(UHDR_BUILD_FUZZERS)
     target_link_options(ultrahdr_legacy_fuzzer PRIVATE -fsanitize=fuzzer)
   endif()
   target_link_libraries(ultrahdr_legacy_fuzzer ${UHDR_CORE_LIB_NAME})
+
+  add_executable(ultrahdr_container_fuzzer ${FUZZERS_DIR}/ultrahdr_container_fuzzer.cpp)
+  add_dependencies(ultrahdr_container_fuzzer ${UHDR_CORE_LIB_NAME})
+  target_compile_options(ultrahdr_container_fuzzer PRIVATE ${UHDR_WERROR_FLAGS})
+  target_include_directories(ultrahdr_container_fuzzer PRIVATE ${PRIVATE_INCLUDE_DIR})
+  if(DEFINED ENV{LIB_FUZZING_ENGINE})
+    target_link_options(ultrahdr_container_fuzzer PRIVATE $ENV{LIB_FUZZING_ENGINE})
+  else()
+    target_link_options(ultrahdr_container_fuzzer PRIVATE -fsanitize=fuzzer)
+  endif()
+  target_link_libraries(ultrahdr_container_fuzzer ${UHDR_CORE_LIB_NAME})
 endif()
 
 if(MSVC AND NOT BUILD_SHARED_LIBS)
