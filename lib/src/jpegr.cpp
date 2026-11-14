@@ -526,7 +526,9 @@ uhdr_error_info_t UltraHdr::convertYuv(uhdr_raw_image_t* image, uhdr_color_gamut
 uhdr_error_info_t JpegR::compressGainMap(uhdr_raw_image_t* gainmap_img,
                                          JpegEncoderHelper* jpeg_enc_obj) {
   if (!kWriteXmpMetadata) {
-    std::shared_ptr<DataStruct> icc = IccHelper::writeIccProfile(gainmap_img->ct, gainmap_img->cg);
+    // The secondary ICC profile is used only to communicate the primaries so it's fine to use the
+    // sRGB transfer function here.
+    std::shared_ptr<DataStruct> icc = IccHelper::writeIccProfile(UHDR_CT_SRGB, gainmap_img->cg);
     return jpeg_enc_obj->compressImage(gainmap_img, mMapCompressQuality, icc->getData(),
                                        icc->getLength());
   }
