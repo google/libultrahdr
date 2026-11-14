@@ -1371,6 +1371,40 @@ TEST_F(GainMapMathTest, pqOetfLUT) {
   }
 }
 
+TEST_F(GainMapMathTest, pqOetfLUTBetweenTableEntries) {
+  // Reference values from ITU-R BT.2100-2, Table 4, evaluated in double precision. Inputs are
+  // linear light normalized to 10000 nits and include values between table entries.
+  const float kHalf10BitCode = 0.5f / 1023.0f;
+  const float kReference[][2] = {
+      {1e-06f, 0.021486f},     // 0.01 nits
+      {5e-06f, 0.046111f},     // 0.05 nits
+      {6.16e-06f, 0.050582f},  // 0.0616 nits, sRGB code value 1 at 203 nits
+      {1e-05f, 0.062337f},     // 0.1 nits
+      {2e-05f, 0.082836f},     // 0.2 nits
+      {5e-05f, 0.117460f},     // 0.5 nits
+      {0.0001f, 0.149946f},    // 1 nit
+      {0.0005f, 0.247848f},    // 5 nits
+      {0.002f, 0.357012f},     // 20 nits
+      {0.0203f, 0.580689f},    // 203 nits
+      {0.1f, 0.751827f},       // 1000 nits
+  };
+  for (const auto& ref : kReference) {
+    EXPECT_NEAR(pqOetfLUT(ref[0]), ref[1], kHalf10BitCode) << "input " << ref[0];
+  }
+
+  // Dense sweep, including inputs far from the table entries near black.
+  for (int i = 0; i <= 100000; i++) {
+    float value = static_cast<float>(i) / 100000.0f;
+    value = value * value * value;
+    ASSERT_NEAR(pqOetfLUT(value), pqOetf(value), kHalf10BitCode) << "input " << value;
+  }
+
+  // Out-of-range inputs are clamped like before.
+  EXPECT_EQ(pqOetfLUT(-1.0f), 0.0f);
+  EXPECT_EQ(pqOetfLUT(std::nanf("")), 0.0f);
+  EXPECT_EQ(pqOetfLUT(2.0f), pqOetfLUT(1.0f));
+}
+
 TEST_F(GainMapMathTest, hlgOetfLUT) {
   for (size_t idx = 0; idx < kHlgOETFNumEntries; idx++) {
     float value = static_cast<float>(idx) / static_cast<float>(kHlgOETFNumEntries - 1);

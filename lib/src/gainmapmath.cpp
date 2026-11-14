@@ -323,12 +323,24 @@ float pqOetf(float e) {
 
 Color pqOetf(Color e) { return {{{pqOetf(e.r), pqOetf(e.g), pqOetf(e.b)}}}; }
 
+// The PQ curve is very steep near zero, so taking the nearest entry of a table that is sampled
+// uniformly in linear light is too coarse for dark inputs (0.06 nits would come out as 0 instead
+// of ~52 on a 10-bit scale). Interpolate between entries, and evaluate the curve directly below
+// this input, where even interpolation is not accurate enough. This keeps the result within a
+// quarter of a 10-bit code value of pqOetf().
+static const float kPqOETFLUTMinInput = 1.0f / 16384.0f;
+
 float pqOetfLUT(float e) {
-  int32_t value = static_cast<int32_t>(e * (kPqOETFNumEntries - 1) + 0.5);
+  // Also maps NaN to 0, as the table lookup did.
+  if (!(e >= kPqOETFLUTMinInput)) return e > 0.0f ? pqOetf(e) : 0.0f;
+  float pos = (std::min)(e, 1.0f) * (kPqOETFNumEntries - 1);
+  int32_t value = static_cast<int32_t>(pos);
   // TODO() : Remove once conversion modules have appropriate clamping in place
-  value = CLIP3(value, 0, kPqOETFNumEntries - 1);
+  value = CLIP3(value, 0, kPqOETFNumEntries - 2);
+  float frac = pos - value;
   static LookUpTable kPqLut(kPqOETFNumEntries, static_cast<float (*)(float)>(pqOetf));
-  return kPqLut.getTable()[value];
+  const std::vector<float>& lut = kPqLut.getTable();
+  return lut[value] + (lut[value + 1] - lut[value]) * frac;
 }
 
 Color pqOetfLUT(Color e) { return {{{pqOetfLUT(e.r), pqOetfLUT(e.g), pqOetfLUT(e.b)}}}; }
