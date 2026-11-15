@@ -545,6 +545,49 @@ Color sampleRgba8888(uhdr_raw_image_t* image, size_t map_scale_factor, size_t x,
   return samplePixels(image, map_scale_factor, x, y, getRgba8888Pixel);
 }
 
+#if USE_SRGB_INVOETF_LUT
+static const std::array<float, 256>& srgbInvOetfRgba8888Lut() {
+  static const std::array<float, 256> lut = [] {
+    std::array<float, 256> values{};
+    for (size_t code = 0; code < values.size(); ++code) {
+      const float encoded = static_cast<float>(code) / 255.0f;
+      const Color gamma = {{{encoded, encoded, encoded}}};
+      values[code] = srgbInvOetfLUT(gamma).r;
+    }
+    return values;
+  }();
+  return lut;
+}
+#endif
+
+Color sampleRgba8888Linear(uhdr_raw_image_t* image, size_t map_scale_factor, size_t x, size_t y) {
+  Color linear = {{{0.0f, 0.0f, 0.0f}}};
+#if USE_SRGB_INVOETF_LUT
+  const std::array<float, 256>& lut = srgbInvOetfRgba8888Lut();
+  const uint32_t* pixels = static_cast<uint32_t*>(image->planes[UHDR_PLANE_PACKED]);
+  const size_t stride = image->stride[UHDR_PLANE_PACKED];
+  for (size_t dy = 0; dy < map_scale_factor; ++dy) {
+    const size_t src_y = y * map_scale_factor + dy;
+    const uint32_t* row = pixels + src_y * stride + x * map_scale_factor;
+    for (size_t dx = 0; dx < map_scale_factor; ++dx) {
+      const uint32_t pixel = row[dx];
+      linear.r += lut[pixel & 0xff];
+      linear.g += lut[(pixel >> 8) & 0xff];
+      linear.b += lut[(pixel >> 16) & 0xff];
+    }
+  }
+#else
+  for (size_t dy = 0; dy < map_scale_factor; ++dy) {
+    for (size_t dx = 0; dx < map_scale_factor; ++dx) {
+      const Color gamma = getRgba8888Pixel(image, x * map_scale_factor + dx,
+                                           y * map_scale_factor + dy);
+      linear += srgbInvOetf(gamma);
+    }
+  }
+#endif
+  return linear / static_cast<float>(map_scale_factor * map_scale_factor);
+}
+
 Color sampleRgba1010102(uhdr_raw_image_t* image, size_t map_scale_factor, size_t x, size_t y) {
   return samplePixels(image, map_scale_factor, x, y, getRgba1010102Pixel);
 }

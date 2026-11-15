@@ -543,6 +543,7 @@ ColorTransformFn getInverseOetfFn(uhdr_color_transfer_t transfer);
 SceneToDisplayLuminanceFn getOotfFn(uhdr_color_transfer_t transfer);
 GetPixelFn getPixelFn(uhdr_img_fmt_t format);
 SamplePixelFn getSamplePixelFn(uhdr_img_fmt_t format);
+Color sampleRgba8888Linear(uhdr_raw_image_t* image, size_t map_scale_factor, size_t x, size_t y);
 PutPixelFn putPixelFn(uhdr_img_fmt_t format);
 
 ////////////////////////////////////////////////////////////////////////////////

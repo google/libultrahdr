@@ -1958,6 +1958,121 @@ TEST_F(GainMapMathTest, SampleMap3ChannelScaleOneUsesPaddedRgbAndRgbaStrides) {
   }
 }
 
+TEST_F(GainMapMathTest, SampleRgba8888LinearMatchesColorLutForEveryByteCode) {
+  constexpr size_t kWidth = 256;
+  constexpr size_t kHeight = 2;
+  uhdr_raw_image_ext_t image(UHDR_IMG_FMT_32bppRGBA8888, UHDR_CG_DISPLAY_P3, UHDR_CT_SRGB,
+                             UHDR_CR_FULL_RANGE, kWidth, kHeight, 512);
+  auto* pixels = static_cast<uint32_t*>(image.planes[UHDR_PLANE_PACKED]);
+  const size_t stride = image.stride[UHDR_PLANE_PACKED];
+  std::fill_n(pixels, stride * kHeight, 0xa5a5a5a5);
+  ASSERT_GT(stride, kWidth);
+
+  for (size_t y = 0; y < kHeight; ++y) {
+    for (size_t x = 0; x < kWidth; ++x) {
+      const uint32_t r = static_cast<uint8_t>(x);
+      const uint32_t g = static_cast<uint8_t>(255 - x);
+      const uint32_t b = static_cast<uint8_t>(x * 73 + y * 31);
+      const uint32_t a = static_cast<uint8_t>(x + y * 17);
+      pixels[x + y * stride] = r | (g << 8) | (b << 16) | (a << 24);
+    }
+  }
+
+  for (size_t y = 0; y < kHeight; ++y) {
+    for (size_t x = 0; x < kWidth; ++x) {
+      const Color gamma = getRgba8888Pixel(&image, x, y);
+#if USE_SRGB_INVOETF_LUT
+      const Color expected = srgbInvOetfLUT(gamma);
+#else
+      const Color expected = srgbInvOetf(gamma);
+#endif
+      const Color actual = sampleRgba8888Linear(&image, size_t{1}, x, y);
+      EXPECT_EQ(actual.r, expected.r) << "x=" << x << ", y=" << y;
+      EXPECT_EQ(actual.g, expected.g) << "x=" << x << ", y=" << y;
+      EXPECT_EQ(actual.b, expected.b) << "x=" << x << ", y=" << y;
+    }
+  }
+}
+
+TEST_F(GainMapMathTest, SampleRgba8888LinearMatchesColorLutForValidPaddedOddImageBlocks) {
+  constexpr size_t kWidth = 9;
+  constexpr size_t kHeight = 7;
+  uhdr_raw_image_ext_t image(UHDR_IMG_FMT_32bppRGBA8888, UHDR_CG_DISPLAY_P3, UHDR_CT_SRGB,
+                             UHDR_CR_FULL_RANGE, kWidth, kHeight, 64);
+  auto* pixels = static_cast<uint32_t*>(image.planes[UHDR_PLANE_PACKED]);
+  const size_t stride = image.stride[UHDR_PLANE_PACKED];
+  std::fill_n(pixels, stride * kHeight, 0xa5a5a5a5);
+  ASSERT_GT(stride, kWidth);
+  for (size_t y = 0; y < kHeight; ++y) {
+    for (size_t x = 0; x < kWidth; ++x) {
+      const uint32_t r = static_cast<uint8_t>((x * 29 + y * 17 + 3) % 256);
+      const uint32_t g = static_cast<uint8_t>((x * 7 + y * 41 + 97) % 256);
+      const uint32_t b = static_cast<uint8_t>((x * 53 + y * 13 + 211) % 256);
+      const uint32_t a = static_cast<uint8_t>((x + y * 19) % 256);
+      pixels[x + y * stride] = r | (g << 8) | (b << 16) | (a << 24);
+    }
+  }
+
+  const std::array<size_t, 2> scales = {2, 4};
+  for (const size_t scale : scales) {
+    const size_t block_width = kWidth / scale;
+    const size_t block_height = kHeight / scale;
+    ASSERT_GT(block_width, 0u);
+    ASSERT_GT(block_height, 0u);
+    for (size_t y = 0; y < block_height; ++y) {
+      for (size_t x = 0; x < block_width; ++x) {
+        Color expected = {{{0.0f, 0.0f, 0.0f}}};
+        for (size_t dy = 0; dy < scale; ++dy) {
+          for (size_t dx = 0; dx < scale; ++dx) {
+            const Color gamma = getRgba8888Pixel(&image, x * scale + dx, y * scale + dy);
+#if USE_SRGB_INVOETF_LUT
+            expected += srgbInvOetfLUT(gamma);
+#else
+            expected += srgbInvOetf(gamma);
+#endif
+          }
+        }
+        expected /= static_cast<float>(scale * scale);
+
+        const Color actual = sampleRgba8888Linear(&image, scale, x, y);
+        EXPECT_EQ(actual.r, expected.r) << "scale=" << scale << ", x=" << x << ", y=" << y;
+        EXPECT_EQ(actual.g, expected.g) << "scale=" << scale << ", x=" << x << ", y=" << y;
+        EXPECT_EQ(actual.b, expected.b) << "scale=" << scale << ", x=" << x << ", y=" << y;
+      }
+    }
+  }
+}
+
+TEST_F(GainMapMathTest, SampleRgba8888LinearAveragesInLinearLight) {
+  constexpr size_t kWidth = 2;
+  constexpr size_t kHeight = 2;
+  const auto pack = [](uint8_t r, uint8_t g, uint8_t b) {
+    return static_cast<uint32_t>(r) | (static_cast<uint32_t>(g) << 8) |
+           (static_cast<uint32_t>(b) << 16) | (0xffu << 24);
+  };
+  uhdr_raw_image_ext_t image(UHDR_IMG_FMT_32bppRGBA8888, UHDR_CG_DISPLAY_P3, UHDR_CT_SRGB,
+                             UHDR_CR_FULL_RANGE, kWidth, kHeight, 1);
+  auto* pixels = static_cast<uint32_t*>(image.planes[UHDR_PLANE_PACKED]);
+  pixels[0] = pack(0, 0, 0);
+  pixels[1] = pack(255, 255, 255);
+  pixels[2] = pack(0, 255, 0);
+  pixels[3] = pack(255, 0, 255);
+
+  const Color actual = sampleRgba8888Linear(&image, size_t{2}, size_t{0}, size_t{0});
+  EXPECT_FLOAT_EQ(actual.r, 0.5f);
+  EXPECT_FLOAT_EQ(actual.g, 0.5f);
+  EXPECT_FLOAT_EQ(actual.b, 0.5f);
+
+  const Color gamma_average = sampleRgba8888(&image, size_t{2}, size_t{0}, size_t{0});
+  const Color gamma_then_linear = srgbInvOetfLUT(gamma_average);
+  EXPECT_LT(gamma_then_linear.r, 0.3f);
+  EXPECT_LT(gamma_then_linear.g, 0.3f);
+  EXPECT_LT(gamma_then_linear.b, 0.3f);
+  EXPECT_GT(actual.r, gamma_then_linear.r);
+  EXPECT_GT(actual.g, gamma_then_linear.g);
+  EXPECT_GT(actual.b, gamma_then_linear.b);
+}
+
 TEST_F(GainMapMathTest, ColorToRgba1010102) {
   EXPECT_EQ(colorToRgba1010102(RgbBlack()), 0x3 << 30);
   EXPECT_EQ(colorToRgba1010102(RgbWhite()), 0xFFFFFFFF);
