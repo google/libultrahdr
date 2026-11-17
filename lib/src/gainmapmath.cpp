@@ -8,6 +8,7 @@
  * except according to those terms.
  */
 
+#include <algorithm>
 #include <cmath>
 
 #include "ultrahdr/gainmapmath.h"
@@ -799,7 +800,10 @@ float computeGain(float sdr, float hdr) {
 }
 
 uint8_t affineMapGain(float gainlog2, float mingainlog2, float maxgainlog2, float gamma) {
+  if (!(maxgainlog2 > mingainlog2) || !(gainlog2 > mingainlog2)) return 0;
+  if (gainlog2 >= maxgainlog2) return 255;
   float mappedVal = (gainlog2 - mingainlog2) / (maxgainlog2 - mingainlog2);
+  mappedVal = (std::clamp)(mappedVal, 0.0f, 1.0f);
   if (gamma != 1.0f) mappedVal = pow(mappedVal, gamma);
   mappedVal *= 255;
   return CLIP3(mappedVal + 0.5f, 0, 255);
