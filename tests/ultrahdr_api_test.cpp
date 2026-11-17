@@ -1988,4 +1988,86 @@ TEST_F(UltraHdrApiTest, AvifCodecUnsupportedWhenDisabled) {
 }
 #endif
 
+TEST_F(UltraHdrApiTest, ContentBoostFloorWithNonUnitGammaClampsBelowMinGain) {
+  constexpr unsigned width = 16;
+  constexpr unsigned height = 16;
+
+  // SDR mid-gray (~43.8 nits). Top half of HDR is dimmer (~8.2 nits, below 1.5x boost floor) and
+  // bottom half of HDR is brighter (~187.5 nits, ~4.28x boost, overlapping [1.5, 8.0]).
+  std::vector<uint8_t> sdr_pixels(static_cast<size_t>(width) * height * 4, 128);
+  for (size_t i = 3; i < sdr_pixels.size(); i += 4) sdr_pixels[i] = 255;
+
+  const uint32_t low_hdr_pel = 300u | (300u << 10) | (300u << 20) | (3u << 30);
+  const uint32_t high_hdr_pel = 580u | (580u << 10) | (580u << 20) | (3u << 30);
+  std::vector<uint32_t> hdr_pixels(static_cast<size_t>(width) * height, low_hdr_pel);
+  for (size_t y = height / 2; y < height; ++y) {
+    for (size_t x = 0; x < width; ++x) {
+      hdr_pixels[y * width + x] = high_hdr_pel;
+    }
+  }
+
+  uhdr_raw_image_t hdr{};
+  hdr.fmt = UHDR_IMG_FMT_32bppRGBA1010102;
+  hdr.cg = UHDR_CG_BT_2100;
+  hdr.ct = UHDR_CT_PQ;
+  hdr.range = UHDR_CR_FULL_RANGE;
+  hdr.w = width;
+  hdr.h = height;
+  hdr.planes[UHDR_PLANE_PACKED] = hdr_pixels.data();
+  hdr.stride[UHDR_PLANE_PACKED] = width;
+
+  uhdr_raw_image_t sdr{};
+  sdr.fmt = UHDR_IMG_FMT_32bppRGBA8888;
+  sdr.cg = UHDR_CG_BT_709;
+  sdr.ct = UHDR_CT_SRGB;
+  sdr.range = UHDR_CR_FULL_RANGE;
+  sdr.w = width;
+  sdr.h = height;
+  sdr.planes[UHDR_PLANE_PACKED] = sdr_pixels.data();
+  sdr.stride[UHDR_PLANE_PACKED] = width;
+
+  for (bool multichannel : {false, true}) {
+    for (float gamma : {0.5f, 2.0f}) {
+      SCOPED_TRACE(testing::Message() << "multichannel=" << multichannel << ", gamma=" << gamma);
+
+      uhdr_codec_private_t* enc = uhdr_create_encoder();
+      ASSERT_NE(enc, nullptr);
+      ASSERT_EQ(UHDR_CODEC_OK, uhdr_enc_set_raw_image(enc, &hdr, UHDR_HDR_IMG).error_code);
+      ASSERT_EQ(UHDR_CODEC_OK, uhdr_enc_set_raw_image(enc, &sdr, UHDR_SDR_IMG).error_code);
+      ASSERT_EQ(UHDR_CODEC_OK,
+                uhdr_enc_set_using_multi_channel_gainmap(enc, multichannel).error_code);
+      ASSERT_EQ(UHDR_CODEC_OK, uhdr_enc_set_gainmap_scale_factor(enc, 1).error_code);
+      ASSERT_EQ(UHDR_CODEC_OK, uhdr_enc_set_quality(enc, 100, UHDR_GAIN_MAP_IMG).error_code);
+      ASSERT_EQ(UHDR_CODEC_OK, uhdr_enc_set_min_max_content_boost(enc, 1.5f, 8.0f).error_code);
+      ASSERT_EQ(UHDR_CODEC_OK, uhdr_enc_set_gainmap_gamma(enc, gamma).error_code);
+
+      uhdr_error_info_t status = uhdr_encode(enc);
+      ASSERT_EQ(UHDR_CODEC_OK, status.error_code) << status.detail;
+      uhdr_compressed_image_t* output = uhdr_get_encoded_stream(enc);
+      ASSERT_NE(output, nullptr);
+
+      uhdr_codec_private_t* dec = uhdr_create_decoder();
+      ASSERT_NE(dec, nullptr);
+      ASSERT_EQ(UHDR_CODEC_OK, uhdr_dec_set_image(dec, output).error_code);
+      ASSERT_EQ(UHDR_CODEC_OK,
+                uhdr_dec_set_out_img_format(dec, UHDR_IMG_FMT_64bppRGBAHalfFloat).error_code);
+      ASSERT_EQ(UHDR_CODEC_OK, uhdr_dec_set_out_color_transfer(dec, UHDR_CT_LINEAR).error_code);
+      ASSERT_EQ(UHDR_CODEC_OK, uhdr_dec_probe(dec).error_code);
+      ASSERT_EQ(UHDR_CODEC_OK, uhdr_decode(dec).error_code);
+
+      uhdr_raw_image_t* gm = uhdr_get_decoded_gainmap_image(dec);
+      ASSERT_NE(gm, nullptr);
+      const size_t bpp = (gm->fmt == UHDR_IMG_FMT_8bppYCbCr400) ? 1u : 3u;
+      const auto* gm_bytes = static_cast<const uint8_t*>(gm->planes[UHDR_PLANE_PACKED]);
+      const uint8_t top_sample = gm_bytes[2 * gm->stride[UHDR_PLANE_PACKED] * bpp + 2 * bpp];
+      const uint8_t bottom_sample = gm_bytes[13 * gm->stride[UHDR_PLANE_PACKED] * bpp + 2 * bpp];
+      EXPECT_LE(top_sample, 2u);
+      EXPECT_GE(bottom_sample, 250u);
+
+      uhdr_release_decoder(dec);
+      uhdr_release_encoder(enc);
+    }
+  }
+}
+
 }  // namespace ultrahdr
