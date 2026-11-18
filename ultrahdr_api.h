@@ -212,6 +212,13 @@ typedef enum uhdr_mirror_direction {
   UHDR_MIRROR_HORIZONTAL,  /**< flip image over y axis */
 } uhdr_mirror_direction_t; /**< alias for enum uhdr_mirror_direction */
 
+/*!\brief Encoder Headroom Adaptive Gain Curves (SMPTE ST 2094-50 / ICC HAGC) mode */
+typedef enum uhdr_hagc_mode {
+  UHDR_HAGC_DISABLED = 0,            /**< Do not emit ICC HAGC metadata (default) */
+  UHDR_HAGC_DERIVE_FROM_GAINMAP = 1, /**< Derive SMPTE ST 2094-50 curves from gain map and embed in
+                                        primary image ICC v4.4 'HAGC' tag */
+} uhdr_hagc_mode_t;                  /**< alias for enum uhdr_hagc_mode */
+
 // ===============================================================================================
 // Structure Definitions
 // ===============================================================================================
@@ -503,6 +510,22 @@ UHDR_EXTERN uhdr_error_info_t uhdr_enc_set_preset(uhdr_codec_private_t* enc,
  */
 UHDR_EXTERN uhdr_error_info_t uhdr_enc_set_output_format(uhdr_codec_private_t* enc,
                                                          uhdr_codec_t media_type);
+
+/*!\brief Configure Headroom Adaptive Gain Curves (SMPTE ST 2094-50 / ICC HAGC) emission mode.
+ * Default configuration is #UHDR_HAGC_DISABLED. When #UHDR_HAGC_DERIVE_FROM_GAINMAP is enabled for
+ * #UHDR_CODEC_JPG output, the encoder derives SMPTE ST 2094-50 Annex C curves from the SDR base
+ * image and gain map and embeds them into the primary image ICC v4.4 'HAGC' tag without
+ * re-encoding compressed base image pixel scans.
+ *
+ * \param[in]  enc   encoder instance.
+ * \param[in]  mode  HAGC mode (#UHDR_HAGC_DISABLED or #UHDR_HAGC_DERIVE_FROM_GAINMAP).
+ *
+ * \return uhdr_error_info_t #UHDR_CODEC_OK if operation succeeds,
+ *                           #UHDR_CODEC_INVALID_PARAM if enc or mode is invalid,
+ *                           #UHDR_CODEC_INVALID_OPERATION if the encoder is no longer configurable.
+ */
+UHDR_EXTERN uhdr_error_info_t uhdr_enc_set_hagc_mode(uhdr_codec_private_t* enc,
+                                                     uhdr_hagc_mode_t mode);
 
 /*!\brief Encode process call
  * After initializing the encoder context, call to this function will submit data for encoding. If

@@ -746,7 +746,21 @@ TEST_F(AgtmTest, DeriveHagc12MpLatencyUnderTwoMilliseconds) {
   }
   std::sort(elapsed_ms.begin(), elapsed_ms.end());
   const double median_ms = elapsed_ms[elapsed_ms.size() / 2u];
-  EXPECT_LT(median_ms, 2.0) << "Median 12 MP HAGC derivation latency (ms): " << median_ms;
+#if defined(__SANITIZE_ADDRESS__) || defined(__SANITIZE_THREAD__) || \
+    defined(__SANITIZE_UNDEFINED__) || defined(_DEBUG) ||            \
+    (!defined(_MSC_VER) && !defined(__OPTIMIZE__))
+  constexpr double kMaxMedianMs = 50.0;
+#elif defined(__has_feature)
+#if __has_feature(address_sanitizer) || __has_feature(memory_sanitizer) || \
+    __has_feature(thread_sanitizer) || __has_feature(undefined_behavior_sanitizer)
+  constexpr double kMaxMedianMs = 50.0;
+#else
+  constexpr double kMaxMedianMs = 2.0;
+#endif
+#else
+  constexpr double kMaxMedianMs = 2.0;
+#endif
+  EXPECT_LT(median_ms, kMaxMedianMs) << "Median 12 MP HAGC derivation latency (ms): " << median_ms;
 }
 
 }  // namespace ultrahdr

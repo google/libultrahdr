@@ -411,6 +411,7 @@ struct uhdr_encoder_private : uhdr_codec_private {
   float m_min_content_boost;
   float m_max_content_boost;
   float m_target_disp_max_brightness;
+  uhdr_hagc_mode_t m_hagc_mode;
 
   // internal data
   std::unique_ptr<ultrahdr::uhdr_compressed_image_ext_t> m_compressed_output_buffer;

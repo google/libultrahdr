@@ -11,7 +11,9 @@
 #ifndef ULTRAHDR_ICC_H
 #define ULTRAHDR_ICC_H
 
+#include <cstdint>
 #include <memory>
+#include <vector>
 
 #include "ultrahdr/jpegr.h"
 #include "ultrahdr/gainmapmath.h"
@@ -98,6 +100,11 @@ static constexpr size_t kColorantTagSize = 20;
 // byte each for primaries, transfer, matrix, range.
 static constexpr size_t kCicpTagSize = 12;
 
+// size should be 12; 4 bytes for type descriptor ('hagc'), 4 bytes reserved (0),
+// and 4 bytes big-endian payload size, followed by SMPTE ST 2094-50 Annex C bytes
+// padded to a 4-byte boundary.
+static constexpr size_t kHagcTagHeaderSize = 12;
+
 static constexpr uint32_t kDisplay_Profile = SetFourByteTag('m', 'n', 't', 'r');
 static constexpr uint32_t kRGB_ColorSpace = SetFourByteTag('R', 'G', 'B', ' ');
 static constexpr uint32_t kXYZ_PCSSpace = SetFourByteTag('X', 'Y', 'Z', ' ');
@@ -113,11 +120,13 @@ static constexpr uint32_t kTAG_rTRC = SetFourByteTag('r', 'T', 'R', 'C');
 static constexpr uint32_t kTAG_gTRC = SetFourByteTag('g', 'T', 'R', 'C');
 static constexpr uint32_t kTAG_bTRC = SetFourByteTag('b', 'T', 'R', 'C');
 static constexpr uint32_t kTAG_cicp = SetFourByteTag('c', 'i', 'c', 'p');
+static constexpr uint32_t kTAG_HAGC = SetFourByteTag('H', 'A', 'G', 'C');
 static constexpr uint32_t kTAG_cprt = SetFourByteTag('c', 'p', 'r', 't');
 static constexpr uint32_t kTAG_A2B0 = SetFourByteTag('A', '2', 'B', '0');
 static constexpr uint32_t kTAG_B2A0 = SetFourByteTag('B', '2', 'A', '0');
 
 static constexpr uint32_t kTAG_CurveType = SetFourByteTag('c', 'u', 'r', 'v');
+static constexpr uint32_t kTAG_HAGCType = SetFourByteTag('h', 'a', 'g', 'c');
 static constexpr uint32_t kTAG_mABType = SetFourByteTag('m', 'A', 'B', ' ');
 static constexpr uint32_t kTAG_mBAType = SetFourByteTag('m', 'B', 'A', ' ');
 static constexpr uint32_t kTAG_ParaCurveType = SetFourByteTag('p', 'a', 'r', 'a');
@@ -194,7 +203,7 @@ struct ICCHeader {
   uint32_t size;
   // Preferred CMM type (ignored)
   uint32_t cmm_type = 0;
-  // Version 4.3 or 4.4 if CICP is included.
+  // Version 4.3 or 4.4 if CICP or HAGC is included.
   uint32_t version = Endian_SwapBE32(0x04300000);
   // Display device profile
   uint32_t profile_class = Endian_SwapBE32(kDisplay_Profile);
@@ -247,6 +256,7 @@ class IccHelper {
   static float compute_tone_map_gain(const uhdr_color_transfer_t tf, float L);
   static std::shared_ptr<DataStruct> write_cicp_tag(uint32_t color_primaries,
                                                     uint32_t transfer_characteristics);
+  static std::shared_ptr<DataStruct> write_hagc_tag(const void* hagc_data, size_t hagc_size);
   static std::shared_ptr<DataStruct> write_mAB_or_mBA_tag(uint32_t type, bool has_a_curves,
                                                           const uint8_t* grid_points,
                                                           const uint8_t* grid_16);
@@ -260,9 +270,25 @@ class IccHelper {
 
  public:
   // Output includes JPEG embedding identifier and chunk information, but not
-  // APPx information.
+  // APPx information. When hagc_data != nullptr && hagc_size > 0, embeds the
+  // canonical ICC v4.4 'HAGC' tag (tagSignature='HAGC', tagType='hagc') and
+  // upgrades the profile header version to 4.4.
   static std::shared_ptr<DataStruct> writeIccProfile(const uhdr_color_transfer_t tf,
-                                                     const uhdr_color_gamut_t gamut);
+                                                     const uhdr_color_gamut_t gamut,
+                                                     const void* hagc_data = nullptr,
+                                                     size_t hagc_size = 0);
+  // Preserves all existing tags in an ICC profile while inserting or replacing
+  // the canonical ICC v4.4 'HAGC' tag, bumping header version to >= 4.4,
+  // clearing any stale MD5 Profile ID checksum, and updating total profile size.
+  // Accepts ICC bytes either with or without the 14-byte JPEG APP2 identifier
+  // ("ICC_PROFILE\0\x01\x01") and preserves the input framing.
+  static std::shared_ptr<DataStruct> injectHagcIntoIccProfile(const void* icc_data,
+                                                              size_t icc_size,
+                                                              const void* hagc_data,
+                                                              size_t hagc_size);
+  // Extracts the raw SMPTE ST 2094-50 Annex C payload from an ICC profile's
+  // 'HAGC' tag (accepts ICC bytes with or without the 14-byte JPEG APP2 identifier).
+  static bool readIccHagc(const void* icc_data, size_t icc_size, std::vector<uint8_t>& out_hagc);
   // NOTE: this function is not robust; it can infer gamuts that IccHelper
   // writes out but should not be considered a reference implementation for
   // robust parsing of ICC profiles or their gamuts.
