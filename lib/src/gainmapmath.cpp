@@ -8,6 +8,7 @@
  * except according to those terms.
  */
 
+#include <algorithm>
 #include <cmath>
 
 #include "ultrahdr/gainmapmath.h"
@@ -788,7 +789,11 @@ uint8_t encodeGain(float y_sdr, float y_hdr, uhdr_gainmap_metadata_ext_t* metada
 }
 
 float computeGain(float sdr, float hdr) {
-  float gain = log2((hdr + kHdrOffset) / (sdr + kSdrOffset));
+  return computeGain(sdr, hdr, kSdrOffset, kHdrOffset);
+}
+
+float computeGain(float sdr, float hdr, float sdr_offset_nits, float hdr_offset_nits) {
+  float gain = log2((hdr + hdr_offset_nits) / (sdr + sdr_offset_nits));
   if (sdr < 2.f / 255.0f) {
     // If sdr is zero and hdr is non zero, it can result in very large gain values. In compression -
     // decompression process, if the same sdr pixel increases to 1, the hdr recovered pixel will
@@ -799,7 +804,10 @@ float computeGain(float sdr, float hdr) {
 }
 
 uint8_t affineMapGain(float gainlog2, float mingainlog2, float maxgainlog2, float gamma) {
+  if (!(maxgainlog2 > mingainlog2) || !(gainlog2 > mingainlog2)) return 0;
+  if (gainlog2 >= maxgainlog2) return 255;
   float mappedVal = (gainlog2 - mingainlog2) / (maxgainlog2 - mingainlog2);
+  mappedVal = (std::clamp)(mappedVal, 0.0f, 1.0f);
   if (gamma != 1.0f) mappedVal = pow(mappedVal, gamma);
   mappedVal *= 255;
   return CLIP3(mappedVal + 0.5f, 0, 255);
