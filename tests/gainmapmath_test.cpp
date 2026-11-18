@@ -16,9 +16,6 @@
 #include <vector>
 
 #include "ultrahdr/gainmapmath.h"
-#ifdef UHDR_ENABLE_SMPTE2094_50
-#include "smpte2094_50/smpte2094_50.h"
-#endif
 
 namespace ultrahdr {
 

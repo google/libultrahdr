@@ -3198,4 +3198,46 @@ TEST(JpegRTest, HagcDeriveFromGainMapAcrossAllApisAndZeroPixelReencode) {
   }
 }
 
+TEST(JpegRTest, HagcModeValidationRejectsInvalidEnum) {
+  JpegR jpegr;
+  EXPECT_EQ(jpegr.getHagcMode(), UHDR_HAGC_DISABLED);
+  EXPECT_EQ(jpegr.setHagcMode(UHDR_HAGC_DERIVE_FROM_GAINMAP).error_code, UHDR_CODEC_OK);
+  EXPECT_EQ(jpegr.getHagcMode(), UHDR_HAGC_DERIVE_FROM_GAINMAP);
+
+  EXPECT_EQ(jpegr.setHagcMode(static_cast<uhdr_hagc_mode_t>(-1)).error_code,
+            UHDR_CODEC_INVALID_PARAM);
+  EXPECT_EQ(jpegr.setHagcMode(static_cast<uhdr_hagc_mode_t>(2)).error_code,
+            UHDR_CODEC_INVALID_PARAM);
+  EXPECT_EQ(jpegr.getHagcMode(), UHDR_HAGC_DERIVE_FROM_GAINMAP);
+
+  constexpr uint32_t kW = 32;
+  constexpr uint32_t kH = 32;
+  uhdr_raw_image_ext_t hdr(UHDR_IMG_FMT_32bppRGBA1010102, UHDR_CG_BT_2100, UHDR_CT_HLG,
+                           UHDR_CR_FULL_RANGE, kW, kH, 64);
+  uhdr_raw_image_ext_t sdr(UHDR_IMG_FMT_32bppRGBA8888, UHDR_CG_BT_709, UHDR_CT_SRGB,
+                           UHDR_CR_FULL_RANGE, kW, kH, 64);
+  buildSyntheticHdrAndSdrImages(kW, kH, UHDR_CG_BT_2100, UHDR_CG_BT_709, hdr, sdr);
+  auto sdr_yuv = convert_raw_input_to_ycbcr(&sdr);
+  JpegEncoderHelper sdr_enc;
+  ASSERT_EQ(sdr_enc.compressImage(sdr_yuv.get(), 90, nullptr, 0).error_code, UHDR_CODEC_OK);
+  uhdr_compressed_image_t sdr_jpg = sdr_enc.getCompressedImage();
+  sdr_jpg.cg = UHDR_CG_BT_709;
+  uhdr_gainmap_metadata_ext_t gm_meta(kJpegrVersion);
+  uhdr_compressed_image_ext_t out(UHDR_CG_UNSPECIFIED, UHDR_CT_UNSPECIFIED, UHDR_CR_UNSPECIFIED,
+                                  64 * 1024);
+
+  JpegR jpegr_bad(nullptr, kMapDimensionScaleFactorAndroidDefault, kMapCompressQualityAndroidDefault,
+                  kUseMultiChannelGainMapAndroidDefault, kGainMapGammaDefault,
+                  kEncSpeedPresetAndroidDefault, FLT_MIN, FLT_MAX, -1.0f,
+                  static_cast<uhdr_hagc_mode_t>(99));
+  EXPECT_EQ(jpegr_bad.encodeJPEGR(&hdr, &out, 90, nullptr).error_code, UHDR_CODEC_INVALID_PARAM);
+  EXPECT_EQ(jpegr_bad.encodeJPEGR(&hdr, &sdr, &out, 90, nullptr).error_code,
+            UHDR_CODEC_INVALID_PARAM);
+  EXPECT_EQ(jpegr_bad.encodeJPEGR(&hdr, &sdr, &sdr_jpg, &out).error_code,
+            UHDR_CODEC_INVALID_PARAM);
+  EXPECT_EQ(jpegr_bad.encodeJPEGR(&hdr, &sdr_jpg, &out).error_code, UHDR_CODEC_INVALID_PARAM);
+  EXPECT_EQ(jpegr_bad.encodeJPEGR(&sdr_jpg, &sdr_jpg, &gm_meta, &out).error_code,
+            UHDR_CODEC_INVALID_PARAM);
+}
+
 }  // namespace ultrahdr

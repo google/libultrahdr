@@ -382,6 +382,8 @@ void UltraHdrEncFuzzer::process() {
     ON_ERR(uhdr_enc_set_min_max_content_boost(enc_handle, minBoost[0], maxBoost[0]))
     ON_ERR(uhdr_enc_set_target_display_peak_brightness(enc_handle, targetDispPeakBrightness))
     ON_ERR(uhdr_enc_set_preset(enc_handle, enc_preset))
+    ON_ERR(uhdr_enc_set_hagc_mode(
+        enc_handle, mFdp.ConsumeBool() ? UHDR_HAGC_DERIVE_FROM_GAINMAP : UHDR_HAGC_DISABLED))
     ON_ERR(uhdr_enable_gpu_acceleration(enc_handle, 1))
     if (applyMirror) ON_ERR(uhdr_add_effect_mirror(enc_handle, direction))
     if (applyRotate) ON_ERR(uhdr_add_effect_rotate(enc_handle, degrees))
