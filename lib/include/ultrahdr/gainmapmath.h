@@ -502,6 +502,9 @@ uint8_t encodeGain(float y_sdr, float y_hdr, uhdr_gainmap_metadata_ext_t* metada
 uint8_t encodeGain(float y_sdr, float y_hdr, uhdr_gainmap_metadata_ext_t* metadata,
                    float log2MinContentBoost, float log2MaxContentBoost, int index);
 float computeGain(float sdr, float hdr);
+// Computes a gain using a shared NITS offset for both intents. The dark-pixel cap matches
+// computeGain(); best-quality multichannel gain-map generation uses it.
+float computeGainWithOffset(float sdr, float hdr, float offset);
 uint8_t affineMapGain(float gainlog2, float mingainlog2, float maxgainlog2, float gamma);
 
 /*

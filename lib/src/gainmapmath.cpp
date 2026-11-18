@@ -799,6 +799,15 @@ float computeGain(float sdr, float hdr) {
   return gain;
 }
 
+float computeGainWithOffset(float sdr, float hdr, float offset) {
+  float gain = log2((hdr + offset) / (sdr + offset));
+  if (sdr < 2.f / 255.0f) {
+    // Keep the same dark-pixel limit as computeGain().
+    gain = (std::min)(gain, 2.3f);
+  }
+  return gain;
+}
+
 uint8_t affineMapGain(float gainlog2, float mingainlog2, float maxgainlog2, float gamma) {
   if (!(maxgainlog2 > mingainlog2) || !(gainlog2 > mingainlog2)) return 0;
   if (gainlog2 >= maxgainlog2) return 255;

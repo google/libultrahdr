@@ -61,6 +61,8 @@ static const bool kWriteIso21496_1Metadata = false;
 
 static const string kXmpNameSpace = "http://ns.adobe.com/xap/1.0/";
 static const string kIsoNameSpace = "urn:iso:std:iso:ts:21496:-1";
+static const float kCoherentGainOffsetNits = kSdrWhiteNits / 255.0f;
+static constexpr float kCoherentGainOffsetNormalized = 1.0f / 255.0f;
 
 static_assert(kWriteXmpMetadata || kWriteIso21496_1Metadata,
               "Must write gain map metadata in XMP format, or iso 21496-1 format, or both.");
@@ -845,6 +847,13 @@ uhdr_error_info_t UltraHdr::generateGainMap(uhdr_raw_image_t* sdr_intent,
                                  hdrGamutConversionFn, sdrGamutConversionFn, luminanceFn,
                                  sdrYuvToRgbFn, hdrYuvToRgbFn, sdr_sample_pixel_fn,
                                  hdr_sample_pixel_fn, hdr_white_nits, use_luminance]() -> void {
+    const bool userBoundsExcludeUnity =
+        (this->mMinContentBoost != FLT_MIN && this->mMinContentBoost > 1.0f) ||
+        (this->mMaxContentBoost != FLT_MAX && this->mMaxContentBoost < 1.0f);
+    const bool useCoherentOffset = this->mEncPreset == UHDR_USAGE_BEST_QUALITY &&
+                                   this->mUseMultiChannelGainMap && !userBoundsExcludeUnity;
+    bool useCoherentSamples = useCoherentOffset;
+    bool updateGainRange = true;
     uhdr_memory_block_t gainmap_mem((size_t)map_width * map_height * sizeof(float) *
                                     (mUseMultiChannelGainMap ? 3 : 1));
     float* gainmap_data = reinterpret_cast<float*>(gainmap_mem.m_buffer.get());
@@ -860,7 +869,8 @@ uhdr_error_info_t UltraHdr::generateGainMap(uhdr_raw_image_t* sdr_intent,
         [this, sdr_intent, hdr_intent, gainmap_data, map_width, hdrInvOetf, hdrLuminanceFn,
          hdrOotfFn, hdrGamutConversionFn, sdrGamutConversionFn, luminanceFn, sdrYuvToRgbFn,
          hdrYuvToRgbFn, sdr_sample_pixel_fn, hdr_sample_pixel_fn, hdr_white_nits, use_luminance,
-         &gainmap_min, &gainmap_max, &gainmap_minmax, &jobQueue]() -> void {
+         useCoherentOffset, &useCoherentSamples, &updateGainRange, &gainmap_min, &gainmap_max,
+         &gainmap_minmax, &jobQueue]() -> void {
       unsigned int rowStart, rowEnd;
       const bool isHdrIntentRgb = isPixelFormatRgb(hdr_intent->fmt);
       const bool isSdrIntentRgb = isPixelFormatRgb(sdr_intent->fmt);
@@ -868,6 +878,11 @@ uhdr_error_info_t UltraHdr::generateGainMap(uhdr_raw_image_t* sdr_intent,
           hdr_intent->ct == UHDR_CT_LINEAR ? kSdrWhiteNits : hdr_white_nits;
       float gainmap_min_th[3] = {127.0f, 127.0f, 127.0f};
       float gainmap_max_th[3] = {-128.0f, -128.0f, -128.0f};
+      float legacy_ratio_min_th[3][2] = {
+          {FLT_MAX, FLT_MAX}, {FLT_MAX, FLT_MAX}, {FLT_MAX, FLT_MAX}};
+      float legacy_ratio_max_th[3][2] = {
+          {-FLT_MAX, -FLT_MAX}, {-FLT_MAX, -FLT_MAX}, {-FLT_MAX, -FLT_MAX}};
+      bool legacy_ratio_seen_th[3][2] = {};
 
       while (jobQueue.dequeueJob(rowStart, rowEnd)) {
         for (size_t y = rowStart; y < rowEnd; ++y) {
@@ -908,12 +923,40 @@ uhdr_error_info_t UltraHdr::generateGainMap(uhdr_raw_image_t* sdr_intent,
               Color hdr_rgb_nits = hdr_rgb * hdrSampleToNitsFactor;
               size_t pixel_idx = (x + y * map_width) * 3;
 
-              gainmap_data[pixel_idx] = computeGain(sdr_rgb_nits.r, hdr_rgb_nits.r);
-              gainmap_data[pixel_idx + 1] = computeGain(sdr_rgb_nits.g, hdr_rgb_nits.g);
-              gainmap_data[pixel_idx + 2] = computeGain(sdr_rgb_nits.b, hdr_rgb_nits.b);
-              for (int i = 0; i < 3; i++) {
-                gainmap_min_th[i] = (std::min)(gainmap_data[pixel_idx + i], gainmap_min_th[i]);
-                gainmap_max_th[i] = (std::max)(gainmap_data[pixel_idx + i], gainmap_max_th[i]);
+              const float sdr_channel_nits[] = {sdr_rgb_nits.r, sdr_rgb_nits.g, sdr_rgb_nits.b};
+              const float hdr_channel_nits[] = {hdr_rgb_nits.r, hdr_rgb_nits.g, hdr_rgb_nits.b};
+              if (useCoherentOffset && updateGainRange) {
+                // Preserve legacy metadata bounds while reducing the per-pixel ratio extrema.
+                for (int channel = 0; channel < 3; channel++) {
+                  const int range = sdr_channel_nits[channel] < 2.0f / 255.0f ? 0 : 1;
+                  const float ratio = (hdr_channel_nits[channel] + kHdrOffset) /
+                                      (sdr_channel_nits[channel] + kSdrOffset);
+                  legacy_ratio_min_th[channel][range] =
+                      (std::min)(legacy_ratio_min_th[channel][range], ratio);
+                  legacy_ratio_max_th[channel][range] =
+                      (std::max)(legacy_ratio_max_th[channel][range], ratio);
+                  legacy_ratio_seen_th[channel][range] = true;
+                }
+              }
+              if (useCoherentSamples) {
+                for (int channel = 0; channel < 3; channel++) {
+                  gainmap_data[pixel_idx + channel] =
+                      computeGainWithOffset(sdr_channel_nits[channel], hdr_channel_nits[channel],
+                                            kCoherentGainOffsetNits);
+                }
+              } else {
+                for (int channel = 0; channel < 3; channel++) {
+                  gainmap_data[pixel_idx + channel] =
+                      computeGain(sdr_channel_nits[channel], hdr_channel_nits[channel]);
+                }
+              }
+              if (!useCoherentOffset) {
+                for (int channel = 0; channel < 3; channel++) {
+                  gainmap_min_th[channel] =
+                      (std::min)(gainmap_data[pixel_idx + channel], gainmap_min_th[channel]);
+                  gainmap_max_th[channel] =
+                      (std::max)(gainmap_data[pixel_idx + channel], gainmap_max_th[channel]);
+                }
               }
             } else {
               float sdr_y_nits;
@@ -935,7 +978,22 @@ uhdr_error_info_t UltraHdr::generateGainMap(uhdr_raw_image_t* sdr_intent,
           }
         }
       }
-      {
+      if (useCoherentOffset && updateGainRange) {
+        for (int channel = 0; channel < 3; channel++) {
+          for (int range = 0; range < 2; range++) {
+            if (!legacy_ratio_seen_th[channel][range]) continue;
+            float gain_min = log2(legacy_ratio_min_th[channel][range]);
+            float gain_max = log2(legacy_ratio_max_th[channel][range]);
+            if (range == 0) {
+              gain_min = (std::min)(gain_min, 2.3f);
+              gain_max = (std::min)(gain_max, 2.3f);
+            }
+            gainmap_min_th[channel] = (std::min)(gainmap_min_th[channel], gain_min);
+            gainmap_max_th[channel] = (std::max)(gainmap_max_th[channel], gain_max);
+          }
+        }
+      }
+      if (updateGainRange) {
         std::unique_lock<std::mutex> lock{gainmap_minmax};
         for (int index = 0; index < (mUseMultiChannelGainMap ? 3 : 1); index++) {
           gainmap_min[index] = (std::min)(gainmap_min[index], gainmap_min_th[index]);
@@ -946,18 +1004,23 @@ uhdr_error_info_t UltraHdr::generateGainMap(uhdr_raw_image_t* sdr_intent,
 
     // generate map
     std::vector<std::thread> workers;
-    for (int th = 0; th < threads - 1; th++) {
-      workers.push_back(std::thread(generateMap));
-    }
-
-    for (unsigned int rowStart = 0; rowStart < map_height;) {
-      unsigned int rowEnd = (std::min)(rowStart + rowStep, map_height);
-      jobQueue.enqueueJob(rowStart, rowEnd);
-      rowStart = rowEnd;
-    }
-    jobQueue.markQueueForEnd();
-    generateMap();
-    std::for_each(workers.begin(), workers.end(), [](std::thread& t) { t.join(); });
+    auto runGenerateMap = [&]() {
+      workers.clear();
+      jobQueue.reset();
+      rowStep = threads == 1 ? map_height : jobSizeInRows;
+      for (int th = 0; th < threads - 1; th++) {
+        workers.push_back(std::thread(generateMap));
+      }
+      for (unsigned int rowStart = 0; rowStart < map_height;) {
+        unsigned int rowEnd = (std::min)(rowStart + rowStep, map_height);
+        jobQueue.enqueueJob(rowStart, rowEnd);
+        rowStart = rowEnd;
+      }
+      jobQueue.markQueueForEnd();
+      generateMap();
+      std::for_each(workers.begin(), workers.end(), [](std::thread& t) { t.join(); });
+    };
+    runGenerateMap();
 
     // xmp metadata current implementation does not support writing multichannel metadata
     // so merge them in to one
@@ -991,8 +1054,26 @@ uhdr_error_info_t UltraHdr::generateGainMap(uhdr_raw_image_t* sdr_intent,
       }
     }
 
+    bool useCoherentMap = useCoherentOffset;
+    if (useCoherentMap) {
+      for (int index = 0; index < 3; index++) {
+        if (gainmap_min[index] > 0.0f || gainmap_max[index] < 0.0f) {
+          useCoherentMap = false;
+          break;
+        }
+      }
+      if (!useCoherentMap) {
+        // A fixed nonzero offset can distort a map whose selected legacy range excludes unity.
+        // Rebuild these maps using the original gains and metadata offsets.
+        useCoherentSamples = false;
+        updateGainRange = false;
+        runGenerateMap();
+      }
+    }
+
+    const bool clampGainBeforeMapping = useCoherentMap && this->mGamma != 1.0f;
     std::function<void()> encodeMap = [this, gainmap_data, map_width, dest, gainmap_min,
-                                       gainmap_max, &jobQueue]() -> void {
+                                       gainmap_max, clampGainBeforeMapping, &jobQueue]() -> void {
       unsigned int rowStart, rowEnd;
 
       while (jobQueue.dequeueJob(rowStart, rowEnd)) {
@@ -1001,9 +1082,12 @@ uhdr_error_info_t UltraHdr::generateGainMap(uhdr_raw_image_t* sdr_intent,
             size_t dst_pixel_idx = j * dest->stride[UHDR_PLANE_PACKED] * 3;
             size_t src_pixel_idx = j * map_width * 3;
             for (size_t i = 0; i < map_width * 3; i++) {
+              const float gain = clampGainBeforeMapping
+                                     ? (std::clamp)(gainmap_data[src_pixel_idx + i],
+                                                    gainmap_min[i % 3], gainmap_max[i % 3])
+                                     : gainmap_data[src_pixel_idx + i];
               reinterpret_cast<uint8_t*>(dest->planes[UHDR_PLANE_PACKED])[dst_pixel_idx + i] =
-                  affineMapGain(gainmap_data[src_pixel_idx + i], gainmap_min[i % 3],
-                                gainmap_max[i % 3], this->mGamma);
+                  affineMapGain(gain, gainmap_min[i % 3], gainmap_max[i % 3], this->mGamma);
             }
           }
         } else {
@@ -1044,8 +1128,13 @@ uhdr_error_info_t UltraHdr::generateGainMap(uhdr_raw_image_t* sdr_intent,
       std::fill_n(gainmap_metadata->min_content_boost, 3, exp2(gainmap_min[0]));
     }
     std::fill_n(gainmap_metadata->gamma, 3, this->mGamma);
-    std::fill_n(gainmap_metadata->offset_sdr, 3, kSdrOffset);
-    std::fill_n(gainmap_metadata->offset_hdr, 3, kHdrOffset);
+    if (useCoherentMap) {
+      std::fill_n(gainmap_metadata->offset_sdr, 3, kCoherentGainOffsetNormalized);
+      std::fill_n(gainmap_metadata->offset_hdr, 3, kCoherentGainOffsetNormalized);
+    } else {
+      std::fill_n(gainmap_metadata->offset_sdr, 3, kSdrOffset);
+      std::fill_n(gainmap_metadata->offset_hdr, 3, kHdrOffset);
+    }
     gainmap_metadata->hdr_capacity_min = 1.0f;
     if (this->mTargetDispPeakBrightness != -1.0f) {
       gainmap_metadata->hdr_capacity_max = this->mTargetDispPeakBrightness / kSdrWhiteNits;
