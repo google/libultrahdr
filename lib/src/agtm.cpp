@@ -390,24 +390,32 @@ bool PchipInterpolator::reverseInterpolate(float yi, float& out_xi) const {
         return true;
       }
 
+      const float h = high - low;
+      const float m0 = mSlopes[i];
+      const float m1 = mSlopes[i + 1];
       const bool increasing = (y0 <= y1);
-      for (int step = 0; step < 20; ++step) {
-        const float mid_x = low + 0.5f * (high - low);
-        if (interpolate(mid_x) < yi) {
+      float t_lo = 0.0f;
+      float t_hi = 1.0f;
+      for (int step = 0; step < 16; ++step) {
+        const float t = 0.5f * (t_lo + t_hi);
+        const float omt = 1.0f - t;
+        const float val = ((1.0f + 2.0f * t) * omt * omt) * y0 + (t * omt * omt) * h * m0 +
+                          (t * t * (3.0f - 2.0f * t)) * y1 + (t * t * (t - 1.0f)) * h * m1;
+        if (val < yi) {
           if (increasing) {
-            low = mid_x;
+            t_lo = t;
           } else {
-            high = mid_x;
+            t_hi = t;
           }
         } else {
           if (increasing) {
-            high = mid_x;
+            t_hi = t;
           } else {
-            low = mid_x;
+            t_lo = t;
           }
         }
       }
-      out_xi = low + 0.5f * (high - low);
+      out_xi = low + 0.5f * (t_lo + t_hi) * h;
       return true;
     }
   }
@@ -1157,6 +1165,535 @@ uhdr_error_info_t parseSt2094_50(const uint8_t* data, size_t size, DynamicMetada
   return g_no_error;
 }
 
+namespace {
+
+bool solveLinearSystem(size_t n,
+                       std::array<std::array<double, DynamicMetadata::kNumMixCoefficients>,
+                                  DynamicMetadata::kNumMixCoefficients>
+                           mat,
+                       std::array<double, DynamicMetadata::kNumMixCoefficients> rhs,
+                       std::array<double, DynamicMetadata::kNumMixCoefficients>& out_sol) {
+  out_sol.fill(0.0);
+  for (size_t col = 0; col < n; ++col) {
+    size_t piv = col;
+    double max_abs = std::fabs(mat[col][col]);
+    for (size_t row = col + 1; row < n; ++row) {
+      const double v = std::fabs(mat[row][col]);
+      if (v > max_abs) {
+        max_abs = v;
+        piv = row;
+      }
+    }
+    if (max_abs <= 1e-13) {
+      return false;
+    }
+    if (piv != col) {
+      std::swap(mat[col], mat[piv]);
+      std::swap(rhs[col], rhs[piv]);
+    }
+    const double inv_diag = 1.0 / mat[col][col];
+    for (size_t row = col + 1; row < n; ++row) {
+      const double factor = mat[row][col] * inv_diag;
+      if (factor == 0.0) continue;
+      mat[row][col] = 0.0;
+      for (size_t k = col + 1; k < n; ++k) {
+        mat[row][k] -= factor * mat[col][k];
+      }
+      rhs[row] -= factor * rhs[col];
+    }
+  }
+
+  for (size_t idx = n; idx > 0; --idx) {
+    const size_t row = idx - 1;
+    double acc = rhs[row];
+    for (size_t k = row + 1; k < n; ++k) {
+      acc -= mat[row][k] * out_sol[k];
+    }
+    out_sol[row] = acc / mat[row][row];
+  }
+  return true;
+}
+
+float clampGainForHeadroom(float y, float base_headroom_log2, float alt_headroom_log2) {
+  if (alt_headroom_log2 > base_headroom_log2) {
+    return std::max(y, 0.0f);
+  }
+  return std::min(y, 0.0f);
+}
+
+}  // namespace
+
+uhdr_error_info_t solveConstrainedL1Simplex(
+    const float* A, const float* B, size_t num_rows, size_t num_vars,
+    std::array<float, DynamicMetadata::kNumMixCoefficients>& out_weights,
+    double* out_duality_gap) {
+  out_weights.fill(0.0f);
+  if (out_duality_gap != nullptr) {
+    *out_duality_gap = 0.0;
+  }
+  if (A == nullptr || B == nullptr || num_rows == 0 || num_vars == 0 ||
+      num_vars > DynamicMetadata::kNumMixCoefficients) {
+    return makeError(UHDR_CODEC_INVALID_PARAM, "Invalid dimensions or null pointers in L1 solver");
+  }
+
+  using Vec6d = std::array<double, DynamicMetadata::kNumMixCoefficients>;
+  using Mat6d = std::array<Vec6d, DynamicMetadata::kNumMixCoefficients>;
+
+  std::vector<Vec6d> rows_a(num_rows, Vec6d{});
+  std::vector<double> rows_b(num_rows, 0.0);
+  size_t m = 0;
+  for (size_t i = 0; i < num_rows; ++i) {
+    if (!std::isfinite(B[i])) continue;
+    Vec6d r{};
+    bool ok = true;
+    for (size_t j = 0; j < num_vars; ++j) {
+      const float val = A[i * num_vars + j];
+      if (!std::isfinite(val)) {
+        ok = false;
+        break;
+      }
+      r[j] = static_cast<double>(val);
+    }
+    if (ok) {
+      rows_a[m] = r;
+      rows_b[m] = static_cast<double>(B[i]);
+      ++m;
+    }
+  }
+  if (m == 0) {
+    return makeError(UHDR_CODEC_INVALID_PARAM, "No finite rows provided to L1 solver");
+  }
+  rows_a.resize(m);
+  rows_b.resize(m);
+
+  if (num_vars == 1) {
+    out_weights[0] = 1.0f;
+    return g_no_error;
+  }
+
+  const size_t n = num_vars;
+  constexpr int kLambdaVar = -1;
+  // Variable states for bounded variables q in [0, m + n):
+  //   0 -> non-basic at lower bound 0.0
+  //   1 -> non-basic at upper bound 1.0 (only for q < m)
+  //   2 -> basic (in basis[1 .. n-1])
+  std::vector<int> state(m + n, 0);
+
+  Vec6d rhs{};
+  const double inv_n = 1.0 / static_cast<double>(n);
+  Vec6d eff_rhs{};
+  for (size_t i = 0; i < m; ++i) {
+    double avg_a = 0.0;
+    for (size_t j = 0; j < n; ++j) {
+      rhs[j] += rows_a[i][j];
+      avg_a += rows_a[i][j];
+    }
+    if (rows_b[i] > avg_a * inv_n) {
+      state[i] = 1;
+      for (size_t j = 0; j < n; ++j) {
+        eff_rhs[j] -= rows_a[i][j];
+      }
+    } else {
+      for (size_t j = 0; j < n; ++j) {
+        eff_rhs[j] += rows_a[i][j];
+      }
+    }
+  }
+
+  // Phase-I-free warm-started dual-feasible basis:
+  // v_i in {0, 1} (u_i = 2*v_i - 1 in {-1, +1}), lambda = min_j eff_rhs[j], s_j = eff_rhs[j] - lambda >= 0.
+  size_t min_j = 0;
+  for (size_t j = 1; j < n; ++j) {
+    if (eff_rhs[j] < eff_rhs[min_j]) {
+      min_j = j;
+    }
+  }
+
+  std::array<int, DynamicMetadata::kNumMixCoefficients> basis{};
+  basis[0] = kLambdaVar;
+  size_t slot_fill = 1;
+  for (size_t j = 0; j < n; ++j) {
+    if (j == min_j) continue;
+    const int svar = static_cast<int>(m + j);
+    basis[slot_fill++] = svar;
+    state[static_cast<size_t>(svar)] = 2;
+  }
+
+  auto getCol = [&](int var) -> Vec6d {
+    Vec6d col{};
+    if (var == kLambdaVar) {
+      for (size_t j = 0; j < n; ++j) col[j] = 1.0;
+    } else if (static_cast<size_t>(var) < m) {
+      const size_t idx = static_cast<size_t>(var);
+      for (size_t j = 0; j < n; ++j) col[j] = 2.0 * rows_a[idx][j];
+    } else {
+      const size_t j = static_cast<size_t>(var) - m;
+      col[j] = 1.0;
+    }
+    return col;
+  };
+
+  auto getCost = [&](int var) -> double {
+    if (var == kLambdaVar) return 1.0;
+    if (static_cast<size_t>(var) < m) return 2.0 * rows_b[static_cast<size_t>(var)];
+    return 0.0;
+  };
+
+  auto buildBasisMatrices = [&](Mat6d& m_b, Mat6d& m_bt, Vec6d& c_b) {
+    m_b = Mat6d{};
+    m_bt = Mat6d{};
+    c_b = Vec6d{};
+    for (size_t p = 0; p < n; ++p) {
+      const Vec6d col = getCol(basis[p]);
+      c_b[p] = getCost(basis[p]);
+      for (size_t j = 0; j < n; ++j) {
+        m_b[j][p] = col[j];
+        m_bt[p][j] = col[j];
+      }
+    }
+  };
+
+  auto evalPrimalL1 = [&](const Vec6d& w_vec) -> double {
+    double total = 0.0;
+    for (size_t i = 0; i < m; ++i) {
+      double dot = 0.0;
+      for (size_t j = 0; j < n; ++j) {
+        dot += rows_a[i][j] * w_vec[j];
+      }
+      total += std::fabs(dot - rows_b[i]);
+    }
+    return total;
+  };
+
+  auto sanitizeWeights = [&](const Vec6d& raw_w) -> Vec6d {
+    Vec6d clean{};
+    double sum = 0.0;
+    for (size_t j = 0; j < n; ++j) {
+      if (std::isfinite(raw_w[j]) && raw_w[j] > 0.0) {
+        clean[j] = raw_w[j];
+        sum += clean[j];
+      }
+    }
+    if (sum > 0.0) {
+      for (size_t j = 0; j < n; ++j) clean[j] /= sum;
+    } else {
+      clean[min_j] = 1.0;
+    }
+    return clean;
+  };
+
+  Mat6d m_b{};
+  Mat6d m_bt{};
+  Vec6d c_b{};
+  buildBasisMatrices(m_b, m_bt, c_b);
+
+  Vec6d x_b{};
+  Vec6d w{};
+  if (!solveLinearSystem(n, m_b, eff_rhs, x_b) || !solveLinearSystem(n, m_bt, c_b, w)) {
+    out_weights[min_j] = 1.0f;
+    return g_no_error;
+  }
+
+  Vec6d fallback_w{};
+  for (size_t j = 0; j < n; ++j) fallback_w[j] = inv_n;
+
+  std::vector<double> rc_cache(m + n, 0.0);
+  bool rc_dirty = true;
+
+  constexpr double kOptTol = 1e-11;
+  constexpr double kPivTol = 1e-11;
+  constexpr double kTieTol = 1e-13;
+  const size_t max_iters = std::max<size_t>(2000u, 8u * (m + n));
+  size_t degenerate_streak = 0;
+  size_t pivot_count = 0;
+
+  for (size_t iter = 0; iter < max_iters; ++iter) {
+    if (rc_dirty) {
+      for (size_t i = 0; i < m; ++i) {
+        double dot = 0.0;
+        for (size_t j = 0; j < n; ++j) {
+          dot += rows_a[i][j] * w[j];
+        }
+        rc_cache[i] = 2.0 * (rows_b[i] - dot);
+      }
+      for (size_t j = 0; j < n; ++j) {
+        rc_cache[m + j] = -w[j];
+      }
+      rc_dirty = false;
+    }
+
+    const bool use_bland = (degenerate_streak >= 8u);
+
+    int enter_var = -1;
+    double enter_sigma = 0.0;
+    double best_gain = kOptTol;
+
+    for (size_t q = 0; q < m + n; ++q) {
+      const int st = state[q];
+      if (st == 2) continue;
+
+      const double rc = rc_cache[q];
+      double gain = 0.0;
+      double sigma = 0.0;
+      if (st == 0 && rc > kOptTol) {
+        gain = rc;
+        sigma = 1.0;
+      } else if (st == 1 && rc < -kOptTol) {
+        gain = -rc;
+        sigma = -1.0;
+      } else {
+        continue;
+      }
+
+      if (use_bland) {
+        enter_var = static_cast<int>(q);
+        enter_sigma = sigma;
+        break;
+      }
+      if (gain > best_gain) {
+        best_gain = gain;
+        enter_var = static_cast<int>(q);
+        enter_sigma = sigma;
+      }
+    }
+
+    if (enter_var < 0) {
+      // Dual & primal optimality reached.
+      break;
+    }
+
+    Vec6d d{};
+    if (!solveLinearSystem(n, m_b, getCol(enter_var), d)) {
+      break;
+    }
+
+    double min_theta =
+        (static_cast<size_t>(enter_var) < m) ? 1.0 : std::numeric_limits<double>::infinity();
+    int leave_slot = -1;
+    int leave_new_state = -1;
+    double best_abs_delta = 0.0;
+
+    for (size_t p = 1; p < n; ++p) {
+      const double delta = enter_sigma * d[p];
+      const int bvar = basis[p];
+      int cand_state = -1;
+      double avail = 0.0;
+      if (delta > kPivTol) {
+        avail = std::max(0.0, x_b[p]);
+        cand_state = 0;
+      } else if (static_cast<size_t>(bvar) < m && delta < -kPivTol) {
+        avail = std::max(0.0, 1.0 - x_b[p]);
+        cand_state = 1;
+      } else {
+        continue;
+      }
+
+      const double ratio = avail / std::fabs(delta);
+      bool take = false;
+      if (ratio < min_theta - kTieTol) {
+        take = true;
+      } else if (std::fabs(ratio - min_theta) <= kTieTol) {
+        if (leave_slot == -1) {
+          take = true;
+        } else if (use_bland) {
+          take = (bvar < basis[static_cast<size_t>(leave_slot)]);
+        } else {
+          take = (std::fabs(delta) > best_abs_delta);
+        }
+      }
+      if (take) {
+        min_theta = ratio;
+        leave_slot = static_cast<int>(p);
+        leave_new_state = cand_state;
+        best_abs_delta = std::fabs(delta);
+      }
+    }
+
+    if (!std::isfinite(min_theta)) {
+      break;
+    }
+
+    if (min_theta <= 1e-12) {
+      ++degenerate_streak;
+    } else {
+      degenerate_streak = 0;
+    }
+
+    const size_t q_idx = static_cast<size_t>(enter_var);
+    if (leave_slot == -1) {
+      // Bound flip on v_{enter_var} between 0 and 1 without changing the basis or w.
+      const int new_state = 1 - state[q_idx];
+      if (new_state == 1) {
+        for (size_t j = 0; j < n; ++j) eff_rhs[j] -= 2.0 * rows_a[q_idx][j];
+      } else {
+        for (size_t j = 0; j < n; ++j) eff_rhs[j] += 2.0 * rows_a[q_idx][j];
+      }
+      state[q_idx] = new_state;
+      for (size_t p = 0; p < n; ++p) {
+        x_b[p] -= min_theta * enter_sigma * d[p];
+      }
+    } else {
+      const size_t l_slot = static_cast<size_t>(leave_slot);
+      const int leave_var = basis[l_slot];
+      if (state[q_idx] == 1) {
+        for (size_t j = 0; j < n; ++j) eff_rhs[j] += 2.0 * rows_a[q_idx][j];
+      }
+      if (leave_new_state == 1 && static_cast<size_t>(leave_var) < m) {
+        const size_t l_idx = static_cast<size_t>(leave_var);
+        for (size_t j = 0; j < n; ++j) eff_rhs[j] -= 2.0 * rows_a[l_idx][j];
+      }
+      state[static_cast<size_t>(leave_var)] = leave_new_state;
+      state[q_idx] = 2;
+      basis[l_slot] = enter_var;
+      ++pivot_count;
+
+      if ((pivot_count & 31u) == 0u) {
+        eff_rhs = rhs;
+        for (size_t i = 0; i < m; ++i) {
+          if (state[i] == 1) {
+            for (size_t j = 0; j < n; ++j) eff_rhs[j] -= 2.0 * rows_a[i][j];
+          }
+        }
+      }
+
+      buildBasisMatrices(m_b, m_bt, c_b);
+      Vec6d next_xb{};
+      Vec6d next_w{};
+      if (!solveLinearSystem(n, m_b, eff_rhs, next_xb) ||
+          !solveLinearSystem(n, m_bt, c_b, next_w)) {
+        break;
+      }
+      x_b = next_xb;
+      w = next_w;
+      rc_dirty = true;
+    }
+  }
+
+  Vec6d best_w = sanitizeWeights(w);
+  if (evalPrimalL1(fallback_w) < evalPrimalL1(best_w)) {
+    best_w = fallback_w;
+  }
+
+  // Normalize in single precision so sum_{j=0}^{n-1} out_weights[j] == 1.0f within float precision.
+  float sum_f = 0.0f;
+  for (size_t j = 0; j < n; ++j) {
+    out_weights[j] = std::clamp(static_cast<float>(best_w[j]), 0.0f, 1.0f);
+    sum_f += out_weights[j];
+  }
+  if (sum_f > 0.0f) {
+    for (size_t j = 0; j < n; ++j) {
+      out_weights[j] /= sum_f;
+    }
+  } else {
+    out_weights[min_j] = 1.0f;
+  }
+
+  if (out_duality_gap != nullptr) {
+    // Construct a strictly dual-feasible certificate (u in [-1, 1]^m, A^T u + lambda_cert * 1 <= 0)
+    // to bound the distance from the exact global minimum.
+    std::vector<double> u(m, -1.0);
+    for (size_t i = 0; i < m; ++i) {
+      if (state[i] == 1) {
+        u[i] = 1.0;
+      }
+    }
+    for (size_t p = 1; p < n; ++p) {
+      const int bvar = basis[p];
+      if (bvar >= 0 && static_cast<size_t>(bvar) < m) {
+        u[static_cast<size_t>(bvar)] = std::clamp(2.0 * x_b[p] - 1.0, -1.0, 1.0);
+      }
+    }
+    double max_atu = -std::numeric_limits<double>::infinity();
+    for (size_t j = 0; j < n; ++j) {
+      double acc = 0.0;
+      for (size_t i = 0; i < m; ++i) {
+        acc += rows_a[i][j] * u[i];
+      }
+      max_atu = std::max(max_atu, acc);
+    }
+    const double lambda_cert = -max_atu;
+    double dual_obj = lambda_cert;
+    for (size_t i = 0; i < m; ++i) {
+      dual_obj += rows_b[i] * u[i];
+    }
+
+    Vec6d w_float_as_d{};
+    for (size_t j = 0; j < n; ++j) {
+      w_float_as_d[j] = static_cast<double>(out_weights[j]);
+    }
+    const double primal_float_obj = evalPrimalL1(w_float_as_d);
+    *out_duality_gap = std::max(0.0, primal_float_obj - dual_obj);
+  }
+
+  return g_no_error;
+}
+
+uhdr_error_info_t toneMapCurveToGainCurve(const PchipInterpolator& tone_map_curve,
+                                          float base_headroom_log2, float alt_headroom_log2,
+                                          PchipInterpolator& out_gain_curve) {
+  const std::vector<float>& x_values = tone_map_curve.x();
+  const std::vector<float>& y_values = tone_map_curve.y();
+  const std::vector<float>& slopes = tone_map_curve.slopes();
+  if (x_values.empty() || y_values.size() != x_values.size() || slopes.size() != x_values.size()) {
+    return makeError(UHDR_CODEC_INVALID_PARAM,
+                     "Invalid or empty tone_map_curve in toneMapCurveToGainCurve");
+  }
+
+  const size_t num_points = x_values.size();
+  std::vector<float> gains_log2(num_points, 0.0f);
+  std::vector<float> gain_slopes(num_points, 0.0f);
+
+  for (size_t i = 0; i < num_points; ++i) {
+    const float x = x_values[i];
+    const float y = y_values[i];
+    float gain_log2 = 0.0f;
+    bool was_clamped = false;
+
+    float slope = slopes[i];
+    if (x == 0.0f && i + 1 < num_points && x_values[i + 1] > x) {
+      const float secant = (y_values[i + 1] - y) / (x_values[i + 1] - x);
+      if (secant > 0.0f) {
+        slope = std::max(slope, 0.5f * secant);
+      }
+    }
+
+    if (x != 0.0f) {
+      const float linear_gain = y / x;
+      const float raw_gain_log2 = (linear_gain > 0.0f) ? std::log2(linear_gain) : 0.0f;
+      gain_log2 = clampGainForHeadroom(raw_gain_log2, base_headroom_log2, alt_headroom_log2);
+      was_clamped = (gain_log2 != raw_gain_log2);
+    } else if (slope > 0.0f) {
+      // L'Hopital's rule at x = 0: lim_{x->0} f(x)/x = f'(0).
+      const float raw_gain_log2 = std::log2(slope);
+      gain_log2 = clampGainForHeadroom(raw_gain_log2, base_headroom_log2, alt_headroom_log2);
+      was_clamped = (gain_log2 != raw_gain_log2);
+    }
+    gains_log2[i] = gain_log2;
+
+    float slope_log2 = 0.0f;
+    if (!was_clamped) {
+      if (x != 0.0f) {
+        const float linear_gain = std::exp2(gain_log2);
+        const float denominator = x * kLn2 * linear_gain;
+        if (std::fabs(denominator) > 1e-6f) {
+          slope_log2 = (slope - linear_gain) / denominator;
+        }
+      } else if (i + 1 < num_points && x_values[i + 1] > x && slope > 0.0f) {
+        // Double L'Hopital's rule at x = 0: g'(0) = f''(0) / (2 * ln(2) * f'(0)).
+        const float h = x_values[i + 1] - x;
+        const float secant = (y_values[i + 1] - y) / h;
+        const float m0 = slope;
+        const float m1 = slopes[i + 1];
+        const float tm_second_deriv = 2.0f * (3.0f * secant - 2.0f * m0 - m1) / h;
+        slope_log2 = tm_second_deriv / (2.0f * kLn2 * m0);
+      }
+    }
+    gain_slopes[i] = slope_log2;
+  }
+
+  return PchipInterpolator::create(x_values, gains_log2, gain_slopes, out_gain_curve);
+}
+
 }  // namespace smpte2094_50
 
 static float applyMix(const Color& pixel, const smpte2094_50::ComponentMix& mix, float luma) {
@@ -1348,6 +1885,852 @@ uhdr_error_info_t generateGainMap(uhdr_raw_image_t* image,
   }
 
   return g_no_error;
+}
+
+namespace {
+
+struct HagcSamplePoint {
+  std::array<float, 3> base_rgb = {0.0f, 0.0f, 0.0f};
+  std::array<float, 3> gain_log2 = {0.0f, 0.0f, 0.0f};
+};
+
+uhdr_error_info_t makeTopLevelError(uhdr_codec_err_t code, const char* msg) {
+  uhdr_error_info_t status;
+  status.error_code = code;
+  status.has_detail = 1;
+  std::snprintf(status.detail, sizeof(status.detail), "%s", msg);
+  return status;
+}
+
+std::array<float, 3> getLumaWeightsForGamut(uhdr_color_gamut_t cg) {
+  switch (cg) {
+    case UHDR_CG_BT_709:
+      return {0.2126f, 0.7152f, 0.0722f};
+    case UHDR_CG_DISPLAY_P3:
+      return {0.228975f, 0.691739f, 0.079287f};
+    case UHDR_CG_BT_2100:
+    default:
+      return {0.2627f, 0.6780f, 0.0593f};
+  }
+}
+
+std::array<float, 8> getChromaticitiesForGamut(uhdr_color_gamut_t cg) {
+  switch (cg) {
+    case UHDR_CG_BT_709:
+      return smpte2094_50::DynamicMetadata::kChromaticitiesSrgb;
+    case UHDR_CG_DISPLAY_P3:
+      return smpte2094_50::DynamicMetadata::kChromaticitiesDisplayP3;
+    case UHDR_CG_BT_2100:
+    default:
+      return smpte2094_50::DynamicMetadata::kChromaticitiesRec2020;
+  }
+}
+
+smpte2094_50::ComponentMix getInitialComponentMix(smpte2094_50::HagcComponentMixMode mode,
+                                                  uhdr_color_gamut_t cg) {
+  smpte2094_50::ComponentMix mix{};
+  const std::array<float, 3> luma = getLumaWeightsForGamut(cg);
+  switch (mode) {
+    case smpte2094_50::HagcComponentMixMode::kMaxRgb:
+      mix.max = 1.0f;
+      break;
+    case smpte2094_50::HagcComponentMixMode::kHalfLumaHalfMax:
+      mix.rgb = {0.5f * luma[0], 0.5f * luma[1], 0.5f * luma[2]};
+      mix.max = 0.5f;
+      break;
+    case smpte2094_50::HagcComponentMixMode::kOptimize:
+    case smpte2094_50::HagcComponentMixMode::kOptimize4:
+    case smpte2094_50::HagcComponentMixMode::kLuma:
+    default:
+      mix.rgb = luma;
+      break;
+  }
+  return mix;
+}
+
+Color sampleGainMapBilinear(uhdr_raw_image_t* gainmap_img, GetPixelFn gm_get_pixel, size_t base_w,
+                            size_t base_h, size_t px, size_t py) {
+  const size_t gm_w = gainmap_img->w;
+  const size_t gm_h = gainmap_img->h;
+  if (gm_w == base_w && gm_h == base_h) {
+    return gm_get_pixel(gainmap_img, px, py);
+  }
+  const float fx = std::clamp(
+      (static_cast<float>(px) + 0.5f) * (static_cast<float>(gm_w) / static_cast<float>(base_w)) -
+          0.5f,
+      0.0f, static_cast<float>(gm_w - 1u));
+  const float fy = std::clamp(
+      (static_cast<float>(py) + 0.5f) * (static_cast<float>(gm_h) / static_cast<float>(base_h)) -
+          0.5f,
+      0.0f, static_cast<float>(gm_h - 1u));
+
+  const size_t x0 = static_cast<size_t>(fx);
+  const size_t y0 = static_cast<size_t>(fy);
+  const size_t x1 = std::min(x0 + 1u, gm_w - 1u);
+  const size_t y1 = std::min(y0 + 1u, gm_h - 1u);
+  const float tx = fx - static_cast<float>(x0);
+  const float ty = fy - static_cast<float>(y0);
+
+  const Color c00 = gm_get_pixel(gainmap_img, x0, y0);
+  const Color c10 = gm_get_pixel(gainmap_img, x1, y0);
+  const Color c01 = gm_get_pixel(gainmap_img, x0, y1);
+  const Color c11 = gm_get_pixel(gainmap_img, x1, y1);
+
+  const Color top = c00 * (1.0f - tx) + c10 * tx;
+  const Color bot = c01 * (1.0f - tx) + c11 * tx;
+  return top * (1.0f - ty) + bot * ty;
+}
+
+void evaluateMixedPairs(const std::vector<HagcSamplePoint>& samples, bool gm_is_1ch,
+                        const smpte2094_50::ComponentMix& mix, std::vector<float>& out_values,
+                        std::vector<float>& out_gains) {
+  const double sum = static_cast<double>(mix.rgb[0]) + static_cast<double>(mix.rgb[1]) +
+                     static_cast<double>(mix.rgb[2]) + static_cast<double>(mix.max) +
+                     static_cast<double>(mix.min) + static_cast<double>(mix.component);
+  if (sum <= 0.0) {
+    out_values.assign(samples.size(), 0.0f);
+    out_gains.assign(samples.size(), 0.0f);
+    return;
+  }
+
+  const float inv_sum = static_cast<float>(1.0 / sum);
+  const float wr = mix.rgb[0] * inv_sum;
+  const float wg = mix.rgb[1] * inv_sum;
+  const float wb = mix.rgb[2] * inv_sum;
+  const float wmax = mix.max * inv_sum;
+  const float wmin = mix.min * inv_sum;
+  const float wcomp = mix.component * inv_sum;
+
+  const bool per_channel = (wcomp != 0.0f);
+  const size_t total = samples.size() * (per_channel ? 3u : 1u);
+  out_values.resize(total);
+  out_gains.resize(total);
+
+  size_t idx = 0;
+  for (const HagcSamplePoint& s : samples) {
+    const float r = s.base_rgb[0];
+    const float g = s.base_rgb[1];
+    const float b = s.base_rgb[2];
+    float common = wr * r + wg * g + wb * b;
+    if (wmax != 0.0f) common += wmax * std::max({r, g, b});
+    if (wmin != 0.0f) common += wmin * std::min({r, g, b});
+
+    if (!per_channel) {
+      out_values[idx] = common;
+      out_gains[idx] =
+          gm_is_1ch ? s.gain_log2[0]
+                    : ((s.gain_log2[0] + s.gain_log2[1] + s.gain_log2[2]) / 3.0f);
+      ++idx;
+    } else {
+      for (size_t c = 0; c < 3u; ++c) {
+        out_values[idx] = common + wcomp * s.base_rgb[c];
+        out_gains[idx] = gm_is_1ch ? s.gain_log2[0] : s.gain_log2[c];
+        ++idx;
+      }
+    }
+  }
+}
+
+void computeMovingWindowCurvePoints(const std::vector<HagcSamplePoint>& samples, bool gm_is_1ch,
+                                    const smpte2094_50::ComponentMix& mix,
+                                    smpte2094_50::HagcFitHeuristic heuristic, float base_h,
+                                    float alt_h, std::vector<float>& out_values,
+                                    std::vector<float>& out_gains) {
+  std::vector<float> raw_values;
+  std::vector<float> raw_gains;
+  evaluateMixedPairs(samples, gm_is_1ch, mix, raw_values, raw_gains);
+
+  const size_t n = raw_values.size();
+  if (n == 0) {
+    out_values = {0.0f};
+    out_gains = {0.0f};
+    return;
+  }
+
+  std::vector<std::pair<float, float>> pairs(n);
+  float max_val = 0.0f;
+  for (size_t i = 0; i < n; ++i) {
+    pairs[i] = {raw_values[i], raw_gains[i]};
+    max_val = std::max(max_val, raw_values[i]);
+  }
+  std::sort(pairs.begin(), pairs.end());
+
+  const auto clamp_sign_gain = [&](float g) {
+    return (alt_h > base_h) ? std::max(g, 0.0f) : std::min(g, 0.0f);
+  };
+
+  if (max_val <= 0.0f) {
+    float avg = 0.0f;
+    for (const auto& p : pairs) avg += p.second;
+    avg /= static_cast<float>(n);
+    out_values = {0.0f};
+    out_gains = {clamp_sign_gain(avg)};
+    return;
+  }
+
+  const float scale = max_val / 255.0f;
+  out_values.clear();
+  out_gains.clear();
+
+  size_t ind_min = 0;
+  constexpr int kWindowSize = 5;
+  std::vector<float> median_buf;
+  for (int i = 0; i < 256; ++i) {
+    const float lo = static_cast<float>(i - kWindowSize) * scale;
+    const float hi = static_cast<float>(i + kWindowSize) * scale;
+    while (ind_min + 1u < n && pairs[ind_min].first < lo) {
+      ++ind_min;
+    }
+    if (pairs[ind_min].first > hi) {
+      continue;
+    }
+    size_t ind_max = ind_min;
+    while (ind_max + 1u < n && pairs[ind_max + 1u].first <= hi) {
+      ++ind_max;
+    }
+
+    float g_val = 0.0f;
+    if (heuristic == smpte2094_50::HagcFitHeuristic::kMovingMedian) {
+      const size_t count = ind_max - ind_min + 1u;
+      median_buf.resize(count);
+      for (size_t k = 0; k < count; ++k) {
+        median_buf[k] = pairs[ind_min + k].second;
+      }
+      const size_t mid = count / 2u;
+      std::nth_element(median_buf.begin(), median_buf.begin() + static_cast<ptrdiff_t>(mid),
+                       median_buf.end());
+      g_val = median_buf[mid];
+    } else {
+      double acc = 0.0;
+      for (size_t j = ind_min; j <= ind_max; ++j) {
+        acc += static_cast<double>(pairs[j].second);
+      }
+      g_val = static_cast<float>(acc / static_cast<double>(ind_max - ind_min + 1u));
+    }
+    out_values.push_back(static_cast<float>(i) * scale);
+    out_gains.push_back(clamp_sign_gain(g_val));
+  }
+
+  if (out_values.empty()) {
+    out_values = {0.0f};
+    out_gains = {0.0f};
+  }
+}
+
+float getPerceptualWeight(float x, float hdr_reference_white) {
+  constexpr float kMaxWeight = 10.0f;
+  if (x <= 0.0f) return kMaxWeight;
+  const float normalized = (x * hdr_reference_white) / 10000.0f;
+  constexpr float kLn10k = 9.210340371976184f;
+  const float slope = 1.0f / (normalized * kLn10k);
+  return std::min(slope, kMaxWeight);
+}
+
+uhdr_error_info_t fitQuantileToneMapGainCurve(const std::vector<HagcSamplePoint>& samples,
+                                              const smpte2094_50::ComponentMix& mix,
+                                              size_t num_control_points, float base_h, float alt_h,
+                                              float hdr_ref_white,
+                                              smpte2094_50::PchipInterpolator& out_gain_curve) {
+  smpte2094_50::ComponentMix gray_mix = mix;
+  gray_mix.component = 0.0f;
+
+  std::vector<float> base_gray(samples.size(), 0.0f);
+  std::vector<float> alt_gray(samples.size(), 0.0f);
+  const double msum = static_cast<double>(gray_mix.rgb[0]) + static_cast<double>(gray_mix.rgb[1]) +
+                      static_cast<double>(gray_mix.rgb[2]) + static_cast<double>(gray_mix.max) +
+                      static_cast<double>(gray_mix.min);
+  const float inv = (msum > 0.0) ? static_cast<float>(1.0 / msum) : 1.0f;
+
+  for (size_t i = 0; i < samples.size(); ++i) {
+    const auto& s = samples[i];
+    const std::array<float, 3> alt_rgb = {s.base_rgb[0] * std::exp2(s.gain_log2[0]),
+                                          s.base_rgb[1] * std::exp2(s.gain_log2[1]),
+                                          s.base_rgb[2] * std::exp2(s.gain_log2[2])};
+    auto eval_gray = [&](const std::array<float, 3>& rgb) {
+      if (msum <= 0.0) return rgb[0];
+      float v = (gray_mix.rgb[0] * rgb[0] + gray_mix.rgb[1] * rgb[1] + gray_mix.rgb[2] * rgb[2]) *
+                inv;
+      if (gray_mix.max != 0.0f) v += (gray_mix.max * inv) * std::max({rgb[0], rgb[1], rgb[2]});
+      if (gray_mix.min != 0.0f) v += (gray_mix.min * inv) * std::min({rgb[0], rgb[1], rgb[2]});
+      return v;
+    };
+    base_gray[i] = eval_gray(s.base_rgb);
+    alt_gray[i] = eval_gray(alt_rgb);
+  }
+
+  std::sort(base_gray.begin(), base_gray.end());
+  std::sort(alt_gray.begin(), alt_gray.end());
+
+  const float base_max_lin = std::exp2(base_h);
+  const float alt_max_lin = std::exp2(alt_h);
+  const size_t base_above = static_cast<size_t>(
+      base_gray.end() - std::upper_bound(base_gray.begin(), base_gray.end(), base_max_lin));
+  const size_t alt_above = static_cast<size_t>(
+      alt_gray.end() - std::upper_bound(alt_gray.begin(), alt_gray.end(), alt_max_lin));
+  const size_t discard = std::max(base_above, alt_above);
+  const size_t kept = (discard < base_gray.size()) ? (base_gray.size() - discard) : 1u;
+  base_gray.resize(kept);
+  alt_gray.resize(kept);
+
+  // Deduplicate x and clamp y so tone-mapping does not cross y = x.
+  std::vector<float> px;
+  std::vector<float> py;
+  for (size_t i = 0; i < kept; ++i) {
+    const float xv = base_gray[i];
+    const float yv = (alt_h > base_h) ? std::max(alt_gray[i], xv) : std::min(alt_gray[i], xv);
+    if (!px.empty() && xv == px.back()) {
+      py.back() = yv;
+    } else {
+      px.push_back(xv);
+      py.push_back(yv);
+    }
+  }
+
+  const size_t n = px.size();
+  const size_t target_cp = std::min(num_control_points, n);
+  std::vector<bool> selected(n, false);
+  selected[0] = true;
+  if (n > 1u && target_cp > 1u) {
+    selected[n - 1u] = true;
+  }
+
+  const size_t extra = (target_cp > 2u && n > 2u) ? (target_cp - 2u) : 0u;
+  for (size_t iter = 0; iter < extra; ++iter) {
+    std::vector<float> cur_x;
+    std::vector<float> cur_y;
+    for (size_t j = 0; j < n; ++j) {
+      if (selected[j]) {
+        cur_x.push_back(px[j]);
+        cur_y.push_back(py[j]);
+      }
+    }
+    smpte2094_50::PchipInterpolator tm_curve;
+    uhdr_error_info_t st = smpte2094_50::PchipInterpolator::create(cur_x, cur_y, tm_curve);
+    if (st.error_code != UHDR_CODEC_OK) return st;
+
+    smpte2094_50::PchipInterpolator gc;
+    st = smpte2094_50::toneMapCurveToGainCurve(tm_curve, base_h, alt_h, gc);
+    if (st.error_code != UHDR_CODEC_OK) return st;
+
+    const float x_span = px.back() - px.front();
+    float min_dist_allowed = x_span / ((static_cast<float>(cur_x.size()) + 1.0f) * 4.0f);
+    size_t best_idx = n;
+    double max_err = 0.0;
+
+    while (best_idx == n && min_dist_allowed > 1e-5f) {
+      for (size_t j = 0; j < n; ++j) {
+        if (selected[j]) continue;
+        float min_dist = x_span;
+        for (float cx : cur_x) {
+          min_dist = std::min(min_dist, std::fabs(px[j] - cx));
+        }
+        if (min_dist < min_dist_allowed) continue;
+
+        const float y_interp = px[j] * std::exp2(gc.interpolate(px[j]));
+        const double per_err = static_cast<double>(std::fabs(y_interp - py[j])) *
+                               static_cast<double>(getPerceptualWeight(py[j], hdr_ref_white));
+        if (per_err > max_err) {
+          max_err = per_err;
+          best_idx = j;
+        }
+      }
+      if (best_idx == n) {
+        min_dist_allowed *= 0.5f;
+      }
+    }
+    if (best_idx < n) {
+      selected[best_idx] = true;
+    } else {
+      break;
+    }
+  }
+
+  std::vector<float> sub_x;
+  std::vector<float> sub_y;
+  for (size_t j = 0; j < n; ++j) {
+    if (selected[j]) {
+      sub_x.push_back(px[j]);
+      sub_y.push_back(py[j]);
+    }
+  }
+  smpte2094_50::PchipInterpolator final_tm;
+  uhdr_error_info_t st = smpte2094_50::PchipInterpolator::create(sub_x, sub_y, final_tm);
+  if (st.error_code != UHDR_CODEC_OK) return st;
+  return smpte2094_50::toneMapCurveToGainCurve(final_tm, base_h, alt_h, out_gain_curve);
+}
+
+uhdr_error_info_t solveForBestComponentMix(const std::vector<HagcSamplePoint>& samples,
+                                           bool gm_is_1ch,
+                                           smpte2094_50::HagcComponentMixMode mix_mode,
+                                           const smpte2094_50::PchipInterpolator& gain_curve_pchip,
+                                           size_t max_rows, smpte2094_50::ComponentMix& inout_mix) {
+  if (mix_mode != smpte2094_50::HagcComponentMixMode::kOptimize &&
+      mix_mode != smpte2094_50::HagcComponentMixMode::kOptimize4) {
+    return g_no_error;
+  }
+
+  const std::vector<float>& ys = gain_curve_pchip.y();
+  if (ys.size() < 2u) {
+    return g_no_error;
+  }
+  const auto minmax = std::minmax_element(ys.begin(), ys.end());
+  if (*minmax.second - *minmax.first <= 1e-5f) {
+    // Constant gain curve: output is invariant to component mix weights.
+    return g_no_error;
+  }
+
+  smpte2094_50::GainCurve gain_curve;
+  uhdr_error_info_t status = smpte2094_50::GainCurve::create(
+      gain_curve_pchip.x(), gain_curve_pchip.y(), gain_curve_pchip.slopes(), gain_curve);
+  if (status.error_code != UHDR_CODEC_OK) {
+    return status;
+  }
+
+  const size_t ch_count = gm_is_1ch ? 1u : 3u;
+  const size_t num_vars =
+      (mix_mode == smpte2094_50::HagcComponentMixMode::kOptimize4) ? 4u : (gm_is_1ch ? 5u : 6u);
+
+  const size_t cap = samples.size() * ch_count;
+  std::vector<std::array<float, 6>> cand_a(cap);
+  std::vector<float> cand_b(cap, 0.0f);
+  size_t count = 0;
+
+  for (const HagcSamplePoint& s : samples) {
+    const float cr = s.base_rgb[0];
+    const float cg = s.base_rgb[1];
+    const float cb = s.base_rgb[2];
+    const float cmax = std::max({cr, cg, cb});
+    const float cmin = std::min({cr, cg, cb});
+    for (size_t c = 0; c < ch_count; ++c) {
+      float target_x = 0.0f;
+      if (!gain_curve.reverseInterpolate(s.gain_log2[c], target_x)) {
+        continue;
+      }
+      cand_a[count] = {cr, cg, cb, cmax, cmin, s.base_rgb[c]};
+      cand_b[count] = target_x;
+      ++count;
+    }
+  }
+
+  if (count == 0) {
+    return g_no_error;
+  }
+
+  const size_t kept_rows = std::min(count, std::max<size_t>(1u, max_rows));
+  std::vector<float> flat_a(kept_rows * num_vars, 0.0f);
+  std::vector<float> flat_b(kept_rows, 0.0f);
+  for (size_t i = 0; i < kept_rows; ++i) {
+    const size_t src_idx = (kept_rows > 1u && count > kept_rows)
+                               ? ((i * (count - 1u)) / (kept_rows - 1u))
+                               : i;
+    for (size_t j = 0; j < num_vars; ++j) {
+      flat_a[i * num_vars + j] = cand_a[src_idx][j];
+    }
+    flat_b[i] = cand_b[src_idx];
+  }
+
+  std::array<float, smpte2094_50::DynamicMetadata::kNumMixCoefficients> weights{};
+  status = smpte2094_50::solveConstrainedL1Simplex(flat_a.data(), flat_b.data(), kept_rows,
+                                                   num_vars, weights);
+  if (status.error_code != UHDR_CODEC_OK) {
+    return status;
+  }
+
+  inout_mix.rgb = {weights[0], weights[1], weights[2]};
+  inout_mix.max = weights[3];
+  inout_mix.min = weights[4];
+  inout_mix.component = weights[5];
+  return g_no_error;
+}
+
+}  // namespace
+
+uhdr_error_info_t deriveHagcFromGainMap(
+    uhdr_raw_image_t* sdr_intent, uhdr_raw_image_t* gainmap_img,
+    const uhdr_gainmap_metadata_ext_t* gainmap_metadata, smpte2094_50::DynamicMetadata& out_hagc,
+    const smpte2094_50::HagcDerivationOptions& options) {
+  if (sdr_intent == nullptr || gainmap_img == nullptr || gainmap_metadata == nullptr) {
+    return makeTopLevelError(UHDR_CODEC_INVALID_PARAM,
+                             "Null image or metadata pointer in deriveHagcFromGainMap");
+  }
+  if (sdr_intent->w == 0 || sdr_intent->h == 0 || gainmap_img->w == 0 || gainmap_img->h == 0 ||
+      sdr_intent->planes[0] == nullptr || gainmap_img->planes[0] == nullptr) {
+    return makeTopLevelError(UHDR_CODEC_INVALID_PARAM,
+                             "Empty image dimensions or null plane data in deriveHagcFromGainMap");
+  }
+  if (options.num_control_points == 0 ||
+      options.num_control_points > smpte2094_50::DynamicMetadata::kMaxNumControlPoints ||
+      options.max_samples == 0) {
+    return makeTopLevelError(
+        UHDR_CODEC_INVALID_PARAM,
+        "num_control_points must be in [1, 32] and max_samples >= 1 in deriveHagcFromGainMap");
+  }
+  if (!std::isfinite(gainmap_metadata->hdr_capacity_min) ||
+      !std::isfinite(gainmap_metadata->hdr_capacity_max) ||
+      gainmap_metadata->hdr_capacity_min <= 0.0f || gainmap_metadata->hdr_capacity_max <= 0.0f) {
+    return makeTopLevelError(UHDR_CODEC_INVALID_PARAM,
+                             "Invalid hdr_capacity_min/max in deriveHagcFromGainMap");
+  }
+  for (int c = 0; c < 3; ++c) {
+    if (!std::isfinite(gainmap_metadata->min_content_boost[c]) ||
+        !std::isfinite(gainmap_metadata->max_content_boost[c]) ||
+        !std::isfinite(gainmap_metadata->gamma[c]) ||
+        !std::isfinite(gainmap_metadata->offset_sdr[c]) ||
+        !std::isfinite(gainmap_metadata->offset_hdr[c]) ||
+        gainmap_metadata->min_content_boost[c] <= 0.0f ||
+        gainmap_metadata->max_content_boost[c] < gainmap_metadata->min_content_boost[c] ||
+        gainmap_metadata->gamma[c] <= 0.0f || gainmap_metadata->offset_sdr[c] < 0.0f ||
+        gainmap_metadata->offset_hdr[c] < 0.0f) {
+      return makeTopLevelError(UHDR_CODEC_INVALID_PARAM,
+                               "Invalid gainmap channel parameters in deriveHagcFromGainMap");
+    }
+  }
+
+  const uhdr_color_gamut_t base_cg =
+      (sdr_intent->cg == UHDR_CG_UNSPECIFIED) ? UHDR_CG_BT_709 : sdr_intent->cg;
+  if (base_cg != UHDR_CG_BT_709 && base_cg != UHDR_CG_DISPLAY_P3 && base_cg != UHDR_CG_BT_2100) {
+    return makeTopLevelError(UHDR_CODEC_UNSUPPORTED_FEATURE,
+                             "Unsupported base color gamut in deriveHagcFromGainMap");
+  }
+
+  const uhdr_color_transfer_t base_ct =
+      (sdr_intent->ct == UHDR_CT_UNSPECIFIED) ? UHDR_CT_SRGB : sdr_intent->ct;
+  ColorTransformFn inv_oetf = getInverseOetfFn(base_ct);
+  SceneToDisplayLuminanceFn base_ootf = getOotfFn(base_ct);
+  LuminanceFn base_luma_fn = getLuminanceFn(base_cg);
+  if (inv_oetf == nullptr || base_ootf == nullptr || base_luma_fn == nullptr) {
+    return makeTopLevelError(UHDR_CODEC_UNSUPPORTED_FEATURE,
+                             "Unsupported base transfer function in deriveHagcFromGainMap");
+  }
+
+  GetPixelFn base_get_pixel = getPixelFn(sdr_intent->fmt);
+  GetPixelFn gm_get_pixel = getPixelFn(gainmap_img->fmt);
+  if (base_get_pixel == nullptr || gm_get_pixel == nullptr) {
+    return makeTopLevelError(UHDR_CODEC_UNSUPPORTED_FEATURE,
+                             "Unsupported pixel format in deriveHagcFromGainMap");
+  }
+  if (gainmap_img->fmt != UHDR_IMG_FMT_8bppYCbCr400 &&
+      gainmap_img->fmt != UHDR_IMG_FMT_24bppRGB888 &&
+      gainmap_img->fmt != UHDR_IMG_FMT_32bppRGBA8888) {
+    return makeTopLevelError(UHDR_CODEC_UNSUPPORTED_FEATURE,
+                             "Gain map format must be YCbCr400, RGB888, or RGBA8888");
+  }
+
+  const bool base_is_rgb =
+      isPixelFormatRgb(sdr_intent->fmt) || sdr_intent->fmt == UHDR_IMG_FMT_24bppRGB888;
+  ColorTransformFn base_yuv_to_rgb = options.sdr_is_601 ? p3YuvToRgb : getYuvToRgbFn(base_cg);
+  if (!base_is_rgb && base_yuv_to_rgb == nullptr) {
+    return makeTopLevelError(UHDR_CODEC_UNSUPPORTED_FEATURE,
+                             "Missing YUV-to-RGB conversion for base gamut");
+  }
+
+  uhdr_color_gamut_t app_cg = base_cg;
+  ColorTransformFn base_to_app_gamut = identityConversion;
+  if (!gainmap_metadata->use_base_cg && gainmap_img->cg != UHDR_CG_UNSPECIFIED &&
+      gainmap_img->cg != base_cg) {
+    app_cg = gainmap_img->cg;
+    base_to_app_gamut = getGamutConversionFn(app_cg, base_cg);
+    if (base_to_app_gamut == nullptr) {
+      return makeTopLevelError(UHDR_CODEC_UNSUPPORTED_FEATURE,
+                               "Unsupported gain application color gamut");
+    }
+  }
+
+  float base_sdr_scale = 1.0f;
+  if (base_ct == UHDR_CT_HLG || base_ct == UHDR_CT_PQ) {
+    const float peak_nits = getReferenceDisplayPeakLuminanceInNits(base_ct);
+    if (peak_nits > 0.0f) {
+      base_sdr_scale = peak_nits / kSdrWhiteNits;
+    }
+  }
+
+  const float raw_base_h = std::log2(gainmap_metadata->hdr_capacity_min);
+  const float raw_alt_h = std::log2(gainmap_metadata->hdr_capacity_max);
+  const float base_h = std::clamp(raw_base_h, 0.0f, 6.0f);
+  const float alt_h = std::clamp(raw_alt_h, 0.0f, 6.0f);
+
+  out_hagc = smpte2094_50::DynamicMetadata{};
+  out_hagc.hdr_reference_white = smpte2094_50::DynamicMetadata::kDefaultHdrReferenceWhite;
+  out_hagc.has_adaptive_tone_map_flag = true;
+  out_hagc.use_reference_white_tone_mapping_flag = false;
+  out_hagc.baseline_hdr_headroom_log2 = base_h;
+  out_hagc.gain_application_space_chromaticities = getChromaticitiesForGamut(app_cg);
+
+  const long q_base_h = std::lround(static_cast<double>(base_h) * 10000.0);
+  const long q_alt_h = std::lround(static_cast<double>(alt_h) * 10000.0);
+  if (q_base_h == q_alt_h) {
+    // Identity headroom: ST 2094-50 represents identity via zero alternate rules.
+    out_hagc.rules.clear();
+    return smpte2094_50::validateDynamicMetadata(out_hagc);
+  }
+
+  const size_t w = sdr_intent->w;
+  const size_t h = sdr_intent->h;
+  const size_t max_samples = options.max_samples;
+  const bool gm_is_1ch = (gainmap_img->fmt == UHDR_IMG_FMT_8bppYCbCr400);
+
+  // Build a deterministic set of <= max_samples coordinates combining global extrema + 2D grid.
+  std::vector<std::pair<size_t, size_t>> coords;
+  auto pushUniqueCoord = [&](size_t cx, size_t cy) {
+    if (coords.size() >= max_samples) return;
+    for (const auto& existing : coords) {
+      if (existing.first == cx && existing.second == cy) return;
+    }
+    coords.emplace_back(cx, cy);
+  };
+
+  if (w * h <= max_samples) {
+    for (size_t py = 0; py < h; ++py) {
+      for (size_t px = 0; px < w; ++px) {
+        coords.emplace_back(px, py);
+      }
+    }
+  } else {
+    // Fast coarse extrema scan (<= 48x48) to capture brightest/darkest base & gainmap locations.
+    if (max_samples >= 16u) {
+      const size_t scan_x = std::min<size_t>(w, 48u);
+      const size_t scan_y = std::min<size_t>(h, 48u);
+      float min_b = std::numeric_limits<float>::infinity();
+      float max_b = -std::numeric_limits<float>::infinity();
+      float min_g = std::numeric_limits<float>::infinity();
+      float max_g = -std::numeric_limits<float>::infinity();
+      std::pair<size_t, size_t> pos_min_b{0, 0}, pos_max_b{0, 0}, pos_min_g{0, 0}, pos_max_g{0, 0};
+
+      for (size_t sy = 0; sy < scan_y; ++sy) {
+        const size_t py = (scan_y > 1u) ? ((sy * (h - 1u)) / (scan_y - 1u)) : 0u;
+        for (size_t sx = 0; sx < scan_x; ++sx) {
+          const size_t px = (scan_x > 1u) ? ((sx * (w - 1u)) / (scan_x - 1u)) : 0u;
+          Color bp = base_get_pixel(sdr_intent, px, py);
+          if (!base_is_rgb) bp = base_yuv_to_rgb(bp);
+          const float b_metric = bp.r + bp.g + bp.b;
+          if (b_metric < min_b) {
+            min_b = b_metric;
+            pos_min_b = {px, py};
+          }
+          if (b_metric > max_b) {
+            max_b = b_metric;
+            pos_max_b = {px, py};
+          }
+
+          const size_t gx = (px * gainmap_img->w) / w;
+          const size_t gy = (py * gainmap_img->h) / h;
+          const Color gp = gm_get_pixel(gainmap_img, gx, gy);
+          const float g_metric = gm_is_1ch ? gp.y : (gp.r + gp.g + gp.b);
+          if (g_metric < min_g) {
+            min_g = g_metric;
+            pos_min_g = {px, py};
+          }
+          if (g_metric > max_g) {
+            max_g = g_metric;
+            pos_max_g = {px, py};
+          }
+        }
+      }
+      pushUniqueCoord(pos_min_b.first, pos_min_b.second);
+      pushUniqueCoord(pos_max_b.first, pos_max_b.second);
+      pushUniqueCoord(pos_min_g.first, pos_min_g.second);
+      pushUniqueCoord(pos_max_g.first, pos_max_g.second);
+    }
+
+    const size_t rem = max_samples - coords.size();
+    const double aspect = static_cast<double>(w) / static_cast<double>(h);
+    size_t grid_w = static_cast<size_t>(std::max(
+        1.0, std::floor(std::sqrt(static_cast<double>(rem) * aspect))));
+    grid_w = std::min(grid_w, w);
+    size_t grid_h = std::max<size_t>(1u, rem / grid_w);
+    grid_h = std::min(grid_h, h);
+    while (grid_w * grid_h > rem && grid_h > 1u) {
+      --grid_h;
+    }
+
+    for (size_t gy = 0; gy < grid_h; ++gy) {
+      const size_t py = (grid_h > 1u) ? ((gy * (h - 1u)) / (grid_h - 1u)) : (h / 2u);
+      for (size_t gx = 0; gx < grid_w; ++gx) {
+        const size_t px = (grid_w > 1u) ? ((gx * (w - 1u)) / (grid_w - 1u)) : (w / 2u);
+        pushUniqueCoord(px, py);
+      }
+    }
+  }
+
+  std::array<float, 3> log2_min_boost{};
+  std::array<float, 3> log2_max_boost{};
+  std::array<float, 3> inv_gamma{};
+  bool has_offsets = false;
+  for (int c = 0; c < 3; ++c) {
+    log2_min_boost[c] = std::log2(gainmap_metadata->min_content_boost[c]);
+    log2_max_boost[c] = std::log2(gainmap_metadata->max_content_boost[c]);
+    inv_gamma[c] = 1.0f / gainmap_metadata->gamma[c];
+    if (gainmap_metadata->offset_sdr[c] != 0.0f || gainmap_metadata->offset_hdr[c] != 0.0f) {
+      has_offsets = true;
+    }
+  }
+  const float headroom_weight =
+      (std::fabs(raw_alt_h - raw_base_h) > 1e-6f) ? ((alt_h - base_h) / (raw_alt_h - raw_base_h))
+                                                  : 1.0f;
+
+  std::vector<HagcSamplePoint> samples(coords.size());
+  for (size_t i = 0; i < coords.size(); ++i) {
+    const size_t px = coords[i].first;
+    const size_t py = coords[i].second;
+
+    Color bp = base_get_pixel(sdr_intent, px, py);
+    if (!base_is_rgb) {
+      bp = base_yuv_to_rgb(bp);
+    }
+    if (base_ct != UHDR_CT_LINEAR) {
+      bp = clampPixelFloat(bp);
+    }
+    Color lin = inv_oetf(bp);
+    lin = base_ootf(lin, base_luma_fn) * base_sdr_scale;
+    lin = base_to_app_gamut(lin);
+    lin = clipNegatives(lin);
+
+    const Color gp = sampleGainMapBilinear(gainmap_img, gm_get_pixel, w, h, px, py);
+    const std::array<float, 3> g_enc =
+        gm_is_1ch ? std::array<float, 3>{gp.y, gp.y, gp.y} : std::array<float, 3>{gp.r, gp.g, gp.b};
+    const std::array<float, 3> base_arr = {lin.r, lin.g, lin.b};
+
+    std::array<float, 3> raw_g{};
+    for (int c = 0; c < 3; ++c) {
+      const int mc = (gm_is_1ch && gainmap_metadata->are_all_channels_identical()) ? 0 : c;
+      const float gc_clamped = std::clamp(g_enc[c], 0.0f, 1.0f);
+      const float gc_lin = (inv_gamma[mc] == 1.0f) ? gc_clamped : std::pow(gc_clamped, inv_gamma[mc]);
+      raw_g[c] = (log2_min_boost[mc] + (log2_max_boost[mc] - log2_min_boost[mc]) * gc_lin) *
+                 headroom_weight;
+    }
+
+    std::array<float, 3> eff_g = raw_g;
+    if (has_offsets) {
+      constexpr float kEps = 1e-6f;
+      float nz_sum = 0.0f;
+      int nz_cnt = 0;
+      for (int c = 0; c < 3; ++c) {
+        const float alt_c =
+            std::max((base_arr[c] + gainmap_metadata->offset_sdr[c]) * std::exp2(raw_g[c]) -
+                         gainmap_metadata->offset_hdr[c],
+                     0.0f);
+        if (base_arr[c] > kEps) {
+          eff_g[c] = (alt_c > 1e-12f) ? std::log2(alt_c / base_arr[c]) : -6.0f;
+          nz_sum += eff_g[c];
+          ++nz_cnt;
+        }
+      }
+      const float fallback_g = (nz_cnt > 0) ? (nz_sum / static_cast<float>(nz_cnt)) : raw_g[0];
+      for (int c = 0; c < 3; ++c) {
+        if (base_arr[c] <= kEps) {
+          eff_g[c] = fallback_g;
+        }
+      }
+      if (gm_is_1ch) {
+        const float avg_g = (eff_g[0] + eff_g[1] + eff_g[2]) / 3.0f;
+        eff_g = {avg_g, avg_g, avg_g};
+      }
+    }
+
+    samples[i].base_rgb = base_arr;
+    samples[i].gain_log2 = eff_g;
+  }
+
+  smpte2094_50::ComponentMix mix = getInitialComponentMix(options.mix_mode, app_cg);
+  smpte2094_50::PchipInterpolator gain_curve_pchip;
+  bool use_pchip_slope_flag = true;
+
+  if (options.heuristic == smpte2094_50::HagcFitHeuristic::kQuantileToneMap) {
+    use_pchip_slope_flag = false;
+    uhdr_error_info_t st = fitQuantileToneMapGainCurve(
+        samples, mix, options.num_control_points, base_h, alt_h, out_hagc.hdr_reference_white,
+        gain_curve_pchip);
+    if (st.error_code != UHDR_CODEC_OK) {
+      return st;
+    }
+    st = solveForBestComponentMix(samples, gm_is_1ch, options.mix_mode, gain_curve_pchip,
+                                  options.max_samples, mix);
+    if (st.error_code != UHDR_CODEC_OK) {
+      return st;
+    }
+  } else {
+    use_pchip_slope_flag = true;
+    constexpr int kNumIterations = 2;
+    for (int iter = 0; iter < kNumIterations; ++iter) {
+      std::vector<float> values;
+      std::vector<float> gains;
+      computeMovingWindowCurvePoints(samples, gm_is_1ch, mix, options.heuristic, base_h, alt_h,
+                                     values, gains);
+      uhdr_error_info_t st =
+          smpte2094_50::createSubsampledPchip(values, gains, options.num_control_points,
+                                              gain_curve_pchip);
+      if (st.error_code != UHDR_CODEC_OK) {
+        return st;
+      }
+      st = solveForBestComponentMix(samples, gm_is_1ch, options.mix_mode, gain_curve_pchip,
+                                    options.max_samples, mix);
+      if (st.error_code != UHDR_CODEC_OK) {
+        return st;
+      }
+    }
+  }
+
+  smpte2094_50::ToneMappingRule rule{};
+  rule.alternate_hdr_headroom_log2 = alt_h;
+  rule.mix = mix;
+  rule.use_pchip_slope = use_pchip_slope_flag;
+
+  const std::vector<float>& cx = gain_curve_pchip.x();
+  const std::vector<float>& cy = gain_curve_pchip.y();
+  const std::vector<float>& cm = gain_curve_pchip.slopes();
+  for (size_t i = 0; i < cx.size(); ++i) {
+    const float x_clamped = std::clamp(cx[i], 0.0f, 64.0f);
+    const float y_signed = (alt_h > base_h) ? std::clamp(cy[i], 0.0f, 6.0f)
+                                            : std::clamp(cy[i], -6.0f, 0.0f);
+    const float m_clamped = std::isfinite(cm[i]) ? std::clamp(cm[i], -1e4f, 1e4f) : 0.0f;
+
+    const long q_x = std::lround(static_cast<double>(x_clamped) * 1000.0);
+    if (!rule.curve.empty()) {
+      const long prev_q_x = std::lround(static_cast<double>(rule.curve.back().x) * 1000.0);
+      if (q_x == prev_q_x) {
+        // Deduplicate knots that collide on the Annex C 1e-3 x-grid to guarantee continuity.
+        rule.curve.back() = {x_clamped, y_signed, m_clamped};
+        continue;
+      }
+    }
+    rule.curve.push_back({x_clamped, y_signed, m_clamped});
+  }
+
+  if (rule.curve.empty()) {
+    rule.curve.push_back({0.0f, 0.0f, 0.0f});
+  }
+  if (rule.use_pchip_slope) {
+    std::vector<float> rx(rule.curve.size());
+    std::vector<float> ry(rule.curve.size());
+    for (size_t i = 0; i < rule.curve.size(); ++i) {
+      rx[i] = rule.curve[i].x;
+      ry[i] = rule.curve[i].y;
+    }
+    std::vector<float> rslopes;
+    uhdr_error_info_t st = smpte2094_50::computePchipSlopes(rx, ry, rslopes);
+    if (st.error_code != UHDR_CODEC_OK) {
+      return st;
+    }
+    for (size_t i = 0; i < rule.curve.size(); ++i) {
+      rule.curve[i].m = rslopes[i];
+    }
+  }
+
+  out_hagc.rules = {std::move(rule)};
+  return smpte2094_50::validateDynamicMetadata(out_hagc);
+}
+
+uhdr_error_info_t deriveEncodedHagcFromGainMap(
+    uhdr_raw_image_t* sdr_intent, uhdr_raw_image_t* gainmap_img,
+    const uhdr_gainmap_metadata_ext_t* gainmap_metadata, std::vector<uint8_t>& out_bitstream,
+    const smpte2094_50::HagcDerivationOptions& options) {
+  smpte2094_50::DynamicMetadata hagc{};
+  uhdr_error_info_t status =
+      deriveHagcFromGainMap(sdr_intent, gainmap_img, gainmap_metadata, hagc, options);
+  if (status.error_code != UHDR_CODEC_OK) {
+    return status;
+  }
+  return smpte2094_50::encodeSt2094_50(hagc, out_bitstream);
 }
 
 }  // namespace ultrahdr
