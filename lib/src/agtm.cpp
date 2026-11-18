@@ -51,10 +51,13 @@ uint16_t floatToUint16(float v, uint16_t clamp_min, uint16_t clamp_max, uint16_t
   return static_cast<uint16_t>(clamped);
 }
 
-float uint16ToFloat(uint16_t v, uint16_t clamp_min, uint16_t clamp_max, uint16_t offset,
-                    float scale) {
-  const uint16_t clamped = std::clamp(v, clamp_min, clamp_max);
-  return static_cast<float>(static_cast<int32_t>(clamped) - static_cast<int32_t>(offset)) / scale;
+bool uint16ToFloatChecked(uint16_t v, uint16_t min_val, uint16_t max_val, uint16_t offset,
+                          float scale, float& out) {
+  if (v < min_val || v > max_val) {
+    return false;
+  }
+  out = static_cast<float>(static_cast<int32_t>(v) - static_cast<int32_t>(offset)) / scale;
+  return true;
 }
 
 bool inClosedInterval(float x, float lo, float hi) { return std::isfinite(x) && x >= lo && x <= hi; }
@@ -668,7 +671,10 @@ uhdr_error_info_t validateDynamicMetadata(const DynamicMetadata& metadata) {
     }
     const uint16_t raw = floatToUint16(metadata.gain_application_space_chromaticities[r], 0u,
                                        50000u, 0u, kMixParamScale);
-    q_chrom[r] = uint16ToFloat(raw, 0u, 50000u, 0u, kMixParamScale);
+    if (!uint16ToFloatChecked(raw, 0u, 50000u, 0u, kMixParamScale, q_chrom[r])) {
+      return makeError(UHDR_CODEC_INVALID_PARAM,
+                       "gain_application_space_chromaticities out of range");
+    }
   }
   const float xr = q_chrom[0], yr = q_chrom[1];
   const float xg = q_chrom[2], yg = q_chrom[3];
@@ -918,6 +924,32 @@ uhdr_error_info_t encodeSt2094_50(const DynamicMetadata& metadata,
   return g_no_error;
 }
 
+namespace {
+
+uhdr_error_info_t makeFieldError(const char* prefix, const char* field_name) {
+  uhdr_error_info_t status{};
+  status.error_code = UHDR_CODEC_INVALID_PARAM;
+  status.has_detail = 1;
+  std::snprintf(status.detail, sizeof(status.detail), "%s %s", prefix, field_name);
+  return status;
+}
+
+uhdr_error_info_t readU16FloatField(AnnexCBitReader& reader, uint16_t min_val, uint16_t max_val,
+                                    uint16_t offset, float scale, const char* field_name,
+                                    float& out, uint16_t* raw_out = nullptr) {
+  uint16_t raw = 0;
+  if (!reader.readU16BE(raw)) {
+    return makeFieldError("Truncated", field_name);
+  }
+  if (!uint16ToFloatChecked(raw, min_val, max_val, offset, scale, out)) {
+    return makeFieldError("Out-of-range", field_name);
+  }
+  if (raw_out != nullptr) *raw_out = raw;
+  return g_no_error;
+}
+
+}  // namespace
+
 uhdr_error_info_t parseSt2094_50(const uint8_t* data, size_t size, DynamicMetadata& out_metadata) {
   if (data == nullptr || size < 2) {
     return makeError(UHDR_CODEC_INVALID_PARAM, "Annex C bitstream is null or too short");
@@ -950,11 +982,11 @@ uhdr_error_info_t parseSt2094_50(const uint8_t* data, size_t size, DynamicMetada
   }
 
   if (has_custom_ref_white) {
-    uint16_t raw_white = 0;
-    if (!reader.readU16BE(raw_white)) {
-      return makeError(UHDR_CODEC_INVALID_PARAM, "Truncated hdr_reference_white");
+    if (auto err = readU16FloatField(reader, 1u, 50000u, 0u, 5.0f, "hdr_reference_white",
+                                     parsed.hdr_reference_white);
+        err.error_code != UHDR_CODEC_OK) {
+      return err;
     }
-    parsed.hdr_reference_white = uint16ToFloat(raw_white, 1u, 50000u, 0u, 5.0f);
   } else {
     parsed.hdr_reference_white = DynamicMetadata::kDefaultHdrReferenceWhite;
   }
@@ -966,10 +998,11 @@ uhdr_error_info_t parseSt2094_50(const uint8_t* data, size_t size, DynamicMetada
   }
 
   uint16_t raw_baseline = 0;
-  if (!reader.readU16BE(raw_baseline)) {
-    return makeError(UHDR_CODEC_INVALID_PARAM, "Truncated baseline_hdr_headroom");
+  if (auto err = readU16FloatField(reader, 0u, 60000u, 0u, 10000.0f, "baseline_hdr_headroom",
+                                   parsed.baseline_hdr_headroom_log2, &raw_baseline);
+      err.error_code != UHDR_CODEC_OK) {
+    return err;
   }
-  parsed.baseline_hdr_headroom_log2 = uint16ToFloat(raw_baseline, 0u, 60000u, 0u, 10000.0f);
 
   if (!reader.readBit(parsed.use_reference_white_tone_mapping_flag)) {
     return makeError(UHDR_CODEC_INVALID_PARAM, "Truncated adaptive_tone_map flags");
@@ -1003,13 +1036,13 @@ uhdr_error_info_t parseSt2094_50(const uint8_t* data, size_t size, DynamicMetada
     parsed.gain_application_space_chromaticities = DynamicMetadata::kChromaticitiesRec2020;
   } else {
     for (size_t r = 0; r < 8; ++r) {
-      uint16_t raw_c = 0;
-      if (!reader.readU16BE(raw_c)) {
-        return makeError(UHDR_CODEC_INVALID_PARAM,
-                         "Truncated gain_application_space_chromaticities");
+      if (auto err =
+              readU16FloatField(reader, 0u, 50000u, 0u, kMixParamScale,
+                                "gain_application_space_chromaticities",
+                                parsed.gain_application_space_chromaticities[r]);
+          err.error_code != UHDR_CODEC_OK) {
+        return err;
       }
-      parsed.gain_application_space_chromaticities[r] =
-          uint16ToFloat(raw_c, 0u, 50000u, 0u, kMixParamScale);
     }
   }
 
@@ -1022,10 +1055,11 @@ uhdr_error_info_t parseSt2094_50(const uint8_t* data, size_t size, DynamicMetada
   for (size_t a = 0; a < num_alt; ++a) {
     ToneMappingRule& rule = parsed.rules[a];
     uint16_t raw_alt = 0;
-    if (!reader.readU16BE(raw_alt)) {
-      return makeError(UHDR_CODEC_INVALID_PARAM, "Truncated alternate_hdr_headroom");
+    if (auto err = readU16FloatField(reader, 0u, 60000u, 0u, 10000.0f, "alternate_hdr_headroom",
+                                     rule.alternate_hdr_headroom_log2, &raw_alt);
+        err.error_code != UHDR_CODEC_OK) {
+      return err;
     }
-    rule.alternate_hdr_headroom_log2 = uint16ToFloat(raw_alt, 0u, 60000u, 0u, 10000.0f);
 
     if (a == 0 || !has_common_mix) {
       uint32_t mix_type = 0;
@@ -1062,7 +1096,11 @@ uhdr_error_info_t parseSt2094_50(const uint8_t* data, size_t size, DynamicMetada
             if (!reader.readU16BE(raw_coeff)) {
               return makeError(UHDR_CODEC_INVALID_PARAM, "Truncated component_mixing coefficient");
             }
-            p[k] = static_cast<double>(std::min<uint16_t>(raw_coeff, 50000u));
+            if (raw_coeff > 50000u) {
+              return makeError(UHDR_CODEC_INVALID_PARAM,
+                               "Out-of-range component_mixing coefficient");
+            }
+            p[k] = static_cast<double>(raw_coeff);
             p_sum += p[k];
           }
         }
@@ -1097,11 +1135,11 @@ uhdr_error_info_t parseSt2094_50(const uint8_t* data, size_t size, DynamicMetada
       num_pts = static_cast<size_t>(num_pts_m1) + 1u;
       rule.curve.assign(num_pts, ControlPoint{});
       for (size_t c = 0; c < num_pts; ++c) {
-        uint16_t raw_x = 0;
-        if (!reader.readU16BE(raw_x)) {
-          return makeError(UHDR_CODEC_INVALID_PARAM, "Truncated gain_curve x");
+        if (auto err =
+                readU16FloatField(reader, 0u, 64000u, 0u, 1000.0f, "gain_curve x", rule.curve[c].x);
+            err.error_code != UHDR_CODEC_OK) {
+          return err;
         }
-        rule.curve[c].x = uint16ToFloat(raw_x, 0u, 64000u, 0u, 1000.0f);
       }
       if (a == 0) {
         common_num_pts = num_pts;
@@ -1122,20 +1160,22 @@ uhdr_error_info_t parseSt2094_50(const uint8_t* data, size_t size, DynamicMetada
 
     const float sign = (raw_baseline < raw_alt) ? 1.0f : -1.0f;
     for (size_t c = 0; c < num_pts; ++c) {
-      uint16_t raw_y = 0;
-      if (!reader.readU16BE(raw_y)) {
-        return makeError(UHDR_CODEC_INVALID_PARAM, "Truncated gain_curve y");
+      float abs_y = 0.0f;
+      if (auto err = readU16FloatField(reader, 0u, 60000u, 0u, 10000.0f, "gain_curve y", abs_y);
+          err.error_code != UHDR_CODEC_OK) {
+        return err;
       }
-      rule.curve[c].y = sign * uint16ToFloat(raw_y, 0u, 60000u, 0u, 10000.0f);
+      rule.curve[c].y = sign * abs_y;
     }
 
     if (!rule.use_pchip_slope) {
       for (size_t c = 0; c < num_pts; ++c) {
-        uint16_t raw_theta = 0;
-        if (!reader.readU16BE(raw_theta)) {
-          return makeError(UHDR_CODEC_INVALID_PARAM, "Truncated gain_curve theta");
+        float theta = 0.0f;
+        if (auto err = readU16FloatField(reader, 1u, 35999u, 18000u, 36000.0f / kPi,
+                                         "gain_curve theta", theta);
+            err.error_code != UHDR_CODEC_OK) {
+          return err;
         }
-        const float theta = uint16ToFloat(raw_theta, 1u, 35999u, 18000u, 36000.0f / kPi);
         rule.curve[c].m = std::tan(theta);
       }
     } else {
@@ -1696,6 +1736,72 @@ uhdr_error_info_t toneMapCurveToGainCurve(const PchipInterpolator& tone_map_curv
 
 }  // namespace smpte2094_50
 
+static uhdr_error_info_t makeTopLevelError(uhdr_codec_err_t code, const char* msg) {
+  uhdr_error_info_t status{};
+  status.error_code = code;
+  status.has_detail = 1;
+  std::snprintf(status.detail, sizeof(status.detail), "%s", msg);
+  return status;
+}
+
+static uhdr_error_info_t validateGenerateGainMapInputs(
+    const uhdr_raw_image_t* image, const smpte2094_50::DynamicMetadata& metadata,
+    float hdr_capacity_max, SamplePixelFn& sample_pixel_fn, LuminanceFn& luminance_fn,
+    ColorTransformFn& yuv_to_rgb_fn, bool& is_rgb) {
+  if (image->w == 0 || image->h == 0) {
+    return makeTopLevelError(UHDR_CODEC_INVALID_PARAM, "Empty image dimensions in generateGainMap");
+  }
+  sample_pixel_fn = getSamplePixelFn(image->fmt);
+  if (sample_pixel_fn == nullptr) {
+    return makeTopLevelError(UHDR_CODEC_INVALID_PARAM, "Unsupported image format in generateGainMap");
+  }
+  luminance_fn = getLuminanceFn(image->cg);
+  if (luminance_fn == nullptr) {
+    return makeTopLevelError(UHDR_CODEC_INVALID_PARAM, "Unsupported color gamut in generateGainMap");
+  }
+  is_rgb = isPixelFormatRgb(image->fmt);
+  yuv_to_rgb_fn = getYuvToRgbFn(image->cg);
+  if (!is_rgb && yuv_to_rgb_fn == nullptr) {
+    return makeTopLevelError(UHDR_CODEC_INVALID_PARAM,
+                             "Missing YUV-to-RGB conversion in generateGainMap");
+  }
+  if (is_rgb) {
+    if (image->planes[UHDR_PLANE_PACKED] == nullptr ||
+        image->stride[UHDR_PLANE_PACKED] < image->w) {
+      return makeTopLevelError(UHDR_CODEC_INVALID_PARAM,
+                               "Invalid packed plane or stride in generateGainMap");
+    }
+  } else if (image->fmt == UHDR_IMG_FMT_24bppYCbCrP010) {
+    if (image->planes[UHDR_PLANE_Y] == nullptr || image->planes[UHDR_PLANE_UV] == nullptr ||
+        image->stride[UHDR_PLANE_Y] < image->w || image->stride[UHDR_PLANE_UV] == 0) {
+      return makeTopLevelError(UHDR_CODEC_INVALID_PARAM,
+                               "Invalid P010 plane or stride in generateGainMap");
+    }
+  } else {
+    const unsigned int min_uv_stride = (image->fmt == UHDR_IMG_FMT_24bppYCbCr444 ||
+                                        image->fmt == UHDR_IMG_FMT_30bppYCbCr444)
+                                           ? image->w
+                                           : (image->w + 1u) / 2u;
+    if (image->planes[UHDR_PLANE_Y] == nullptr || image->planes[UHDR_PLANE_U] == nullptr ||
+        image->planes[UHDR_PLANE_V] == nullptr || image->stride[UHDR_PLANE_Y] < image->w ||
+        image->stride[UHDR_PLANE_U] < min_uv_stride ||
+        image->stride[UHDR_PLANE_V] < min_uv_stride) {
+      return makeTopLevelError(UHDR_CODEC_INVALID_PARAM,
+                               "Invalid YUV plane or stride in generateGainMap");
+    }
+  }
+  if (!std::isfinite(hdr_capacity_max) || (hdr_capacity_max >= 0.0f && hdr_capacity_max < 1.0f)) {
+    return makeTopLevelError(UHDR_CODEC_INVALID_PARAM, "Invalid hdr_capacity_max in generateGainMap");
+  }
+  if (!std::isfinite(metadata.hdr_reference_white) || metadata.hdr_reference_white <= 0.0f ||
+      !std::isfinite(metadata.baseline_hdr_headroom_log2) ||
+      metadata.baseline_hdr_headroom_log2 < 0.0f || metadata.baseline_hdr_headroom_log2 > 6.0f) {
+    return makeTopLevelError(UHDR_CODEC_INVALID_PARAM,
+                             "Invalid baseline headroom or reference white in generateGainMap");
+  }
+  return g_no_error;
+}
+
 static float applyMix(const Color& pixel, const smpte2094_50::ComponentMix& mix, float luma) {
   const float k_sum =
       mix.rgb[0] + mix.rgb[1] + mix.rgb[2] + mix.component + mix.max + mix.min;
@@ -1716,12 +1822,19 @@ uhdr_error_info_t generateGainMap(uhdr_raw_image_t* image,
                                   std::unique_ptr<uhdr_raw_image_ext_t>& gainmap_img,
                                   float hdr_capacity_max) {
   if (image == nullptr || gainmap_metadata == nullptr) {
-    uhdr_error_info_t status;
-    status.error_code = UHDR_CODEC_INVALID_PARAM;
-    status.has_detail = 1;
-    std::snprintf(status.detail, sizeof(status.detail),
-                  "Null image or gainmap_metadata in generateGainMap");
-    return status;
+    return makeTopLevelError(UHDR_CODEC_INVALID_PARAM,
+                             "Null image or gainmap_metadata in generateGainMap");
+  }
+
+  SamplePixelFn sample_pixel_fn = nullptr;
+  LuminanceFn luminance_fn = nullptr;
+  ColorTransformFn yuv_to_rgb_fn = nullptr;
+  bool is_rgb = false;
+  uhdr_error_info_t input_status =
+      validateGenerateGainMapInputs(image, metadata, hdr_capacity_max, sample_pixel_fn,
+                                    luminance_fn, yuv_to_rgb_fn, is_rgb);
+  if (input_status.error_code != UHDR_CODEC_OK) {
+    return input_status;
   }
 
   smpte2094_50::DynamicMetadata local_metadata = metadata;
@@ -1732,6 +1845,18 @@ uhdr_error_info_t generateGainMap(uhdr_raw_image_t* image,
 
   float max_headroom_log2 = local_metadata.baseline_hdr_headroom_log2;
   for (const auto& rule : local_metadata.rules) {
+    if (!std::isfinite(rule.alternate_hdr_headroom_log2) ||
+        rule.alternate_hdr_headroom_log2 < 0.0f || rule.alternate_hdr_headroom_log2 > 6.0f) {
+      return makeTopLevelError(UHDR_CODEC_INVALID_PARAM,
+                               "Invalid alternate_hdr_headroom in generateGainMap");
+    }
+    for (float w : {rule.mix.rgb[0], rule.mix.rgb[1], rule.mix.rgb[2], rule.mix.max, rule.mix.min,
+                    rule.mix.component}) {
+      if (!std::isfinite(w) || w < 0.0f) {
+        return makeTopLevelError(UHDR_CODEC_INVALID_PARAM,
+                                 "Invalid component mix weight in generateGainMap");
+      }
+    }
     max_headroom_log2 = std::max(max_headroom_log2, rule.alternate_hdr_headroom_log2);
   }
 
@@ -1827,12 +1952,6 @@ uhdr_error_info_t generateGainMap(uhdr_raw_image_t* image,
                                                        image->ct, image->range, image->w, image->h,
                                                        64);
 
-  SamplePixelFn sample_pixel_fn = getSamplePixelFn(image->fmt);
-  LuminanceFn luminance_fn = getLuminanceFn(image->cg);
-  ColorTransformFn yuv_to_rgb_fn = getYuvToRgbFn(image->cg);
-
-  const bool is_rgb = isPixelFormatRgb(image->fmt);
-
   for (unsigned int py = 0; py < image->h; ++py) {
     for (unsigned int px = 0; px < image->w; ++px) {
       Color pixel = sample_pixel_fn(image, 1, px, py);
@@ -1893,14 +2012,6 @@ struct HagcSamplePoint {
   std::array<float, 3> base_rgb = {0.0f, 0.0f, 0.0f};
   std::array<float, 3> gain_log2 = {0.0f, 0.0f, 0.0f};
 };
-
-uhdr_error_info_t makeTopLevelError(uhdr_codec_err_t code, const char* msg) {
-  uhdr_error_info_t status;
-  status.error_code = code;
-  status.has_detail = 1;
-  std::snprintf(status.detail, sizeof(status.detail), "%s", msg);
-  return status;
-}
 
 std::array<float, 3> getLumaWeightsForGamut(uhdr_color_gamut_t cg) {
   switch (cg) {

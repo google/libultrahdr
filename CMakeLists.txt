@@ -67,7 +67,7 @@ option_if_not_defined(UHDR_ENABLE_INSTALL "Enable install and uninstall targets 
 option_if_not_defined(UHDR_ENABLE_INTRINSICS "Build with SIMD acceleration " TRUE)
 option_if_not_defined(UHDR_ENABLE_GLES "Build with GPU acceleration " FALSE)
 option_if_not_defined(UHDR_ENABLE_WERROR "Build with -Werror" FALSE)
-option_if_not_defined(UHDR_ENABLE_SMPTE2094_50 "Build with SMPTE 2094-50 support (built-in)" TRUE)
+option_if_not_defined(UHDR_ENABLE_SMPTE2094_50 "Build with SMPTE 2094-50 support (built-in, always enabled)" TRUE)
 option_if_not_defined(UHDR_ENABLE_HEIF "Build with HEIF/AVIF support via libheif" TRUE)
 
 # These options effect only encoding process.
@@ -284,9 +284,10 @@ find_package(Threads REQUIRED)
 
 include(ExternalProject)
 
-if(UHDR_ENABLE_SMPTE2094_50)
-  message(STATUS "SMPTE 2094-50 support - Enabled (built-in)")
+if(NOT UHDR_ENABLE_SMPTE2094_50)
+  message(WARNING "UHDR_ENABLE_SMPTE2094_50 is deprecated; SMPTE 2094-50 support is built-in and always enabled")
 endif()
+message(STATUS "SMPTE 2094-50 support - Enabled (built-in)")
 
 get_directory_property(UHDR_COMPILE_FLAGS COMPILE_OPTIONS)
 string (REPLACE ";" " " UHDR_COMPILE_FLAGS_STR "${UHDR_COMPILE_FLAGS}")
