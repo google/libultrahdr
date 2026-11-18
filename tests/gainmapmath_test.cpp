@@ -2119,4 +2119,30 @@ TEST_F(GainMapMathTest, ApplyMap) {
   EXPECT_RGB_EQ(Recover(YuvWhite(), 0.0f, &metadata), RgbWhite() / 2.0f);
 }
 
+TEST_F(GainMapMathTest, AffineMapGainClampsBeforeGamma) {
+  const float min_boost = 1.0f;  // log2(2.0f)
+  const float max_boost = 3.0f;  // log2(8.0f)
+  const float mid_boost = 2.0f;  // log2(4.0f), exact normalized 0.5
+
+  // Gains below mingainlog2 must clamp to 0 before applying gamma (avoiding NaN on fractional
+  // gamma and positive sign-inversion on even integer gamma).
+  for (float gamma : {0.5f, 1.0f, 2.0f, 2.2f}) {
+    EXPECT_EQ(affineMapGain(0.0f, min_boost, max_boost, gamma), 0) << "gamma=" << gamma;
+    EXPECT_EQ(affineMapGain(-2.0f, min_boost, max_boost, gamma), 0) << "gamma=" << gamma;
+    EXPECT_EQ(affineMapGain(min_boost, min_boost, max_boost, gamma), 0) << "gamma=" << gamma;
+
+    // Gains above maxgainlog2 must clamp to 255 before applying gamma.
+    EXPECT_EQ(affineMapGain(max_boost, min_boost, max_boost, gamma), 255) << "gamma=" << gamma;
+    EXPECT_EQ(affineMapGain(4.0f, min_boost, max_boost, gamma), 255) << "gamma=" << gamma;
+
+    // Degenerate non-positive range returns 0 safely without 0/0 NaN conversion.
+    EXPECT_EQ(affineMapGain(min_boost, min_boost, min_boost, gamma), 0) << "gamma=" << gamma;
+  }
+
+  // Interior midpoint still applies gamma normally: 0.5^0.5 * 255 = 180.31, 0.5^2.0 * 255 = 63.75.
+  EXPECT_EQ(affineMapGain(mid_boost, min_boost, max_boost, 0.5f), 180);
+  EXPECT_EQ(affineMapGain(mid_boost, min_boost, max_boost, 1.0f), 128);
+  EXPECT_EQ(affineMapGain(mid_boost, min_boost, max_boost, 2.0f), 64);
+}
+
 }  // namespace ultrahdr
