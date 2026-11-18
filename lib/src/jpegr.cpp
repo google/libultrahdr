@@ -21,6 +21,7 @@
 #include <mutex>
 #include <thread>
 
+#include "ultrahdr/agtm.h"
 #include "ultrahdr/editorhelper.h"
 #include "ultrahdr/gainmapmetadata.h"
 #include "ultrahdr/ultrahdrcommon.h"
@@ -134,9 +135,11 @@ unsigned int GetCPUCoreCount() { return (std::max)(1u, std::thread::hardware_con
 
 JpegR::JpegR(void* uhdrGLESCtxt, int mapDimensionScaleFactor, int mapCompressQuality,
              bool useMultiChannelGainMap, float gamma, uhdr_enc_preset_t preset,
-             float minContentBoost, float maxContentBoost, float targetDispPeakBrightness)
+             float minContentBoost, float maxContentBoost, float targetDispPeakBrightness,
+             uhdr_hagc_mode_t hagcMode)
     : UltraHdr(uhdrGLESCtxt, mapDimensionScaleFactor, mapCompressQuality, useMultiChannelGainMap,
-               gamma, preset, minContentBoost, maxContentBoost, targetDispPeakBrightness) {}
+               gamma, preset, minContentBoost, maxContentBoost, targetDispPeakBrightness),
+      mHagcMode(hagcMode) {}
 
 UltraHdr::UltraHdr(void* uhdrGLESCtxt, int mapDimensionScaleFactor, int mapCompressQuality,
                    bool useMultiChannelGainMap, float gamma, uhdr_enc_preset_t preset,
@@ -223,7 +226,23 @@ uhdr_error_info_t JpegR::encodeJPEGR(uhdr_raw_image_t* hdr_intent, uhdr_compress
   UHDR_ERR_CHECK(compressGainMap(gainmap.get(), &jpeg_enc_obj_gm));
   uhdr_compressed_image_t gainmap_compressed = jpeg_enc_obj_gm.getCompressedImage();
 
-  std::shared_ptr<DataStruct> icc = IccHelper::writeIccProfile(UHDR_CT_SRGB, sdr_intent->cg);
+  std::vector<uint8_t> hagc_bytes;
+  std::shared_ptr<DataStruct> icc;
+  if (mHagcMode == UHDR_HAGC_DERIVE_FROM_GAINMAP) {
+    UHDR_ERR_CHECK(
+        deriveEncodedHagcFromGainMap(sdr_intent.get(), gainmap.get(), &metadata, hagc_bytes));
+    icc = IccHelper::writeIccProfile(UHDR_CT_SRGB, sdr_intent->cg, hagc_bytes.data(),
+                                     hagc_bytes.size());
+  } else {
+    icc = IccHelper::writeIccProfile(UHDR_CT_SRGB, sdr_intent->cg);
+  }
+  if (icc == nullptr) {
+    uhdr_error_info_t status;
+    status.error_code = UHDR_CODEC_ERROR;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail, "failed to serialize primary ICC profile");
+    return status;
+  }
 
   // compress sdr image
   std::unique_ptr<uhdr_raw_image_ext_t> sdr_intent_yuv_ext;
@@ -263,7 +282,22 @@ uhdr_error_info_t JpegR::encodeJPEGR(uhdr_raw_image_t* hdr_intent, uhdr_raw_imag
   UHDR_ERR_CHECK(compressGainMap(gainmap.get(), &jpeg_enc_obj_gm));
   uhdr_compressed_image_t gainmap_compressed = jpeg_enc_obj_gm.getCompressedImage();
 
-  std::shared_ptr<DataStruct> icc = IccHelper::writeIccProfile(UHDR_CT_SRGB, sdr_intent->cg);
+  std::vector<uint8_t> hagc_bytes;
+  std::shared_ptr<DataStruct> icc;
+  if (mHagcMode == UHDR_HAGC_DERIVE_FROM_GAINMAP) {
+    UHDR_ERR_CHECK(deriveEncodedHagcFromGainMap(sdr_intent, gainmap.get(), &metadata, hagc_bytes));
+    icc = IccHelper::writeIccProfile(UHDR_CT_SRGB, sdr_intent->cg, hagc_bytes.data(),
+                                     hagc_bytes.size());
+  } else {
+    icc = IccHelper::writeIccProfile(UHDR_CT_SRGB, sdr_intent->cg);
+  }
+  if (icc == nullptr) {
+    uhdr_error_info_t status;
+    status.error_code = UHDR_CODEC_ERROR;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail, "failed to serialize primary ICC profile");
+    return status;
+  }
 
   std::unique_ptr<uhdr_raw_image_ext_t> sdr_intent_yuv_ext;
   uhdr_raw_image_t* sdr_intent_yuv = sdr_intent;
@@ -326,6 +360,13 @@ uhdr_error_info_t JpegR::encodeJPEGR(uhdr_raw_image_t* hdr_intent, uhdr_raw_imag
   UHDR_ERR_CHECK(compressGainMap(gainmap.get(), &jpeg_enc_obj_gm));
   uhdr_compressed_image_t gainmap_compressed = jpeg_enc_obj_gm.getCompressedImage();
 
+  if (mHagcMode == UHDR_HAGC_DERIVE_FROM_GAINMAP) {
+    std::vector<uint8_t> hagc_bytes;
+    UHDR_ERR_CHECK(deriveEncodedHagcFromGainMap(sdr_intent, gainmap.get(), &metadata, hagc_bytes));
+    return encodeJPEGRWithHagc(sdr_intent_compressed, &gainmap_compressed, &metadata, dest,
+                               &hagc_bytes);
+  }
+
   return encodeJPEGR(sdr_intent_compressed, &gainmap_compressed, &metadata, dest);
 }
 
@@ -387,7 +428,152 @@ uhdr_error_info_t JpegR::encodeJPEGR(uhdr_raw_image_t* hdr_intent,
   UHDR_ERR_CHECK(compressGainMap(gainmap.get(), &jpeg_enc_obj_gm));
   uhdr_compressed_image_t gainmap_compressed = jpeg_enc_obj_gm.getCompressedImage();
 
+  if (mHagcMode == UHDR_HAGC_DERIVE_FROM_GAINMAP) {
+    smpte2094_50::HagcDerivationOptions hagc_opts;
+    hagc_opts.sdr_is_601 = true;
+    std::vector<uint8_t> hagc_bytes;
+    UHDR_ERR_CHECK(deriveEncodedHagcFromGainMap(&sdr_intent, gainmap.get(), &metadata, hagc_bytes,
+                                                hagc_opts));
+    return encodeJPEGRWithHagc(sdr_intent_compressed, &gainmap_compressed, &metadata, dest,
+                               &hagc_bytes);
+  }
+
   return encodeJPEGR(sdr_intent_compressed, &gainmap_compressed, &metadata, dest);
+}
+
+uhdr_error_info_t JpegR::encodeJPEGRWithHagc(uhdr_compressed_image_t* base_img_compressed,
+                                             uhdr_compressed_image_t* gainmap_img_compressed,
+                                             uhdr_gainmap_metadata_ext_t* metadata,
+                                             uhdr_compressed_image_t* dest,
+                                             const std::vector<uint8_t>* precomputed_hagc) {
+  if (base_img_compressed == nullptr || base_img_compressed->data == nullptr ||
+      gainmap_img_compressed == nullptr || gainmap_img_compressed->data == nullptr ||
+      metadata == nullptr || dest == nullptr) {
+    uhdr_error_info_t status;
+    status.error_code = UHDR_CODEC_INVALID_PARAM;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "received nullptr for compressed image or metadata in encodeJPEGR");
+    return status;
+  }
+
+  UHDR_ERR_CHECK(uhdr_validate_gainmap_metadata_descriptor(metadata));
+
+  JpegDecoderHelper decoder;
+  UHDR_ERR_CHECK(decoder.parseImage(base_img_compressed->data, base_img_compressed->data_sz));
+
+  if (!metadata->use_base_cg) {
+    JpegDecoderHelper gainmap_decoder;
+    UHDR_ERR_CHECK(
+        gainmap_decoder.parseImage(gainmap_img_compressed->data, gainmap_img_compressed->data_sz));
+    if (!(gainmap_decoder.getICCSize() > 0)) {
+      uhdr_error_info_t status;
+      status.error_code = UHDR_CODEC_UNSUPPORTED_FEATURE;
+      status.has_detail = 1;
+      snprintf(status.detail, sizeof status.detail,
+               "For gainmap application space to be alternate image space, gainmap image is "
+               "expected to contain alternate image color space in the form of ICC. The ICC marker "
+               "in gainmap jpeg is missing.");
+      return status;
+    }
+  }
+
+  if (decoder.getICCSize() == 0) {
+    if (base_img_compressed->cg <= UHDR_CG_UNSPECIFIED ||
+        base_img_compressed->cg > UHDR_CG_BT_2100) {
+      uhdr_error_info_t status;
+      status.error_code = UHDR_CODEC_INVALID_PARAM;
+      status.has_detail = 1;
+      snprintf(status.detail, sizeof status.detail, "Unrecognized 420 color gamut %d",
+               base_img_compressed->cg);
+      return status;
+    }
+  }
+
+  std::vector<uint8_t> derived_hagc;
+  const std::vector<uint8_t>* hagc_ptr = precomputed_hagc;
+  if (hagc_ptr == nullptr) {
+    JpegDecoderHelper base_dec;
+    UHDR_ERR_CHECK(base_dec.decompressImage(base_img_compressed->data, base_img_compressed->data_sz,
+                                            DECODE_STREAM));
+    uhdr_raw_image_t sdr_raw = base_dec.getDecompressedImage();
+    sdr_raw.ct = UHDR_CT_SRGB;
+    sdr_raw.range = UHDR_CR_FULL_RANGE;
+    if (base_dec.getICCSize() > 0) {
+      uhdr_color_gamut_t icc_cg =
+          IccHelper::readIccColorGamut(base_dec.getICCPtr(), base_dec.getICCSize());
+      if (icc_cg != UHDR_CG_UNSPECIFIED) {
+        if (base_img_compressed->cg != UHDR_CG_UNSPECIFIED && base_img_compressed->cg != icc_cg) {
+          uhdr_error_info_t status;
+          status.error_code = UHDR_CODEC_INVALID_PARAM;
+          status.has_detail = 1;
+          snprintf(status.detail, sizeof status.detail,
+                   "configured color gamut %d does not match with color gamut specified in icc "
+                   "box %d",
+                   base_img_compressed->cg, icc_cg);
+          return status;
+        }
+        sdr_raw.cg = icc_cg;
+      } else if (base_img_compressed->cg > UHDR_CG_UNSPECIFIED &&
+                 base_img_compressed->cg <= UHDR_CG_BT_2100) {
+        sdr_raw.cg = base_img_compressed->cg;
+      } else {
+        sdr_raw.cg = UHDR_CG_BT_709;
+      }
+    } else {
+      sdr_raw.cg = base_img_compressed->cg;
+    }
+
+    JpegDecoderHelper gm_dec;
+    UHDR_ERR_CHECK(gm_dec.decompressImage(gainmap_img_compressed->data,
+                                          gainmap_img_compressed->data_sz, DECODE_STREAM));
+    uhdr_raw_image_t gm_raw = gm_dec.getDecompressedImage();
+    if (!metadata->use_base_cg) {
+      uhdr_color_gamut_t gm_cg =
+          IccHelper::readIccColorGamut(gm_dec.getICCPtr(), gm_dec.getICCSize());
+      if (gm_cg == UHDR_CG_UNSPECIFIED && gainmap_img_compressed->cg > UHDR_CG_UNSPECIFIED &&
+          gainmap_img_compressed->cg <= UHDR_CG_BT_2100) {
+        gm_cg = gainmap_img_compressed->cg;
+      }
+      gm_raw.cg = gm_cg;
+    } else {
+      gm_raw.cg = sdr_raw.cg;
+    }
+
+    smpte2094_50::HagcDerivationOptions hagc_opts;
+    hagc_opts.sdr_is_601 = true;
+    UHDR_ERR_CHECK(
+        deriveEncodedHagcFromGainMap(&sdr_raw, &gm_raw, metadata, derived_hagc, hagc_opts));
+    hagc_ptr = &derived_hagc;
+  }
+
+  std::shared_ptr<DataStruct> newIcc;
+  if (decoder.getICCSize() > 0) {
+    newIcc = IccHelper::injectHagcIntoIccProfile(decoder.getICCPtr(), decoder.getICCSize(),
+                                                 hagc_ptr->data(), hagc_ptr->size());
+    if (newIcc == nullptr) {
+      uhdr_error_info_t status;
+      status.error_code = UHDR_CODEC_INVALID_PARAM;
+      status.has_detail = 1;
+      snprintf(status.detail, sizeof status.detail,
+               "failed to inject HAGC tag into base image ICC profile");
+      return status;
+    }
+  } else {
+    newIcc = IccHelper::writeIccProfile(UHDR_CT_SRGB, base_img_compressed->cg, hagc_ptr->data(),
+                                        hagc_ptr->size());
+    if (newIcc == nullptr) {
+      uhdr_error_info_t status;
+      status.error_code = UHDR_CODEC_ERROR;
+      status.has_detail = 1;
+      snprintf(status.detail, sizeof status.detail, "failed to serialize primary ICC profile");
+      return status;
+    }
+  }
+
+  UHDR_ERR_CHECK(appendGainMap(base_img_compressed, gainmap_img_compressed, /* exif */ nullptr,
+                               newIcc->getData(), newIcc->getLength(), metadata, dest));
+  return g_no_error;
 }
 
 /* Encode API-4 */
@@ -395,6 +581,10 @@ uhdr_error_info_t JpegR::encodeJPEGR(uhdr_compressed_image_t* base_img_compresse
                                      uhdr_compressed_image_t* gainmap_img_compressed,
                                      uhdr_gainmap_metadata_ext_t* metadata,
                                      uhdr_compressed_image_t* dest) {
+  if (mHagcMode == UHDR_HAGC_DERIVE_FROM_GAINMAP) {
+    return encodeJPEGRWithHagc(base_img_compressed, gainmap_img_compressed, metadata, dest,
+                               nullptr);
+  }
   // We just want to check if ICC is present, so don't do a full decode. Note,
   // this doesn't verify that the ICC is valid.
   JpegDecoderHelper decoder;
@@ -1290,6 +1480,14 @@ uhdr_error_info_t JpegR::appendGainMap(uhdr_compressed_image_t* sdr_intent_compr
   // Write ICC
   if (pIcc != nullptr && icc_size > 0) {
     const size_t length = icc_size + 2;
+    if (length > 0xFFFF) {
+      uhdr_error_info_t status;
+      status.error_code = UHDR_CODEC_ERROR;
+      status.has_detail = 1;
+      snprintf(status.detail, sizeof status.detail,
+               "ICC segment length %zu exceeds 65535 byte JPEG APP2 limit", length);
+      return status;
+    }
     const uint8_t lengthH = ((length >> 8) & 0xff);
     const uint8_t lengthL = (length & 0xff);
     UHDR_ERR_CHECK(Write(dest, &photos_editing_formats::image_io::JpegMarker::kStart, 1, pos));

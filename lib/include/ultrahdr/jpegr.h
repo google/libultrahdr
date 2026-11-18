@@ -57,7 +57,11 @@ class JpegR : public UltraHdr {
         bool useMultiChannelGainMap = kUseMultiChannelGainMapAndroidDefault,
         float gamma = kGainMapGammaDefault,
         uhdr_enc_preset_t preset = kEncSpeedPresetAndroidDefault, float minContentBoost = FLT_MIN,
-        float maxContentBoost = FLT_MAX, float targetDispPeakBrightness = -1.0f);
+        float maxContentBoost = FLT_MAX, float targetDispPeakBrightness = -1.0f,
+        uhdr_hagc_mode_t hagcMode = UHDR_HAGC_DISABLED);
+
+  void setHagcMode(uhdr_hagc_mode_t hagcMode) { mHagcMode = hagcMode; }
+  uhdr_hagc_mode_t getHagcMode() const { return mHagcMode; }
 
   /*!\brief Encode API-0.
    *
@@ -388,6 +392,14 @@ class JpegR : public UltraHdr {
                                   jr_uncompressed_ptr yuv420_image_ptr,
                                   ultrahdr_transfer_function hdr_tf, jr_compressed_ptr dest,
                                   int quality);
+
+  uhdr_error_info_t encodeJPEGRWithHagc(uhdr_compressed_image_t* base_img_compressed,
+                                        uhdr_compressed_image_t* gainmap_img_compressed,
+                                        uhdr_gainmap_metadata_ext_t* metadata,
+                                        uhdr_compressed_image_t* dest,
+                                        const std::vector<uint8_t>* precomputed_hagc = nullptr);
+
+  uhdr_hagc_mode_t mHagcMode;
 };
 
 }  // namespace ultrahdr

@@ -1503,6 +1503,41 @@ uhdr_error_info_t uhdr_enc_set_output_format(uhdr_codec_private_t* enc, uhdr_cod
   return status;
 }
 
+uhdr_error_info_t uhdr_enc_set_hagc_mode(uhdr_codec_private_t* enc, uhdr_hagc_mode_t mode) {
+  uhdr_error_info_t status = g_no_error;
+
+  if (dynamic_cast<uhdr_encoder_private*>(enc) == nullptr) {
+    status.error_code = UHDR_CODEC_INVALID_PARAM;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail, "received nullptr for uhdr codec instance");
+    return status;
+  }
+
+  if (mode != UHDR_HAGC_DISABLED && mode != UHDR_HAGC_DERIVE_FROM_GAINMAP) {
+    status.error_code = UHDR_CODEC_INVALID_PARAM;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "invalid hagc mode %d, expects one of {UHDR_HAGC_DISABLED, "
+             "UHDR_HAGC_DERIVE_FROM_GAINMAP}",
+             mode);
+    return status;
+  }
+
+  uhdr_encoder_private* handle = dynamic_cast<uhdr_encoder_private*>(enc);
+  if (handle->m_sailed) {
+    status.error_code = UHDR_CODEC_INVALID_OPERATION;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "An earlier call to uhdr_encode() has switched the context from configurable state to "
+             "end state. The context is no longer configurable. To reuse, call reset()");
+    return status;
+  }
+
+  handle->m_hagc_mode = mode;
+
+  return status;
+}
+
 uhdr_error_info_t uhdr_encode(uhdr_codec_private_t* enc) {
   if (dynamic_cast<uhdr_encoder_private*>(enc) == nullptr) {
     uhdr_error_info_t status;
@@ -1521,6 +1556,14 @@ uhdr_error_info_t uhdr_encode(uhdr_codec_private_t* enc) {
   handle->m_sailed = true;
 
   uhdr_error_info_t& status = handle->m_encode_call_status;
+
+  if (handle->m_hagc_mode != UHDR_HAGC_DISABLED && handle->m_output_format != UHDR_CODEC_JPG) {
+    status.error_code = UHDR_CODEC_UNSUPPORTED_FEATURE;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "HAGC metadata emission is currently supported only for UHDR_CODEC_JPG output");
+    return status;
+  }
 
   if (handle->m_compressed_images.find(UHDR_BASE_IMG) != handle->m_compressed_images.end() &&
       handle->m_compressed_images.find(UHDR_GAIN_MAP_IMG) != handle->m_compressed_images.end()) {
@@ -1578,7 +1621,8 @@ uhdr_error_info_t uhdr_encode(uhdr_codec_private_t* enc) {
                           handle->m_quality.find(UHDR_GAIN_MAP_IMG)->second,
                           handle->m_use_multi_channel_gainmap, handle->m_gamma,
                           handle->m_enc_preset, handle->m_min_content_boost,
-                          handle->m_max_content_boost, handle->m_target_disp_max_brightness);
+                          handle->m_max_content_boost, handle->m_target_disp_max_brightness,
+                          handle->m_hagc_mode);
     if (handle->m_compressed_images.find(UHDR_BASE_IMG) != handle->m_compressed_images.end() &&
         handle->m_compressed_images.find(UHDR_GAIN_MAP_IMG) != handle->m_compressed_images.end()) {
       auto& base_entry = handle->m_compressed_images.find(UHDR_BASE_IMG)->second;
@@ -1791,6 +1835,7 @@ void uhdr_reset_encoder(uhdr_codec_private_t* enc) {
     handle->m_min_content_boost = FLT_MIN;
     handle->m_max_content_boost = FLT_MAX;
     handle->m_target_disp_max_brightness = -1.0f;
+    handle->m_hagc_mode = UHDR_HAGC_DISABLED;
 
     handle->m_compressed_output_buffer.reset();
     handle->m_encode_call_status = g_no_error;

@@ -23,6 +23,9 @@
 
 #include "ultrahdr_api.h"
 
+#include "ultrahdr/agtm.h"
+#include "ultrahdr/editorhelper.h"
+#include "ultrahdr/icc.h"
 #include "ultrahdr/ultrahdrcommon.h"
 #include "ultrahdr/jpegr.h"
 #include "ultrahdr/jpegrutils.h"
@@ -2822,6 +2825,377 @@ TEST(JpegRTest, ProfileGainMapFuncs) {
 #ifdef UHDR_ENABLE_GLES
   glCtxt.delete_opengl_ctxt();
 #endif
+}
+
+namespace {
+
+uint32_t readBE32Test(const uint8_t* p) {
+  return (static_cast<uint32_t>(p[0]) << 24) | (static_cast<uint32_t>(p[1]) << 16) |
+         (static_cast<uint32_t>(p[2]) << 8) | static_cast<uint32_t>(p[3]);
+}
+
+void writeBE32Test(uint8_t* p, uint32_t v) {
+  p[0] = static_cast<uint8_t>((v >> 24) & 0xFFu);
+  p[1] = static_cast<uint8_t>((v >> 16) & 0xFFu);
+  p[2] = static_cast<uint8_t>((v >> 8) & 0xFFu);
+  p[3] = static_cast<uint8_t>(v & 0xFFu);
+}
+
+// Appends a synthetic custom vendor tag ('cust') to an APP2-framed ICC profile produced by
+// IccHelper::writeIccProfile so tests can verify custom ICC tags survive HAGC injection.
+std::vector<uint8_t> appendCustomVendorTagToApp2Icc(DataStruct& app2_icc,
+                                                    const std::vector<uint8_t>& vendor_payload) {
+  const uint8_t* src = static_cast<const uint8_t*>(app2_icc.getData());
+  const size_t src_len = app2_icc.getLength();
+  const uint8_t* prof = src + kICCIdentifierSize;
+  const size_t old_prof_sz = readBE32Test(prof);
+  const size_t old_tag_cnt = readBE32Test(prof + offsetof(ICCHeader, tag_count));
+  const size_t old_table_end = sizeof(ICCHeader) + old_tag_cnt * kICCTagTableEntrySize;
+  const size_t new_tag_cnt = old_tag_cnt + 1;
+  const size_t delta = kICCTagTableEntrySize;
+  const size_t padded_vendor = ALIGNM(vendor_payload.size(), 4);
+  const size_t new_prof_sz = ALIGNM(old_prof_sz + delta, 4) + padded_vendor;
+
+  std::vector<uint8_t> out(kICCIdentifierSize + new_prof_sz, 0);
+  std::memcpy(out.data(), src, kICCIdentifierSize);
+  uint8_t* dst = out.data() + kICCIdentifierSize;
+  std::memcpy(dst, prof, sizeof(ICCHeader));
+  writeBE32Test(dst + offsetof(ICCHeader, size), static_cast<uint32_t>(new_prof_sz));
+  writeBE32Test(dst + offsetof(ICCHeader, tag_count), static_cast<uint32_t>(new_tag_cnt));
+
+  for (size_t i = 0; i < old_tag_cnt; ++i) {
+    const uint8_t* old_e = prof + sizeof(ICCHeader) + i * kICCTagTableEntrySize;
+    uint8_t* new_e = dst + sizeof(ICCHeader) + i * kICCTagTableEntrySize;
+    writeBE32Test(new_e, readBE32Test(old_e));
+    writeBE32Test(new_e + 4, static_cast<uint32_t>(readBE32Test(old_e + 4) + delta));
+    writeBE32Test(new_e + 8, readBE32Test(old_e + 8));
+  }
+  const size_t vendor_off = ALIGNM(old_prof_sz + delta, 4);
+  uint8_t* cust_e = dst + sizeof(ICCHeader) + old_tag_cnt * kICCTagTableEntrySize;
+  writeBE32Test(cust_e, SetFourByteTag('c', 'u', 's', 't'));
+  writeBE32Test(cust_e + 4, static_cast<uint32_t>(vendor_off));
+  writeBE32Test(cust_e + 8, static_cast<uint32_t>(vendor_payload.size()));
+
+  const size_t body_len = old_prof_sz - old_table_end;
+  if (src_len >= kICCIdentifierSize + old_prof_sz) {
+    std::memcpy(dst + old_table_end + delta, prof + old_table_end, body_len);
+  }
+  std::memcpy(dst + vendor_off, vendor_payload.data(), vendor_payload.size());
+  return out;
+}
+
+bool extractIccTagPayload(const uint8_t* icc_bytes, size_t icc_len, uint32_t target_sig,
+                          std::vector<uint8_t>& out_payload) {
+  const uint8_t* prof = icc_bytes;
+  size_t prof_len = icc_len;
+  if (icc_len >= kICCIdentifierSize + sizeof(ICCHeader) &&
+      std::memcmp(icc_bytes, kICCIdentifier, sizeof(kICCIdentifier)) == 0) {
+    prof = icc_bytes + kICCIdentifierSize;
+    prof_len = icc_len - kICCIdentifierSize;
+  }
+  if (prof_len < sizeof(ICCHeader)) return false;
+  const size_t tag_cnt = readBE32Test(prof + offsetof(ICCHeader, tag_count));
+  if (sizeof(ICCHeader) + tag_cnt * kICCTagTableEntrySize > prof_len) return false;
+  for (size_t i = 0; i < tag_cnt; ++i) {
+    const uint8_t* e = prof + sizeof(ICCHeader) + i * kICCTagTableEntrySize;
+    if (readBE32Test(e) == target_sig) {
+      const size_t off = readBE32Test(e + 4);
+      const size_t sz = readBE32Test(e + 8);
+      if (off > prof_len || sz > prof_len - off) return false;
+      out_payload.assign(prof + off, prof + off + sz);
+      return true;
+    }
+  }
+  return false;
+}
+
+// Extracts the primary JPEG's SOS..EOI entropy-coded scan segment (stop at first unescaped EOI).
+std::vector<uint8_t> extractPrimaryJpegSosToEoi(const uint8_t* jpeg, size_t len) {
+  if (len < 4 || jpeg[0] != 0xFF || jpeg[1] != 0xD8) return {};
+  size_t pos = 2;
+  size_t sos_pos = 0;
+  while (pos + 1 < len) {
+    if (jpeg[pos] != 0xFF) return {};
+    while (pos + 1 < len && jpeg[pos + 1] == 0xFF) ++pos;
+    if (pos + 1 >= len) return {};
+    const uint8_t marker = jpeg[pos + 1];
+    if (marker == 0xDA) {
+      sos_pos = pos;
+      break;
+    }
+    if (marker == 0xD9) return {};
+    if (marker == 0x00 || (marker >= 0xD0 && marker <= 0xD7)) {
+      pos += 2;
+      continue;
+    }
+    if (pos + 4 > len) return {};
+    const size_t seg_len = (static_cast<size_t>(jpeg[pos + 2]) << 8) | jpeg[pos + 3];
+    if (seg_len < 2 || pos + 2 + seg_len > len) return {};
+    pos += 2 + seg_len;
+  }
+  if (sos_pos == 0 || sos_pos + 4 > len) return {};
+  const size_t sos_hdr_len = (static_cast<size_t>(jpeg[sos_pos + 2]) << 8) | jpeg[sos_pos + 3];
+  size_t scan = sos_pos + 2 + sos_hdr_len;
+  while (scan + 1 < len) {
+    if (jpeg[scan] == 0xFF) {
+      uint8_t next = jpeg[scan + 1];
+      if (next == 0x00 || (next >= 0xD0 && next <= 0xD7)) {
+        scan += 2;
+        continue;
+      }
+      if (next == 0xFF) {
+        ++scan;
+        continue;
+      }
+      if (next == 0xD9) {
+        return std::vector<uint8_t>(jpeg + sos_pos, jpeg + scan + 2);
+      }
+    }
+    ++scan;
+  }
+  return {};
+}
+
+void buildSyntheticHdrAndSdrImages(uint32_t w, uint32_t h, uhdr_color_gamut_t hdr_cg,
+                                   uhdr_color_gamut_t sdr_cg, uhdr_raw_image_ext_t& hdr_rgba1010102,
+                                   uhdr_raw_image_ext_t& sdr_rgba8888) {
+  uint32_t* hdr_p = static_cast<uint32_t*>(hdr_rgba1010102.planes[UHDR_PLANE_PACKED]);
+  uint8_t* sdr_p = static_cast<uint8_t*>(sdr_rgba8888.planes[UHDR_PLANE_PACKED]);
+  for (uint32_t y = 0; y < h; ++y) {
+    for (uint32_t x = 0; x < w; ++x) {
+      const float fx = static_cast<float>(x) / static_cast<float>(w - 1);
+      const float fy = static_cast<float>(y) / static_cast<float>(h - 1);
+      const uint8_t sr = static_cast<uint8_t>(20.0f + 220.0f * fx);
+      const uint8_t sg = static_cast<uint8_t>(20.0f + 200.0f * fy);
+      const uint8_t sb = static_cast<uint8_t>(30.0f + 180.0f * (0.5f * fx + 0.5f * fy));
+      const size_t s_idx = (static_cast<size_t>(y) * sdr_rgba8888.stride[UHDR_PLANE_PACKED] + x) * 4;
+      sdr_p[s_idx + 0] = sr;
+      sdr_p[s_idx + 1] = sg;
+      sdr_p[s_idx + 2] = sb;
+      sdr_p[s_idx + 3] = 255;
+
+      // HLG code values up to ~960 in bright highlights to induce non-trivial HDR boost.
+      const uint32_t hr = static_cast<uint32_t>(100.0f + 860.0f * fx);
+      const uint32_t hg = static_cast<uint32_t>(100.0f + 780.0f * fy);
+      const uint32_t hb = static_cast<uint32_t>(120.0f + 700.0f * (0.5f * fx + 0.5f * fy));
+      hdr_p[static_cast<size_t>(y) * hdr_rgba1010102.stride[UHDR_PLANE_PACKED] + x] =
+          (hr & 0x3FFu) | ((hg & 0x3FFu) << 10) | ((hb & 0x3FFu) << 20) | (3u << 30);
+    }
+  }
+  hdr_rgba1010102.cg = hdr_cg;
+  sdr_rgba8888.cg = sdr_cg;
+}
+
+}  // namespace
+
+TEST(JpegRTest, HagcDisabledProducesBitExactOutputAcrossAllApis) {
+  constexpr uint32_t kW = 64;
+  constexpr uint32_t kH = 64;
+  uhdr_raw_image_ext_t hdr(UHDR_IMG_FMT_32bppRGBA1010102, UHDR_CG_BT_2100, UHDR_CT_HLG,
+                           UHDR_CR_FULL_RANGE, kW, kH, 64);
+  uhdr_raw_image_ext_t sdr(UHDR_IMG_FMT_32bppRGBA8888, UHDR_CG_DISPLAY_P3, UHDR_CT_SRGB,
+                           UHDR_CR_FULL_RANGE, kW, kH, 64);
+  buildSyntheticHdrAndSdrImages(kW, kH, UHDR_CG_BT_2100, UHDR_CG_DISPLAY_P3, hdr, sdr);
+
+  auto sdr_yuv = convert_raw_input_to_ycbcr(&sdr);
+  std::shared_ptr<DataStruct> base_icc = IccHelper::writeIccProfile(UHDR_CT_SRGB, sdr.cg);
+  JpegEncoderHelper sdr_enc;
+  ASSERT_EQ(
+      sdr_enc.compressImage(sdr_yuv.get(), 90, base_icc->getData(), base_icc->getLength()).error_code,
+      UHDR_CODEC_OK);
+  uhdr_compressed_image_t sdr_jpg = sdr_enc.getCompressedImage();
+  sdr_jpg.cg = sdr.cg;
+
+  // API-0 default vs explicit UHDR_HAGC_DISABLED
+  uhdr_compressed_image_ext_t out_def(UHDR_CG_UNSPECIFIED, UHDR_CT_UNSPECIFIED, UHDR_CR_UNSPECIFIED,
+                                      256 * 1024);
+  uhdr_compressed_image_ext_t out_dis(UHDR_CG_UNSPECIFIED, UHDR_CT_UNSPECIFIED, UHDR_CR_UNSPECIFIED,
+                                      256 * 1024);
+  JpegR jpegr_def;
+  JpegR jpegr_dis(nullptr, kMapDimensionScaleFactorAndroidDefault, kMapCompressQualityAndroidDefault,
+                  kUseMultiChannelGainMapAndroidDefault, kGainMapGammaDefault,
+                  kEncSpeedPresetAndroidDefault, FLT_MIN, FLT_MAX, -1.0f, UHDR_HAGC_DISABLED);
+  ASSERT_EQ(jpegr_def.encodeJPEGR(&hdr, &out_def, 90, nullptr).error_code, UHDR_CODEC_OK);
+  ASSERT_EQ(jpegr_dis.encodeJPEGR(&hdr, &out_dis, 90, nullptr).error_code, UHDR_CODEC_OK);
+  ASSERT_EQ(out_def.data_sz, out_dis.data_sz);
+  EXPECT_EQ(std::memcmp(out_def.data, out_dis.data, out_def.data_sz), 0);
+
+  // API-1 default vs explicit UHDR_HAGC_DISABLED
+  out_def.data_sz = 0;
+  out_dis.data_sz = 0;
+  ASSERT_EQ(jpegr_def.encodeJPEGR(&hdr, &sdr, &out_def, 90, nullptr).error_code, UHDR_CODEC_OK);
+  ASSERT_EQ(jpegr_dis.encodeJPEGR(&hdr, &sdr, &out_dis, 90, nullptr).error_code, UHDR_CODEC_OK);
+  ASSERT_EQ(out_def.data_sz, out_dis.data_sz);
+  EXPECT_EQ(std::memcmp(out_def.data, out_dis.data, out_def.data_sz), 0);
+
+  // Confirm no 'HAGC' tag when disabled.
+  jpeg_info_struct prim_info, gm_info;
+  jpegr_info_struct info{0, 0, &prim_info, &gm_info};
+  ASSERT_EQ(jpegr_def.getJPEGRInfo(&out_def, &info).error_code, UHDR_CODEC_OK);
+  std::vector<uint8_t> hagc_out;
+  EXPECT_FALSE(IccHelper::readIccHagc(prim_info.iccData.data(), prim_info.iccData.size(), hagc_out));
+
+  // API-3 default vs explicit UHDR_HAGC_DISABLED
+  out_def.data_sz = 0;
+  out_dis.data_sz = 0;
+  ASSERT_EQ(jpegr_def.encodeJPEGR(&hdr, &sdr_jpg, &out_def).error_code, UHDR_CODEC_OK);
+  ASSERT_EQ(jpegr_dis.encodeJPEGR(&hdr, &sdr_jpg, &out_dis).error_code, UHDR_CODEC_OK);
+  ASSERT_EQ(out_def.data_sz, out_dis.data_sz);
+  EXPECT_EQ(std::memcmp(out_def.data, out_dis.data, out_def.data_sz), 0);
+}
+
+TEST(JpegRTest, HagcDeriveFromGainMapAcrossAllApisAndZeroPixelReencode) {
+  constexpr uint32_t kW = 64;
+  constexpr uint32_t kH = 64;
+  const uhdr_color_gamut_t gamuts[] = {UHDR_CG_BT_709, UHDR_CG_DISPLAY_P3, UHDR_CG_BT_2100};
+  const bool multi_channels[] = {false, true};
+
+  for (uhdr_color_gamut_t base_cg : gamuts) {
+    for (bool multi_channel : multi_channels) {
+      uhdr_raw_image_ext_t hdr(UHDR_IMG_FMT_32bppRGBA1010102, UHDR_CG_BT_2100, UHDR_CT_HLG,
+                               UHDR_CR_FULL_RANGE, kW, kH, 64);
+      uhdr_raw_image_ext_t sdr(UHDR_IMG_FMT_32bppRGBA8888, base_cg, UHDR_CT_SRGB,
+                               UHDR_CR_FULL_RANGE, kW, kH, 64);
+      buildSyntheticHdrAndSdrImages(kW, kH, UHDR_CG_BT_2100, base_cg, hdr, sdr);
+
+      // Prepare compressed SDR JPEG carrying a custom vendor ICC tag ('cust').
+      auto sdr_yuv = convert_raw_input_to_ycbcr(&sdr);
+      ASSERT_EQ(
+          JpegR().convertYuv(sdr_yuv.get(), sdr_yuv->cg, UHDR_CG_DISPLAY_P3).error_code,
+          UHDR_CODEC_OK);
+      std::shared_ptr<DataStruct> std_icc = IccHelper::writeIccProfile(UHDR_CT_SRGB, base_cg);
+      const std::vector<uint8_t> kVendorBytes = {'t', 'e', 's', 't', 0x42, 0x99, 0x07};
+      std::vector<uint8_t> custom_app2_icc = appendCustomVendorTagToApp2Icc(*std_icc, kVendorBytes);
+
+      JpegEncoderHelper sdr_enc;
+      ASSERT_EQ(sdr_enc
+                    .compressImage(sdr_yuv.get(), 92, custom_app2_icc.data(),
+                                   custom_app2_icc.size())
+                    .error_code,
+                UHDR_CODEC_OK);
+      uhdr_compressed_image_t sdr_jpg = sdr_enc.getCompressedImage();
+      sdr_jpg.cg = base_cg;
+      const std::vector<uint8_t> orig_scan =
+          extractPrimaryJpegSosToEoi(static_cast<const uint8_t*>(sdr_jpg.data), sdr_jpg.data_sz);
+      ASSERT_FALSE(orig_scan.empty());
+
+      auto verifyEncodedHagcOutput = [&](uhdr_compressed_image_t* encoded,
+                                         bool expect_preserved_scan_and_vendor_tag,
+                                         uhdr_color_gamut_t expected_base_cg) {
+        jpeg_info_struct prim_info, gm_info;
+        jpegr_info_struct info{0, 0, &prim_info, &gm_info};
+        JpegR probe_jpegr;
+        ASSERT_EQ(probe_jpegr.getJPEGRInfo(encoded, &info).error_code, UHDR_CODEC_OK);
+        ASSERT_FALSE(prim_info.iccData.empty());
+        EXPECT_EQ(
+            IccHelper::readIccColorGamut(prim_info.iccData.data(), prim_info.iccData.size()),
+            expected_base_cg);
+
+        std::vector<uint8_t> hagc_annex_c;
+        ASSERT_TRUE(IccHelper::readIccHagc(prim_info.iccData.data(), prim_info.iccData.size(),
+                                           hagc_annex_c));
+        smpte2094_50::DynamicMetadata parsed_hagc;
+        ASSERT_EQ(
+            smpte2094_50::parseSt2094_50(hagc_annex_c.data(), hagc_annex_c.size(), parsed_hagc)
+                .error_code,
+            UHDR_CODEC_OK);
+        ASSERT_EQ(smpte2094_50::validateDynamicMetadata(parsed_hagc).error_code, UHDR_CODEC_OK);
+        EXPECT_FLOAT_EQ(parsed_hagc.baseline_hdr_headroom_log2, 0.0f);
+        ASSERT_EQ(parsed_hagc.rules.size(), 1u);
+        EXPECT_GT(parsed_hagc.rules[0].alternate_hdr_headroom_log2, 1.0f);
+
+        if (expect_preserved_scan_and_vendor_tag) {
+          std::vector<uint8_t> vendor_out;
+          ASSERT_TRUE(extractIccTagPayload(prim_info.iccData.data(), prim_info.iccData.size(),
+                                           SetFourByteTag('c', 'u', 's', 't'), vendor_out));
+          EXPECT_EQ(vendor_out, kVendorBytes);
+
+          const std::vector<uint8_t> out_scan = extractPrimaryJpegSosToEoi(
+              static_cast<const uint8_t*>(encoded->data), encoded->data_sz);
+          EXPECT_EQ(out_scan, orig_scan);
+        }
+
+        // Verify UltraHDR decode (both SDR and HDR renditions) succeeds cleanly.
+        uhdr_raw_image_ext_t dec_hdr(UHDR_IMG_FMT_64bppRGBAHalfFloat, UHDR_CG_UNSPECIFIED,
+                                     UHDR_CT_UNSPECIFIED, UHDR_CR_UNSPECIFIED, kW, kH, 64);
+        ASSERT_EQ(probe_jpegr
+                      .decodeJPEGR(encoded, &dec_hdr, FLT_MAX, UHDR_CT_LINEAR,
+                                   UHDR_IMG_FMT_64bppRGBAHalfFloat)
+                      .error_code,
+                  UHDR_CODEC_OK);
+        uhdr_raw_image_ext_t dec_sdr(UHDR_IMG_FMT_32bppRGBA8888, UHDR_CG_UNSPECIFIED,
+                                     UHDR_CT_UNSPECIFIED, UHDR_CR_UNSPECIFIED, kW, kH, 64);
+        ASSERT_EQ(probe_jpegr
+                      .decodeJPEGR(encoded, &dec_sdr, 1.0f, UHDR_CT_SRGB,
+                                   UHDR_IMG_FMT_32bppRGBA8888)
+                      .error_code,
+                  UHDR_CODEC_OK);
+      };
+
+      JpegR jpegr_hagc(nullptr, 2, 90, multi_channel, 1.0f, UHDR_USAGE_REALTIME, FLT_MIN, FLT_MAX,
+                       -1.0f, UHDR_HAGC_DERIVE_FROM_GAINMAP);
+
+      // API-0 (toneMaps to Display P3)
+      {
+        uhdr_compressed_image_ext_t out(UHDR_CG_UNSPECIFIED, UHDR_CT_UNSPECIFIED,
+                                        UHDR_CR_UNSPECIFIED, 256 * 1024);
+        ASSERT_EQ(jpegr_hagc.encodeJPEGR(&hdr, &out, 90, nullptr).error_code, UHDR_CODEC_OK);
+        verifyEncodedHagcOutput(&out, /*expect_preserved_scan_and_vendor_tag=*/false,
+                                UHDR_CG_DISPLAY_P3);
+      }
+
+      // API-1
+      {
+        uhdr_compressed_image_ext_t out(UHDR_CG_UNSPECIFIED, UHDR_CT_UNSPECIFIED,
+                                        UHDR_CR_UNSPECIFIED, 256 * 1024);
+        ASSERT_EQ(jpegr_hagc.encodeJPEGR(&hdr, &sdr, &out, 90, nullptr).error_code, UHDR_CODEC_OK);
+        verifyEncodedHagcOutput(&out, /*expect_preserved_scan_and_vendor_tag=*/false, base_cg);
+      }
+
+      // API-2 (preserves scan bytes & custom vendor ICC tag)
+      uhdr_compressed_image_ext_t api2_out(UHDR_CG_UNSPECIFIED, UHDR_CT_UNSPECIFIED,
+                                           UHDR_CR_UNSPECIFIED, 256 * 1024);
+      {
+        ASSERT_EQ(jpegr_hagc.encodeJPEGR(&hdr, &sdr, &sdr_jpg, &api2_out).error_code,
+                  UHDR_CODEC_OK);
+        verifyEncodedHagcOutput(&api2_out, /*expect_preserved_scan_and_vendor_tag=*/true, base_cg);
+      }
+
+      // API-3 (preserves scan bytes & custom vendor ICC tag)
+      {
+        uhdr_compressed_image_ext_t out(UHDR_CG_UNSPECIFIED, UHDR_CT_UNSPECIFIED,
+                                        UHDR_CR_UNSPECIFIED, 256 * 1024);
+        ASSERT_EQ(jpegr_hagc.encodeJPEGR(&hdr, &sdr_jpg, &out).error_code, UHDR_CODEC_OK);
+        verifyEncodedHagcOutput(&out, /*expect_preserved_scan_and_vendor_tag=*/true, base_cg);
+      }
+
+      // API-4 (extract gainmap + metadata from api2_out, pair with original sdr_jpg)
+      {
+        jpeg_info_struct prim_info, gm_info;
+        jpegr_info_struct info{0, 0, &prim_info, &gm_info};
+        JpegR parser;
+        ASSERT_EQ(parser.getJPEGRInfo(&api2_out, &info).error_code, UHDR_CODEC_OK);
+        uhdr_gainmap_metadata_ext_t gm_meta(kJpegrVersion);
+        ASSERT_EQ(parser
+                      .parseGainMapMetadata(gm_info.isoData.data(), gm_info.isoData.size(),
+                                            gm_info.xmpData.data(), gm_info.xmpData.size(),
+                                            prim_info.exifData.data(), prim_info.exifData.size(),
+                                            &gm_meta)
+                      .error_code,
+                  UHDR_CODEC_OK);
+        uhdr_compressed_image_t gm_jpg{};
+        gm_jpg.data = gm_info.imgData.data();
+        gm_jpg.data_sz = gm_info.imgData.size();
+        gm_jpg.capacity = gm_info.imgData.size();
+
+        uhdr_compressed_image_ext_t out4(UHDR_CG_UNSPECIFIED, UHDR_CT_UNSPECIFIED,
+                                         UHDR_CR_UNSPECIFIED, 256 * 1024);
+        ASSERT_EQ(jpegr_hagc.encodeJPEGR(&sdr_jpg, &gm_jpg, &gm_meta, &out4).error_code,
+                  UHDR_CODEC_OK);
+        verifyEncodedHagcOutput(&out4, /*expect_preserved_scan_and_vendor_tag=*/true, base_cg);
+      }
+    }
+  }
 }
 
 }  // namespace ultrahdr

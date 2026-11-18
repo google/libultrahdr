@@ -8,8 +8,10 @@
  * except according to those terms.
  */
 
-#include <cstring>
 #include <cmath>
+#include <cstring>
+#include <limits>
+#include <utility>
 
 #include "ultrahdr/ultrahdrcommon.h"
 #include "ultrahdr/icc.h"
@@ -277,6 +279,23 @@ std::shared_ptr<DataStruct> IccHelper::write_cicp_tag(uint32_t color_primaries,
   return dataStruct;
 }
 
+std::shared_ptr<DataStruct> IccHelper::write_hagc_tag(const void* hagc_data, size_t hagc_size) {
+  if (hagc_data == nullptr || hagc_size == 0 ||
+      hagc_size > static_cast<size_t>((std::numeric_limits<uint32_t>::max)() - kHagcTagHeaderSize - 3u)) {
+    return nullptr;
+  }
+  const size_t total_length = ALIGNM(kHagcTagHeaderSize + hagc_size, 4);
+  std::shared_ptr<DataStruct> dataStruct = std::make_shared<DataStruct>(total_length);
+  if (!dataStruct->write32(Endian_SwapBE32(kTAG_HAGCType)) ||  // Type signature ('hagc')
+      !dataStruct->write32(0) ||                               // Reserved (0)
+      !dataStruct->write32(Endian_SwapBE32(static_cast<uint32_t>(hagc_size))) ||
+      !dataStruct->write(hagc_data, hagc_size)) {
+    ALOGE("write_hagc_tag(): error in writing data");
+    return nullptr;
+  }
+  return dataStruct;
+}
+
 void IccHelper::compute_lut_entry(const Matrix3x3& src_to_XYZD50, float rgb[3]) {
   // Compute the matrices to convert from source to Rec2020, and from Rec2020 to XYZD50.
   Matrix3x3 src_to_rec2020;
@@ -402,7 +421,9 @@ std::shared_ptr<DataStruct> IccHelper::write_mAB_or_mBA_tag(uint32_t type, bool 
 }
 
 std::shared_ptr<DataStruct> IccHelper::writeIccProfile(uhdr_color_transfer_t tf,
-                                                       uhdr_color_gamut_t gamut) {
+                                                       uhdr_color_gamut_t gamut,
+                                                       const void* hagc_data,
+                                                       size_t hagc_size) {
   ICCHeader header;
 
   std::vector<std::pair<uint32_t, std::shared_ptr<DataStruct>>> tags;
@@ -494,6 +515,17 @@ std::shared_ptr<DataStruct> IccHelper::writeIccProfile(uhdr_color_transfer_t tf,
       transfer_characteristics = kCICPTrfnHLG;
     }
     tags.emplace_back(kTAG_cicp, write_cicp_tag(color_primaries, transfer_characteristics));
+  }
+
+  // Compute HAGC (SMPTE ST 2094-50 Headroom Adaptive Gain Curves).
+  if (hagc_data != nullptr && hagc_size > 0) {
+    std::shared_ptr<DataStruct> hagc_tag = write_hagc_tag(hagc_data, hagc_size);
+    if (hagc_tag == nullptr) {
+      return nullptr;
+    }
+    // The HAGC tag requires ICC 4.4, matching Skia's SkICC::write_hagc_tag().
+    header.version = Endian_SwapBE32(0x04400000);
+    tags.emplace_back(kTAG_HAGC, std::move(hagc_tag));
   }
 
   // Compute A2B0.
@@ -746,6 +778,242 @@ uhdr_color_gamut_t IccHelper::readIccColorGamut(void* icc_data, size_t icc_size)
   // Didn't find a match to one of the profiles we write; indicate the gamut
   // is unspecified since we don't understand it.
   return gamut;
+}
+
+namespace {
+
+inline uint32_t readIccBE32(const uint8_t* ptr) {
+  return (static_cast<uint32_t>(ptr[0]) << 24) | (static_cast<uint32_t>(ptr[1]) << 16) |
+         (static_cast<uint32_t>(ptr[2]) << 8) | static_cast<uint32_t>(ptr[3]);
+}
+
+inline void writeIccBE32(uint8_t* ptr, uint32_t val) {
+  ptr[0] = static_cast<uint8_t>((val >> 24) & 0xFFu);
+  ptr[1] = static_cast<uint8_t>((val >> 16) & 0xFFu);
+  ptr[2] = static_cast<uint8_t>((val >> 8) & 0xFFu);
+  ptr[3] = static_cast<uint8_t>(val & 0xFFu);
+}
+
+bool unwrapIccProfile(const void* icc_data, size_t icc_size, const uint8_t*& out_profile,
+                      size_t& out_profile_size, bool& out_has_jpeg_id) {
+  if (icc_data == nullptr) {
+    return false;
+  }
+  const uint8_t* bytes = static_cast<const uint8_t*>(icc_data);
+  if (icc_size >= kICCIdentifierSize + sizeof(ICCHeader) &&
+      memcmp(bytes, kICCIdentifier, sizeof(kICCIdentifier)) == 0) {
+    // Reject partial multi-chunk APP2 ICC segments that have not been reassembled.
+    if (bytes[13] > 1) {
+      return false;
+    }
+    out_profile = bytes + kICCIdentifierSize;
+    out_profile_size = icc_size - kICCIdentifierSize;
+    out_has_jpeg_id = true;
+    return true;
+  }
+  if (icc_size >= sizeof(ICCHeader)) {
+    out_profile = bytes;
+    out_profile_size = icc_size;
+    out_has_jpeg_id = false;
+    return true;
+  }
+  return false;
+}
+
+}  // namespace
+
+std::shared_ptr<DataStruct> IccHelper::injectHagcIntoIccProfile(const void* icc_data,
+                                                                size_t icc_size,
+                                                                const void* hagc_data,
+                                                                size_t hagc_size) {
+  const uint8_t* profile = nullptr;
+  size_t profile_buf_size = 0;
+  bool has_jpeg_id = false;
+  if (!unwrapIccProfile(icc_data, icc_size, profile, profile_buf_size, has_jpeg_id)) {
+    return nullptr;
+  }
+
+  std::shared_ptr<DataStruct> hagc_tag = write_hagc_tag(hagc_data, hagc_size);
+  if (hagc_tag == nullptr) {
+    return nullptr;
+  }
+
+  const size_t encoded_size = readIccBE32(profile);
+  if (encoded_size < sizeof(ICCHeader) || encoded_size > profile_buf_size) {
+    return nullptr;
+  }
+  if (readIccBE32(profile + offsetof(ICCHeader, signature)) != kACSP_Signature) {
+    return nullptr;
+  }
+
+  const size_t tag_count = readIccBE32(profile + offsetof(ICCHeader, tag_count));
+  const size_t max_tags = (encoded_size - sizeof(ICCHeader)) / kICCTagTableEntrySize;
+  if (tag_count > max_tags) {
+    return nullptr;
+  }
+
+  const size_t old_table_end = sizeof(ICCHeader) + tag_count * kICCTagTableEntrySize;
+  struct KeptTag {
+    uint32_t sig;
+    size_t old_off;
+    size_t old_sz;
+    size_t new_off;
+  };
+  std::vector<KeptTag> kept_tags;
+  kept_tags.reserve(tag_count);
+
+  for (size_t i = 0; i < tag_count; ++i) {
+    const uint8_t* entry = profile + sizeof(ICCHeader) + i * kICCTagTableEntrySize;
+    const uint32_t sig = readIccBE32(entry);
+    const size_t off = readIccBE32(entry + 4);
+    const size_t sz = readIccBE32(entry + 8);
+    if (off < old_table_end || off > encoded_size || sz > encoded_size - off) {
+      return nullptr;
+    }
+    if (sig == kTAG_HAGC) {
+      continue;
+    }
+    kept_tags.push_back({sig, off, sz, 0});
+  }
+
+  const size_t new_tag_count = kept_tags.size() + 1;
+  const size_t new_table_end = sizeof(ICCHeader) + new_tag_count * kICCTagTableEntrySize;
+  size_t current_off = new_table_end;
+
+  struct PlacedSlice {
+    size_t old_off;
+    size_t old_sz;
+    size_t new_off;
+  };
+  std::vector<PlacedSlice> placed_slices;
+  placed_slices.reserve(kept_tags.size());
+
+  for (auto& tag : kept_tags) {
+    bool reused = false;
+    for (const auto& slice : placed_slices) {
+      if (slice.old_off == tag.old_off && slice.old_sz == tag.old_sz) {
+        tag.new_off = slice.new_off;
+        reused = true;
+        break;
+      }
+    }
+    if (!reused) {
+      tag.new_off = current_off;
+      placed_slices.push_back({tag.old_off, tag.old_sz, current_off});
+      const size_t padded_sz = ALIGNM(tag.old_sz, 4);
+      if (padded_sz > (std::numeric_limits<uint32_t>::max)() - current_off) {
+        return nullptr;
+      }
+      current_off += padded_sz;
+    }
+  }
+
+  const size_t hagc_tag_len = hagc_tag->getLength();
+  if (hagc_tag_len > (std::numeric_limits<uint32_t>::max)() - current_off) {
+    return nullptr;
+  }
+  const size_t hagc_new_off = current_off;
+  current_off += hagc_tag_len;
+  const size_t new_profile_size = current_off;
+
+  const size_t prefix_len = has_jpeg_id ? kICCIdentifierSize : 0;
+  if (new_profile_size > (std::numeric_limits<size_t>::max)() - prefix_len) {
+    return nullptr;
+  }
+  std::shared_ptr<DataStruct> out = std::make_shared<DataStruct>(prefix_len + new_profile_size);
+  uint8_t* dst = static_cast<uint8_t*>(out->getData());
+  if (dst == nullptr) {
+    return nullptr;
+  }
+
+  if (has_jpeg_id) {
+    memcpy(dst, kICCIdentifier, sizeof(kICCIdentifier));
+    dst[12] = 1;
+    dst[13] = 1;
+    dst += kICCIdentifierSize;
+  }
+
+  // Copy 128-byte header + 4-byte tag_count, then update size, version (>= 4.4),
+  // clear any stale MD5 Profile ID checksum, and write updated tag_count.
+  memcpy(dst, profile, sizeof(ICCHeader));
+  writeIccBE32(dst + offsetof(ICCHeader, size), static_cast<uint32_t>(new_profile_size));
+  if (readIccBE32(dst + offsetof(ICCHeader, version)) < 0x04400000u) {
+    writeIccBE32(dst + offsetof(ICCHeader, version), 0x04400000u);
+  }
+  memset(dst + offsetof(ICCHeader, profile_id), 0, sizeof(ICCHeader::profile_id));
+  writeIccBE32(dst + offsetof(ICCHeader, tag_count), static_cast<uint32_t>(new_tag_count));
+
+  for (size_t i = 0; i < kept_tags.size(); ++i) {
+    uint8_t* entry = dst + sizeof(ICCHeader) + i * kICCTagTableEntrySize;
+    writeIccBE32(entry, kept_tags[i].sig);
+    writeIccBE32(entry + 4, static_cast<uint32_t>(kept_tags[i].new_off));
+    writeIccBE32(entry + 8, static_cast<uint32_t>(kept_tags[i].old_sz));
+  }
+  {
+    uint8_t* hagc_entry = dst + sizeof(ICCHeader) + kept_tags.size() * kICCTagTableEntrySize;
+    writeIccBE32(hagc_entry, kTAG_HAGC);
+    writeIccBE32(hagc_entry + 4, static_cast<uint32_t>(hagc_new_off));
+    writeIccBE32(hagc_entry + 8, static_cast<uint32_t>(hagc_tag_len));
+  }
+
+  for (const auto& slice : placed_slices) {
+    if (slice.old_sz > 0) {
+      memcpy(dst + slice.new_off, profile + slice.old_off, slice.old_sz);
+    }
+  }
+  memcpy(dst + hagc_new_off, hagc_tag->getData(), hagc_tag_len);
+
+  return out;
+}
+
+bool IccHelper::readIccHagc(const void* icc_data, size_t icc_size, std::vector<uint8_t>& out_hagc) {
+  out_hagc.clear();
+  const uint8_t* profile = nullptr;
+  size_t profile_buf_size = 0;
+  bool has_jpeg_id = false;
+  if (!unwrapIccProfile(icc_data, icc_size, profile, profile_buf_size, has_jpeg_id)) {
+    return false;
+  }
+
+  const size_t encoded_size = readIccBE32(profile);
+  if (encoded_size < sizeof(ICCHeader) || encoded_size > profile_buf_size) {
+    return false;
+  }
+  if (readIccBE32(profile + offsetof(ICCHeader, signature)) != kACSP_Signature) {
+    return false;
+  }
+
+  const size_t tag_count = readIccBE32(profile + offsetof(ICCHeader, tag_count));
+  const size_t max_tags = (encoded_size - sizeof(ICCHeader)) / kICCTagTableEntrySize;
+  if (tag_count > max_tags) {
+    return false;
+  }
+
+  const size_t table_end = sizeof(ICCHeader) + tag_count * kICCTagTableEntrySize;
+  for (size_t i = 0; i < tag_count; ++i) {
+    const uint8_t* entry = profile + sizeof(ICCHeader) + i * kICCTagTableEntrySize;
+    const uint32_t sig = readIccBE32(entry);
+    if (sig != kTAG_HAGC) {
+      continue;
+    }
+    const size_t tag_off = readIccBE32(entry + 4);
+    const size_t tag_sz = readIccBE32(entry + 8);
+    if (tag_off < table_end || tag_off > encoded_size || tag_sz < kHagcTagHeaderSize ||
+        tag_sz > encoded_size - tag_off) {
+      return false;
+    }
+    const uint8_t* tag_ptr = profile + tag_off;
+    const uint32_t tag_type = readIccBE32(tag_ptr);
+    const uint32_t reserved = readIccBE32(tag_ptr + 4);
+    const size_t payload_sz = readIccBE32(tag_ptr + 8);
+    if (tag_type != kTAG_HAGCType || reserved != 0 || payload_sz == 0 ||
+        payload_sz > tag_sz - kHagcTagHeaderSize) {
+      return false;
+    }
+    out_hagc.assign(tag_ptr + kHagcTagHeaderSize, tag_ptr + kHagcTagHeaderSize + payload_sz);
+    return true;
+  }
+  return false;
 }
 
 }  // namespace ultrahdr

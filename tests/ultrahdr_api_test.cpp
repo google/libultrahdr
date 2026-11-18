@@ -19,6 +19,8 @@
 #include <vector>
 
 #include "ultrahdr_api.h"
+#include "ultrahdr/agtm.h"
+#include "ultrahdr/icc.h"
 #include "ultrahdr/ultrahdrcommon.h"
 #include "ultrahdr/jpegr.h"
 #include "ultrahdr/gainmapmath.h"
@@ -2064,6 +2066,19 @@ TEST_F(UltraHdrApiTest, HeifPreservesRawAlpha) {
   images.makeHdr1010102AlphaOpaque();
   expectRawAlphaPreserved(UHDR_CODEC_HEIF, &images.hdr1010102Desc, &images.sdr8888Desc);
 }
+
+TEST_F(UltraHdrApiTest, HagcUnsupportedForHeifAndAvif) {
+  const uhdr_codec_t codecs[] = {UHDR_CODEC_HEIF, UHDR_CODEC_AVIF};
+  for (uhdr_codec_t codec : codecs) {
+    uhdr_codec_private_t* enc = uhdr_create_encoder();
+    ASSERT_NE(enc, nullptr);
+    EXPECT_EQ(uhdr_enc_set_raw_image(enc, &mHdrRaw, UHDR_HDR_IMG).error_code, UHDR_CODEC_OK);
+    EXPECT_EQ(uhdr_enc_set_output_format(enc, codec).error_code, UHDR_CODEC_OK);
+    EXPECT_EQ(uhdr_enc_set_hagc_mode(enc, UHDR_HAGC_DERIVE_FROM_GAINMAP).error_code, UHDR_CODEC_OK);
+    EXPECT_EQ(uhdr_encode(enc).error_code, UHDR_CODEC_UNSUPPORTED_FEATURE);
+    uhdr_release_encoder(enc);
+  }
+}
 #else
 TEST_F(UltraHdrApiTest, HeicCodecUnsupportedWhenDisabled) {
   uhdr_codec_private_t* enc = uhdr_create_encoder();
@@ -2159,6 +2174,206 @@ TEST_F(UltraHdrApiTest, ContentBoostFloorWithNonUnitGammaClampsBelowMinGain) {
       uhdr_release_decoder(dec);
       uhdr_release_encoder(enc);
     }
+  }
+}
+
+TEST_F(UltraHdrApiTest, HagcModeValidationAndReset) {
+  EXPECT_EQ(uhdr_enc_set_hagc_mode(nullptr, UHDR_HAGC_DISABLED).error_code,
+            UHDR_CODEC_INVALID_PARAM);
+
+  uhdr_codec_private_t* dec = uhdr_create_decoder();
+  ASSERT_NE(dec, nullptr);
+  EXPECT_EQ(uhdr_enc_set_hagc_mode(dec, UHDR_HAGC_DERIVE_FROM_GAINMAP).error_code,
+            UHDR_CODEC_INVALID_PARAM);
+  uhdr_release_decoder(dec);
+
+  uhdr_codec_private_t* enc = uhdr_create_encoder();
+  ASSERT_NE(enc, nullptr);
+  auto* handle = dynamic_cast<uhdr_encoder_private*>(enc);
+  ASSERT_NE(handle, nullptr);
+  EXPECT_EQ(handle->m_hagc_mode, UHDR_HAGC_DISABLED);
+
+  EXPECT_EQ(uhdr_enc_set_hagc_mode(enc, UHDR_HAGC_DERIVE_FROM_GAINMAP).error_code, UHDR_CODEC_OK);
+  EXPECT_EQ(handle->m_hagc_mode, UHDR_HAGC_DERIVE_FROM_GAINMAP);
+
+  // Invalid enum values must fail without mutating encoder state.
+  EXPECT_EQ(uhdr_enc_set_hagc_mode(enc, static_cast<uhdr_hagc_mode_t>(-1)).error_code,
+            UHDR_CODEC_INVALID_PARAM);
+  EXPECT_EQ(uhdr_enc_set_hagc_mode(enc, static_cast<uhdr_hagc_mode_t>(2)).error_code,
+            UHDR_CODEC_INVALID_PARAM);
+  EXPECT_EQ(handle->m_hagc_mode, UHDR_HAGC_DERIVE_FROM_GAINMAP);
+
+  // Once uhdr_encode() has sailed, uhdr_enc_set_hagc_mode() returns UHDR_CODEC_INVALID_OPERATION.
+  ASSERT_EQ(uhdr_enc_set_raw_image(enc, &mHdrRaw, UHDR_HDR_IMG).error_code, UHDR_CODEC_OK);
+  ASSERT_EQ(uhdr_encode(enc).error_code, UHDR_CODEC_OK);
+  EXPECT_EQ(uhdr_enc_set_hagc_mode(enc, UHDR_HAGC_DISABLED).error_code,
+            UHDR_CODEC_INVALID_OPERATION);
+
+  // uhdr_reset_encoder() restores default UHDR_HAGC_DISABLED and re-opens configuration.
+  uhdr_reset_encoder(enc);
+  EXPECT_EQ(handle->m_hagc_mode, UHDR_HAGC_DISABLED);
+  EXPECT_EQ(uhdr_enc_set_hagc_mode(enc, UHDR_HAGC_DERIVE_FROM_GAINMAP).error_code, UHDR_CODEC_OK);
+
+  uhdr_release_encoder(enc);
+}
+
+TEST_F(UltraHdrApiTest, JpegHagcEndToEndAcrossIntents) {
+  auto verifyDecodedHagcAndImage = [](uhdr_compressed_image_t* encoded, bool expect_hagc) {
+    ASSERT_NE(encoded, nullptr);
+    ASSERT_GT(encoded->data_sz, 0u);
+    EXPECT_EQ(is_uhdr_image(encoded->data, static_cast<int>(encoded->data_sz)), 1);
+    EXPECT_EQ(uhdr_is_supported_gainmap_image(encoded->data, encoded->data_sz), 1);
+
+    uhdr_codec_private_t* dec = uhdr_create_decoder();
+    ASSERT_NE(dec, nullptr);
+    ASSERT_EQ(uhdr_dec_set_image(dec, encoded).error_code, UHDR_CODEC_OK);
+    ASSERT_EQ(uhdr_dec_probe(dec).error_code, UHDR_CODEC_OK);
+
+    uhdr_mem_block_t* icc = uhdr_dec_get_icc(dec);
+    ASSERT_NE(icc, nullptr);
+    ASSERT_NE(icc->data, nullptr);
+    ASSERT_GT(icc->data_sz, 0u);
+
+    std::vector<uint8_t> hagc_bytes;
+    if (expect_hagc) {
+      ASSERT_TRUE(IccHelper::readIccHagc(icc->data, icc->data_sz, hagc_bytes));
+      smpte2094_50::DynamicMetadata parsed;
+      ASSERT_EQ(smpte2094_50::parseSt2094_50(hagc_bytes.data(), hagc_bytes.size(), parsed).error_code,
+                UHDR_CODEC_OK);
+      ASSERT_EQ(smpte2094_50::validateDynamicMetadata(parsed).error_code, UHDR_CODEC_OK);
+      EXPECT_EQ(parsed.rules.size(), 1u);
+    } else {
+      EXPECT_FALSE(IccHelper::readIccHagc(icc->data, icc->data_sz, hagc_bytes));
+    }
+
+    ASSERT_EQ(uhdr_decode(dec).error_code, UHDR_CODEC_OK);
+    uhdr_raw_image_t* decoded = uhdr_get_decoded_image(dec);
+    ASSERT_NE(decoded, nullptr);
+    EXPECT_EQ(decoded->w, kImageWidth);
+    EXPECT_EQ(decoded->h, kImageHeight);
+
+    uhdr_release_decoder(dec);
+  };
+
+  // Baseline default vs explicit UHDR_HAGC_DISABLED bit-exactness on API-1.
+  std::vector<uint8_t> default_stream;
+  {
+    uhdr_codec_private_t* enc_def = uhdr_create_encoder();
+    uhdr_codec_private_t* enc_dis = uhdr_create_encoder();
+    ASSERT_NE(enc_def, nullptr);
+    ASSERT_NE(enc_dis, nullptr);
+    ASSERT_EQ(uhdr_enc_set_raw_image(enc_def, &mHdrRaw, UHDR_HDR_IMG).error_code, UHDR_CODEC_OK);
+    ASSERT_EQ(uhdr_enc_set_raw_image(enc_def, &mSdrRaw, UHDR_SDR_IMG).error_code, UHDR_CODEC_OK);
+    ASSERT_EQ(uhdr_enc_set_raw_image(enc_dis, &mHdrRaw, UHDR_HDR_IMG).error_code, UHDR_CODEC_OK);
+    ASSERT_EQ(uhdr_enc_set_raw_image(enc_dis, &mSdrRaw, UHDR_SDR_IMG).error_code, UHDR_CODEC_OK);
+    ASSERT_EQ(uhdr_enc_set_hagc_mode(enc_dis, UHDR_HAGC_DISABLED).error_code, UHDR_CODEC_OK);
+
+    ASSERT_EQ(uhdr_encode(enc_def).error_code, UHDR_CODEC_OK);
+    ASSERT_EQ(uhdr_encode(enc_dis).error_code, UHDR_CODEC_OK);
+    uhdr_compressed_image_t* out_def = uhdr_get_encoded_stream(enc_def);
+    uhdr_compressed_image_t* out_dis = uhdr_get_encoded_stream(enc_dis);
+    ASSERT_NE(out_def, nullptr);
+    ASSERT_NE(out_dis, nullptr);
+    ASSERT_EQ(out_def->data_sz, out_dis->data_sz);
+    EXPECT_EQ(std::memcmp(out_def->data, out_dis->data, out_def->data_sz), 0);
+    verifyDecodedHagcAndImage(out_def, /*expect_hagc=*/false);
+
+    default_stream.assign(static_cast<const uint8_t*>(out_def->data),
+                          static_cast<const uint8_t*>(out_def->data) + out_def->data_sz);
+    uhdr_release_encoder(enc_def);
+    uhdr_release_encoder(enc_dis);
+  }
+
+  // API-0 with HAGC
+  {
+    uhdr_codec_private_t* enc = uhdr_create_encoder();
+    ASSERT_NE(enc, nullptr);
+    ASSERT_EQ(uhdr_enc_set_raw_image(enc, &mHdrRaw, UHDR_HDR_IMG).error_code, UHDR_CODEC_OK);
+    ASSERT_EQ(uhdr_enc_set_hagc_mode(enc, UHDR_HAGC_DERIVE_FROM_GAINMAP).error_code, UHDR_CODEC_OK);
+    ASSERT_EQ(uhdr_encode(enc).error_code, UHDR_CODEC_OK);
+    verifyDecodedHagcAndImage(uhdr_get_encoded_stream(enc), /*expect_hagc=*/true);
+    uhdr_release_encoder(enc);
+  }
+
+  // API-1 with HAGC
+  {
+    uhdr_codec_private_t* enc = uhdr_create_encoder();
+    ASSERT_NE(enc, nullptr);
+    ASSERT_EQ(uhdr_enc_set_raw_image(enc, &mHdrRaw, UHDR_HDR_IMG).error_code, UHDR_CODEC_OK);
+    ASSERT_EQ(uhdr_enc_set_raw_image(enc, &mSdrRaw, UHDR_SDR_IMG).error_code, UHDR_CODEC_OK);
+    ASSERT_EQ(uhdr_enc_set_hagc_mode(enc, UHDR_HAGC_DERIVE_FROM_GAINMAP).error_code, UHDR_CODEC_OK);
+    ASSERT_EQ(uhdr_encode(enc).error_code, UHDR_CODEC_OK);
+    verifyDecodedHagcAndImage(uhdr_get_encoded_stream(enc), /*expect_hagc=*/true);
+    uhdr_release_encoder(enc);
+  }
+
+  // API-2 with HAGC
+  {
+    uhdr_codec_private_t* enc = uhdr_create_encoder();
+    ASSERT_NE(enc, nullptr);
+    ASSERT_EQ(uhdr_enc_set_raw_image(enc, &mHdrRaw, UHDR_HDR_IMG).error_code, UHDR_CODEC_OK);
+    ASSERT_EQ(uhdr_enc_set_raw_image(enc, &mSdrRaw, UHDR_SDR_IMG).error_code, UHDR_CODEC_OK);
+    ASSERT_EQ(uhdr_enc_set_compressed_image(enc, &mSdrCompressed, UHDR_SDR_IMG).error_code,
+              UHDR_CODEC_OK);
+    ASSERT_EQ(uhdr_enc_set_hagc_mode(enc, UHDR_HAGC_DERIVE_FROM_GAINMAP).error_code, UHDR_CODEC_OK);
+    ASSERT_EQ(uhdr_encode(enc).error_code, UHDR_CODEC_OK);
+    verifyDecodedHagcAndImage(uhdr_get_encoded_stream(enc), /*expect_hagc=*/true);
+    uhdr_release_encoder(enc);
+  }
+
+  // API-3 with HAGC
+  {
+    uhdr_codec_private_t* enc = uhdr_create_encoder();
+    ASSERT_NE(enc, nullptr);
+    ASSERT_EQ(uhdr_enc_set_raw_image(enc, &mHdrRaw, UHDR_HDR_IMG).error_code, UHDR_CODEC_OK);
+    ASSERT_EQ(uhdr_enc_set_compressed_image(enc, &mSdrCompressed, UHDR_SDR_IMG).error_code,
+              UHDR_CODEC_OK);
+    ASSERT_EQ(uhdr_enc_set_hagc_mode(enc, UHDR_HAGC_DERIVE_FROM_GAINMAP).error_code, UHDR_CODEC_OK);
+    ASSERT_EQ(uhdr_encode(enc).error_code, UHDR_CODEC_OK);
+    verifyDecodedHagcAndImage(uhdr_get_encoded_stream(enc), /*expect_hagc=*/true);
+    uhdr_release_encoder(enc);
+  }
+
+  // API-4 with HAGC (using base & gain map extracted from default_stream which had no HAGC)
+  {
+    uhdr_compressed_image_t src{};
+    src.data = default_stream.data();
+    src.data_sz = default_stream.size();
+    src.capacity = default_stream.size();
+
+    uhdr_codec_private_t* probe_dec = uhdr_create_decoder();
+    ASSERT_NE(probe_dec, nullptr);
+    ASSERT_EQ(uhdr_dec_set_image(probe_dec, &src).error_code, UHDR_CODEC_OK);
+    ASSERT_EQ(uhdr_dec_probe(probe_dec).error_code, UHDR_CODEC_OK);
+    uhdr_mem_block_t* base_blk = uhdr_dec_get_base_image(probe_dec);
+    uhdr_mem_block_t* gm_blk = uhdr_dec_get_gainmap_image(probe_dec);
+    uhdr_gainmap_metadata_t* gm_meta = uhdr_dec_get_gainmap_metadata(probe_dec);
+    ASSERT_NE(base_blk, nullptr);
+    ASSERT_NE(gm_blk, nullptr);
+    ASSERT_NE(gm_meta, nullptr);
+
+    uhdr_compressed_image_t base_img{};
+    base_img.data = base_blk->data;
+    base_img.data_sz = base_blk->data_sz;
+    base_img.capacity = base_blk->capacity;
+    base_img.cg = UHDR_CG_BT_709;
+
+    uhdr_compressed_image_t gm_img{};
+    gm_img.data = gm_blk->data;
+    gm_img.data_sz = gm_blk->data_sz;
+    gm_img.capacity = gm_blk->capacity;
+
+    uhdr_codec_private_t* enc = uhdr_create_encoder();
+    ASSERT_NE(enc, nullptr);
+    ASSERT_EQ(uhdr_enc_set_compressed_image(enc, &base_img, UHDR_BASE_IMG).error_code,
+              UHDR_CODEC_OK);
+    ASSERT_EQ(uhdr_enc_set_gainmap_image(enc, &gm_img, gm_meta).error_code, UHDR_CODEC_OK);
+    ASSERT_EQ(uhdr_enc_set_hagc_mode(enc, UHDR_HAGC_DERIVE_FROM_GAINMAP).error_code, UHDR_CODEC_OK);
+    ASSERT_EQ(uhdr_encode(enc).error_code, UHDR_CODEC_OK);
+    verifyDecodedHagcAndImage(uhdr_get_encoded_stream(enc), /*expect_hagc=*/true);
+
+    uhdr_release_encoder(enc);
+    uhdr_release_decoder(probe_dec);
   }
 }
 
