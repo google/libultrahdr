@@ -40,6 +40,7 @@ cc_library {
         "-DUHDR_WRITE_XMP",
     ],
     srcs: [
+        "lib/src/agtm.cpp",
         "lib/src/icc.cpp",
         "lib/src/jpegr.cpp",
         "lib/src/gainmapmath.cpp",
