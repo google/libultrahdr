@@ -180,9 +180,77 @@ uhdr_error_info_t encodeSt2094_50(const DynamicMetadata& metadata,
  */
 uhdr_error_info_t parseSt2094_50(const uint8_t* data, size_t size, DynamicMetadata& out_metadata);
 
+/**
+ * Curve-fitting heuristic used when deriving SMPTE ST 2094-50 gain curves from a spatial gain map.
+ */
+enum class HagcFitHeuristic {
+  kMovingAverage,
+  kMovingMedian,
+  kQuantileToneMap,
+};
+
+/**
+ * Component-mixing weight selection mode for GainMap -> SMPTE ST 2094-50 derivation.
+ */
+enum class HagcComponentMixMode {
+  kOptimize,         // Optimize all active weights (5 for 1-ch gainmap, 6 for 3-ch gainmap).
+  kOptimize4,        // Optimize only (R, G, B, maxRGB).
+  kLuma,             // Gamut-matched luminance weights.
+  kMaxRgb,           // max(R, G, B).
+  kHalfLumaHalfMax,  // 0.5 * luma + 0.5 * max(R, G, B).
+};
+
+/**
+ * Options controlling GainMap -> SMPTE ST 2094-50 dynamic metadata derivation.
+ */
+struct HagcDerivationOptions {
+  HagcFitHeuristic heuristic = HagcFitHeuristic::kMovingAverage;
+  HagcComponentMixMode mix_mode = HagcComponentMixMode::kOptimize;
+  size_t num_control_points = 16;  // Target control point count in [1, 32].
+  size_t max_samples = 1001;       // Maximum subsampled pixel/solver rows (<= 1001 by default).
+  bool sdr_is_601 = false;         // True when YUV SDR base uses full-range BT.601 JPEG matrix.
+};
+
+/**
+ * Solves the simplex-constrained L1 regression problem:
+ *   min_w ||A * w - B||_1   subject to   sum_{j=0}^{num_vars-1} w_j = 1,  w_j >= 0,
+ * where `A` is row-major (`num_rows x num_vars`, with `1 <= num_vars <= 6`).
+ * If `out_duality_gap` is non-null, writes a certified upper bound on `||A * w - B||_1 - opt_L1`.
+ */
+uhdr_error_info_t solveConstrainedL1Simplex(
+    const float* A, const float* B, size_t num_rows, size_t num_vars,
+    std::array<float, DynamicMetadata::kNumMixCoefficients>& out_weights,
+    double* out_duality_gap = nullptr);
+
+/**
+ * Converts a linear tone-mapping PCHIP curve y = f(x) into a log2 gain PCHIP curve
+ * g(x) = log2(f(x) / x), resolving x = 0 singularities via L'Hopital's rule.
+ */
+uhdr_error_info_t toneMapCurveToGainCurve(const PchipInterpolator& tone_map_curve,
+                                          float base_headroom_log2, float alt_headroom_log2,
+                                          PchipInterpolator& out_gain_curve);
+
 }  // namespace smpte2094_50
 
 using HagcMetadata = smpte2094_50::DynamicMetadata;
+
+/**
+ * Derives SMPTE ST 2094-50:2026 (HAGC / AGTM) dynamic metadata from an SDR base image and its
+ * associated Ultra HDR / ISO 21496-1 gain map.
+ */
+uhdr_error_info_t deriveHagcFromGainMap(
+    uhdr_raw_image_t* sdr_intent, uhdr_raw_image_t* gainmap_img,
+    const uhdr_gainmap_metadata_ext_t* gainmap_metadata, smpte2094_50::DynamicMetadata& out_hagc,
+    const smpte2094_50::HagcDerivationOptions& options = {});
+
+/**
+ * Derives SMPTE ST 2094-50:2026 dynamic metadata from an SDR base image and gain map, and encodes
+ * it directly into its Annex C binary payload.
+ */
+uhdr_error_info_t deriveEncodedHagcFromGainMap(
+    uhdr_raw_image_t* sdr_intent, uhdr_raw_image_t* gainmap_img,
+    const uhdr_gainmap_metadata_ext_t* gainmap_metadata, std::vector<uint8_t>& out_bitstream,
+    const smpte2094_50::HagcDerivationOptions& options = {});
 
 /**
  * Generates a gain map from an image and SMPTE 2094-50 dynamic metadata.
