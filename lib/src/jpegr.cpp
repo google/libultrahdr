@@ -16,6 +16,7 @@
 #endif
 
 #include <condition_variable>
+#include <cstdarg>
 #include <deque>
 #include <functional>
 #include <mutex>
@@ -133,16 +134,44 @@ class AlogMessageWriter : public MessageWriter {
 
 unsigned int GetCPUCoreCount() { return (std::max)(1u, std::thread::hardware_concurrency()); }
 
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((format(printf, 2, 3)))
+#endif
+static uhdr_error_info_t makeJpegrError(uhdr_codec_err_t code, const char* fmt, ...) {
+  uhdr_error_info_t status{};
+  status.error_code = code;
+  status.has_detail = 1;
+  va_list args;
+  va_start(args, fmt);
+  vsnprintf(status.detail, sizeof status.detail, fmt, args);
+  va_end(args);
+  return status;
+}
+
 static uhdr_error_info_t validateHagcMode(int mode) {
   if (mode != UHDR_HAGC_DISABLED && mode != UHDR_HAGC_DERIVE_FROM_GAINMAP) {
-    uhdr_error_info_t status{};
-    status.error_code = UHDR_CODEC_INVALID_PARAM;
-    status.has_detail = 1;
-    snprintf(status.detail, sizeof status.detail,
-             "invalid hagc mode %d, expects one of {UHDR_HAGC_DISABLED, "
-             "UHDR_HAGC_DERIVE_FROM_GAINMAP}",
-             mode);
-    return status;
+    return makeJpegrError(UHDR_CODEC_INVALID_PARAM,
+                          "invalid hagc mode %d, expects one of {UHDR_HAGC_DISABLED, "
+                          "UHDR_HAGC_DERIVE_FROM_GAINMAP}",
+                          mode);
+  }
+  return g_no_error;
+}
+
+static uhdr_error_info_t validateGainMapAppColorSpaceIcc(
+    const uhdr_compressed_image_t* gainmap_img_compressed,
+    const uhdr_gainmap_metadata_ext_t* metadata) {
+  if (!metadata->use_base_cg) {
+    JpegDecoderHelper gainmap_decoder;
+    UHDR_ERR_CHECK(
+        gainmap_decoder.parseImage(gainmap_img_compressed->data, gainmap_img_compressed->data_sz));
+    if (!(gainmap_decoder.getICCSize() > 0)) {
+      return makeJpegrError(
+          UHDR_CODEC_UNSUPPORTED_FEATURE,
+          "For gainmap application space to be alternate image space, gainmap image is "
+          "expected to contain alternate image color space in the form of ICC. The ICC marker "
+          "in gainmap jpeg is missing.");
+    }
   }
   return g_no_error;
 }
@@ -162,11 +191,7 @@ static uhdr_error_info_t buildPrimaryIccProfile(int hagc_mode,
     out_icc = IccHelper::writeIccProfile(UHDR_CT_SRGB, sdr_intent->cg);
   }
   if (out_icc == nullptr) {
-    uhdr_error_info_t status{};
-    status.error_code = UHDR_CODEC_ERROR;
-    status.has_detail = 1;
-    snprintf(status.detail, sizeof status.detail, "failed to serialize primary ICC profile");
-    return status;
+    return makeJpegrError(UHDR_CODEC_ERROR, "failed to serialize primary ICC profile");
   }
   return g_no_error;
 }
@@ -470,44 +495,21 @@ uhdr_error_info_t JpegR::encodeJPEGRWithHagc(uhdr_compressed_image_t* base_img_c
   if (base_img_compressed == nullptr || base_img_compressed->data == nullptr ||
       gainmap_img_compressed == nullptr || gainmap_img_compressed->data == nullptr ||
       metadata == nullptr || dest == nullptr) {
-    uhdr_error_info_t status;
-    status.error_code = UHDR_CODEC_INVALID_PARAM;
-    status.has_detail = 1;
-    snprintf(status.detail, sizeof status.detail,
-             "received nullptr for compressed image or metadata in encodeJPEGR");
-    return status;
+    return makeJpegrError(UHDR_CODEC_INVALID_PARAM,
+                          "received nullptr for compressed image or metadata in encodeJPEGR");
   }
 
   UHDR_ERR_CHECK(uhdr_validate_gainmap_metadata_descriptor(metadata));
 
   JpegDecoderHelper decoder;
   UHDR_ERR_CHECK(decoder.parseImage(base_img_compressed->data, base_img_compressed->data_sz));
-
-  if (!metadata->use_base_cg) {
-    JpegDecoderHelper gainmap_decoder;
-    UHDR_ERR_CHECK(
-        gainmap_decoder.parseImage(gainmap_img_compressed->data, gainmap_img_compressed->data_sz));
-    if (!(gainmap_decoder.getICCSize() > 0)) {
-      uhdr_error_info_t status;
-      status.error_code = UHDR_CODEC_UNSUPPORTED_FEATURE;
-      status.has_detail = 1;
-      snprintf(status.detail, sizeof status.detail,
-               "For gainmap application space to be alternate image space, gainmap image is "
-               "expected to contain alternate image color space in the form of ICC. The ICC marker "
-               "in gainmap jpeg is missing.");
-      return status;
-    }
-  }
+  UHDR_ERR_CHECK(validateGainMapAppColorSpaceIcc(gainmap_img_compressed, metadata));
 
   if (decoder.getICCSize() == 0) {
     if (base_img_compressed->cg <= UHDR_CG_UNSPECIFIED ||
         base_img_compressed->cg > UHDR_CG_BT_2100) {
-      uhdr_error_info_t status;
-      status.error_code = UHDR_CODEC_INVALID_PARAM;
-      status.has_detail = 1;
-      snprintf(status.detail, sizeof status.detail, "Unrecognized 420 color gamut %d",
-               base_img_compressed->cg);
-      return status;
+      return makeJpegrError(UHDR_CODEC_INVALID_PARAM, "Unrecognized 420 color gamut %d",
+                            base_img_compressed->cg);
     }
   }
 
@@ -525,14 +527,10 @@ uhdr_error_info_t JpegR::encodeJPEGRWithHagc(uhdr_compressed_image_t* base_img_c
           IccHelper::readIccColorGamut(base_dec.getICCPtr(), base_dec.getICCSize());
       if (icc_cg != UHDR_CG_UNSPECIFIED) {
         if (base_img_compressed->cg != UHDR_CG_UNSPECIFIED && base_img_compressed->cg != icc_cg) {
-          uhdr_error_info_t status;
-          status.error_code = UHDR_CODEC_INVALID_PARAM;
-          status.has_detail = 1;
-          snprintf(status.detail, sizeof status.detail,
-                   "configured color gamut %d does not match with color gamut specified in icc "
-                   "box %d",
-                   base_img_compressed->cg, icc_cg);
-          return status;
+          return makeJpegrError(UHDR_CODEC_INVALID_PARAM,
+                                "configured color gamut %d does not match with color gamut "
+                                "specified in icc box %d",
+                                base_img_compressed->cg, icc_cg);
         }
         sdr_raw.cg = icc_cg;
       } else if (base_img_compressed->cg > UHDR_CG_UNSPECIFIED &&
@@ -573,22 +571,14 @@ uhdr_error_info_t JpegR::encodeJPEGRWithHagc(uhdr_compressed_image_t* base_img_c
     newIcc = IccHelper::injectHagcIntoIccProfile(decoder.getICCPtr(), decoder.getICCSize(),
                                                  hagc_ptr->data(), hagc_ptr->size());
     if (newIcc == nullptr) {
-      uhdr_error_info_t status;
-      status.error_code = UHDR_CODEC_INVALID_PARAM;
-      status.has_detail = 1;
-      snprintf(status.detail, sizeof status.detail,
-               "failed to inject HAGC tag into base image ICC profile");
-      return status;
+      return makeJpegrError(UHDR_CODEC_INVALID_PARAM,
+                            "failed to inject HAGC tag into base image ICC profile");
     }
   } else {
     newIcc = IccHelper::writeIccProfile(UHDR_CT_SRGB, base_img_compressed->cg, hagc_ptr->data(),
                                         hagc_ptr->size());
     if (newIcc == nullptr) {
-      uhdr_error_info_t status;
-      status.error_code = UHDR_CODEC_ERROR;
-      status.has_detail = 1;
-      snprintf(status.detail, sizeof status.detail, "failed to serialize primary ICC profile");
-      return status;
+      return makeJpegrError(UHDR_CODEC_ERROR, "failed to serialize primary ICC profile");
     }
   }
 
@@ -611,22 +601,7 @@ uhdr_error_info_t JpegR::encodeJPEGR(uhdr_compressed_image_t* base_img_compresse
   // this doesn't verify that the ICC is valid.
   JpegDecoderHelper decoder;
   UHDR_ERR_CHECK(decoder.parseImage(base_img_compressed->data, base_img_compressed->data_sz));
-
-  if (!metadata->use_base_cg) {
-    JpegDecoderHelper gainmap_decoder;
-    UHDR_ERR_CHECK(
-        gainmap_decoder.parseImage(gainmap_img_compressed->data, gainmap_img_compressed->data_sz));
-    if (!(gainmap_decoder.getICCSize() > 0)) {
-      uhdr_error_info_t status;
-      status.error_code = UHDR_CODEC_UNSUPPORTED_FEATURE;
-      status.has_detail = 1;
-      snprintf(status.detail, sizeof status.detail,
-               "For gainmap application space to be alternate image space, gainmap image is "
-               "expected to contain alternate image color space in the form of ICC. The ICC marker "
-               "in gainmap jpeg is missing.");
-      return status;
-    }
-  }
+  UHDR_ERR_CHECK(validateGainMapAppColorSpaceIcc(gainmap_img_compressed, metadata));
 
   // Add ICC if not already present.
   if (decoder.getICCSize() > 0) {
@@ -635,12 +610,8 @@ uhdr_error_info_t JpegR::encodeJPEGR(uhdr_compressed_image_t* base_img_compresse
   } else {
     if (base_img_compressed->cg <= UHDR_CG_UNSPECIFIED ||
         base_img_compressed->cg > UHDR_CG_BT_2100) {
-      uhdr_error_info_t status;
-      status.error_code = UHDR_CODEC_INVALID_PARAM;
-      status.has_detail = 1;
-      snprintf(status.detail, sizeof status.detail, "Unrecognized 420 color gamut %d",
-               base_img_compressed->cg);
-      return status;
+      return makeJpegrError(UHDR_CODEC_INVALID_PARAM, "Unrecognized 420 color gamut %d",
+                            base_img_compressed->cg);
     }
     std::shared_ptr<DataStruct> newIcc =
         IccHelper::writeIccProfile(UHDR_CT_SRGB, base_img_compressed->cg);

@@ -78,6 +78,7 @@ TEST_F(AgtmTest, GenerateGainMap) {
   smpte2094_50::DynamicMetadata metadata{};
   smpte2094_50::ToneMappingRule rule{};
   rule.alternate_hdr_headroom_log2 = 1.0f;  // factor 2
+  rule.use_pchip_slope = true;
   rule.curve.push_back({0.0f, 0.0f});
   rule.curve.push_back({1.0f, 1.0f});
   metadata.rules.push_back(rule);
@@ -126,6 +127,7 @@ TEST_F(AgtmTest, GenerateGainMapExplicitCapacity) {
   smpte2094_50::DynamicMetadata metadata{};
   smpte2094_50::ToneMappingRule rule{};
   rule.alternate_hdr_headroom_log2 = 2.0f;  // factor 4
+  rule.use_pchip_slope = true;
   rule.curve.push_back({0.0f, 0.0f});
   rule.curve.push_back({1.0f, 2.0f});
   metadata.rules.push_back(rule);
@@ -1017,5 +1019,173 @@ TEST_F(AgtmTest, GenerateGainMapRejectsInvalidInputs) {
   EXPECT_EQ(generateGainMap(&valid_img, bad_meta, &gm_meta, gm_img).error_code,
             UHDR_CODEC_INVALID_PARAM);
   EXPECT_EQ(gm_img, nullptr);
+}
+
+TEST_F(AgtmTest, GenerateGainMapHonorsExplicitZeroSlopes) {
+  smpte2094_50::DynamicMetadata meta{};
+  meta.hdr_reference_white = 203.0f;
+  meta.has_adaptive_tone_map_flag = true;
+  meta.baseline_hdr_headroom_log2 = 0.0f;
+  meta.use_reference_white_tone_mapping_flag = false;
+  meta.gain_application_space_chromaticities = smpte2094_50::DynamicMetadata::kChromaticitiesSrgb;
+
+  smpte2094_50::ToneMappingRule rule{};
+  rule.alternate_hdr_headroom_log2 = 2.0f;
+  rule.use_pchip_slope = false;
+  rule.mix.max = 1.0f;
+  rule.curve = {{0.0f, 0.0f, 0.0f}, {1.0f, 2.0f, 0.0f}};
+  meta.rules.push_back(rule);
+
+  // Round-trip through Annex C bitstream with use_pchip_slope=false and theta=18000 (m=0).
+  std::vector<uint8_t> bitstream;
+  ASSERT_EQ(smpte2094_50::encodeSt2094_50(meta, bitstream).error_code, UHDR_CODEC_OK);
+  smpte2094_50::DynamicMetadata parsed{};
+  ASSERT_EQ(smpte2094_50::parseSt2094_50(bitstream.data(), bitstream.size(), parsed).error_code,
+            UHDR_CODEC_OK);
+  ASSERT_EQ(parsed.rules.size(), 1u);
+  EXPECT_FALSE(parsed.rules[0].use_pchip_slope);
+  EXPECT_FLOAT_EQ(parsed.rules[0].curve[0].m, 0.0f);
+  EXPECT_FLOAT_EQ(parsed.rules[0].curve[1].m, 0.0f);
+
+  // Sample linear RGB at x=0.25. Explicit zero slopes give Hermite gain = 2 * (3/16 - 2/64)
+  // = 0.3125 log2 (~40/255), whereas recomputed PCHIP slopes (m=2) would give 0.50 (~64/255).
+  const uint16_t h_quarter = floatToHalf(0.25f);
+  const uint16_t h_one = floatToHalf(1.0f);
+  std::array<uint64_t, 4> pixels{};
+  const uint64_t px = static_cast<uint64_t>(h_quarter) | (static_cast<uint64_t>(h_quarter) << 16) |
+                      (static_cast<uint64_t>(h_quarter) << 32) |
+                      (static_cast<uint64_t>(h_one) << 48);
+  pixels.fill(px);
+
+  uhdr_raw_image_t img{};
+  img.fmt = UHDR_IMG_FMT_64bppRGBAHalfFloat;
+  img.cg = UHDR_CG_BT_709;
+  img.ct = UHDR_CT_LINEAR;
+  img.range = UHDR_CR_FULL_RANGE;
+  img.w = 2;
+  img.h = 2;
+  img.planes[UHDR_PLANE_PACKED] = pixels.data();
+  img.stride[UHDR_PLANE_PACKED] = 2;
+
+  uhdr_gainmap_metadata_ext_t gm_meta("1.0");
+  std::unique_ptr<uhdr_raw_image_ext_t> gm_img;
+  ASSERT_EQ(generateGainMap(&img, parsed, &gm_meta, gm_img).error_code, UHDR_CODEC_OK);
+  ASSERT_NE(gm_img, nullptr);
+  const uint8_t* out = reinterpret_cast<const uint8_t*>(gm_img->planes[UHDR_PLANE_PACKED]);
+  EXPECT_NEAR(out[0], 40, 2);
+  EXPECT_LT(out[0], 50);
+}
+
+TEST_F(AgtmTest, DeriveHagcRejectsInvalidPlanesAndStrides) {
+  constexpr unsigned int kW = 4;
+  constexpr unsigned int kH = 4;
+  std::vector<uint8_t> gm_buf(kW * kH, 128u);
+  uhdr_raw_image_t valid_gm{};
+  valid_gm.fmt = UHDR_IMG_FMT_8bppYCbCr400;
+  valid_gm.cg = UHDR_CG_BT_709;
+  valid_gm.ct = UHDR_CT_LINEAR;
+  valid_gm.range = UHDR_CR_FULL_RANGE;
+  valid_gm.w = kW;
+  valid_gm.h = kH;
+  valid_gm.planes[UHDR_PLANE_Y] = gm_buf.data();
+  valid_gm.stride[UHDR_PLANE_Y] = kW;
+
+  uhdr_gainmap_metadata_ext_t gm_meta("1.0");
+  gm_meta.hdr_capacity_min = 1.0f;
+  gm_meta.hdr_capacity_max = 4.0f;
+  gm_meta.use_base_cg = true;
+  for (int c = 0; c < 3; ++c) {
+    gm_meta.min_content_boost[c] = 1.0f;
+    gm_meta.max_content_boost[c] = 4.0f;
+    gm_meta.gamma[c] = 1.0f;
+  }
+
+  smpte2094_50::DynamicMetadata out_hagc{};
+
+  // P010 checks (null UV plane, short Y/UV strides).
+  std::vector<uint16_t> p010_y(kW * kH, 512u << 6);
+  std::vector<uint16_t> p010_uv(kW * kH / 2u, 512u << 6);
+  uhdr_raw_image_t p010{};
+  p010.fmt = UHDR_IMG_FMT_24bppYCbCrP010;
+  p010.cg = UHDR_CG_BT_2100;
+  p010.ct = UHDR_CT_HLG;
+  p010.range = UHDR_CR_FULL_RANGE;
+  p010.w = kW;
+  p010.h = kH;
+  p010.planes[UHDR_PLANE_Y] = p010_y.data();
+  p010.planes[UHDR_PLANE_UV] = p010_uv.data();
+  p010.stride[UHDR_PLANE_Y] = kW;
+  p010.stride[UHDR_PLANE_UV] = kW;
+
+  uhdr_raw_image_t p010_null_uv = p010;
+  p010_null_uv.planes[UHDR_PLANE_UV] = nullptr;
+  EXPECT_EQ(deriveHagcFromGainMap(&p010_null_uv, &valid_gm, &gm_meta, out_hagc).error_code,
+            UHDR_CODEC_INVALID_PARAM);
+
+  uhdr_raw_image_t p010_bad_y_stride = p010;
+  p010_bad_y_stride.stride[UHDR_PLANE_Y] = kW - 1;
+  EXPECT_EQ(deriveHagcFromGainMap(&p010_bad_y_stride, &valid_gm, &gm_meta, out_hagc).error_code,
+            UHDR_CODEC_INVALID_PARAM);
+
+  uhdr_raw_image_t p010_bad_uv_stride = p010;
+  p010_bad_uv_stride.stride[UHDR_PLANE_UV] = kW - 1;
+  EXPECT_EQ(deriveHagcFromGainMap(&p010_bad_uv_stride, &valid_gm, &gm_meta, out_hagc).error_code,
+            UHDR_CODEC_INVALID_PARAM);
+
+  // Planar 420 checks (null U/V planes, short chroma strides).
+  std::vector<uint8_t> y420(kW * kH, 128u), u420((kW / 2u) * (kH / 2u), 128u),
+      v420((kW / 2u) * (kH / 2u), 128u);
+  uhdr_raw_image_t yuv420{};
+  yuv420.fmt = UHDR_IMG_FMT_12bppYCbCr420;
+  yuv420.cg = UHDR_CG_BT_709;
+  yuv420.ct = UHDR_CT_SRGB;
+  yuv420.range = UHDR_CR_FULL_RANGE;
+  yuv420.w = kW;
+  yuv420.h = kH;
+  yuv420.planes[UHDR_PLANE_Y] = y420.data();
+  yuv420.planes[UHDR_PLANE_U] = u420.data();
+  yuv420.planes[UHDR_PLANE_V] = v420.data();
+  yuv420.stride[UHDR_PLANE_Y] = kW;
+  yuv420.stride[UHDR_PLANE_U] = kW / 2u;
+  yuv420.stride[UHDR_PLANE_V] = kW / 2u;
+
+  uhdr_raw_image_t yuv_null_u = yuv420;
+  yuv_null_u.planes[UHDR_PLANE_U] = nullptr;
+  EXPECT_EQ(deriveHagcFromGainMap(&yuv_null_u, &valid_gm, &gm_meta, out_hagc).error_code,
+            UHDR_CODEC_INVALID_PARAM);
+
+  uhdr_raw_image_t yuv_null_v = yuv420;
+  yuv_null_v.planes[UHDR_PLANE_V] = nullptr;
+  EXPECT_EQ(deriveHagcFromGainMap(&yuv_null_v, &valid_gm, &gm_meta, out_hagc).error_code,
+            UHDR_CODEC_INVALID_PARAM);
+
+  uhdr_raw_image_t yuv_bad_u_stride = yuv420;
+  yuv_bad_u_stride.stride[UHDR_PLANE_U] = 1;
+  EXPECT_EQ(deriveHagcFromGainMap(&yuv_bad_u_stride, &valid_gm, &gm_meta, out_hagc).error_code,
+            UHDR_CODEC_INVALID_PARAM);
+
+  // Gainmap plane/stride checks (YCbCr400 short stride, RGB888 null/short stride).
+  uhdr_raw_image_t bad_gm_400 = valid_gm;
+  bad_gm_400.stride[UHDR_PLANE_Y] = kW - 1;
+  EXPECT_EQ(deriveHagcFromGainMap(&yuv420, &bad_gm_400, &gm_meta, out_hagc).error_code,
+            UHDR_CODEC_INVALID_PARAM);
+
+  std::vector<uint8_t> gm_rgb(kW * kH * 3u, 128u);
+  uhdr_raw_image_t bad_gm_rgb{};
+  bad_gm_rgb.fmt = UHDR_IMG_FMT_24bppRGB888;
+  bad_gm_rgb.cg = UHDR_CG_BT_709;
+  bad_gm_rgb.ct = UHDR_CT_LINEAR;
+  bad_gm_rgb.range = UHDR_CR_FULL_RANGE;
+  bad_gm_rgb.w = kW;
+  bad_gm_rgb.h = kH;
+  bad_gm_rgb.planes[UHDR_PLANE_PACKED] = gm_rgb.data();
+  bad_gm_rgb.stride[UHDR_PLANE_PACKED] = kW - 1;
+  EXPECT_EQ(deriveHagcFromGainMap(&yuv420, &bad_gm_rgb, &gm_meta, out_hagc).error_code,
+            UHDR_CODEC_INVALID_PARAM);
+
+  bad_gm_rgb.stride[UHDR_PLANE_PACKED] = kW;
+  bad_gm_rgb.planes[UHDR_PLANE_PACKED] = nullptr;
+  EXPECT_EQ(deriveHagcFromGainMap(&yuv420, &bad_gm_rgb, &gm_meta, out_hagc).error_code,
+            UHDR_CODEC_INVALID_PARAM);
 }
 }  // namespace ultrahdr
