@@ -51,6 +51,20 @@ The decoder APIs (`uhdr_dec_probe()` and `uhdr_decode()`) automatically detect c
 * Transparently routes decoding to `JpegR`, `HeifUltraHdr`, or `AvifUltraHdr`.
 * Extracts primary image, gain map auxiliary track, ISO 21496-1 metadata, and color profiles seamlessly into the destination buffer.
 
+### 2.4. Optional Native 10-Bit AVIF Base Images
+`uhdr_enc_set_max_base_image_bit_depth()` lets an encoder opt into a maximum AVIF base-image
+depth of 10 bits. The default remains 8 bits for compatibility. The 10-bit route applies only to
+AVIF Encode API-0 with P010 or RGBA1010102 HDR input, and to API-1 with RGBA8888 SDR input. For
+API-1, RGBA8888 is converted directly to a 10-bit YCbCr 4:4:4 base instead of passing through an
+8-bit YCbCr intermediate. That conversion avoids another precision loss, but cannot restore detail
+already discarded before the encoder receives the SDR image. Other API-1 formats and output codecs
+keep their existing behavior.
+
+Native 10-bit bases can improve base-layer and reconstructed HDR fidelity, but may increase encode
+memory, file size, and decoder requirements. If the active AV1 encoder cannot produce the requested
+10-bit base, encoding returns its error instead of silently falling back to 8 bits. The gain map
+remains 8-bit. These changes do not alter decoder behavior.
+
 ---
 
 ## 3. C++ Class Hierarchy Reorganization

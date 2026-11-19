@@ -270,7 +270,7 @@ class UltraHdrAppInput {
                    bool enableMultiChannelGainMap = true, float gamma = 1.0f,
                    bool enableGLES = false, uhdr_enc_preset_t encPreset = UHDR_USAGE_BEST_QUALITY,
                    float minContentBoost = FLT_MIN, float maxContentBoost = FLT_MAX,
-                   float targetDispPeakBrightness = -1.0f)
+                   float targetDispPeakBrightness = -1.0f, int maxBaseImageBitDepth = 8)
       : mHdrIntentRawFile(hdrIntentRawFile),
         mSdrIntentRawFile(sdrIntentRawFile),
         mSdrIntentCompressedFile(sdrIntentCompressedFile),
@@ -299,6 +299,7 @@ class UltraHdrAppInput {
         mMinContentBoost(minContentBoost),
         mMaxContentBoost(maxContentBoost),
         mTargetDispPeakBrightness(targetDispPeakBrightness),
+        mMaxBaseImageBitDepth(maxBaseImageBitDepth),
         mProbe(false),
         mMode(0){};
 
@@ -334,6 +335,7 @@ class UltraHdrAppInput {
         mMinContentBoost(FLT_MIN),
         mMaxContentBoost(FLT_MAX),
         mTargetDispPeakBrightness(-1.0f),
+        mMaxBaseImageBitDepth(8),
         mProbe(probe),
         mMode(1){};
 
@@ -423,6 +425,7 @@ class UltraHdrAppInput {
   const float mMinContentBoost;
   const float mMaxContentBoost;
   const float mTargetDispPeakBrightness;
+  const int mMaxBaseImageBitDepth;
   const bool mProbe;
   const int mMode;
 
@@ -785,6 +788,7 @@ bool UltraHdrAppInput::encode() {
 
   RET_IF_ERR(uhdr_enc_set_quality(handle, mQuality, UHDR_BASE_IMG))
   RET_IF_ERR(uhdr_enc_set_quality(handle, mMapCompressQuality, UHDR_GAIN_MAP_IMG))
+  RET_IF_ERR(uhdr_enc_set_max_base_image_bit_depth(handle, mMaxBaseImageBitDepth))
   RET_IF_ERR(uhdr_enc_set_using_multi_channel_gainmap(handle, mUseMultiChannelGainMap))
   RET_IF_ERR(uhdr_enc_set_gainmap_scale_factor(handle, mMapDimensionScaleFactor))
   RET_IF_ERR(uhdr_enc_set_gainmap_gamma(handle, mGamma))
@@ -1471,6 +1475,11 @@ static void usage(const char* name) {
   fprintf(stderr,
           "    -q    quality factor to be used while encoding sdr intent, optional. [0-100], 95 : "
           "default.\n");
+  fprintf(stderr,
+          "    -B    maximum AVIF base-image bit depth, optional. [8 (default), 10].\n"
+          "          10 preserves a 10-bit base for API-0 P010/RGBA1010102 input or directly converts "
+          "API-1 RGBA8888 SDR to 10-bit 4:4:4. It cannot restore SDR detail already lost before "
+          "encoding. Memory use and output size may increase; the gain map remains 8-bit.\n");
   fprintf(stderr, "    -e    compute psnr, optional. [0:no (default), 1:yes] \n");
   fprintf(stderr,
           "    -R    color range of hdr intent, optional. [0:narrow-range (default), "
@@ -1541,6 +1550,9 @@ static void usage(const char* name) {
           "    ultrahdr_app -m 0 -p cosmat_1920x1080_p010.yuv -w 1920 -h 1080 -q 97 -a 0\n");
   fprintf(stderr,
           "    ultrahdr_app -m 0 -p cosmat_1920x1080_rgba1010102.raw -w 1920 -h 1080 -q 97 -a 5\n");
+  fprintf(stderr,
+          "    ultrahdr_app -m 0 -p cosmat_1920x1080_p010.yuv -w 1920 -h 1080 -q 97 -a 0 "
+          "-B 10 -z out.avif\n");
   fprintf(
       stderr,
       "    ultrahdr_app -m 0 -p cosmat_1920x1080_p010.yuv -w 1920 -h 1080 -q 97 -C 1 -t 2 -a 0\n");
@@ -1594,7 +1606,7 @@ static void usage(const char* name) {
 }
 
 int main(int argc, char* argv[]) {
-  char opt_string[] = "p:y:i:g:f:w:h:C:c:t:q:o:O:m:j:e:a:b:z:R:s:M:Q:G:x:u:D:k:K:L:P";
+  char opt_string[] = "p:y:i:g:f:w:h:C:c:t:q:B:o:O:m:j:e:a:b:z:R:s:M:Q:G:x:u:D:k:K:L:P";
   char *hdr_intent_raw_file = nullptr, *sdr_intent_raw_file = nullptr, *uhdr_file = nullptr,
        *sdr_intent_compressed_file = nullptr, *gainmap_compressed_file = nullptr,
        *gainmap_metadata_cfg_file = nullptr, *output_file = nullptr, *exif_file = nullptr;
@@ -1605,6 +1617,7 @@ int main(int argc, char* argv[]) {
   uhdr_img_fmt_t sdr_cf = UHDR_IMG_FMT_32bppRGBA8888;
   uhdr_color_transfer_t hdr_tf = UHDR_CT_HLG;
   int quality = 95;
+  int max_base_image_bit_depth = 8;
   uhdr_color_transfer_t out_tf = UHDR_CT_HLG;
   uhdr_img_fmt_t out_cf = UHDR_IMG_FMT_32bppRGBA1010102;
   int mode = -1;
@@ -1661,6 +1674,9 @@ int main(int argc, char* argv[]) {
         break;
       case 'q':
         quality = atoi(optarg_s);
+        break;
+      case 'B':
+        max_base_image_bit_depth = atoi(optarg_s);
         break;
       case 'O':
         out_cf = static_cast<uhdr_img_fmt_t>(atoi(optarg_s));
@@ -1725,6 +1741,11 @@ int main(int argc, char* argv[]) {
         return -1;
     }
   }
+  if (max_base_image_bit_depth != 8 && max_base_image_bit_depth != 10) {
+    std::cerr << "maximum AVIF base-image bit depth must be 8 or 10; received "
+              << max_base_image_bit_depth << std::endl;
+    return -1;
+  }
   if (mode == 0) {
     if (width <= 0 && gainmap_metadata_cfg_file == nullptr) {
       std::cerr << "did not receive valid image width for encoding. width :  " << width
@@ -1748,7 +1769,8 @@ int main(int argc, char* argv[]) {
         output_file ? output_file : "out.jpeg", width, height, hdr_cf, sdr_cf, hdr_cg, sdr_cg,
         hdr_tf, quality, out_tf, out_cf, use_full_range_color_hdr, gainmap_scale_factor,
         gainmap_compression_quality, use_multi_channel_gainmap, gamma, enable_gles, enc_preset,
-        min_content_boost, max_content_boost, target_disp_peak_brightness);
+        min_content_boost, max_content_boost, target_disp_peak_brightness,
+        max_base_image_bit_depth);
     if (!appInput.encode()) return -1;
     if (compute_psnr == 1) {
       if (!appInput.decode()) return -1;

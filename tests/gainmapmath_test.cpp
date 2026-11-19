@@ -1736,6 +1736,183 @@ TEST_F(GainMapMathTest, GetP010Pixel) {
   }
 }
 
+TEST_F(GainMapMathTest, GetP010PixelFullRangeChromaUsesCode512AsNeutral) {
+  uint16_t luma[] = {512 << 6, 512 << 6, 512 << 6, 512 << 6,
+                     512 << 6, 512 << 6, 512 << 6, 512 << 6};
+  uint16_t chroma[] = {512 << 6, 512 << 6, 640 << 6, 384 << 6};
+  uhdr_raw_image_t image{};
+  image.fmt = UHDR_IMG_FMT_24bppYCbCrP010;
+  image.range = UHDR_CR_FULL_RANGE;
+  image.w = 4;
+  image.h = 2;
+  image.planes[UHDR_PLANE_Y] = luma;
+  image.planes[UHDR_PLANE_UV] = chroma;
+  image.stride[UHDR_PLANE_Y] = 4;
+  image.stride[UHDR_PLANE_UV] = 4;
+
+  GetPixelFn get_pixel = getPixelFn(image.fmt);
+  ASSERT_NE(get_pixel, nullptr);
+  const Color neutral = get_pixel(&image, 0, 0);
+  const Color offset = get_pixel(&image, 2, 0);
+
+  // P010's native 10-bit code values use 512 as the full-range chroma midpoint.
+  EXPECT_FLOAT_EQ(neutral.y, 512.0f / 1023.0f);
+  EXPECT_FLOAT_EQ(neutral.u, 0.0f);
+  EXPECT_FLOAT_EQ(neutral.v, 0.0f);
+  EXPECT_FLOAT_EQ(offset.u, 128.0f / 1023.0f);
+  EXPECT_FLOAT_EQ(offset.v, -128.0f / 1023.0f);
+}
+
+TEST_F(GainMapMathTest, GetYuv444Pixel10bitFullRangeChromaUsesCode512AsNeutral) {
+  uint16_t luma[] = {512, 512};
+  uint16_t cb[] = {512, 640};
+  uint16_t cr[] = {512, 384};
+  uhdr_raw_image_t image{};
+  image.fmt = UHDR_IMG_FMT_30bppYCbCr444;
+  image.range = UHDR_CR_FULL_RANGE;
+  image.w = 2;
+  image.h = 1;
+  image.planes[UHDR_PLANE_Y] = luma;
+  image.planes[UHDR_PLANE_U] = cb;
+  image.planes[UHDR_PLANE_V] = cr;
+  image.stride[UHDR_PLANE_Y] = 2;
+  image.stride[UHDR_PLANE_U] = 2;
+  image.stride[UHDR_PLANE_V] = 2;
+
+  GetPixelFn get_pixel = getPixelFn(image.fmt);
+  ASSERT_NE(get_pixel, nullptr);
+  const Color neutral = get_pixel(&image, 0, 0);
+  const Color offset = get_pixel(&image, 1, 0);
+
+  // The 10-bit YCbCr writers add 512 before scaling chroma to code values.
+  EXPECT_FLOAT_EQ(neutral.y, 512.0f / 1023.0f);
+  EXPECT_FLOAT_EQ(neutral.u, 0.0f);
+  EXPECT_FLOAT_EQ(neutral.v, 0.0f);
+  EXPECT_FLOAT_EQ(offset.u, 128.0f / 1023.0f);
+  EXPECT_FLOAT_EQ(offset.v, -128.0f / 1023.0f);
+}
+
+TEST_F(GainMapMathTest, QuantizeFullRangeChroma10BitRoundsAroundCode512) {
+  EXPECT_EQ(quantizeFullRangeChroma10Bit(0.5f - 0.25f / 1023.0f), 512);
+  EXPECT_EQ(quantizeFullRangeChroma10Bit(0.5f), 512);
+  EXPECT_EQ(quantizeFullRangeChroma10Bit(0.5f + 0.75f / 1023.0f), 513);
+  EXPECT_EQ(quantizeFullRangeChroma10Bit(0.5f - 0.75f / 1023.0f), 511);
+  EXPECT_EQ(quantizeFullRangeChroma10Bit(-0.5f), 0);
+  EXPECT_EQ(quantizeFullRangeChroma10Bit(1.5f), 1023);
+}
+
+TEST_F(GainMapMathTest, PutYuv444Pixel10bitRoundsChromaAroundCode512) {
+  uint16_t luma[4]{};
+  uint16_t cb[4]{};
+  uint16_t cr[4]{};
+  uhdr_raw_image_t image{};
+  image.fmt = UHDR_IMG_FMT_30bppYCbCr444;
+  image.range = UHDR_CR_FULL_RANGE;
+  image.w = 4;
+  image.h = 1;
+  image.planes[UHDR_PLANE_Y] = luma;
+  image.planes[UHDR_PLANE_U] = cb;
+  image.planes[UHDR_PLANE_V] = cr;
+  image.stride[UHDR_PLANE_Y] = 4;
+  image.stride[UHDR_PLANE_U] = 4;
+  image.stride[UHDR_PLANE_V] = 4;
+
+  const Color samples[] = {
+      {{{0.5f, 0.5f - 0.25f / 1023.0f, 0.5f + 0.75f / 1023.0f}}},
+      {{{0.5f, 0.5f, 0.5f}}},
+      {{{0.5f, 0.5f - 0.75f / 1023.0f, 0.5f + 0.75f / 1023.0f}}},
+      {{{0.5f, -0.1f, 1.1f}}},
+  };
+  for (size_t x = 0; x < 4; ++x) {
+    Color sample = samples[x];
+    putYuv444Pixel10bit(&image, x, 0, sample);
+  }
+
+  EXPECT_EQ(luma[0], 512);
+  EXPECT_EQ(cb[0], 512);
+  EXPECT_EQ(cr[0], 513);
+  EXPECT_EQ(cb[1], 512);
+  EXPECT_EQ(cr[1], 512);
+  EXPECT_EQ(cb[2], 511);
+  EXPECT_EQ(cr[2], 513);
+  EXPECT_EQ(cb[3], 0);
+  EXPECT_EQ(cr[3], 1023);
+}
+
+TEST_F(GainMapMathTest, Rgba8888To10BitYuv444UsesFullPrecisionForSupportedGamuts) {
+  struct Matrix {
+    uhdr_color_gamut_t gamut;
+    float y_r;
+    float y_g;
+    float y_b;
+    float cb_scale;
+    float cr_scale;
+  };
+  constexpr Matrix kMatrices[] = {
+      {UHDR_CG_BT_709, 0.212639f, 0.715169f, 0.072192f, 2.0f * (1.0f - 0.072192f),
+       2.0f * (1.0f - 0.212639f)},
+      {UHDR_CG_DISPLAY_P3, 0.299f, 0.587f, 0.114f, 1.772f, 1.402f},
+      {UHDR_CG_BT_2100, 0.2627f, 0.677998f, 0.059302f, 2.0f * (1.0f - 0.059302f),
+       2.0f * (1.0f - 0.2627f)},
+  };
+
+  constexpr uint32_t kRed = 101;
+  constexpr uint32_t kGreen = 151;
+  constexpr uint32_t kBlue = 209;
+  uint32_t rgba = kRed | (kGreen << 8) | (kBlue << 16) | (0xffu << 24);
+  size_t differences_from_expanded_8bit = 0;
+  for (const Matrix& matrix : kMatrices) {
+    uhdr_raw_image_t source{};
+    source.fmt = UHDR_IMG_FMT_32bppRGBA8888;
+    source.cg = matrix.gamut;
+    source.ct = UHDR_CT_SRGB;
+    source.range = UHDR_CR_FULL_RANGE;
+    source.w = 1;
+    source.h = 1;
+    source.planes[UHDR_PLANE_PACKED] = &rgba;
+    source.stride[UHDR_PLANE_PACKED] = 1;
+
+    std::unique_ptr<uhdr_raw_image_ext_t> converted = convert_rgb_to_ycbcr_10bit444(&source);
+    std::unique_ptr<uhdr_raw_image_ext_t> legacy8 = convert_raw_input_to_ycbcr(&source, false);
+    ASSERT_NE(converted, nullptr);
+    ASSERT_NE(legacy8, nullptr);
+
+    const float r = static_cast<float>(kRed) / 255.0f;
+    const float g = static_cast<float>(kGreen) / 255.0f;
+    const float b = static_cast<float>(kBlue) / 255.0f;
+    const float y = matrix.y_r * r + matrix.y_g * g + matrix.y_b * b;
+    const float cb = (b - y) / matrix.cb_scale;
+    const float cr = (r - y) / matrix.cr_scale;
+    const auto quantize_luma = [](float value) {
+      return static_cast<uint16_t>(std::clamp(std::floor(value * 1023.0f + 0.5f), 0.0f, 1023.0f));
+    };
+    const auto quantize_chroma = [](float value) {
+      return static_cast<uint16_t>(
+          std::clamp(std::floor(value * 1023.0f + 512.5f), 0.0f, 1023.0f));
+    };
+    const uint16_t expected_y = quantize_luma(y);
+    const uint16_t expected_cb = quantize_chroma(cb);
+    const uint16_t expected_cr = quantize_chroma(cr);
+    EXPECT_EQ(static_cast<uint16_t*>(converted->planes[UHDR_PLANE_Y])[0], expected_y);
+    EXPECT_EQ(static_cast<uint16_t*>(converted->planes[UHDR_PLANE_U])[0], expected_cb);
+    EXPECT_EQ(static_cast<uint16_t*>(converted->planes[UHDR_PLANE_V])[0], expected_cr);
+
+    const uint8_t y8 = static_cast<uint8_t*>(legacy8->planes[UHDR_PLANE_Y])[0];
+    const uint8_t cb8 = static_cast<uint8_t*>(legacy8->planes[UHDR_PLANE_U])[0];
+    const uint8_t cr8 = static_cast<uint8_t*>(legacy8->planes[UHDR_PLANE_V])[0];
+    const uint16_t y8_as_10 = quantize_luma(static_cast<float>(y8) / 255.0f);
+    const uint16_t cb8_as_10 = quantize_chroma(static_cast<float>(static_cast<int>(cb8) - 128) /
+                                                255.0f);
+    const uint16_t cr8_as_10 = quantize_chroma(static_cast<float>(static_cast<int>(cr8) - 128) /
+                                                255.0f);
+    differences_from_expanded_8bit += expected_y != y8_as_10;
+    differences_from_expanded_8bit += expected_cb != cb8_as_10;
+    differences_from_expanded_8bit += expected_cr != cr8_as_10;
+  }
+  EXPECT_GT(differences_from_expanded_8bit, 0u)
+      << "the 10-bit conversion must retain values that differ from an 8-bit YUV intermediate";
+}
+
 TEST_F(GainMapMathTest, GetP010PixelOddWidth) {
   auto image = P010Image();
   Color(*colors)[4] = P010Colors();
