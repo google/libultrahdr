@@ -52,7 +52,7 @@ jobs:
 
           # --- macOS Configurations ---
           - name: "macOS Apple Silicon (HEIF ON)"
-            os: macos-14
+            os: macos-latest
             cc: clang
             cxx: clang++
             cmake-opts: "-DUHDR_BUILD_TESTS=1 -DUHDR_BUILD_DEPS=1 -DUHDR_ENABLE_HEIF=1 -DUHDR_ENABLE_WERROR=1"
