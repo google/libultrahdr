@@ -57,8 +57,7 @@ class JpegR : public UltraHdr {
         bool useMultiChannelGainMap = kUseMultiChannelGainMapAndroidDefault,
         float gamma = kGainMapGammaDefault,
         uhdr_enc_preset_t preset = kEncSpeedPresetAndroidDefault, float minContentBoost = FLT_MIN,
-        float maxContentBoost = FLT_MAX, float targetDispPeakBrightness = -1.0f,
-        uhdr_hagc_mode_t hagcMode = UHDR_HAGC_DISABLED);
+        float maxContentBoost = FLT_MAX, float targetDispPeakBrightness = -1.0f);
 
   uhdr_error_info_t setHagcMode(uhdr_hagc_mode_t hagcMode);
   uhdr_hagc_mode_t getHagcMode() const { return static_cast<uhdr_hagc_mode_t>(mHagcMode); }
@@ -148,6 +147,32 @@ class JpegR : public UltraHdr {
   uhdr_error_info_t encodeJPEGR(uhdr_raw_image_t* hdr_intent,
                                 uhdr_compressed_image_t* sdr_intent_compressed,
                                 uhdr_compressed_image_t* dest);
+
+  /*!\brief Encode API-3 with pre-encoded SMPTE ST 2094-50:2026 (HAGC) Annex C metadata.
+   *
+   * Create ultrahdr jpeg image from raw hdr intent, compressed sdr intent, and a pre-encoded
+   * SMPTE ST 2094-50 Annex C payload.
+   *
+   * The sdr intent is decoded and a gainmap coefficient is computed between hdr and sdr intent.
+   * gain map coefficient is compressed using jpeg encoding. compressed gainmap is appended at the
+   * end of compressed sdr image. The supplied \p hagc Annex C payload is validated and embedded
+   * into the primary image ICC v4.4 'HAGC' tag without running GainMap-to-HAGC curve derivation.
+   * Fails if #getHagcMode() is not #UHDR_HAGC_DISABLED or if \p hagc is null, empty, oversized,
+   * or non-conformant.
+   * NOTE: Color transfer of sdr intent is expected to be sRGB.
+   *
+   * \param[in]       hdr_intent               hdr intent raw input image descriptor
+   * \param[in]       sdr_intent_compressed    sdr intent compressed input image descriptor
+   * \param[in, out]  dest                     output image descriptor to store compressed ultrahdr
+   *                                           image
+   * \param[in]       hagc                     pre-encoded SMPTE ST 2094-50 Annex C payload
+   *                                           descriptor (non-null data and capacity >= data_sz)
+   *
+   * \return uhdr_error_info_t #UHDR_CODEC_OK if operation succeeds, uhdr_codec_err_t otherwise.
+   */
+  uhdr_error_info_t encodeJPEGR(uhdr_raw_image_t* hdr_intent,
+                                uhdr_compressed_image_t* sdr_intent_compressed,
+                                uhdr_compressed_image_t* dest, const uhdr_mem_block_t* hagc);
 
   /*!\brief Encode API-4.
    *
@@ -393,11 +418,16 @@ class JpegR : public UltraHdr {
                                   ultrahdr_transfer_function hdr_tf, jr_compressed_ptr dest,
                                   int quality);
 
+  uhdr_error_info_t encodeJPEGRImpl(uhdr_raw_image_t* hdr_intent,
+                                    uhdr_compressed_image_t* sdr_intent_compressed,
+                                    uhdr_compressed_image_t* dest, const uhdr_mem_block_t* hagc);
+
   uhdr_error_info_t encodeJPEGRWithHagc(uhdr_compressed_image_t* base_img_compressed,
                                         uhdr_compressed_image_t* gainmap_img_compressed,
                                         uhdr_gainmap_metadata_ext_t* metadata,
                                         uhdr_compressed_image_t* dest,
-                                        const std::vector<uint8_t>* precomputed_hagc = nullptr);
+                                        const uint8_t* precomputed_hagc = nullptr,
+                                        size_t precomputed_hagc_size = 0);
 
   int mHagcMode;
 };

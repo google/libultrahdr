@@ -1621,8 +1621,9 @@ uhdr_error_info_t uhdr_encode(uhdr_codec_private_t* enc) {
                           handle->m_quality.find(UHDR_GAIN_MAP_IMG)->second,
                           handle->m_use_multi_channel_gainmap, handle->m_gamma,
                           handle->m_enc_preset, handle->m_min_content_boost,
-                          handle->m_max_content_boost, handle->m_target_disp_max_brightness,
-                          handle->m_hagc_mode);
+                          handle->m_max_content_boost, handle->m_target_disp_max_brightness);
+    status = jpegr.setHagcMode(handle->m_hagc_mode);
+    if (status.error_code != UHDR_CODEC_OK) return status;
     if (handle->m_compressed_images.find(UHDR_BASE_IMG) != handle->m_compressed_images.end() &&
         handle->m_compressed_images.find(UHDR_GAIN_MAP_IMG) != handle->m_compressed_images.end()) {
       auto& base_entry = handle->m_compressed_images.find(UHDR_BASE_IMG)->second;

@@ -218,6 +218,8 @@ class AnnexCBitReader {
     return true;
   }
 
+  bool atEnd() const { return mBytePos == mSize && mBitPos == 0; }
+
  private:
   const uint8_t* mData = nullptr;
   size_t mSize = 0;
@@ -995,6 +997,10 @@ uhdr_error_info_t parseSt2094_50(const uint8_t* data, size_t size, DynamicMetada
   }
 
   if (!parsed.has_adaptive_tone_map_flag) {
+    if (!reader.atEnd()) {
+      return makeStatusError(UHDR_CODEC_INVALID_PARAM,
+                             "Unexpected trailing bytes in Annex C bitstream");
+    }
     parsed.rules.clear();
     out_metadata = std::move(parsed);
     return g_no_error;
@@ -1013,6 +1019,10 @@ uhdr_error_info_t parseSt2094_50(const uint8_t* data, size_t size, DynamicMetada
   if (parsed.use_reference_white_tone_mapping_flag) {
     if (!reader.readBits(7, reserved) || reserved != 0u) {
       return makeStatusError(UHDR_CODEC_INVALID_PARAM, "Invalid reserved bits in RWTM adaptive_tone_map");
+    }
+    if (!reader.atEnd()) {
+      return makeStatusError(UHDR_CODEC_INVALID_PARAM,
+                             "Unexpected trailing bytes in Annex C bitstream");
     }
     populateUsingRwtm(parsed);
     out_metadata = std::move(parsed);
@@ -1197,6 +1207,11 @@ uhdr_error_info_t parseSt2094_50(const uint8_t* data, size_t size, DynamicMetada
         rule.curve[c].m = slopes[c];
       }
     }
+  }
+
+  if (!reader.atEnd()) {
+    return makeStatusError(UHDR_CODEC_INVALID_PARAM,
+                           "Unexpected trailing bytes in Annex C bitstream");
   }
 
   uhdr_error_info_t val_status = validateDynamicMetadata(parsed);

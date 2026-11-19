@@ -390,6 +390,34 @@ TEST_F(AgtmTest, RejectsInvalidMetadataAndMalformedBitstreams) {
     bad_res[0] |= 0x01u;
     EXPECT_NE(smpte2094_50::parseSt2094_50(bad_res.data(), bad_res.size(), out).error_code,
               UHDR_CODEC_OK);
+
+    // Trailing bytes must be rejected across no-ATM, RWTM, and full-curve bitstreams.
+    std::vector<uint8_t> with_trailing = valid_bytes;
+    with_trailing.push_back(0x00u);
+    EXPECT_NE(
+        smpte2094_50::parseSt2094_50(with_trailing.data(), with_trailing.size(), out).error_code,
+        UHDR_CODEC_OK);
+
+    auto no_atm_meta = makeValidSingleRuleMetadata();
+    no_atm_meta.has_adaptive_tone_map_flag = false;
+    no_atm_meta.rules.clear();
+    std::vector<uint8_t> no_atm_trailing;
+    ASSERT_EQ(smpte2094_50::encodeSt2094_50(no_atm_meta, no_atm_trailing).error_code,
+              UHDR_CODEC_OK);
+    no_atm_trailing.push_back(0x00u);
+    EXPECT_NE(smpte2094_50::parseSt2094_50(no_atm_trailing.data(), no_atm_trailing.size(), out)
+                  .error_code,
+              UHDR_CODEC_OK);
+
+    auto rwtm_meta = makeValidSingleRuleMetadata();
+    rwtm_meta.use_reference_white_tone_mapping_flag = true;
+    rwtm_meta.rules.clear();
+    std::vector<uint8_t> rwtm_trailing;
+    ASSERT_EQ(smpte2094_50::encodeSt2094_50(rwtm_meta, rwtm_trailing).error_code, UHDR_CODEC_OK);
+    rwtm_trailing.push_back(0x00u);
+    EXPECT_NE(
+        smpte2094_50::parseSt2094_50(rwtm_trailing.data(), rwtm_trailing.size(), out).error_code,
+        UHDR_CODEC_OK);
   }
 }
 

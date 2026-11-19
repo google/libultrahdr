@@ -3012,9 +3012,10 @@ TEST(JpegRTest, HagcDisabledProducesBitExactOutputAcrossAllApis) {
   uhdr_compressed_image_ext_t out_dis(UHDR_CG_UNSPECIFIED, UHDR_CT_UNSPECIFIED, UHDR_CR_UNSPECIFIED,
                                       256 * 1024);
   JpegR jpegr_def;
-  JpegR jpegr_dis(nullptr, kMapDimensionScaleFactorAndroidDefault, kMapCompressQualityAndroidDefault,
-                  kUseMultiChannelGainMapAndroidDefault, kGainMapGammaDefault,
-                  kEncSpeedPresetAndroidDefault, FLT_MIN, FLT_MAX, -1.0f, UHDR_HAGC_DISABLED);
+  JpegR jpegr_dis(nullptr, kMapDimensionScaleFactorAndroidDefault,
+                  kMapCompressQualityAndroidDefault, kUseMultiChannelGainMapAndroidDefault,
+                  kGainMapGammaDefault, kEncSpeedPresetAndroidDefault, FLT_MIN, FLT_MAX, -1.0f);
+  ASSERT_EQ(jpegr_dis.setHagcMode(UHDR_HAGC_DISABLED).error_code, UHDR_CODEC_OK);
   ASSERT_EQ(jpegr_def.encodeJPEGR(&hdr, &out_def, 90, nullptr).error_code, UHDR_CODEC_OK);
   ASSERT_EQ(jpegr_dis.encodeJPEGR(&hdr, &out_dis, 90, nullptr).error_code, UHDR_CODEC_OK);
   ASSERT_EQ(out_def.data_sz, out_dis.data_sz);
@@ -3133,7 +3134,8 @@ TEST(JpegRTest, HagcDeriveFromGainMapAcrossAllApisAndZeroPixelReencode) {
       };
 
       JpegR jpegr_hagc(nullptr, 2, 90, multi_channel, 1.0f, UHDR_USAGE_REALTIME, FLT_MIN, FLT_MAX,
-                       -1.0f, UHDR_HAGC_DERIVE_FROM_GAINMAP);
+                       -1.0f);
+      ASSERT_EQ(jpegr_hagc.setHagcMode(UHDR_HAGC_DERIVE_FROM_GAINMAP).error_code, UHDR_CODEC_OK);
 
       // API-0 (toneMaps to Display P3)
       {
@@ -3201,6 +3203,11 @@ TEST(JpegRTest, HagcDeriveFromGainMapAcrossAllApisAndZeroPixelReencode) {
 TEST(JpegRTest, HagcModeValidationRejectsInvalidEnum) {
   JpegR jpegr;
   EXPECT_EQ(jpegr.getHagcMode(), UHDR_HAGC_DISABLED);
+
+  EXPECT_EQ(jpegr.setHagcMode(static_cast<uhdr_hagc_mode_t>(-1)).error_code,
+            UHDR_CODEC_INVALID_PARAM);
+  EXPECT_EQ(jpegr.getHagcMode(), UHDR_HAGC_DISABLED);
+
   EXPECT_EQ(jpegr.setHagcMode(UHDR_HAGC_DERIVE_FROM_GAINMAP).error_code, UHDR_CODEC_OK);
   EXPECT_EQ(jpegr.getHagcMode(), UHDR_HAGC_DERIVE_FROM_GAINMAP);
 
@@ -3208,10 +3215,305 @@ TEST(JpegRTest, HagcModeValidationRejectsInvalidEnum) {
             UHDR_CODEC_INVALID_PARAM);
   EXPECT_EQ(jpegr.setHagcMode(static_cast<uhdr_hagc_mode_t>(2)).error_code,
             UHDR_CODEC_INVALID_PARAM);
+  EXPECT_EQ(jpegr.setHagcMode(static_cast<uhdr_hagc_mode_t>(99)).error_code,
+            UHDR_CODEC_INVALID_PARAM);
   EXPECT_EQ(jpegr.getHagcMode(), UHDR_HAGC_DERIVE_FROM_GAINMAP);
 
-  constexpr uint32_t kW = 32;
-  constexpr uint32_t kH = 32;
+  EXPECT_EQ(jpegr.setHagcMode(UHDR_HAGC_DISABLED).error_code, UHDR_CODEC_OK);
+  EXPECT_EQ(jpegr.getHagcMode(), UHDR_HAGC_DISABLED);
+}
+
+namespace {
+
+std::vector<uint8_t> encodeDistinctSideloadHagcAnnexC() {
+  smpte2094_50::DynamicMetadata meta{};
+  meta.hdr_reference_white = 300.0f;  // Distinct from GainMap-to-HAGC solver default (203.0f).
+  meta.has_adaptive_tone_map_flag = true;
+  meta.baseline_hdr_headroom_log2 = 0.25f;
+  meta.use_reference_white_tone_mapping_flag = false;
+  meta.gain_application_space_chromaticities =
+      smpte2094_50::DynamicMetadata::kChromaticitiesDisplayP3;
+
+  smpte2094_50::ToneMappingRule rule{};
+  rule.alternate_hdr_headroom_log2 = 2.5f;
+  rule.use_pchip_slope = false;
+  rule.mix.max = 0.8f;
+  rule.mix.min = 0.2f;
+  rule.curve = {{0.0f, 0.0f, 0.5f}, {0.5f, 1.25f, 1.0f}, {1.0f, 2.5f, 0.0f}};
+  meta.rules.push_back(rule);
+
+  std::vector<uint8_t> bytes;
+  EXPECT_EQ(smpte2094_50::encodeSt2094_50(meta, bytes).error_code, UHDR_CODEC_OK);
+  return bytes;
+}
+
+uhdr_mem_block_t makeHagcBlock(const std::vector<uint8_t>& bytes) {
+  uhdr_mem_block_t blk{};
+  blk.data = const_cast<uint8_t*>(bytes.data());
+  blk.data_sz = bytes.size();
+  blk.capacity = bytes.size();
+  return blk;
+}
+
+void buildSyntheticP010RawImage(uint32_t w, uint32_t h, uhdr_color_gamut_t cg,
+                                std::vector<uint16_t>& storage, uhdr_raw_image_t& out) {
+  storage.assign(static_cast<size_t>(w) * h + static_cast<size_t>(w) * (h / 2), 512u << 6);
+  for (uint32_t y = 0; y < h; ++y) {
+    for (uint32_t x = 0; x < w; ++x) {
+      const uint16_t luma10 = static_cast<uint16_t>(100u + (800u * x) / (w - 1u));
+      storage[static_cast<size_t>(y) * w + x] = static_cast<uint16_t>(luma10 << 6);
+    }
+  }
+  out = uhdr_raw_image_t{};
+  out.fmt = UHDR_IMG_FMT_24bppYCbCrP010;
+  out.cg = cg;
+  out.ct = UHDR_CT_HLG;
+  out.range = UHDR_CR_LIMITED_RANGE;
+  out.w = w;
+  out.h = h;
+  out.planes[UHDR_PLANE_Y] = storage.data();
+  out.stride[UHDR_PLANE_Y] = w;
+  out.planes[UHDR_PLANE_UV] = storage.data() + static_cast<size_t>(w) * h;
+  out.stride[UHDR_PLANE_UV] = w;
+}
+
+void verifySideloadHagcOutput(uhdr_compressed_image_t* encoded, uint32_t w, uint32_t h,
+                              const std::vector<uint8_t>& expected_hagc,
+                              uhdr_color_gamut_t expected_cg,
+                              const std::vector<uint8_t>* expected_scan = nullptr) {
+  jpeg_info_struct prim_info, gm_info;
+  jpegr_info_struct info{0, 0, &prim_info, &gm_info};
+  JpegR probe;
+  ASSERT_EQ(probe.getJPEGRInfo(encoded, &info).error_code, UHDR_CODEC_OK);
+  ASSERT_FALSE(prim_info.iccData.empty());
+  EXPECT_EQ(IccHelper::readIccColorGamut(prim_info.iccData.data(), prim_info.iccData.size()),
+            expected_cg);
+
+  // Verify ICC header version 4.4 (0x04400000) and canonical 12-byte 'HAGC'/'hagc' tag layout.
+  const uint8_t* prof = prim_info.iccData.data();
+  size_t prof_len = prim_info.iccData.size();
+  if (prof_len >= kICCIdentifierSize + sizeof(ICCHeader) &&
+      std::memcmp(prof, kICCIdentifier, sizeof(kICCIdentifier)) == 0) {
+    prof += kICCIdentifierSize;
+    prof_len -= kICCIdentifierSize;
+  }
+  ASSERT_GE(prof_len, sizeof(ICCHeader));
+  EXPECT_EQ(readBE32Test(prof + offsetof(ICCHeader, version)), 0x04400000u);
+
+  std::vector<uint8_t> raw_tag;
+  ASSERT_TRUE(extractIccTagPayload(prim_info.iccData.data(), prim_info.iccData.size(),
+                                   SetFourByteTag('H', 'A', 'G', 'C'), raw_tag));
+  ASSERT_GE(raw_tag.size(), kHagcTagHeaderSize);
+  EXPECT_EQ(readBE32Test(raw_tag.data()), SetFourByteTag('h', 'a', 'g', 'c'));
+  EXPECT_EQ(readBE32Test(raw_tag.data() + 4), 0u);
+  EXPECT_EQ(readBE32Test(raw_tag.data() + 8), static_cast<uint32_t>(expected_hagc.size()));
+
+  std::vector<uint8_t> actual_hagc;
+  ASSERT_TRUE(
+      IccHelper::readIccHagc(prim_info.iccData.data(), prim_info.iccData.size(), actual_hagc));
+  EXPECT_EQ(actual_hagc, expected_hagc);
+
+  if (expected_scan != nullptr) {
+    const std::vector<uint8_t> out_scan =
+        extractPrimaryJpegSosToEoi(static_cast<const uint8_t*>(encoded->data), encoded->data_sz);
+    EXPECT_EQ(out_scan, *expected_scan);
+  }
+
+  uhdr_raw_image_ext_t dec_hdr(UHDR_IMG_FMT_64bppRGBAHalfFloat, UHDR_CG_UNSPECIFIED,
+                               UHDR_CT_UNSPECIFIED, UHDR_CR_UNSPECIFIED, w, h, 64);
+  ASSERT_EQ(
+      probe.decodeJPEGR(encoded, &dec_hdr, FLT_MAX, UHDR_CT_LINEAR, UHDR_IMG_FMT_64bppRGBAHalfFloat)
+          .error_code,
+      UHDR_CODEC_OK);
+  uhdr_raw_image_ext_t dec_sdr(UHDR_IMG_FMT_32bppRGBA8888, UHDR_CG_UNSPECIFIED, UHDR_CT_UNSPECIFIED,
+                               UHDR_CR_UNSPECIFIED, w, h, 64);
+  ASSERT_EQ(probe.decodeJPEGR(encoded, &dec_sdr, 1.0f, UHDR_CT_SRGB, UHDR_IMG_FMT_32bppRGBA8888)
+                .error_code,
+            UHDR_CODEC_OK);
+}
+
+}  // namespace
+
+TEST(JpegRTest, HagcApi3FourArgSideloadBitExactBypassAndZeroPixelReencode) {
+  constexpr uint32_t kW = 64;
+  constexpr uint32_t kH = 64;
+  uhdr_raw_image_ext_t hdr(UHDR_IMG_FMT_32bppRGBA1010102, UHDR_CG_BT_2100, UHDR_CT_HLG,
+                           UHDR_CR_FULL_RANGE, kW, kH, 64);
+  uhdr_raw_image_ext_t sdr(UHDR_IMG_FMT_32bppRGBA8888, UHDR_CG_DISPLAY_P3, UHDR_CT_SRGB,
+                           UHDR_CR_FULL_RANGE, kW, kH, 64);
+  buildSyntheticHdrAndSdrImages(kW, kH, UHDR_CG_BT_2100, UHDR_CG_DISPLAY_P3, hdr, sdr);
+
+  auto sdr_yuv = convert_raw_input_to_ycbcr(&sdr);
+  std::shared_ptr<DataStruct> base_icc =
+      IccHelper::writeIccProfile(UHDR_CT_SRGB, UHDR_CG_DISPLAY_P3);
+  JpegEncoderHelper sdr_enc;
+  ASSERT_EQ(sdr_enc.compressImage(sdr_yuv.get(), 92, base_icc->getData(), base_icc->getLength())
+                .error_code,
+            UHDR_CODEC_OK);
+  uhdr_compressed_image_t sdr_jpg = sdr_enc.getCompressedImage();
+  sdr_jpg.cg = UHDR_CG_DISPLAY_P3;
+  const std::vector<uint8_t> orig_scan =
+      extractPrimaryJpegSosToEoi(static_cast<const uint8_t*>(sdr_jpg.data), sdr_jpg.data_sz);
+  ASSERT_FALSE(orig_scan.empty());
+
+  const std::vector<uint8_t> sideload_bytes = encodeDistinctSideloadHagcAnnexC();
+  ASSERT_FALSE(sideload_bytes.empty());
+  const uhdr_mem_block_t hagc_blk = makeHagcBlock(sideload_bytes);
+
+  // Confirm solver output on the same 3-arg API-3 input differs from sideload_bytes (proves
+  // bypass).
+  uhdr_compressed_image_ext_t out_derived(UHDR_CG_UNSPECIFIED, UHDR_CT_UNSPECIFIED,
+                                          UHDR_CR_UNSPECIFIED, 256 * 1024);
+  JpegR jpegr_derived(nullptr, kMapDimensionScaleFactorAndroidDefault,
+                      kMapCompressQualityAndroidDefault, false, kGainMapGammaDefault,
+                      kEncSpeedPresetAndroidDefault, FLT_MIN, FLT_MAX, -1.0f);
+  ASSERT_EQ(jpegr_derived.setHagcMode(UHDR_HAGC_DERIVE_FROM_GAINMAP).error_code, UHDR_CODEC_OK);
+  ASSERT_EQ(jpegr_derived.encodeJPEGR(&hdr, &sdr_jpg, &out_derived).error_code, UHDR_CODEC_OK);
+  jpeg_info_struct derived_prim, derived_gm;
+  jpegr_info_struct derived_info{0, 0, &derived_prim, &derived_gm};
+  ASSERT_EQ(JpegR().getJPEGRInfo(&out_derived, &derived_info).error_code, UHDR_CODEC_OK);
+  std::vector<uint8_t> derived_hagc;
+  ASSERT_TRUE(IccHelper::readIccHagc(derived_prim.iccData.data(), derived_prim.iccData.size(),
+                                     derived_hagc));
+  ASSERT_NE(derived_hagc, sideload_bytes);
+
+  // 4-arg modern API-3 embeds sideload_bytes bit-for-bit without GainMap-to-HAGC derivation.
+  JpegR jpegr;
+  EXPECT_EQ(jpegr.getHagcMode(), UHDR_HAGC_DISABLED);
+  uhdr_compressed_image_ext_t out_sideload(UHDR_CG_UNSPECIFIED, UHDR_CT_UNSPECIFIED,
+                                           UHDR_CR_UNSPECIFIED, 256 * 1024);
+  ASSERT_EQ(jpegr.encodeJPEGR(&hdr, &sdr_jpg, &out_sideload, &hagc_blk).error_code, UHDR_CODEC_OK);
+  verifySideloadHagcOutput(&out_sideload, kW, kH, sideload_bytes, UHDR_CG_DISPLAY_P3, &orig_scan);
+
+  // Also test P010 HDR raw input (matching Camera2 JpegRCompositeStream input format).
+  std::vector<uint16_t> p010_storage;
+  uhdr_raw_image_t p010_hdr{};
+  buildSyntheticP010RawImage(kW, kH, UHDR_CG_BT_2100, p010_storage, p010_hdr);
+  uhdr_compressed_image_ext_t out_p010(UHDR_CG_UNSPECIFIED, UHDR_CT_UNSPECIFIED,
+                                       UHDR_CR_UNSPECIFIED, 256 * 1024);
+  ASSERT_EQ(jpegr.encodeJPEGR(&p010_hdr, &sdr_jpg, &out_p010, &hagc_blk).error_code, UHDR_CODEC_OK);
+  verifySideloadHagcOutput(&out_p010, kW, kH, sideload_bytes, UHDR_CG_DISPLAY_P3, &orig_scan);
+
+  // Subsequent 3-arg API-3 call on the same JpegR instance must not carry sticky sideload state.
+  uhdr_compressed_image_ext_t out_plain(UHDR_CG_UNSPECIFIED, UHDR_CT_UNSPECIFIED,
+                                        UHDR_CR_UNSPECIFIED, 256 * 1024);
+  ASSERT_EQ(jpegr.encodeJPEGR(&hdr, &sdr_jpg, &out_plain).error_code, UHDR_CODEC_OK);
+  jpeg_info_struct plain_prim, plain_gm;
+  jpegr_info_struct plain_info{0, 0, &plain_prim, &plain_gm};
+  ASSERT_EQ(JpegR().getJPEGRInfo(&out_plain, &plain_info).error_code, UHDR_CODEC_OK);
+  std::vector<uint8_t> plain_hagc;
+  EXPECT_FALSE(
+      IccHelper::readIccHagc(plain_prim.iccData.data(), plain_prim.iccData.size(), plain_hagc));
+}
+
+TEST(JpegRTest, HagcApi3FourArgExistingIccPreservesTagsAndOverwritesStaleHagc) {
+  constexpr uint32_t kW = 64;
+  constexpr uint32_t kH = 64;
+  uhdr_raw_image_ext_t hdr(UHDR_IMG_FMT_32bppRGBA1010102, UHDR_CG_BT_2100, UHDR_CT_HLG,
+                           UHDR_CR_FULL_RANGE, kW, kH, 64);
+  uhdr_raw_image_ext_t sdr(UHDR_IMG_FMT_32bppRGBA8888, UHDR_CG_DISPLAY_P3, UHDR_CT_SRGB,
+                           UHDR_CR_FULL_RANGE, kW, kH, 64);
+  buildSyntheticHdrAndSdrImages(kW, kH, UHDR_CG_BT_2100, UHDR_CG_DISPLAY_P3, hdr, sdr);
+
+  auto sdr_yuv = convert_raw_input_to_ycbcr(&sdr);
+  std::shared_ptr<DataStruct> std_icc =
+      IccHelper::writeIccProfile(UHDR_CT_SRGB, UHDR_CG_DISPLAY_P3);
+  const std::vector<uint8_t> kVendorBytes = {'t', 'e', 's', 't', 0x42, 0x99, 0x07};
+  std::vector<uint8_t> custom_app2_icc = appendCustomVendorTagToApp2Icc(*std_icc, kVendorBytes);
+
+  // Inject a pre-existing stale 'HAGC' tag so we verify replacement alongside tag preservation.
+  smpte2094_50::DynamicMetadata stale_meta{};
+  stale_meta.hdr_reference_white = 100.0f;
+  stale_meta.has_adaptive_tone_map_flag = false;
+  std::vector<uint8_t> stale_hagc;
+  ASSERT_EQ(smpte2094_50::encodeSt2094_50(stale_meta, stale_hagc).error_code, UHDR_CODEC_OK);
+
+  const std::vector<uint8_t> sideload_bytes = encodeDistinctSideloadHagcAnnexC();
+  ASSERT_NE(stale_hagc, sideload_bytes);
+  const uhdr_mem_block_t hagc_blk = makeHagcBlock(sideload_bytes);
+
+  std::shared_ptr<DataStruct> seeded_icc = IccHelper::injectHagcIntoIccProfile(
+      custom_app2_icc.data(), custom_app2_icc.size(), stale_hagc.data(), stale_hagc.size());
+  ASSERT_NE(seeded_icc, nullptr);
+
+  JpegEncoderHelper sdr_enc;
+  ASSERT_EQ(sdr_enc.compressImage(sdr_yuv.get(), 92, seeded_icc->getData(), seeded_icc->getLength())
+                .error_code,
+            UHDR_CODEC_OK);
+  uhdr_compressed_image_t sdr_jpg = sdr_enc.getCompressedImage();
+  sdr_jpg.cg = UHDR_CG_DISPLAY_P3;
+  const std::vector<uint8_t> orig_scan =
+      extractPrimaryJpegSosToEoi(static_cast<const uint8_t*>(sdr_jpg.data), sdr_jpg.data_sz);
+  ASSERT_FALSE(orig_scan.empty());
+
+  JpegR jpegr;
+  uhdr_compressed_image_ext_t out(UHDR_CG_UNSPECIFIED, UHDR_CT_UNSPECIFIED, UHDR_CR_UNSPECIFIED,
+                                  256 * 1024);
+  ASSERT_EQ(jpegr.encodeJPEGR(&hdr, &sdr_jpg, &out, &hagc_blk).error_code, UHDR_CODEC_OK);
+
+  verifySideloadHagcOutput(&out, kW, kH, sideload_bytes, UHDR_CG_DISPLAY_P3, &orig_scan);
+
+  jpeg_info_struct prim_info, gm_info;
+  jpegr_info_struct info{0, 0, &prim_info, &gm_info};
+  ASSERT_EQ(JpegR().getJPEGRInfo(&out, &info).error_code, UHDR_CODEC_OK);
+  std::vector<uint8_t> vendor_out;
+  ASSERT_TRUE(extractIccTagPayload(prim_info.iccData.data(), prim_info.iccData.size(),
+                                   SetFourByteTag('c', 'u', 's', 't'), vendor_out));
+  EXPECT_EQ(vendor_out, kVendorBytes);
+}
+
+TEST(JpegRTest, HagcApi3FourArgNoInputIccCreatesPrimaryV44Icc) {
+  constexpr uint32_t kW = 64;
+  constexpr uint32_t kH = 64;
+  uhdr_raw_image_ext_t hdr(UHDR_IMG_FMT_32bppRGBA1010102, UHDR_CG_BT_2100, UHDR_CT_HLG,
+                           UHDR_CR_FULL_RANGE, kW, kH, 64);
+  uhdr_raw_image_ext_t sdr(UHDR_IMG_FMT_32bppRGBA8888, UHDR_CG_BT_709, UHDR_CT_SRGB,
+                           UHDR_CR_FULL_RANGE, kW, kH, 64);
+  buildSyntheticHdrAndSdrImages(kW, kH, UHDR_CG_BT_2100, UHDR_CG_BT_709, hdr, sdr);
+
+  auto sdr_yuv = convert_raw_input_to_ycbcr(&sdr);
+  JpegEncoderHelper sdr_enc;
+  ASSERT_EQ(sdr_enc.compressImage(sdr_yuv.get(), 92, nullptr, 0).error_code, UHDR_CODEC_OK);
+  uhdr_compressed_image_t sdr_jpg = sdr_enc.getCompressedImage();
+  sdr_jpg.cg = UHDR_CG_BT_709;
+
+  JpegDecoderHelper in_dec;
+  ASSERT_EQ(in_dec.parseImage(sdr_jpg.data, sdr_jpg.data_sz).error_code, UHDR_CODEC_OK);
+  ASSERT_EQ(in_dec.getICCSize(), 0u);
+
+  const std::vector<uint8_t> orig_scan =
+      extractPrimaryJpegSosToEoi(static_cast<const uint8_t*>(sdr_jpg.data), sdr_jpg.data_sz);
+  ASSERT_FALSE(orig_scan.empty());
+
+  const std::vector<uint8_t> sideload_bytes = encodeDistinctSideloadHagcAnnexC();
+  const uhdr_mem_block_t hagc_blk = makeHagcBlock(sideload_bytes);
+  JpegR jpegr;
+
+  uhdr_compressed_image_ext_t out(UHDR_CG_UNSPECIFIED, UHDR_CT_UNSPECIFIED, UHDR_CR_UNSPECIFIED,
+                                  256 * 1024);
+  ASSERT_EQ(jpegr.encodeJPEGR(&hdr, &sdr_jpg, &out, &hagc_blk).error_code, UHDR_CODEC_OK);
+  verifySideloadHagcOutput(&out, kW, kH, sideload_bytes, UHDR_CG_BT_709, &orig_scan);
+
+  // Valid minimal (has_adaptive_tone_map_flag=false) and RWTM Annex C payloads are also accepted.
+  for (bool use_rwtm : {false, true}) {
+    smpte2094_50::DynamicMetadata meta{};
+    meta.hdr_reference_white = 203.0f;
+    meta.has_adaptive_tone_map_flag = use_rwtm;
+    meta.baseline_hdr_headroom_log2 = 0.0f;
+    meta.use_reference_white_tone_mapping_flag = use_rwtm;
+    std::vector<uint8_t> mode_bytes;
+    ASSERT_EQ(smpte2094_50::encodeSt2094_50(meta, mode_bytes).error_code, UHDR_CODEC_OK);
+    const uhdr_mem_block_t mode_blk = makeHagcBlock(mode_bytes);
+    uhdr_compressed_image_ext_t mode_out(UHDR_CG_UNSPECIFIED, UHDR_CT_UNSPECIFIED,
+                                         UHDR_CR_UNSPECIFIED, 256 * 1024);
+    ASSERT_EQ(jpegr.encodeJPEGR(&hdr, &sdr_jpg, &mode_out, &mode_blk).error_code, UHDR_CODEC_OK);
+    verifySideloadHagcOutput(&mode_out, kW, kH, mode_bytes, UHDR_CG_BT_709, &orig_scan);
+  }
+}
+
+TEST(JpegRTest, HagcApi3FourArgRejectsInvalidPayloadsNullsAndModeConflict) {
+  constexpr uint32_t kW = 64;
+  constexpr uint32_t kH = 64;
   uhdr_raw_image_ext_t hdr(UHDR_IMG_FMT_32bppRGBA1010102, UHDR_CG_BT_2100, UHDR_CT_HLG,
                            UHDR_CR_FULL_RANGE, kW, kH, 64);
   uhdr_raw_image_ext_t sdr(UHDR_IMG_FMT_32bppRGBA8888, UHDR_CG_BT_709, UHDR_CT_SRGB,
@@ -3219,25 +3521,90 @@ TEST(JpegRTest, HagcModeValidationRejectsInvalidEnum) {
   buildSyntheticHdrAndSdrImages(kW, kH, UHDR_CG_BT_2100, UHDR_CG_BT_709, hdr, sdr);
   auto sdr_yuv = convert_raw_input_to_ycbcr(&sdr);
   JpegEncoderHelper sdr_enc;
-  ASSERT_EQ(sdr_enc.compressImage(sdr_yuv.get(), 90, nullptr, 0).error_code, UHDR_CODEC_OK);
+  ASSERT_EQ(sdr_enc.compressImage(sdr_yuv.get(), 92, nullptr, 0).error_code, UHDR_CODEC_OK);
   uhdr_compressed_image_t sdr_jpg = sdr_enc.getCompressedImage();
   sdr_jpg.cg = UHDR_CG_BT_709;
-  uhdr_gainmap_metadata_ext_t gm_meta(kJpegrVersion);
-  uhdr_compressed_image_ext_t out(UHDR_CG_UNSPECIFIED, UHDR_CT_UNSPECIFIED, UHDR_CR_UNSPECIFIED,
-                                  64 * 1024);
 
-  JpegR jpegr_bad(nullptr, kMapDimensionScaleFactorAndroidDefault, kMapCompressQualityAndroidDefault,
-                  kUseMultiChannelGainMapAndroidDefault, kGainMapGammaDefault,
-                  kEncSpeedPresetAndroidDefault, FLT_MIN, FLT_MAX, -1.0f,
-                  static_cast<uhdr_hagc_mode_t>(99));
-  EXPECT_EQ(jpegr_bad.encodeJPEGR(&hdr, &out, 90, nullptr).error_code, UHDR_CODEC_INVALID_PARAM);
-  EXPECT_EQ(jpegr_bad.encodeJPEGR(&hdr, &sdr, &out, 90, nullptr).error_code,
+  const std::vector<uint8_t> valid_bytes = encodeDistinctSideloadHagcAnnexC();
+  const uhdr_mem_block_t valid_blk = makeHagcBlock(valid_bytes);
+  JpegR jpegr;
+  uhdr_compressed_image_ext_t out(UHDR_CG_UNSPECIFIED, UHDR_CT_UNSPECIFIED, UHDR_CR_UNSPECIFIED,
+                                  256 * 1024);
+
+  // Null descriptor and null data pointer.
+  EXPECT_EQ(jpegr.encodeJPEGR(&hdr, &sdr_jpg, &out, nullptr).error_code, UHDR_CODEC_INVALID_PARAM);
+  EXPECT_EQ(out.data_sz, 0u);
+  uhdr_mem_block_t null_data_blk{nullptr, 0, 0};
+  EXPECT_EQ(jpegr.encodeJPEGR(&hdr, &sdr_jpg, &out, &null_data_blk).error_code,
             UHDR_CODEC_INVALID_PARAM);
-  EXPECT_EQ(jpegr_bad.encodeJPEGR(&hdr, &sdr, &sdr_jpg, &out).error_code,
+  uhdr_mem_block_t null_data_nonzero_blk{nullptr, 16, 16};
+  EXPECT_EQ(jpegr.encodeJPEGR(&hdr, &sdr_jpg, &out, &null_data_nonzero_blk).error_code,
             UHDR_CODEC_INVALID_PARAM);
-  EXPECT_EQ(jpegr_bad.encodeJPEGR(&hdr, &sdr_jpg, &out).error_code, UHDR_CODEC_INVALID_PARAM);
-  EXPECT_EQ(jpegr_bad.encodeJPEGR(&sdr_jpg, &sdr_jpg, &gm_meta, &out).error_code,
+
+  // Empty, 1-byte, capacity < data_sz, and oversized (> 65533) payloads.
+  uhdr_mem_block_t empty_blk{const_cast<uint8_t*>(valid_bytes.data()), 0, valid_bytes.size()};
+  EXPECT_EQ(jpegr.encodeJPEGR(&hdr, &sdr_jpg, &out, &empty_blk).error_code,
             UHDR_CODEC_INVALID_PARAM);
+  uint8_t one_byte = 0x00u;
+  uhdr_mem_block_t one_byte_blk{&one_byte, 1, 1};
+  EXPECT_EQ(jpegr.encodeJPEGR(&hdr, &sdr_jpg, &out, &one_byte_blk).error_code,
+            UHDR_CODEC_INVALID_PARAM);
+  uhdr_mem_block_t small_cap_blk{const_cast<uint8_t*>(valid_bytes.data()), valid_bytes.size(),
+                                 valid_bytes.size() - 1};
+  EXPECT_EQ(jpegr.encodeJPEGR(&hdr, &sdr_jpg, &out, &small_cap_blk).error_code,
+            UHDR_CODEC_INVALID_PARAM);
+  std::vector<uint8_t> oversized(65534, 0u);
+  const uhdr_mem_block_t oversized_blk = makeHagcBlock(oversized);
+  EXPECT_EQ(jpegr.encodeJPEGR(&hdr, &sdr_jpg, &out, &oversized_blk).error_code,
+            UHDR_CODEC_INVALID_PARAM);
+
+  // Truncated and trailing-byte Annex C payloads.
+  uhdr_mem_block_t truncated_blk{const_cast<uint8_t*>(valid_bytes.data()), valid_bytes.size() - 1,
+                                 valid_bytes.size()};
+  EXPECT_EQ(jpegr.encodeJPEGR(&hdr, &sdr_jpg, &out, &truncated_blk).error_code,
+            UHDR_CODEC_INVALID_PARAM);
+  std::vector<uint8_t> with_trailing = valid_bytes;
+  with_trailing.push_back(0x00u);
+  const uhdr_mem_block_t trailing_blk = makeHagcBlock(with_trailing);
+  EXPECT_EQ(jpegr.encodeJPEGR(&hdr, &sdr_jpg, &out, &trailing_blk).error_code,
+            UHDR_CODEC_INVALID_PARAM);
+
+  // Malformed Annex C (minimum_application_version > 0, T.35 0xB5 framing, raw_white == 0).
+  std::vector<uint8_t> bad_ver = valid_bytes;
+  bad_ver[0] |= 0x04u;
+  const uhdr_mem_block_t bad_ver_blk = makeHagcBlock(bad_ver);
+  EXPECT_EQ(jpegr.encodeJPEGR(&hdr, &sdr_jpg, &out, &bad_ver_blk).error_code,
+            UHDR_CODEC_INVALID_PARAM);
+
+  std::vector<uint8_t> t35_wrapped = {0xB5u, 0x00u, 0x3Cu, 0x00u, 0x01u};
+  t35_wrapped.insert(t35_wrapped.end(), valid_bytes.begin(), valid_bytes.end());
+  const uhdr_mem_block_t t35_blk = makeHagcBlock(t35_wrapped);
+  EXPECT_EQ(jpegr.encodeJPEGR(&hdr, &sdr_jpg, &out, &t35_blk).error_code, UHDR_CODEC_INVALID_PARAM);
+
+  const std::vector<uint8_t> zero_ref_white = {0x00u, 0x80u, 0x00u, 0x00u};
+  const uhdr_mem_block_t zero_white_blk = makeHagcBlock(zero_ref_white);
+  EXPECT_EQ(jpegr.encodeJPEGR(&hdr, &sdr_jpg, &out, &zero_white_blk).error_code,
+            UHDR_CODEC_INVALID_PARAM);
+
+  // Null image / output pointers with valid HAGC block.
+  EXPECT_EQ(jpegr.encodeJPEGR(nullptr, &sdr_jpg, &out, &valid_blk).error_code,
+            UHDR_CODEC_INVALID_PARAM);
+  EXPECT_EQ(jpegr.encodeJPEGR(&hdr, nullptr, &out, &valid_blk).error_code,
+            UHDR_CODEC_INVALID_PARAM);
+  EXPECT_EQ(jpegr.encodeJPEGR(&hdr, &sdr_jpg, nullptr, &valid_blk).error_code,
+            UHDR_CODEC_INVALID_PARAM);
+
+  // Conflicting HAGC mode (UHDR_HAGC_DERIVE_FROM_GAINMAP) must fail with
+  // UHDR_CODEC_INVALID_OPERATION.
+  ASSERT_EQ(jpegr.setHagcMode(UHDR_HAGC_DERIVE_FROM_GAINMAP).error_code, UHDR_CODEC_OK);
+  EXPECT_EQ(jpegr.encodeJPEGR(&hdr, &sdr_jpg, &out, &valid_blk).error_code,
+            UHDR_CODEC_INVALID_OPERATION);
+  EXPECT_EQ(out.data_sz, 0u);
+
+  // Resetting mode to UHDR_HAGC_DISABLED allows the 4-arg sideload encode to succeed.
+  ASSERT_EQ(jpegr.setHagcMode(UHDR_HAGC_DISABLED).error_code, UHDR_CODEC_OK);
+  ASSERT_EQ(jpegr.encodeJPEGR(&hdr, &sdr_jpg, &out, &valid_blk).error_code, UHDR_CODEC_OK);
+  verifySideloadHagcOutput(&out, kW, kH, valid_bytes, UHDR_CG_BT_709);
 }
 
 }  // namespace ultrahdr
