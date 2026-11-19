@@ -575,6 +575,22 @@ TEST_F(UltraHdrApiTest, InvalidTargetBrightnessDoesNotMutateEncoder) {
   uhdr_release_encoder(enc);
 }
 
+TEST_F(UltraHdrApiTest, ZeroLengthCompressedImageRejectedByDecoder) {
+  uhdr_codec_private_t* dec = uhdr_create_decoder();
+  ASSERT_NE(dec, nullptr);
+
+  uint8_t unused = 0;
+  uhdr_compressed_image_t img{};
+  img.data = &unused;
+  img.data_sz = 0;
+  img.capacity = 0;
+
+  uhdr_error_info_t status = uhdr_dec_set_image(dec, &img);
+  EXPECT_EQ(UHDR_CODEC_INVALID_PARAM, status.error_code) << status.detail;
+
+  uhdr_release_decoder(dec);
+}
+
 // A valid min/max content boost range that does not overlap the computed gains must still produce
 // metadata with min <= max, so that the encoded stream can be probed by the library itself.
 TEST(UltraHdrContentBoostTest, NonOverlappingBoostRangeKeepsComputedRange) {
