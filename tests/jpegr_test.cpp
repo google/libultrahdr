@@ -3607,4 +3607,400 @@ TEST(JpegRTest, HagcApi3FourArgRejectsInvalidPayloadsNullsAndModeConflict) {
   verifySideloadHagcOutput(&out, kW, kH, valid_bytes, UHDR_CG_BT_709);
 }
 
+namespace {
+
+// Strips the secondary MPF gain-map JPEG and removes primary MPF / XMP / ISO APPn segments,
+// returning a clean single-image JPEG carrying only the primary ICC profile, EXIF, and scan.
+std::vector<uint8_t> stripSecondaryGainMapFromJpegR(const uint8_t* data, size_t size) {
+  if (data == nullptr || size < 4 || data[0] != 0xFF || data[1] != 0xD8) {
+    return {};
+  }
+  static constexpr uint8_t kMpfPrefix[] = {'M', 'P', 'F', 0x00};
+  static constexpr char kXmpPrefix[] = "http://ns.adobe.com/xap/1.0/\0";
+  static constexpr char kIsoPrefix[] = "urn:iso:std:iso:ts:21496:-1\0";
+
+  std::vector<uint8_t> out = {0xFF, 0xD8};
+  size_t pos = 2;
+  while (pos + 1 < size) {
+    if (data[pos] != 0xFF) return {};
+    const size_t marker_start = pos;
+    while (pos < size && data[pos] == 0xFF) ++pos;
+    if (pos >= size) return {};
+    const uint8_t marker = data[pos++];
+    if (marker == 0xD9) {
+      out.insert(out.end(), data + marker_start, data + pos);
+      return out;
+    }
+    if (marker == 0xD8 || marker == 0x01 || (marker >= 0xD0 && marker <= 0xD7)) {
+      out.insert(out.end(), data + marker_start, data + pos);
+      continue;
+    }
+    if (pos + 2 > size) return {};
+    const size_t seg_len = (static_cast<size_t>(data[pos]) << 8) | data[pos + 1];
+    if (seg_len < 2 || seg_len > size - pos) return {};
+    const uint8_t* payload = data + pos + 2;
+    const size_t payload_len = seg_len - 2;
+    const size_t seg_end = pos + seg_len;
+
+    if (marker == 0xDA) {
+      // Copy SOS header + entropy-coded scan up to primary EOI (0xFFD9).
+      size_t scan = seg_end;
+      while (scan + 1 < size) {
+        if (data[scan] == 0xFF && data[scan + 1] == 0xD9) {
+          out.insert(out.end(), data + marker_start, data + scan + 2);
+          return out;
+        }
+        ++scan;
+      }
+      return {};
+    }
+
+    const bool is_mpf = (marker == 0xE2 && payload_len >= sizeof(kMpfPrefix) &&
+                         std::memcmp(payload, kMpfPrefix, sizeof(kMpfPrefix)) == 0);
+    const bool is_xmp = (marker == 0xE1 && payload_len >= sizeof(kXmpPrefix) - 1 &&
+                         std::memcmp(payload, kXmpPrefix, sizeof(kXmpPrefix) - 1) == 0);
+    const bool is_iso = (marker == 0xE2 && payload_len >= sizeof(kIsoPrefix) - 1 &&
+                         std::memcmp(payload, kIsoPrefix, sizeof(kIsoPrefix) - 1) == 0);
+    if (!is_mpf && !is_xmp && !is_iso) {
+      out.insert(out.end(), data + marker_start, data + seg_end);
+    }
+    pos = seg_end;
+  }
+  return {};
+}
+
+}  // namespace
+
+TEST(JpegRTest, HagcOnlyJpegProbeAndDecodeAcrossGamutsBoostsAndTransfers) {
+  constexpr uint32_t kW = 64;
+  constexpr uint32_t kH = 64;
+  for (uhdr_color_gamut_t cg : {UHDR_CG_BT_709, UHDR_CG_DISPLAY_P3, UHDR_CG_BT_2100}) {
+    SCOPED_TRACE(testing::Message() << "gamut=" << static_cast<int>(cg));
+    uhdr_raw_image_ext_t hdr(UHDR_IMG_FMT_32bppRGBA1010102, cg, UHDR_CT_HLG, UHDR_CR_FULL_RANGE, kW,
+                             kH, 64);
+    uhdr_raw_image_ext_t sdr(UHDR_IMG_FMT_32bppRGBA8888, cg, UHDR_CT_SRGB, UHDR_CR_FULL_RANGE, kW,
+                             kH, 64);
+    buildSyntheticHdrAndSdrImages(kW, kH, cg, cg, hdr, sdr);
+
+    JpegR enc;
+    ASSERT_EQ(enc.setHagcMode(UHDR_HAGC_DERIVE_FROM_GAINMAP).error_code, UHDR_CODEC_OK);
+    uhdr_compressed_image_ext_t jpegr_out(UHDR_CG_UNSPECIFIED, UHDR_CT_UNSPECIFIED,
+                                          UHDR_CR_UNSPECIFIED, 256 * 1024);
+    ASSERT_EQ(enc.encodeJPEGR(&hdr, &sdr, &jpegr_out, 95, nullptr).error_code, UHDR_CODEC_OK);
+
+    const std::vector<uint8_t> hagc_only_vec = stripSecondaryGainMapFromJpegR(
+        static_cast<const uint8_t*>(jpegr_out.data), jpegr_out.data_sz);
+    ASSERT_FALSE(hagc_only_vec.empty());
+    ASSERT_LT(hagc_only_vec.size(), jpegr_out.data_sz);
+
+    uhdr_compressed_image_t hagc_jpg{};
+    hagc_jpg.data = const_cast<uint8_t*>(hagc_only_vec.data());
+    hagc_jpg.data_sz = hagc_only_vec.size();
+    hagc_jpg.capacity = hagc_only_vec.size();
+
+    // Probe & info (both modern and legacy).
+    JpegR dec;
+    jpeg_info_struct prim_info, gm_info;
+    gm_info.width = 999;
+    gm_info.height = 999;
+    jpegr_info_struct info{0, 0, &prim_info, &gm_info};
+    ASSERT_EQ(dec.getJPEGRInfo(&hagc_jpg, &info).error_code, UHDR_CODEC_OK);
+    EXPECT_EQ(info.width, kW);
+    EXPECT_EQ(info.height, kH);
+    EXPECT_EQ(gm_info.width, 0u);
+    EXPECT_EQ(gm_info.height, 0u);
+    EXPECT_TRUE(gm_info.imgData.empty());
+
+    jpegr_info_struct probe_info{0, 0, nullptr, nullptr};
+    ASSERT_EQ(dec.getJPEGRInfoForProbe(&hagc_jpg, &probe_info).error_code, UHDR_CODEC_OK);
+    EXPECT_EQ(probe_info.width, kW);
+    EXPECT_EQ(probe_info.height, kH);
+
+    // Modern decode across SRGB, LINEAR (boost 1.0, 2.0, FLT_MAX), HLG, PQ.
+    uhdr_raw_image_ext_t out_srgb(UHDR_IMG_FMT_32bppRGBA8888, UHDR_CG_UNSPECIFIED,
+                                  UHDR_CT_UNSPECIFIED, UHDR_CR_UNSPECIFIED, kW, kH, 1);
+    uhdr_gainmap_metadata_t out_meta{};
+    ASSERT_EQ(dec.decodeJPEGR(&hagc_jpg, &out_srgb, 1.0f, UHDR_CT_SRGB, UHDR_IMG_FMT_32bppRGBA8888,
+                              nullptr, &out_meta)
+                  .error_code,
+              UHDR_CODEC_OK);
+    EXPECT_EQ(out_srgb.cg, cg);
+    EXPECT_GE(out_meta.hdr_capacity_max, 1.5f);
+
+    // Requesting spatial gainmap_img on HAGC-only stream must fail closed.
+    uhdr_raw_image_ext_t dummy_gm(UHDR_IMG_FMT_8bppYCbCr400, UHDR_CG_UNSPECIFIED,
+                                  UHDR_CT_UNSPECIFIED, UHDR_CR_UNSPECIFIED, 8, 8, 1);
+    EXPECT_EQ(dec.decodeJPEGR(&hagc_jpg, &out_srgb, 1.0f, UHDR_CT_SRGB, UHDR_IMG_FMT_32bppRGBA8888,
+                              &dummy_gm, nullptr)
+                  .error_code,
+              UHDR_CODEC_INVALID_PARAM);
+
+    uhdr_raw_image_ext_t lin_b1(UHDR_IMG_FMT_64bppRGBAHalfFloat, UHDR_CG_UNSPECIFIED,
+                                UHDR_CT_UNSPECIFIED, UHDR_CR_UNSPECIFIED, kW, kH, 1);
+    uhdr_raw_image_ext_t lin_b2(UHDR_IMG_FMT_64bppRGBAHalfFloat, UHDR_CG_UNSPECIFIED,
+                                UHDR_CT_UNSPECIFIED, UHDR_CR_UNSPECIFIED, kW, kH, 1);
+    uhdr_raw_image_ext_t lin_full(UHDR_IMG_FMT_64bppRGBAHalfFloat, UHDR_CG_UNSPECIFIED,
+                                  UHDR_CT_UNSPECIFIED, UHDR_CR_UNSPECIFIED, kW, kH, 1);
+    ASSERT_EQ(
+        dec.decodeJPEGR(&hagc_jpg, &lin_b1, 1.0f, UHDR_CT_LINEAR, UHDR_IMG_FMT_64bppRGBAHalfFloat)
+            .error_code,
+        UHDR_CODEC_OK);
+    ASSERT_EQ(
+        dec.decodeJPEGR(&hagc_jpg, &lin_b2, 2.0f, UHDR_CT_LINEAR, UHDR_IMG_FMT_64bppRGBAHalfFloat)
+            .error_code,
+        UHDR_CODEC_OK);
+    ASSERT_EQ(dec.decodeJPEGR(&hagc_jpg, &lin_full, FLT_MAX, UHDR_CT_LINEAR,
+                              UHDR_IMG_FMT_64bppRGBAHalfFloat)
+                  .error_code,
+              UHDR_CODEC_OK);
+    EXPECT_EQ(lin_full.cg, cg);
+
+    // Highlight pixel near bottom-right of synthetic gradient must increase monotonically with
+    // boost.
+    const Color p_b1 = getPixelFn(lin_b1.fmt)(&lin_b1, kW - 4, kH - 4);
+    const Color p_b2 = getPixelFn(lin_b2.fmt)(&lin_b2, kW - 4, kH - 4);
+    const Color p_full = getPixelFn(lin_full.fmt)(&lin_full, kW - 4, kH - 4);
+    EXPECT_GT(p_b2.g, p_b1.g);
+    EXPECT_GE(p_full.g, p_b2.g);
+
+    for (uhdr_color_transfer_t ct : {UHDR_CT_HLG, UHDR_CT_PQ}) {
+      uhdr_raw_image_ext_t out_10b(UHDR_IMG_FMT_32bppRGBA1010102, UHDR_CG_UNSPECIFIED,
+                                   UHDR_CT_UNSPECIFIED, UHDR_CR_UNSPECIFIED, kW, kH, 1);
+      ASSERT_EQ(dec.decodeJPEGR(&hagc_jpg, &out_10b, FLT_MAX, ct, UHDR_IMG_FMT_32bppRGBA1010102)
+                    .error_code,
+                UHDR_CODEC_OK);
+      EXPECT_EQ(out_10b.cg, cg);
+    }
+
+    // Legacy C++ JpegR::getJPEGRInfo & JpegR::decodeJPEGR parity.
+    jpegr_compressed_struct legacy_in{};
+    legacy_in.data = hagc_jpg.data;
+    legacy_in.length = static_cast<int>(hagc_jpg.data_sz);
+    legacy_in.maxLength = static_cast<int>(hagc_jpg.capacity);
+    legacy_in.colorGamut = ULTRAHDR_COLORGAMUT_UNSPECIFIED;
+
+    jpegr_info_struct legacy_info{};
+    ASSERT_EQ(dec.getJPEGRInfo(&legacy_in, &legacy_info), JPEGR_NO_ERROR);
+    EXPECT_EQ(legacy_info.width, kW);
+    EXPECT_EQ(legacy_info.height, kH);
+
+    std::vector<uint64_t> legacy_buf(kW * kH);
+    jpegr_uncompressed_struct legacy_out{};
+    legacy_out.data = legacy_buf.data();
+    ultrahdr_metadata_struct legacy_meta{};
+    ASSERT_EQ(dec.decodeJPEGR(&legacy_in, &legacy_out, FLT_MAX, nullptr, ULTRAHDR_OUTPUT_HDR_LINEAR,
+                              nullptr, &legacy_meta),
+              JPEGR_NO_ERROR);
+    EXPECT_EQ(std::memcmp(legacy_buf.data(), lin_full.planes[0], kW * kH * sizeof(uint64_t)), 0);
+    EXPECT_GE(legacy_meta.hdrCapacityMax, 1.5f);
+  }
+}
+
+TEST(JpegRTest, DualGainMapPlusHagcPreservesBitExactSpatialDecodeParity) {
+  constexpr uint32_t kW = 64;
+  constexpr uint32_t kH = 64;
+  uhdr_raw_image_ext_t hdr(UHDR_IMG_FMT_32bppRGBA1010102, UHDR_CG_BT_2100, UHDR_CT_HLG,
+                           UHDR_CR_FULL_RANGE, kW, kH, 64);
+  uhdr_raw_image_ext_t sdr(UHDR_IMG_FMT_32bppRGBA8888, UHDR_CG_DISPLAY_P3, UHDR_CT_SRGB,
+                           UHDR_CR_FULL_RANGE, kW, kH, 64);
+  buildSyntheticHdrAndSdrImages(kW, kH, UHDR_CG_BT_2100, UHDR_CG_DISPLAY_P3, hdr, sdr);
+
+  auto sdr_yuv = convert_raw_input_to_ycbcr(&sdr);
+  auto base_icc = IccHelper::writeIccProfile(UHDR_CT_SRGB, UHDR_CG_DISPLAY_P3);
+  JpegEncoderHelper sdr_enc;
+  ASSERT_EQ(sdr_enc.compressImage(sdr_yuv.get(), 92, base_icc->getData(), base_icc->getLength())
+                .error_code,
+            UHDR_CODEC_OK);
+  uhdr_compressed_image_t sdr_jpg = sdr_enc.getCompressedImage();
+  sdr_jpg.cg = UHDR_CG_DISPLAY_P3;
+
+  // Encode plain Ultra HDR without HAGC, and sideload-HAGC Dual Ultra HDR with distinct HAGC curve
+  // (using identical primary scan + identical spatial gain map via API-4).
+  JpegR enc_plain;
+  uhdr_compressed_image_ext_t plain_out(UHDR_CG_UNSPECIFIED, UHDR_CT_UNSPECIFIED,
+                                        UHDR_CR_UNSPECIFIED, 256 * 1024);
+  ASSERT_EQ(enc_plain.encodeJPEGR(&hdr, &sdr_jpg, &plain_out).error_code, UHDR_CODEC_OK);
+
+  jpeg_info_struct plain_prim, plain_gm;
+  jpegr_info_struct plain_info{0, 0, &plain_prim, &plain_gm};
+  ASSERT_EQ(JpegR().getJPEGRInfo(&plain_out, &plain_info).error_code, UHDR_CODEC_OK);
+  uhdr_gainmap_metadata_ext_t gm_meta;
+  ASSERT_EQ(
+      JpegR()
+          .parseGainMapMetadata(plain_gm.isoData.data(), plain_gm.isoData.size(),
+                                plain_gm.xmpData.data(), plain_gm.xmpData.size(),
+                                plain_prim.exifData.data(), plain_prim.exifData.size(), &gm_meta)
+          .error_code,
+      UHDR_CODEC_OK);
+
+  uhdr_compressed_image_t base_comp{plain_prim.imgData.data(),
+                                    plain_prim.imgData.size(),
+                                    plain_prim.imgData.size(),
+                                    UHDR_CG_DISPLAY_P3,
+                                    UHDR_CT_SRGB,
+                                    UHDR_CR_FULL_RANGE};
+  uhdr_compressed_image_t gm_comp{plain_gm.imgData.data(), plain_gm.imgData.size(),
+                                  plain_gm.imgData.size(), UHDR_CG_UNSPECIFIED,
+                                  UHDR_CT_UNSPECIFIED,     UHDR_CR_UNSPECIFIED};
+
+  JpegR enc_dual;
+  ASSERT_EQ(enc_dual.setHagcMode(UHDR_HAGC_DERIVE_FROM_GAINMAP).error_code, UHDR_CODEC_OK);
+  uhdr_compressed_image_ext_t dual_out(UHDR_CG_UNSPECIFIED, UHDR_CT_UNSPECIFIED,
+                                       UHDR_CR_UNSPECIFIED, 256 * 1024);
+  ASSERT_EQ(enc_dual.encodeJPEGR(&base_comp, &gm_comp, &gm_meta, &dual_out).error_code,
+            UHDR_CODEC_OK);
+
+  JpegR dec;
+  for (float boost : {1.0f, 1.8f, FLT_MAX}) {
+    // SRGB
+    {
+      uhdr_raw_image_ext_t a(UHDR_IMG_FMT_32bppRGBA8888, UHDR_CG_UNSPECIFIED, UHDR_CT_UNSPECIFIED,
+                             UHDR_CR_UNSPECIFIED, kW, kH, 1);
+      uhdr_raw_image_ext_t b(UHDR_IMG_FMT_32bppRGBA8888, UHDR_CG_UNSPECIFIED, UHDR_CT_UNSPECIFIED,
+                             UHDR_CR_UNSPECIFIED, kW, kH, 1);
+      ASSERT_EQ(dec.decodeJPEGR(&plain_out, &a, boost, UHDR_CT_SRGB, UHDR_IMG_FMT_32bppRGBA8888)
+                    .error_code,
+                UHDR_CODEC_OK);
+      ASSERT_EQ(dec.decodeJPEGR(&dual_out, &b, boost, UHDR_CT_SRGB, UHDR_IMG_FMT_32bppRGBA8888)
+                    .error_code,
+                UHDR_CODEC_OK);
+      EXPECT_EQ(std::memcmp(a.planes[0], b.planes[0], kW * kH * sizeof(uint32_t)), 0);
+    }
+    // LINEAR
+    {
+      uhdr_raw_image_ext_t a(UHDR_IMG_FMT_64bppRGBAHalfFloat, UHDR_CG_UNSPECIFIED,
+                             UHDR_CT_UNSPECIFIED, UHDR_CR_UNSPECIFIED, kW, kH, 1);
+      uhdr_raw_image_ext_t b(UHDR_IMG_FMT_64bppRGBAHalfFloat, UHDR_CG_UNSPECIFIED,
+                             UHDR_CT_UNSPECIFIED, UHDR_CR_UNSPECIFIED, kW, kH, 1);
+      ASSERT_EQ(
+          dec.decodeJPEGR(&plain_out, &a, boost, UHDR_CT_LINEAR, UHDR_IMG_FMT_64bppRGBAHalfFloat)
+              .error_code,
+          UHDR_CODEC_OK);
+      ASSERT_EQ(
+          dec.decodeJPEGR(&dual_out, &b, boost, UHDR_CT_LINEAR, UHDR_IMG_FMT_64bppRGBAHalfFloat)
+              .error_code,
+          UHDR_CODEC_OK);
+      EXPECT_EQ(std::memcmp(a.planes[0], b.planes[0], kW * kH * sizeof(uint64_t)), 0);
+    }
+    // HLG & PQ
+    for (uhdr_color_transfer_t ct : {UHDR_CT_HLG, UHDR_CT_PQ}) {
+      uhdr_raw_image_ext_t a(UHDR_IMG_FMT_32bppRGBA1010102, UHDR_CG_UNSPECIFIED,
+                             UHDR_CT_UNSPECIFIED, UHDR_CR_UNSPECIFIED, kW, kH, 1);
+      uhdr_raw_image_ext_t b(UHDR_IMG_FMT_32bppRGBA1010102, UHDR_CG_UNSPECIFIED,
+                             UHDR_CT_UNSPECIFIED, UHDR_CR_UNSPECIFIED, kW, kH, 1);
+      ASSERT_EQ(
+          dec.decodeJPEGR(&plain_out, &a, boost, ct, UHDR_IMG_FMT_32bppRGBA1010102).error_code,
+          UHDR_CODEC_OK);
+      ASSERT_EQ(dec.decodeJPEGR(&dual_out, &b, boost, ct, UHDR_IMG_FMT_32bppRGBA1010102).error_code,
+                UHDR_CODEC_OK);
+      EXPECT_EQ(std::memcmp(a.planes[0], b.planes[0], kW * kH * sizeof(uint32_t)), 0);
+    }
+  }
+}
+
+TEST(JpegRTest, HagcOnlyGrayscaleYuv440DestValidationAndUnmutatedRejectedInfo) {
+  constexpr uint32_t kW = 32;
+  constexpr uint32_t kH = 32;
+
+  const std::vector<uint8_t> hagc_bytes = encodeDistinctSideloadHagcAnnexC();
+  auto hagc_icc = IccHelper::writeIccProfile(UHDR_CT_SRGB, UHDR_CG_BT_709, hagc_bytes.data(),
+                                             hagc_bytes.size());
+  ASSERT_NE(hagc_icc, nullptr);
+
+  // 1. 1-component JCS_GRAYSCALE (UHDR_IMG_FMT_8bppYCbCr400) HAGC-only JPEG across SRGB & HDR.
+  uhdr_raw_image_ext_t gray_raw(UHDR_IMG_FMT_8bppYCbCr400, UHDR_CG_BT_709, UHDR_CT_SRGB,
+                                UHDR_CR_FULL_RANGE, kW, kH, 1);
+  std::memset(gray_raw.planes[UHDR_PLANE_Y], 160, kW * kH);
+  JpegEncoderHelper gray_enc;
+  ASSERT_EQ(
+      gray_enc.compressImage(&gray_raw, 95, hagc_icc->getData(), hagc_icc->getLength()).error_code,
+      UHDR_CODEC_OK);
+  uhdr_compressed_image_t gray_jpg = gray_enc.getCompressedImage();
+
+  JpegR dec;
+  uhdr_raw_image_ext_t gray_srgb(UHDR_IMG_FMT_32bppRGBA8888, UHDR_CG_UNSPECIFIED,
+                                 UHDR_CT_UNSPECIFIED, UHDR_CR_UNSPECIFIED, kW, kH, 1);
+  ASSERT_EQ(dec.decodeJPEGR(&gray_jpg, &gray_srgb, 1.0f, UHDR_CT_SRGB, UHDR_IMG_FMT_32bppRGBA8888)
+                .error_code,
+            UHDR_CODEC_OK);
+  Color gs = getPixelFn(gray_srgb.fmt)(&gray_srgb, kW / 2, kH / 2);
+  EXPECT_GT(gs.r, 0.5f);
+  EXPECT_FLOAT_EQ(gs.r, gs.g);
+  EXPECT_FLOAT_EQ(gs.g, gs.b);
+
+  uhdr_raw_image_ext_t gray_lin(UHDR_IMG_FMT_64bppRGBAHalfFloat, UHDR_CG_UNSPECIFIED,
+                                UHDR_CT_UNSPECIFIED, UHDR_CR_UNSPECIFIED, kW, kH, 1);
+  ASSERT_EQ(dec.decodeJPEGR(&gray_jpg, &gray_lin, FLT_MAX, UHDR_CT_LINEAR,
+                            UHDR_IMG_FMT_64bppRGBAHalfFloat)
+                .error_code,
+            UHDR_CODEC_OK);
+  Color gl = getPixelFn(gray_lin.fmt)(&gray_lin, kW / 2, kH / 2);
+  EXPECT_GT(gl.r, 0.3f);
+  EXPECT_NEAR(gl.r, gl.g, 2e-3f);
+  EXPECT_NEAR(gl.g, gl.b, 2e-3f);
+
+  // 2. 4:4:0 YCbCr (UHDR_IMG_FMT_16bppYCbCr440) HAGC-only JPEG falls back cleanly to DECODE_STREAM.
+  std::vector<uint8_t> y440(kW * kH, 180u);
+  std::vector<uint8_t> cb440(kW * (kH / 2), 128u);
+  std::vector<uint8_t> cr440(kW * (kH / 2), 128u);
+  const uint8_t* planes440[3] = {y440.data(), cb440.data(), cr440.data()};
+  const unsigned int strides440[3] = {kW, kW, kW};
+  JpegEncoderHelper enc440;
+  ASSERT_EQ(enc440
+                .compressImage(planes440, strides440, kW, kH, UHDR_IMG_FMT_16bppYCbCr440, 95,
+                               hagc_icc->getData(), hagc_icc->getLength())
+                .error_code,
+            UHDR_CODEC_OK);
+  uhdr_compressed_image_t jpg440 = enc440.getCompressedImage();
+  uhdr_raw_image_ext_t out440_lin(UHDR_IMG_FMT_64bppRGBAHalfFloat, UHDR_CG_UNSPECIFIED,
+                                  UHDR_CT_UNSPECIFIED, UHDR_CR_UNSPECIFIED, kW, kH, 1);
+  ASSERT_EQ(dec.decodeJPEGR(&jpg440, &out440_lin, FLT_MAX, UHDR_CT_LINEAR,
+                            UHDR_IMG_FMT_64bppRGBAHalfFloat)
+                .error_code,
+            UHDR_CODEC_OK);
+
+  // 3. Up-front dest validation on UHDR_CT_SRGB fast path (null dest, wrong fmt, short stride).
+  EXPECT_EQ(
+      dec.decodeJPEGR(&jpg440, nullptr, 1.0f, UHDR_CT_SRGB, UHDR_IMG_FMT_32bppRGBA8888).error_code,
+      UHDR_CODEC_INVALID_PARAM);
+  EXPECT_EQ(
+      dec.decodeJPEGR(&jpg440, &gray_raw, 1.0f, UHDR_CT_SRGB, UHDR_IMG_FMT_8bppYCbCr400).error_code,
+      UHDR_CODEC_INVALID_PARAM);
+  uhdr_raw_image_t bad_stride = gray_srgb;
+  bad_stride.stride[UHDR_PLANE_PACKED] = kW - 1;
+  EXPECT_EQ(dec.decodeJPEGR(&jpg440, &bad_stride, 1.0f, UHDR_CT_SRGB, UHDR_IMG_FMT_32bppRGBA8888)
+                .error_code,
+            UHDR_CODEC_INVALID_PARAM);
+
+  // 4. getJPEGRInfo on a rejected non-HAGC single-image JPEG leaves caller's info struct untouched.
+  JpegEncoderHelper plain_enc;
+  ASSERT_EQ(plain_enc.compressImage(&gray_raw, 90, nullptr, 0).error_code, UHDR_CODEC_OK);
+  uhdr_compressed_image_t plain_jpg = plain_enc.getCompressedImage();
+  jpeg_info_struct sentinel_prim{};
+  sentinel_prim.width = 777;
+  sentinel_prim.imgData = {0xAA, 0xBB};
+  jpegr_info_struct sentinel_info{123, 456, &sentinel_prim, nullptr};
+  EXPECT_EQ(dec.getJPEGRInfo(&plain_jpg, &sentinel_info).error_code, UHDR_CODEC_INVALID_PARAM);
+  EXPECT_EQ(sentinel_info.width, 123u);
+  EXPECT_EQ(sentinel_info.height, 456u);
+  EXPECT_EQ(sentinel_prim.width, 777u);
+  EXPECT_EQ(sentinel_prim.imgData, (std::vector<uint8_t>{0xAA, 0xBB}));
+
+  // 5. Headerless SOI+EOI buffer ({0xFF, 0xD8, 0xFF, 0xD9}) preserves UHDR_CODEC_INVALID_PARAM.
+  uint8_t soi_eoi[4] = {0xFF, 0xD8, 0xFF, 0xD9};
+  uhdr_compressed_image_t empty_soi_eoi{soi_eoi,
+                                        sizeof(soi_eoi),
+                                        sizeof(soi_eoi),
+                                        UHDR_CG_UNSPECIFIED,
+                                        UHDR_CT_UNSPECIFIED,
+                                        UHDR_CR_UNSPECIFIED};
+  EXPECT_EQ(dec.getJPEGRInfo(&empty_soi_eoi, &sentinel_info).error_code, UHDR_CODEC_INVALID_PARAM);
+  EXPECT_EQ(dec.getJPEGRInfoForProbe(&empty_soi_eoi, &sentinel_info).error_code,
+            UHDR_CODEC_INVALID_PARAM);
+  EXPECT_EQ(dec.decodeJPEGR(&empty_soi_eoi, &gray_lin, FLT_MAX, UHDR_CT_LINEAR,
+                            UHDR_IMG_FMT_64bppRGBAHalfFloat)
+                .error_code,
+            UHDR_CODEC_INVALID_PARAM);
+}
+
 }  // namespace ultrahdr

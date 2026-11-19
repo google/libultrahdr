@@ -19,10 +19,12 @@
 #include <cstring>
 #include <limits>
 #include <memory>
+#include <thread>
 #include <utility>
 #include <vector>
 
 #include "ultrahdr/gainmapmath.h"
+#include "ultrahdr/icc.h"
 
 namespace ultrahdr {
 
@@ -2861,6 +2863,510 @@ uhdr_error_info_t deriveEncodedHagcFromGainMap(
     return status;
   }
   return smpte2094_50::encodeSt2094_50(hagc, out_bitstream);
+}
+
+namespace {
+
+struct Mat3d {
+  double m[3][3] = {{1.0, 0.0, 0.0}, {0.0, 1.0, 0.0}, {0.0, 0.0, 1.0}};
+};
+
+struct Mat3f {
+  float m[3][3] = {{1.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f, 1.0f}};
+};
+
+Mat3d mulMat3d(const Mat3d& a, const Mat3d& b) {
+  Mat3d out{{{0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}}};
+  for (int r = 0; r < 3; ++r) {
+    for (int c = 0; c < 3; ++c) {
+      out.m[r][c] = a.m[r][0] * b.m[0][c] + a.m[r][1] * b.m[1][c] + a.m[r][2] * b.m[2][c];
+    }
+  }
+  return out;
+}
+
+std::array<double, 3> mulMatVec3d(const Mat3d& a, const std::array<double, 3>& v) {
+  return {a.m[0][0] * v[0] + a.m[0][1] * v[1] + a.m[0][2] * v[2],
+          a.m[1][0] * v[0] + a.m[1][1] * v[1] + a.m[1][2] * v[2],
+          a.m[2][0] * v[0] + a.m[2][1] * v[1] + a.m[2][2] * v[2]};
+}
+
+bool invertMat3d(const Mat3d& src, Mat3d& dst) {
+  const double a00 = src.m[0][0], a01 = src.m[0][1], a02 = src.m[0][2];
+  const double a10 = src.m[1][0], a11 = src.m[1][1], a12 = src.m[1][2];
+  const double a20 = src.m[2][0], a21 = src.m[2][1], a22 = src.m[2][2];
+
+  const double c00 = a11 * a22 - a12 * a21;
+  const double c01 = -(a10 * a22 - a12 * a20);
+  const double c02 = a10 * a21 - a11 * a20;
+  const double det = a00 * c00 + a01 * c01 + a02 * c02;
+  if (!std::isfinite(det) || std::fabs(det) <= 1e-12) {
+    return false;
+  }
+  const double inv_det = 1.0 / det;
+  dst.m[0][0] = c00 * inv_det;
+  dst.m[0][1] = -(a01 * a22 - a02 * a21) * inv_det;
+  dst.m[0][2] = (a01 * a12 - a02 * a11) * inv_det;
+  dst.m[1][0] = c01 * inv_det;
+  dst.m[1][1] = (a00 * a22 - a02 * a20) * inv_det;
+  dst.m[1][2] = -(a00 * a12 - a02 * a10) * inv_det;
+  dst.m[2][0] = c02 * inv_det;
+  dst.m[2][1] = -(a00 * a21 - a01 * a20) * inv_det;
+  dst.m[2][2] = (a00 * a11 - a01 * a10) * inv_det;
+  for (int r = 0; r < 3; ++r) {
+    for (int c = 0; c < 3; ++c) {
+      if (!std::isfinite(dst.m[r][c])) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
+bool primariesToXYZD50(const std::array<float, 8>& ch, Mat3d& out_to_xyz, Mat3d& out_from_xyz) {
+  for (float v : ch) {
+    if (!std::isfinite(v) || v < 0.0f || v > 1.0f) {
+      return false;
+    }
+  }
+  const double rx = ch[0], ry = ch[1];
+  const double gx = ch[2], gy = ch[3];
+  const double bx = ch[4], by = ch[5];
+  const double wx = ch[6], wy = ch[7];
+  if (wy <= 1e-6) {
+    return false;
+  }
+
+  const Mat3d primaries{
+      {{rx, gx, bx}, {ry, gy, by}, {1.0 - rx - ry, 1.0 - gx - gy, 1.0 - bx - by}}};
+  Mat3d primaries_inv{};
+  if (!invertMat3d(primaries, primaries_inv)) {
+    return false;
+  }
+
+  const std::array<double, 3> w_xyz = {wx / wy, 1.0, (1.0 - wx - wy) / wy};
+  const std::array<double, 3> scale = mulMatVec3d(primaries_inv, w_xyz);
+  const Mat3d diag_scale{{{scale[0], 0.0, 0.0}, {0.0, scale[1], 0.0}, {0.0, 0.0, scale[2]}}};
+  const Mat3d to_xyz = mulMat3d(primaries, diag_scale);
+
+  // Bradford chromatic adaptation from (wx, wy) to PCS D50 (matching skcms_AdaptToXYZD50).
+  constexpr Mat3d kXyzToLms = {
+      {{0.8951, 0.2664, -0.1614}, {-0.7502, 1.7135, 0.0367}, {0.0389, -0.0685, 1.0296}}};
+  constexpr Mat3d kLmsToXyz = {{{0.9869929, -0.1470543, 0.1599627},
+                                {0.4323053, 0.5183603, 0.0492912},
+                                {-0.0085287, 0.0400428, 0.9684867}}};
+  constexpr std::array<double, 3> kWxyzD50 = {0.96422, 1.0, 0.82521};
+
+  const std::array<double, 3> src_cone = mulMatVec3d(kXyzToLms, w_xyz);
+  const std::array<double, 3> dst_cone = mulMatVec3d(kXyzToLms, kWxyzD50);
+  if (std::fabs(src_cone[0]) <= 1e-12 || std::fabs(src_cone[1]) <= 1e-12 ||
+      std::fabs(src_cone[2]) <= 1e-12) {
+    return false;
+  }
+  const Mat3d cone_scale{{{dst_cone[0] / src_cone[0], 0.0, 0.0},
+                          {0.0, dst_cone[1] / src_cone[1], 0.0},
+                          {0.0, 0.0, dst_cone[2] / src_cone[2]}}};
+  const Mat3d adapt = mulMat3d(kLmsToXyz, mulMat3d(cone_scale, kXyzToLms));
+  out_to_xyz = mulMat3d(adapt, to_xyz);
+  return invertMat3d(out_to_xyz, out_from_xyz);
+}
+
+bool toMat3fChecked(const Mat3d& d, Mat3f& out) {
+  for (int r = 0; r < 3; ++r) {
+    for (int c = 0; c < 3; ++c) {
+      const float v = static_cast<float>(d.m[r][c]);
+      if (!std::isfinite(v)) {
+        return false;
+      }
+      out.m[r][c] = v;
+    }
+  }
+  return true;
+}
+
+inline Color applyMat3f(const Mat3f& m, const Color& c) {
+  return {{{m.m[0][0] * c.r + m.m[0][1] * c.g + m.m[0][2] * c.b,
+            m.m[1][0] * c.r + m.m[1][1] * c.g + m.m[1][2] * c.b,
+            m.m[2][0] * c.r + m.m[2][1] * c.g + m.m[2][2] * c.b}}};
+}
+
+struct PreparedRule {
+  smpte2094_50::GainCurve curve;
+  float wr = 0.0f;
+  float wg = 0.0f;
+  float wb = 0.0f;
+  float wmax = 0.0f;
+  float wmin = 0.0f;
+  float wcomp = 0.0f;
+  float weight = 0.0f;
+};
+
+uhdr_error_info_t prepareActiveRules(const smpte2094_50::DynamicMetadata& hagc, float h_target,
+                                     std::array<PreparedRule, 2>& out_rules,
+                                     size_t& out_num_rules) {
+  out_num_rules = 0;
+  struct HeadroomSlot {
+    float h = 0.0f;
+    int rule_idx = -1;
+  };
+  std::array<HeadroomSlot, smpte2094_50::DynamicMetadata::kMaxNumAlternateImages + 1> slots{};
+  size_t num_slots = 0;
+  bool baseline_inserted = false;
+  for (size_t i = 0; i < hagc.rules.size(); ++i) {
+    if (!baseline_inserted &&
+        hagc.baseline_hdr_headroom_log2 < hagc.rules[i].alternate_hdr_headroom_log2) {
+      slots[num_slots++] = {hagc.baseline_hdr_headroom_log2, -1};
+      baseline_inserted = true;
+    }
+    slots[num_slots++] = {hagc.rules[i].alternate_hdr_headroom_log2, static_cast<int>(i)};
+  }
+  if (!baseline_inserted) {
+    slots[num_slots++] = {hagc.baseline_hdr_headroom_log2, -1};
+  }
+
+  const float h_clamped = std::clamp(h_target, slots[0].h, slots[num_slots - 1].h);
+  std::array<std::pair<int, float>, 2> weighted = {{{-1, 0.0f}, {-1, 0.0f}}};
+  if (num_slots == 1 || h_clamped <= slots[0].h) {
+    weighted[0] = {slots[0].rule_idx, 1.0f};
+  } else if (h_clamped >= slots[num_slots - 1].h) {
+    weighted[0] = {slots[num_slots - 1].rule_idx, 1.0f};
+  } else {
+    for (size_t i = 0; i + 1 < num_slots; ++i) {
+      if (h_clamped >= slots[i].h && h_clamped <= slots[i + 1].h) {
+        const float span = slots[i + 1].h - slots[i].h;
+        const float w1 = (span > 0.0f) ? (h_clamped - slots[i].h) / span : 0.0f;
+        const float w0 = 1.0f - w1;
+        weighted[0] = {slots[i].rule_idx, w0};
+        weighted[1] = {slots[i + 1].rule_idx, w1};
+        break;
+      }
+    }
+  }
+
+  for (const auto& [r_idx, w] : weighted) {
+    if (r_idx < 0 || w <= 0.0f) {
+      continue;
+    }
+    const smpte2094_50::ToneMappingRule& rule = hagc.rules[static_cast<size_t>(r_idx)];
+    PreparedRule prep{};
+    prep.weight = w;
+    const double sum = static_cast<double>(rule.mix.rgb[0]) + static_cast<double>(rule.mix.rgb[1]) +
+                       static_cast<double>(rule.mix.rgb[2]) + static_cast<double>(rule.mix.max) +
+                       static_cast<double>(rule.mix.min) + static_cast<double>(rule.mix.component);
+    if (sum <= 0.0) {
+      return makeStatusError(UHDR_CODEC_INVALID_PARAM, "ComponentMix weights sum to <= 0");
+    }
+    const float inv_sum = static_cast<float>(1.0 / sum);
+    prep.wr = rule.mix.rgb[0] * inv_sum;
+    prep.wg = rule.mix.rgb[1] * inv_sum;
+    prep.wb = rule.mix.rgb[2] * inv_sum;
+    prep.wmax = rule.mix.max * inv_sum;
+    prep.wmin = rule.mix.min * inv_sum;
+    prep.wcomp = rule.mix.component * inv_sum;
+
+    std::vector<float> xs(rule.curve.size());
+    std::vector<float> ys(rule.curve.size());
+    std::vector<float> ms(rule.curve.size());
+    for (size_t k = 0; k < rule.curve.size(); ++k) {
+      xs[k] = rule.curve[k].x;
+      ys[k] = rule.curve[k].y;
+      ms[k] = rule.curve[k].m;
+    }
+    uhdr_error_info_t st = rule.use_pchip_slope
+                               ? smpte2094_50::GainCurve::create(xs, ys, prep.curve)
+                               : smpte2094_50::GainCurve::create(xs, ys, ms, prep.curve);
+    if (st.error_code != UHDR_CODEC_OK) {
+      return st;
+    }
+    out_rules[out_num_rules++] = std::move(prep);
+  }
+  return g_no_error;
+}
+
+inline Color evalRuleLog2Gain(const PreparedRule& r, const Color& c) {
+  float common = r.wr * c.r + r.wg * c.g + r.wb * c.b;
+  if (r.wmax > 0.0f) {
+    common += r.wmax * std::max({c.r, c.g, c.b});
+  }
+  if (r.wmin > 0.0f) {
+    common += r.wmin * std::min({c.r, c.g, c.b});
+  }
+  if (r.wcomp == 0.0f) {
+    const float g = r.curve.interpolate(common);
+    return {{{g, g, g}}};
+  }
+  return {
+      {{r.curve.interpolate(common + r.wcomp * c.r), r.curve.interpolate(common + r.wcomp * c.g),
+        r.curve.interpolate(common + r.wcomp * c.b)}}};
+}
+
+}  // namespace
+
+uhdr_error_info_t parseAndValidateHagcFromIcc(const void* icc_data, size_t icc_size,
+                                              smpte2094_50::DynamicMetadata& out_hagc) {
+  std::vector<uint8_t> hagc_bytes;
+  if (!IccHelper::readIccHagc(icc_data, icc_size, hagc_bytes)) {
+    return makeStatusError(UHDR_CODEC_INVALID_PARAM,
+                           "ICC profile does not contain a valid HAGC tag");
+  }
+  UHDR_ERR_CHECK(smpte2094_50::parseSt2094_50(hagc_bytes.data(), hagc_bytes.size(), out_hagc));
+  if (!out_hagc.has_adaptive_tone_map_flag) {
+    return makeStatusError(UHDR_CODEC_INVALID_PARAM,
+                           "HAGC metadata has_adaptive_tone_map_flag is false");
+  }
+  Mat3d app_to_xyz{}, app_from_xyz{};
+  Mat3f app_to_xyz_f{}, app_from_xyz_f{};
+  if (!primariesToXYZD50(out_hagc.gain_application_space_chromaticities, app_to_xyz,
+                         app_from_xyz) ||
+      !toMat3fChecked(app_to_xyz, app_to_xyz_f) || !toMat3fChecked(app_from_xyz, app_from_xyz_f)) {
+    return makeStatusError(UHDR_CODEC_INVALID_PARAM,
+                           "HAGC gain_application_space_chromaticities are non-invertible");
+  }
+  return g_no_error;
+}
+
+void populateGainMapMetadataFromHagc(const smpte2094_50::DynamicMetadata& hagc,
+                                     uhdr_color_gamut_t base_cg,
+                                     uhdr_gainmap_metadata_t* out_metadata) {
+  if (out_metadata == nullptr) {
+    return;
+  }
+  const uhdr_color_gamut_t eff_cg = (base_cg == UHDR_CG_UNSPECIFIED) ? UHDR_CG_BT_709 : base_cg;
+  float h_min = hagc.baseline_hdr_headroom_log2;
+  float h_max = hagc.baseline_hdr_headroom_log2;
+  float y_min = 0.0f;
+  float y_max = 0.0f;
+  for (const auto& rule : hagc.rules) {
+    h_min = std::min(h_min, rule.alternate_hdr_headroom_log2);
+    h_max = std::max(h_max, rule.alternate_hdr_headroom_log2);
+    for (const auto& cp : rule.curve) {
+      y_min = std::min(y_min, cp.y);
+      y_max = std::max(y_max, cp.y);
+    }
+  }
+  const float min_boost = std::exp2(y_min);
+  const float max_boost = std::max(min_boost, std::exp2(y_max));
+  for (int c = 0; c < 3; ++c) {
+    out_metadata->min_content_boost[c] = min_boost;
+    out_metadata->max_content_boost[c] = max_boost;
+    out_metadata->gamma[c] = 1.0f;
+    out_metadata->offset_sdr[c] = 0.0f;
+    out_metadata->offset_hdr[c] = 0.0f;
+  }
+  out_metadata->hdr_capacity_min = std::max(1.0f, std::exp2(h_min));
+  out_metadata->hdr_capacity_max = std::max(out_metadata->hdr_capacity_min, std::exp2(h_max));
+  out_metadata->use_base_cg =
+      (hagc.gain_application_space_chromaticities == getChromaticitiesForGamut(eff_cg)) ? 1 : 0;
+}
+
+uhdr_error_info_t applyHagc(uhdr_raw_image_t* base_img,
+                            const smpte2094_50::DynamicMetadata& metadata,
+                            uhdr_color_transfer_t output_ct,
+                            [[maybe_unused]] uhdr_img_fmt_t output_format, float max_display_boost,
+                            bool base_is_601_yuv, uhdr_raw_image_t* dest) {
+  if (base_img == nullptr || dest == nullptr) {
+    return makeStatusError(UHDR_CODEC_INVALID_PARAM, "Null image pointer in applyHagc");
+  }
+  if (std::isnan(max_display_boost) || max_display_boost < 1.0f) {
+    return makeStatusError(UHDR_CODEC_INVALID_PARAM, "Invalid max_display_boost %f in applyHagc",
+                           max_display_boost);
+  }
+  UHDR_ERR_CHECK(validateRawImagePlanesAndStrides(base_img, "applyHagc(base_img)"));
+  UHDR_ERR_CHECK(validateRawImagePlanesAndStrides(dest, "applyHagc(dest)"));
+  if (dest->w != base_img->w || dest->h != base_img->h) {
+    return makeStatusError(UHDR_CODEC_INVALID_PARAM,
+                           "Destination dimensions %ux%u do not match base dimensions %ux%u",
+                           dest->w, dest->h, base_img->w, base_img->h);
+  }
+  if ((output_ct == UHDR_CT_SRGB && dest->fmt != UHDR_IMG_FMT_32bppRGBA8888) ||
+      (output_ct == UHDR_CT_LINEAR && dest->fmt != UHDR_IMG_FMT_64bppRGBAHalfFloat) ||
+      ((output_ct == UHDR_CT_HLG || output_ct == UHDR_CT_PQ) &&
+       dest->fmt != UHDR_IMG_FMT_32bppRGBA1010102) ||
+      (output_ct != UHDR_CT_SRGB && output_ct != UHDR_CT_LINEAR && output_ct != UHDR_CT_HLG &&
+       output_ct != UHDR_CT_PQ)) {
+    return makeStatusError(UHDR_CODEC_INVALID_PARAM,
+                           "Unsupported output transfer (%d) / format (%d) pair in applyHagc",
+                           output_ct, dest->fmt);
+  }
+
+  GetPixelFn get_pixel_fn = getPixelFn(base_img->fmt);
+  if (get_pixel_fn == nullptr) {
+    return makeStatusError(UHDR_CODEC_UNSUPPORTED_FEATURE,
+                           "Unsupported base pixel format %d in applyHagc", base_img->fmt);
+  }
+
+  smpte2094_50::DynamicMetadata hagc = metadata;
+  if (!hagc.has_adaptive_tone_map_flag) {
+    return makeStatusError(UHDR_CODEC_INVALID_PARAM,
+                           "applyHagc requires has_adaptive_tone_map_flag == true");
+  }
+  UHDR_ERR_CHECK(smpte2094_50::populateImplicitParameters(hagc));
+  UHDR_ERR_CHECK(smpte2094_50::validateDynamicMetadata(hagc));
+
+  const uhdr_color_gamut_t base_cg =
+      (base_img->cg == UHDR_CG_UNSPECIFIED) ? UHDR_CG_BT_709 : base_img->cg;
+  if (base_cg != UHDR_CG_BT_709 && base_cg != UHDR_CG_DISPLAY_P3 && base_cg != UHDR_CG_BT_2100) {
+    return makeStatusError(UHDR_CODEC_INVALID_PARAM, "Unsupported base color gamut %d in applyHagc",
+                           base_cg);
+  }
+  const uhdr_color_transfer_t base_ct =
+      (base_img->ct == UHDR_CT_UNSPECIFIED) ? UHDR_CT_SRGB : base_img->ct;
+  ColorTransformFn inv_oetf_fn = getInverseOetfFn(base_ct);
+  if (inv_oetf_fn == nullptr) {
+    return makeStatusError(UHDR_CODEC_INVALID_PARAM,
+                           "Unsupported base color transfer %d in applyHagc", base_ct);
+  }
+  LuminanceFn base_luma_fn = getLuminanceFn(base_cg);
+  const bool is_rgb = isPixelFormatRgb(base_img->fmt) || base_img->fmt == UHDR_IMG_FMT_24bppRGB888;
+  ColorTransformFn yuv_to_rgb_fn = base_is_601_yuv ? p3YuvToRgb : getYuvToRgbFn(base_cg);
+
+  const std::array<float, 8> base_chrom = getChromaticitiesForGamut(base_cg);
+  const bool need_gamut_xform = (hagc.gain_application_space_chromaticities != base_chrom);
+  Mat3f base_to_app{};
+  Mat3f app_to_base{};
+  if (need_gamut_xform) {
+    Mat3d base_to_xyz{}, base_from_xyz{}, app_to_xyz{}, app_from_xyz{};
+    if (!primariesToXYZD50(base_chrom, base_to_xyz, base_from_xyz) ||
+        !primariesToXYZD50(hagc.gain_application_space_chromaticities, app_to_xyz, app_from_xyz) ||
+        !toMat3fChecked(mulMat3d(app_from_xyz, base_to_xyz), base_to_app) ||
+        !toMat3fChecked(mulMat3d(base_from_xyz, app_to_xyz), app_to_base)) {
+      return makeStatusError(UHDR_CODEC_INVALID_PARAM,
+                             "Failed to construct gamut conversion matrices in applyHagc");
+    }
+  }
+
+  float h_target = 0.0f;
+  if (output_ct != UHDR_CT_SRGB) {
+    h_target =
+        std::isinf(max_display_boost) ? 6.0f : std::clamp(std::log2(max_display_boost), 0.0f, 6.0f);
+  }
+
+  std::array<PreparedRule, 2> active_rules{};
+  size_t num_active_rules = 0;
+  UHDR_ERR_CHECK(prepareActiveRules(hagc, h_target, active_rules, num_active_rules));
+
+  float input_ref_white_scale = 1.0f;
+  if (base_ct == UHDR_CT_PQ) {
+    input_ref_white_scale = kPqMaxNits / hagc.hdr_reference_white;
+  } else if (base_ct == UHDR_CT_HLG) {
+    input_ref_white_scale = kHlgMaxNits / hagc.hdr_reference_white;
+  } else if (base_ct == UHDR_CT_LINEAR) {
+    input_ref_white_scale = kSdrWhiteNits / hagc.hdr_reference_white;
+  }
+
+  const float out_linear_scale = hagc.hdr_reference_white / kSdrWhiteNits;
+  const float out_hlg_scale = hagc.hdr_reference_white / kHlgMaxNits;
+  const float out_pq_scale = hagc.hdr_reference_white / kPqMaxNits;
+
+  auto processRows = [&](unsigned int y_begin, unsigned int y_end) {
+    const unsigned int width = base_img->w;
+    const size_t dst_stride = dest->stride[UHDR_PLANE_PACKED];
+    for (unsigned int y = y_begin; y < y_end; ++y) {
+      for (unsigned int x = 0; x < width; ++x) {
+        Color rgb_gamma = get_pixel_fn(base_img, x, y);
+        if (!is_rgb) {
+          rgb_gamma = yuv_to_rgb_fn(rgb_gamma);
+        }
+        if (base_ct != UHDR_CT_LINEAR) {
+          rgb_gamma = clampPixelFloat(rgb_gamma);
+        }
+
+        Color rgb_lin = inv_oetf_fn(rgb_gamma);
+        if (base_ct == UHDR_CT_HLG) {
+          rgb_lin = hlgOotfApprox(rgb_lin, base_luma_fn);
+        }
+        if (input_ref_white_scale != 1.0f) {
+          rgb_lin = rgb_lin * input_ref_white_scale;
+        }
+
+        Color c_app = need_gamut_xform ? applyMat3f(base_to_app, rgb_lin) : rgb_lin;
+        if (num_active_rules > 0) {
+          Color log2_gain = evalRuleLog2Gain(active_rules[0], c_app) * active_rules[0].weight;
+          if (num_active_rules > 1) {
+            log2_gain += evalRuleLog2Gain(active_rules[1], c_app) * active_rules[1].weight;
+          }
+          c_app.r *= std::exp2(log2_gain.r);
+          c_app.g *= std::exp2(log2_gain.g);
+          c_app.b *= std::exp2(log2_gain.b);
+        }
+        Color rgb_hdr = need_gamut_xform ? applyMat3f(app_to_base, c_app) : c_app;
+
+        const size_t pixel_idx = static_cast<size_t>(x) + static_cast<size_t>(y) * dst_stride;
+        switch (output_ct) {
+          case UHDR_CT_SRGB: {
+            Color rgb_srgb = srgbOetf(clampPixelFloat(rgb_hdr));
+            const uint32_t r8 =
+                static_cast<uint32_t>(CLIP3(rgb_srgb.r * 255.0f + 0.5f, 0.0f, 255.0f));
+            const uint32_t g8 =
+                static_cast<uint32_t>(CLIP3(rgb_srgb.g * 255.0f + 0.5f, 0.0f, 255.0f));
+            const uint32_t b8 =
+                static_cast<uint32_t>(CLIP3(rgb_srgb.b * 255.0f + 0.5f, 0.0f, 255.0f));
+            reinterpret_cast<uint32_t*>(dest->planes[UHDR_PLANE_PACKED])[pixel_idx] =
+                r8 | (g8 << 8) | (b8 << 16) | (255u << 24);
+            break;
+          }
+          case UHDR_CT_LINEAR: {
+            Color out_c = clampPixelFloatLinear(rgb_hdr * out_linear_scale);
+            reinterpret_cast<uint64_t*>(dest->planes[UHDR_PLANE_PACKED])[pixel_idx] =
+                colorToRgbaF16(out_c);
+            break;
+          }
+          case UHDR_CT_HLG: {
+#if USE_HLG_OETF_LUT
+            ColorTransformFn hdr_oetf = hlgOetfLUT;
+#else
+            ColorTransformFn hdr_oetf = hlgOetf;
+#endif
+            Color out_c = clampPixelFloat(rgb_hdr * out_hlg_scale);
+            out_c = hdr_oetf(hlgInverseOotfApprox(out_c));
+            reinterpret_cast<uint32_t*>(dest->planes[UHDR_PLANE_PACKED])[pixel_idx] =
+                colorToRgba1010102(out_c);
+            break;
+          }
+          case UHDR_CT_PQ: {
+#if USE_PQ_OETF_LUT
+            ColorTransformFn hdr_oetf = pqOetfLUT;
+#else
+            ColorTransformFn hdr_oetf = pqOetf;
+#endif
+            Color out_c = hdr_oetf(clampPixelFloat(rgb_hdr * out_pq_scale));
+            reinterpret_cast<uint32_t*>(dest->planes[UHDR_PLANE_PACKED])[pixel_idx] =
+                colorToRgba1010102(out_c);
+            break;
+          }
+          default:
+            break;
+        }
+      }
+    }
+  };
+
+  const size_t total_pixels = static_cast<size_t>(base_img->w) * static_cast<size_t>(base_img->h);
+  const unsigned int hw_threads = std::max(1u, std::thread::hardware_concurrency());
+  const unsigned int num_threads =
+      (total_pixels >= 16384u) ? std::min({hw_threads, 4u, base_img->h}) : 1u;
+  if (num_threads <= 1u) {
+    processRows(0u, base_img->h);
+  } else {
+    std::vector<std::thread> workers;
+    workers.reserve(num_threads - 1u);
+    const unsigned int rows_per_thread = (base_img->h + num_threads - 1u) / num_threads;
+    for (unsigned int t = 0; t < num_threads - 1u; ++t) {
+      const unsigned int y0 = std::min(t * rows_per_thread, base_img->h);
+      const unsigned int y1 = std::min(y0 + rows_per_thread, base_img->h);
+      workers.emplace_back(processRows, y0, y1);
+    }
+    const unsigned int last_y0 = std::min((num_threads - 1u) * rows_per_thread, base_img->h);
+    processRows(last_y0, base_img->h);
+    for (auto& w : workers) {
+      w.join();
+    }
+  }
+
+  dest->cg = base_cg;
+  dest->ct = output_ct;
+  dest->range = UHDR_CR_FULL_RANGE;
+  return g_no_error;
 }
 
 }  // namespace ultrahdr

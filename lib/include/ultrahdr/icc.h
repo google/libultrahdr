@@ -295,6 +295,10 @@ class IccHelper {
   static uhdr_color_gamut_t readIccColorGamut(void* icc_data, size_t icc_size);
 };
 
+// Reads the CICP transfer function from an ICC profile (with or without the 14-byte JPEG APP2
+// identifier), returning UHDR_CT_UNSPECIFIED when no recognized CICP transfer tag is present.
+uhdr_color_transfer_t readIccColorTransfer(const void* icc_data, size_t icc_size);
+
 }  // namespace ultrahdr
 
 #endif  // ULTRAHDR_ICC_H

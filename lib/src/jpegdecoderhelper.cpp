@@ -140,6 +140,70 @@ static void jpeg_extract_marker_payload(const j_decompress_ptr cinfo, const uint
   }
 }
 
+static void jpeg_extract_icc_profile(const j_decompress_ptr cinfo,
+                                     std::vector<JOCTET>& destination) {
+  constexpr size_t kIccSigLength = sizeof(kICCSig) / sizeof(kICCSig[0]);  // 12 ("ICC_PROFILE\0")
+  constexpr size_t kIccHeaderLength = kIccSigLength + 2;                  // 14 (+ seq, total)
+  static_assert(kIccSigLength == 12, "Unexpected kICCSig length");
+
+  destination.clear();
+  uint8_t expected_total = 0;
+  size_t seen_chunks = 0;
+  size_t total_payload_size = 0;
+  std::vector<const JOCTET*> chunk_ptrs;
+  std::vector<size_t> chunk_sizes;
+
+  for (jpeg_marker_struct* marker = cinfo->marker_list; marker; marker = marker->next) {
+    if (marker->marker != kAPP2Marker || marker->data_length < kIccSigLength ||
+        memcmp(marker->data, kICCSig, kIccSigLength) != 0) {
+      continue;
+    }
+    if (marker->data_length <= kIccHeaderLength) {
+      // Truncated or empty ICC_PROFILE APP2 segment fails closed.
+      return;
+    }
+    const uint8_t seq = marker->data[kIccSigLength];
+    const uint8_t total = marker->data[kIccSigLength + 1];
+    if (total == 0 || seq == 0 || seq > total) {
+      return;
+    }
+    if (expected_total == 0) {
+      expected_total = total;
+      chunk_ptrs.assign(expected_total, nullptr);
+      chunk_sizes.assign(expected_total, 0);
+    } else if (total != expected_total) {
+      return;
+    }
+    const size_t idx = static_cast<size_t>(seq - 1);
+    if (chunk_ptrs[idx] != nullptr) {
+      // Duplicate chunk index fails closed.
+      return;
+    }
+    const size_t chunk_len = marker->data_length - kIccHeaderLength;
+    if (chunk_len > (std::numeric_limits<size_t>::max)() - kIccHeaderLength - total_payload_size) {
+      return;
+    }
+    chunk_ptrs[idx] = marker->data + kIccHeaderLength;
+    chunk_sizes[idx] = chunk_len;
+    total_payload_size += chunk_len;
+    ++seen_chunks;
+  }
+
+  if (expected_total == 0 || seen_chunks != expected_total || total_payload_size == 0) {
+    return;
+  }
+
+  destination.resize(kIccHeaderLength + total_payload_size);
+  memcpy(destination.data(), kICCSig, kIccSigLength);
+  destination[kIccSigLength] = 1;
+  destination[kIccSigLength + 1] = 1;
+  size_t offset = kIccHeaderLength;
+  for (size_t i = 0; i < expected_total; ++i) {
+    memcpy(destination.data() + offset, chunk_ptrs[i], chunk_sizes[i]);
+    offset += chunk_sizes[i];
+  }
+}
+
 // Locate the selected payload in the original JPEG stream. The saved-marker list is incomplete
 // by design and is not a reliable source of byte offsets when other segments precede EXIF.
 static long find_marker_payload_offset(const uint8_t* image, size_t length, uint8_t marker_code,
@@ -288,8 +352,7 @@ uhdr_error_info_t JpegDecoderHelper::decode(const void* image, size_t length, de
         return status;
       }
     }
-    jpeg_extract_marker_payload(&cinfo, kAPP2Marker, kICCSig, sizeof kICCSig / sizeof kICCSig[0],
-                                mICCBuffer, payloadOffset);
+    jpeg_extract_icc_profile(&cinfo, mICCBuffer);
     jpeg_extract_marker_payload(&cinfo, kAPP2Marker, kIsoMetadataNameSpace,
                                 sizeof kIsoMetadataNameSpace / sizeof kIsoMetadataNameSpace[0],
                                 mIsoMetadataBuffer, payloadOffset);

@@ -268,6 +268,30 @@ uhdr_error_info_t generateGainMap(uhdr_raw_image_t* image,
                                   std::unique_ptr<uhdr_raw_image_ext_t>& gainmap_img,
                                   float hdr_capacity_max = -1.0f);
 
+/**
+ * Extracts, parses, and validates an ICC v4.4 'HAGC' tag (SMPTE ST 2094-50:2026 Annex C) for
+ * HAGC-only image probing and decoding. Fails closed unless a valid 'HAGC' tag with
+ * `has_adaptive_tone_map_flag == true` and invertible gain-application chromaticities is present.
+ */
+uhdr_error_info_t parseAndValidateHagcFromIcc(const void* icc_data, size_t icc_size,
+                                              smpte2094_50::DynamicMetadata& out_hagc);
+
+/**
+ * Populates a descriptive `uhdr_gainmap_metadata_t` summary from validated SMPTE ST 2094-50
+ * metadata for decoder metadata queries on HAGC-only images.
+ */
+void populateGainMapMetadataFromHagc(const smpte2094_50::DynamicMetadata& hagc,
+                                     uhdr_color_gamut_t base_cg,
+                                     uhdr_gainmap_metadata_t* out_metadata);
+
+/**
+ * Evaluates SMPTE ST 2094-50:2026 Clause 6 tone mapping directly from `base_img` into `dest`.
+ */
+uhdr_error_info_t applyHagc(uhdr_raw_image_t* base_img,
+                            const smpte2094_50::DynamicMetadata& metadata,
+                            uhdr_color_transfer_t output_ct, uhdr_img_fmt_t output_format,
+                            float max_display_boost, bool base_is_601_yuv, uhdr_raw_image_t* dest);
+
 }  // namespace ultrahdr
 
 #endif  // ULTRAHDR_AGTM_H

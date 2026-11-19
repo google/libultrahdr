@@ -20,6 +20,7 @@
 #include <vector>
 
 #include "ultrahdr/ultrahdrcommon.h"
+#include "ultrahdr/agtm.h"
 #include "ultrahdr/jpegdecoderhelper.h"
 #include "ultrahdr/icc.h"
 #include "ultrahdr/jpegr.h"
@@ -424,6 +425,144 @@ TEST_F(JpegDecoderHelperTest, jpegrRecombinationPreservesExactPrimaryJpegBytes) 
     JpegDecoderHelper output_decoder;
     ASSERT_EQ(output_decoder.parseImage(output.data(), dest.data_sz).error_code, UHDR_CODEC_OK);
     EXPECT_EQ(output_decoder.getEXIFPos(), static_cast<long>(output_exif.payload_offset));
+  }
+}
+
+static std::vector<uint8_t> makeIccApp2ChunkMarker(uint8_t seq, uint8_t total, const uint8_t* bytes,
+                                                   size_t len) {
+  static constexpr uint8_t kSig[12] = {'I', 'C', 'C', '_', 'P', 'R', 'O', 'F', 'I', 'L', 'E', 0};
+  std::vector<uint8_t> payload(14 + len);
+  memcpy(payload.data(), kSig, sizeof(kSig));
+  payload[12] = seq;
+  payload[13] = total;
+  if (len > 0) {
+    memcpy(payload.data() + 14, bytes, len);
+  }
+  return makeJpegMarker(0xe2, payload);
+}
+
+TEST_F(JpegDecoderHelperTest, multiChunkIccProfileReassemblyAndLongjmpLeakSafety) {
+  smpte2094_50::DynamicMetadata hagc{};
+  hagc.hdr_reference_white = 203.0f;
+  hagc.has_adaptive_tone_map_flag = true;
+  hagc.baseline_hdr_headroom_log2 = 0.0f;
+  smpte2094_50::ToneMappingRule rule{};
+  rule.alternate_hdr_headroom_log2 = 2.0f;
+  rule.mix.max = 1.0f;
+  rule.use_pchip_slope = true;
+  rule.curve = {{0.0f, 0.0f, 0.0f}, {0.5f, 1.0f, 0.0f}, {1.0f, 2.0f, 0.0f}};
+  hagc.rules = {rule};
+  ASSERT_EQ(smpte2094_50::populateImplicitParameters(hagc).error_code, UHDR_CODEC_OK);
+
+  std::vector<uint8_t> hagc_bytes;
+  ASSERT_EQ(smpte2094_50::encodeSt2094_50(hagc, hagc_bytes).error_code, UHDR_CODEC_OK);
+
+  auto full_icc = IccHelper::writeIccProfile(UHDR_CT_SRGB, UHDR_CG_DISPLAY_P3, hagc_bytes.data(),
+                                             hagc_bytes.size());
+  ASSERT_NE(full_icc, nullptr);
+  ASSERT_GT(full_icc->getLength(), kICCIdentifierSize + 60u);
+  const uint8_t* raw_prof = static_cast<const uint8_t*>(full_icc->getData()) + kICCIdentifierSize;
+  const size_t raw_len = full_icc->getLength() - kICCIdentifierSize;
+
+  const size_t c1 = raw_len / 3;
+  const size_t c2 = raw_len / 3;
+  const size_t c3 = raw_len - c1 - c2;
+  const std::vector<uint8_t> m1 = makeIccApp2ChunkMarker(1, 3, raw_prof, c1);
+  const std::vector<uint8_t> m2 = makeIccApp2ChunkMarker(2, 3, raw_prof + c1, c2);
+  const std::vector<uint8_t> m3 = makeIccApp2ChunkMarker(3, 3, raw_prof + c1 + c2, c3);
+
+  const std::vector<uint8_t> src(mYuvImage.buffer.get(), mYuvImage.buffer.get() + mYuvImage.size);
+  for (bool out_of_order : {false, true}) {
+    std::vector<uint8_t> jpg;
+    jpg.insert(jpg.end(), src.begin(), src.begin() + 2);
+    if (!out_of_order) {
+      jpg.insert(jpg.end(), m1.begin(), m1.end());
+      jpg.insert(jpg.end(), m2.begin(), m2.end());
+      jpg.insert(jpg.end(), m3.begin(), m3.end());
+    } else {
+      jpg.insert(jpg.end(), m3.begin(), m3.end());
+      jpg.insert(jpg.end(), m1.begin(), m1.end());
+      jpg.insert(jpg.end(), m2.begin(), m2.end());
+    }
+    jpg.insert(jpg.end(), src.begin() + 2, src.end());
+
+    JpegDecoderHelper dec;
+    ASSERT_EQ(dec.decompressImage(jpg.data(), jpg.size()).error_code, UHDR_CODEC_OK);
+    ASSERT_EQ(dec.getICCSize(), full_icc->getLength());
+    EXPECT_EQ(memcmp(dec.getICCPtr(), full_icc->getData(), full_icc->getLength()), 0);
+    EXPECT_EQ(IccHelper::readIccColorGamut(dec.getICCPtr(), dec.getICCSize()), UHDR_CG_DISPLAY_P3);
+    std::vector<uint8_t> parsed_hagc;
+    ASSERT_TRUE(IccHelper::readIccHagc(dec.getICCPtr(), dec.getICCSize(), parsed_hagc));
+    EXPECT_EQ(parsed_hagc, hagc_bytes);
+
+    // Truncate inside compressed scan data to force libjpeg error_exit longjmp under ASan/LSan.
+    ASSERT_GT(jpg.size(), 128u);
+    JpegDecoderHelper bad_scan_dec;
+    EXPECT_NE(bad_scan_dec.decompressImage(jpg.data(), jpg.size() - 96).error_code, UHDR_CODEC_OK);
+  }
+}
+
+TEST_F(JpegDecoderHelperTest, corruptMultiChunkIccProfileFailsClosed) {
+  auto full_icc = IccHelper::writeIccProfile(UHDR_CT_SRGB, UHDR_CG_BT_709);
+  ASSERT_NE(full_icc, nullptr);
+  const uint8_t* raw_prof = static_cast<const uint8_t*>(full_icc->getData()) + kICCIdentifierSize;
+  const size_t half = (full_icc->getLength() - kICCIdentifierSize) / 2;
+  const std::vector<uint8_t> src(mYuvImage.buffer.get(), mYuvImage.buffer.get() + mYuvImage.size);
+
+  auto wrapMarkers = [&](const std::vector<std::vector<uint8_t>>& markers) {
+    std::vector<uint8_t> jpg(src.begin(), src.begin() + 2);
+    for (const auto& mk : markers) {
+      jpg.insert(jpg.end(), mk.begin(), mk.end());
+    }
+    jpg.insert(jpg.end(), src.begin() + 2, src.end());
+    return jpg;
+  };
+
+  // 1. Missing chunk 2 of 2.
+  {
+    auto jpg = wrapMarkers({makeIccApp2ChunkMarker(1, 2, raw_prof, half)});
+    JpegDecoderHelper dec;
+    ASSERT_EQ(dec.parseImage(jpg.data(), jpg.size()).error_code, UHDR_CODEC_OK);
+    EXPECT_EQ(dec.getICCSize(), 0u);
+  }
+  // 2. Duplicate chunk index (1/2 twice).
+  {
+    auto jpg = wrapMarkers({makeIccApp2ChunkMarker(1, 2, raw_prof, half),
+                            makeIccApp2ChunkMarker(1, 2, raw_prof + half, half)});
+    JpegDecoderHelper dec;
+    ASSERT_EQ(dec.parseImage(jpg.data(), jpg.size()).error_code, UHDR_CODEC_OK);
+    EXPECT_EQ(dec.getICCSize(), 0u);
+  }
+  // 3. Zero sequence index (0/1) and seq > total (3/2).
+  {
+    auto jpg0 = wrapMarkers({makeIccApp2ChunkMarker(0, 1, raw_prof, half)});
+    auto jpg3 = wrapMarkers({makeIccApp2ChunkMarker(1, 2, raw_prof, half),
+                             makeIccApp2ChunkMarker(3, 2, raw_prof + half, half)});
+    JpegDecoderHelper dec0, dec3;
+    ASSERT_EQ(dec0.parseImage(jpg0.data(), jpg0.size()).error_code, UHDR_CODEC_OK);
+    ASSERT_EQ(dec3.parseImage(jpg3.data(), jpg3.size()).error_code, UHDR_CODEC_OK);
+    EXPECT_EQ(dec0.getICCSize(), 0u);
+    EXPECT_EQ(dec3.getICCSize(), 0u);
+  }
+  // 4. Mismatched total count across chunks (1/2 then 2/3).
+  {
+    auto jpg = wrapMarkers({makeIccApp2ChunkMarker(1, 2, raw_prof, half),
+                            makeIccApp2ChunkMarker(2, 3, raw_prof + half, half)});
+    JpegDecoderHelper dec;
+    ASSERT_EQ(dec.parseImage(jpg.data(), jpg.size()).error_code, UHDR_CODEC_OK);
+    EXPECT_EQ(dec.getICCSize(), 0u);
+  }
+  // 5. Empty 14-byte ICC header and truncated 13-byte ICC header.
+  {
+    auto jpg14 = wrapMarkers({makeIccApp2ChunkMarker(1, 1, nullptr, 0)});
+    const std::vector<uint8_t> trunc13 = {'I', 'C', 'C', '_', 'P', 'R', 'O',
+                                          'F', 'I', 'L', 'E', 0,   1};
+    auto jpg13 = wrapMarkers({makeJpegMarker(0xe2, trunc13)});
+    JpegDecoderHelper dec14, dec13;
+    ASSERT_EQ(dec14.parseImage(jpg14.data(), jpg14.size()).error_code, UHDR_CODEC_OK);
+    ASSERT_EQ(dec13.parseImage(jpg13.data(), jpg13.size()).error_code, UHDR_CODEC_OK);
+    EXPECT_EQ(dec14.getICCSize(), 0u);
+    EXPECT_EQ(dec13.getICCSize(), 0u);
   }
 }
 

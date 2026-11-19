@@ -26,6 +26,7 @@
 #include <vector>
 
 #include "ultrahdr/agtm.h"
+#include "ultrahdr/icc.h"
 
 namespace ultrahdr {
 
@@ -1216,4 +1217,221 @@ TEST_F(AgtmTest, DeriveHagcRejectsInvalidPlanesAndStrides) {
   EXPECT_EQ(deriveHagcFromGainMap(&yuv420, &bad_gm_rgb, &gm_meta, out_hagc).error_code,
             UHDR_CODEC_INVALID_PARAM);
 }
+
+TEST_F(AgtmTest, ApplyHagcExactSt2094_50Clause6MathAndValidation) {
+  // 1. Multi-rule interpolation + per-channel component mixing + highlight roll-off on SDR base.
+  smpte2094_50::DynamicMetadata meta{};
+  meta.hdr_reference_white = 203.0f;
+  meta.has_adaptive_tone_map_flag = true;
+  meta.baseline_hdr_headroom_log2 = 0.0f;
+  meta.gain_application_space_chromaticities = smpte2094_50::DynamicMetadata::kChromaticitiesSrgb;
+
+  smpte2094_50::ToneMappingRule r0{};
+  r0.alternate_hdr_headroom_log2 = 1.0f;
+  r0.mix.component = 1.0f;  // Pure per-component evaluation: R, G, B get distinct gains!
+  r0.use_pchip_slope = false;
+  r0.curve = {{0.25f, 0.5f, 0.0f}, {0.50f, 1.0f, 0.0f}};  // Above 0.50 rolls off via Formula 11.
+
+  smpte2094_50::ToneMappingRule r1{};
+  r1.alternate_hdr_headroom_log2 = 3.0f;
+  r1.mix.component = 1.0f;
+  r1.use_pchip_slope = false;
+  r1.curve = {{0.25f, 1.5f, 0.0f}, {0.50f, 3.0f, 0.0f}};
+  meta.rules = {r0, r1};
+
+  uhdr_raw_image_ext_t sdr(UHDR_IMG_FMT_32bppRGBA8888, UHDR_CG_BT_709, UHDR_CT_SRGB,
+                           UHDR_CR_FULL_RANGE, 2, 1, 1);
+  // Pixel 0: sRGB encoded from linear (0.25, 0.50, 1.00). Pixel 1: pure white (1, 1, 1).
+  auto packSrgb = [](float lr, float lg, float lb) -> uint32_t {
+    Color enc = srgbOetf({{{lr, lg, lb}}});
+    const uint32_t r = static_cast<uint32_t>(enc.r * 255.0f + 0.5f);
+    const uint32_t g = static_cast<uint32_t>(enc.g * 255.0f + 0.5f);
+    const uint32_t b = static_cast<uint32_t>(enc.b * 255.0f + 0.5f);
+    return r | (g << 8) | (b << 16) | (255u << 24);
+  };
+  auto* sdr_px = static_cast<uint32_t*>(sdr.planes[UHDR_PLANE_PACKED]);
+  sdr_px[0] = packSrgb(0.25f, 0.50f, 1.00f);
+  sdr_px[1] = packSrgb(1.0f, 1.0f, 1.0f);
+
+  // Read back quantized linear values that srgbInvOetfLUT sees.
+  Color q0 = getInverseOetfFn(UHDR_CT_SRGB)(getPixelFn(sdr.fmt)(&sdr, 0, 0));
+
+  // At max_display_boost = 1.0 (H_target = 0 == H_base), output must equal unmodified linear SDR.
+  uhdr_raw_image_ext_t out_lin(UHDR_IMG_FMT_64bppRGBAHalfFloat, UHDR_CG_UNSPECIFIED, UHDR_CT_LINEAR,
+                               UHDR_CR_UNSPECIFIED, 2, 1, 1);
+  ASSERT_EQ(applyHagc(&sdr, meta, UHDR_CT_LINEAR, out_lin.fmt, 1.0f, false, &out_lin).error_code,
+            UHDR_CODEC_OK);
+  Color d_boost1 = getPixelFn(out_lin.fmt)(&out_lin, 0, 0);
+  EXPECT_NEAR(d_boost1.r, q0.r, 2e-3f);
+  EXPECT_NEAR(d_boost1.g, q0.g, 2e-3f);
+  EXPECT_NEAR(d_boost1.b, q0.b, 2e-3f);
+  EXPECT_EQ(out_lin.cg, UHDR_CG_BT_709);
+
+  // At max_display_boost = 4.0 (H_target = 2.0), brackets r0 (H=1) and r1 (H=3) with 0.5 / 0.5:
+  //   r (~0.25): g0 = 0.5, g1 = 1.5 -> G = 1.0 -> factor = 2.0 -> ~0.50
+  //   g (~0.50): g0 = 1.0, g1 = 3.0 -> G = 2.0 -> factor = 4.0 -> ~2.00
+  //   b (1.00 > 0.50): roll-off g0 = 1.0 + log2(0.5/1.0) = 0.0, g1 = 3.0 + log2(0.5/1.0) = 2.0
+  //                    -> G = 1.0 -> factor = 2.0 -> 2.00!
+  ASSERT_EQ(applyHagc(&sdr, meta, UHDR_CT_LINEAR, out_lin.fmt, 4.0f, false, &out_lin).error_code,
+            UHDR_CODEC_OK);
+  Color d_boost4 = getPixelFn(out_lin.fmt)(&out_lin, 0, 0);
+  EXPECT_NEAR(d_boost4.r, q0.r * 2.0f, 3e-2f);
+  EXPECT_NEAR(d_boost4.g, q0.g * 4.0f, 5e-2f);
+  EXPECT_NEAR(d_boost4.b, 2.0f, 2e-2f);
+  EXPECT_GT(d_boost4.g / q0.g, d_boost4.r / q0.r + 1.5f);  // Channel-distinct gain verified.
+
+  // At FLT_MAX and +INFINITY, H_target clamps to max rule headroom (3.0).
+  uhdr_raw_image_ext_t out_inf(UHDR_IMG_FMT_64bppRGBAHalfFloat, UHDR_CG_UNSPECIFIED, UHDR_CT_LINEAR,
+                               UHDR_CR_UNSPECIFIED, 2, 1, 1);
+  ASSERT_EQ(applyHagc(&sdr, meta, UHDR_CT_LINEAR, out_lin.fmt, FLT_MAX, false, &out_lin).error_code,
+            UHDR_CODEC_OK);
+  ASSERT_EQ(applyHagc(&sdr, meta, UHDR_CT_LINEAR, out_inf.fmt,
+                      std::numeric_limits<float>::infinity(), false, &out_inf)
+                .error_code,
+            UHDR_CODEC_OK);
+  EXPECT_EQ(std::memcmp(out_lin.planes[0], out_inf.planes[0], 2 * sizeof(uint64_t)), 0);
+
+  // 2. HDR baseline (PQ RGBA1010102, H_base = 2.0) + RWTM tone-mapping down to SRGB, HLG, PQ.
+  smpte2094_50::DynamicMetadata rwtm_meta{};
+  rwtm_meta.hdr_reference_white = 203.0f;
+  rwtm_meta.has_adaptive_tone_map_flag = true;
+  rwtm_meta.baseline_hdr_headroom_log2 = 2.0f;  // 4x (812 nits)
+  rwtm_meta.use_reference_white_tone_mapping_flag = true;
+
+  uhdr_raw_image_ext_t hdr_pq(UHDR_IMG_FMT_32bppRGBA1010102, UHDR_CG_BT_2100, UHDR_CT_PQ,
+                              UHDR_CR_FULL_RANGE, 2, 1, 1);
+  const float pq_1x = pqOetf(203.0f / 10000.0f);
+  const float pq_4x = pqOetf(812.0f / 10000.0f);
+  auto* pq_px = static_cast<uint32_t*>(hdr_pq.planes[UHDR_PLANE_PACKED]);
+  pq_px[0] = colorToRgba1010102({{{pq_1x, pq_1x, pq_1x}}});
+  pq_px[1] = colorToRgba1010102({{{pq_4x, pq_4x, pq_4x}}});
+
+  uhdr_raw_image_ext_t out_srgb(UHDR_IMG_FMT_32bppRGBA8888, UHDR_CG_UNSPECIFIED, UHDR_CT_SRGB,
+                                UHDR_CR_UNSPECIFIED, 2, 1, 1);
+  ASSERT_EQ(
+      applyHagc(&hdr_pq, rwtm_meta, UHDR_CT_SRGB, out_srgb.fmt, 1.0f, false, &out_srgb).error_code,
+      UHDR_CODEC_OK);
+  Color srgb_p0 = getPixelFn(out_srgb.fmt)(&out_srgb, 0, 0);
+  Color srgb_p1 = getPixelFn(out_srgb.fmt)(&out_srgb, 1, 0);
+  // RWTM compresses [1.0, 4.0] down to <= 1.0 while keeping shadows/midtones below 1.0 strictly <
+  // 4x peak.
+  EXPECT_LT(srgb_p0.r, srgb_p1.r);
+  EXPECT_NEAR(srgb_p1.r, 1.0f, 0.02f);
+
+  uhdr_raw_image_ext_t out_hlg(UHDR_IMG_FMT_32bppRGBA1010102, UHDR_CG_UNSPECIFIED, UHDR_CT_HLG,
+                               UHDR_CR_UNSPECIFIED, 2, 1, 1);
+  uhdr_raw_image_ext_t out_pq(UHDR_IMG_FMT_32bppRGBA1010102, UHDR_CG_UNSPECIFIED, UHDR_CT_PQ,
+                              UHDR_CR_UNSPECIFIED, 2, 1, 1);
+  ASSERT_EQ(
+      applyHagc(&hdr_pq, rwtm_meta, UHDR_CT_HLG, out_hlg.fmt, 2.0f, false, &out_hlg).error_code,
+      UHDR_CODEC_OK);
+  ASSERT_EQ(applyHagc(&hdr_pq, rwtm_meta, UHDR_CT_PQ, out_pq.fmt, 4.0f, false, &out_pq).error_code,
+            UHDR_CODEC_OK);
+  Color pq_roundtrip = getPixelFn(out_pq.fmt)(&out_pq, 1, 0);
+  EXPECT_NEAR(pq_roundtrip.r, pq_4x, 5e-3f);
+
+  // 3. Custom mode-3 chromaticities + custom hdr_reference_white (300 nits) + Display P3 base.
+  smpte2094_50::DynamicMetadata custom_meta{};
+  custom_meta.hdr_reference_white = 300.0f;
+  custom_meta.has_adaptive_tone_map_flag = true;
+  custom_meta.baseline_hdr_headroom_log2 = 0.0f;
+  custom_meta.gain_application_space_chromaticities = {0.66f, 0.33f, 0.22f,   0.71f,
+                                                       0.14f, 0.05f, 0.3127f, 0.3290f};
+  smpte2094_50::ToneMappingRule cr{};
+  cr.alternate_hdr_headroom_log2 = 1.0f;
+  cr.mix.max = 1.0f;
+  cr.use_pchip_slope = false;
+  cr.curve = {{0.0f, 1.0f, 0.0f}, {1.0f, 1.0f, 0.0f}};  // Constant +1 stop (2x) in app space.
+  custom_meta.rules = {cr};
+
+  uhdr_raw_image_ext_t p3_base(UHDR_IMG_FMT_32bppRGBA8888, UHDR_CG_DISPLAY_P3, UHDR_CT_SRGB,
+                               UHDR_CR_FULL_RANGE, 2, 1, 1);
+  auto* p3_px = static_cast<uint32_t*>(p3_base.planes[UHDR_PLANE_PACKED]);
+  p3_px[0] = packSrgb(0.5f, 0.25f, 0.75f);
+  p3_px[1] = packSrgb(1.0f, 1.0f, 1.0f);
+  ASSERT_EQ(
+      applyHagc(&p3_base, custom_meta, UHDR_CT_PQ, out_pq.fmt, 2.0f, false, &out_pq).error_code,
+      UHDR_CODEC_OK);
+  EXPECT_EQ(out_pq.cg, UHDR_CG_DISPLAY_P3);
+  // White (1.0) * 2x gain at 300-nit reference white = 600 nits -> pqOetf(600 / 10000).
+  Color white_pq = getPixelFn(out_pq.fmt)(&out_pq, 1, 0);
+  EXPECT_NEAR(white_pq.r, pqOetf(600.0f / 10000.0f), 6e-3f);
+
+  // 4. 8bppYCbCr400 grayscale base expands to neutral gray (R == G == B > 0) across SRGB & HDR.
+  {
+    uhdr_raw_image_ext_t gray_base(UHDR_IMG_FMT_8bppYCbCr400, UHDR_CG_BT_709, UHDR_CT_SRGB,
+                                   UHDR_CR_FULL_RANGE, 2, 1, 1);
+    auto* y_ptr = static_cast<uint8_t*>(gray_base.planes[UHDR_PLANE_Y]);
+    y_ptr[0] = 96u;
+    y_ptr[1] = 200u;
+
+    ASSERT_EQ(applyHagc(&gray_base, custom_meta, UHDR_CT_SRGB, out_srgb.fmt, 1.0f, true, &out_srgb)
+                  .error_code,
+              UHDR_CODEC_OK);
+    Color gs0 = getPixelFn(out_srgb.fmt)(&out_srgb, 0, 0);
+    Color gs1 = getPixelFn(out_srgb.fmt)(&out_srgb, 1, 0);
+    EXPECT_GT(gs0.r, 0.2f);
+    EXPECT_FLOAT_EQ(gs0.r, gs0.g);
+    EXPECT_FLOAT_EQ(gs0.g, gs0.b);
+    EXPECT_GT(gs1.r, gs0.r);
+    EXPECT_FLOAT_EQ(gs1.r, gs1.g);
+    EXPECT_FLOAT_EQ(gs1.g, gs1.b);
+
+    ASSERT_EQ(applyHagc(&gray_base, custom_meta, UHDR_CT_LINEAR, out_lin.fmt, 2.0f, true, &out_lin)
+                  .error_code,
+              UHDR_CODEC_OK);
+    Color gl1 = getPixelFn(out_lin.fmt)(&out_lin, 1, 0);
+    EXPECT_GT(gl1.r, 0.8f);
+    EXPECT_NEAR(gl1.r, gl1.g, 2e-3f);
+    EXPECT_NEAR(gl1.g, gl1.b, 2e-3f);
+  }
+
+  // 5. Normative Clause 6.2.2 custom chromaticities with ry == 0 and by == 0 (CIE XYZ primaries).
+  {
+    smpte2094_50::DynamicMetadata xyz_meta{};
+    xyz_meta.hdr_reference_white = 203.0f;
+    xyz_meta.has_adaptive_tone_map_flag = true;
+    xyz_meta.baseline_hdr_headroom_log2 = 0.0f;
+    xyz_meta.gain_application_space_chromaticities = {1.0f, 0.0f, 0.0f,    1.0f,
+                                                      0.0f, 0.0f, 0.3333f, 0.3333f};
+    xyz_meta.rules = {cr};
+
+    std::vector<uint8_t> xyz_annex_c;
+    ASSERT_EQ(smpte2094_50::encodeSt2094_50(xyz_meta, xyz_annex_c).error_code, UHDR_CODEC_OK);
+    auto xyz_icc = IccHelper::writeIccProfile(UHDR_CT_SRGB, UHDR_CG_BT_709, xyz_annex_c.data(),
+                                              xyz_annex_c.size());
+    ASSERT_NE(xyz_icc, nullptr);
+    smpte2094_50::DynamicMetadata parsed_xyz{};
+    ASSERT_EQ(parseAndValidateHagcFromIcc(xyz_icc->getData(), xyz_icc->getLength(), parsed_xyz)
+                  .error_code,
+              UHDR_CODEC_OK);
+    ASSERT_EQ(
+        applyHagc(&sdr, parsed_xyz, UHDR_CT_LINEAR, out_lin.fmt, 2.0f, false, &out_lin).error_code,
+        UHDR_CODEC_OK);
+    Color xyz_white = getPixelFn(out_lin.fmt)(&out_lin, 1, 0);
+    EXPECT_NEAR(xyz_white.r, 2.0f, 2e-2f);
+    EXPECT_NEAR(xyz_white.g, 2.0f, 2e-2f);
+    EXPECT_NEAR(xyz_white.b, 2.0f, 2e-2f);
+  }
+
+  // 6. Negative validation checks.
+  EXPECT_EQ(applyHagc(nullptr, meta, UHDR_CT_LINEAR, out_lin.fmt, 2.0f, false, &out_lin).error_code,
+            UHDR_CODEC_INVALID_PARAM);
+  EXPECT_EQ(applyHagc(&sdr, meta, UHDR_CT_LINEAR, out_lin.fmt, 2.0f, false, nullptr).error_code,
+            UHDR_CODEC_INVALID_PARAM);
+  EXPECT_EQ(applyHagc(&sdr, meta, UHDR_CT_LINEAR, out_lin.fmt, 0.5f, false, &out_lin).error_code,
+            UHDR_CODEC_INVALID_PARAM);
+  EXPECT_EQ(applyHagc(&sdr, meta, UHDR_CT_LINEAR, out_lin.fmt,
+                      std::numeric_limits<float>::quiet_NaN(), false, &out_lin)
+                .error_code,
+            UHDR_CODEC_INVALID_PARAM);
+  EXPECT_EQ(applyHagc(&sdr, meta, UHDR_CT_PQ, out_lin.fmt, 2.0f, false, &out_lin).error_code,
+            UHDR_CODEC_INVALID_PARAM);
+  smpte2094_50::DynamicMetadata no_atm = meta;
+  no_atm.has_adaptive_tone_map_flag = false;
+  no_atm.rules.clear();
+  EXPECT_EQ(applyHagc(&sdr, no_atm, UHDR_CT_LINEAR, out_lin.fmt, 2.0f, false, &out_lin).error_code,
+            UHDR_CODEC_INVALID_PARAM);
+}
+
 }  // namespace ultrahdr

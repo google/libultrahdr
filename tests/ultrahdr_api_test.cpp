@@ -2377,4 +2377,369 @@ TEST_F(UltraHdrApiTest, JpegHagcEndToEndAcrossIntents) {
   }
 }
 
+namespace {
+
+std::vector<uint8_t> buildSingleImageJpegWithApp2Markers(
+    const uint8_t* sdr_jpg, size_t sdr_size,
+    const std::vector<std::vector<uint8_t>>& app2_payloads) {
+  if (sdr_jpg == nullptr || sdr_size < 4 || sdr_jpg[0] != 0xFF || sdr_jpg[1] != 0xD8) {
+    return {};
+  }
+  std::vector<uint8_t> out = {0xFF, 0xD8};
+  for (const auto& payload : app2_payloads) {
+    const size_t seg_len = payload.size() + 2;
+    const uint8_t hdr[4] = {0xFF, 0xE2, static_cast<uint8_t>((seg_len >> 8) & 0xFF),
+                            static_cast<uint8_t>(seg_len & 0xFF)};
+    out.insert(out.end(), hdr, hdr + 4);
+    out.insert(out.end(), payload.begin(), payload.end());
+  }
+  // Copy existing segments from sdr_jpg except any existing ICC_PROFILE APP2 segment.
+  size_t pos = 2;
+  while (pos + 1 < sdr_size) {
+    if (sdr_jpg[pos] != 0xFF) return {};
+    const size_t m_start = pos;
+    while (pos < sdr_size && sdr_jpg[pos] == 0xFF) ++pos;
+    if (pos >= sdr_size) return {};
+    const uint8_t marker = sdr_jpg[pos++];
+    if (marker == 0xDA || marker == 0xD9) {
+      out.insert(out.end(), sdr_jpg + m_start, sdr_jpg + sdr_size);
+      return out;
+    }
+    if (marker == 0xD8 || marker == 0x01 || (marker >= 0xD0 && marker <= 0xD7)) {
+      out.insert(out.end(), sdr_jpg + m_start, sdr_jpg + pos);
+      continue;
+    }
+    if (pos + 2 > sdr_size) return {};
+    const size_t seg_len = (static_cast<size_t>(sdr_jpg[pos]) << 8) | sdr_jpg[pos + 1];
+    if (seg_len < 2 || seg_len > sdr_size - pos) return {};
+    const size_t p_len = seg_len - 2;
+    const bool is_icc =
+        (marker == 0xE2 && p_len >= 12 && std::memcmp(sdr_jpg + pos + 2, "ICC_PROFILE\0", 12) == 0);
+    if (!is_icc) {
+      out.insert(out.end(), sdr_jpg + m_start, sdr_jpg + pos + seg_len);
+    }
+    pos += seg_len;
+  }
+  return out;
+}
+
+}  // namespace
+
+TEST_F(UltraHdrApiTest, HagcOnlyJpegProbeDecodeEffectsAndMultiChunkIcc) {
+  // 1. Encode Dual JPEG_R with HAGC, extract primary JPEG via uhdr_dec_get_base_image(), and
+  //    verify C API probe, getters, decode, display boosts, color transfers, and effects.
+  uhdr_codec_private_t* enc = uhdr_create_encoder();
+  ASSERT_NE(enc, nullptr);
+  ASSERT_EQ(uhdr_enc_set_raw_image(enc, &mHdrRaw, UHDR_HDR_IMG).error_code, UHDR_CODEC_OK);
+  ASSERT_EQ(uhdr_enc_set_raw_image(enc, &mSdrRaw, UHDR_SDR_IMG).error_code, UHDR_CODEC_OK);
+  ASSERT_EQ(uhdr_enc_set_hagc_mode(enc, UHDR_HAGC_DERIVE_FROM_GAINMAP).error_code, UHDR_CODEC_OK);
+  ASSERT_EQ(uhdr_encode(enc).error_code, UHDR_CODEC_OK);
+  uhdr_compressed_image_t* dual_stream = uhdr_get_encoded_stream(enc);
+  ASSERT_NE(dual_stream, nullptr);
+
+  uhdr_codec_private_t* split_dec = uhdr_create_decoder();
+  ASSERT_NE(split_dec, nullptr);
+  ASSERT_EQ(uhdr_dec_set_image(split_dec, dual_stream).error_code, UHDR_CODEC_OK);
+  ASSERT_EQ(uhdr_dec_probe(split_dec).error_code, UHDR_CODEC_OK);
+  uhdr_mem_block_t* base_blk = uhdr_dec_get_base_image(split_dec);
+  ASSERT_NE(base_blk, nullptr);
+  std::vector<uint8_t> hagc_only(static_cast<const uint8_t*>(base_blk->data),
+                                 static_cast<const uint8_t*>(base_blk->data) + base_blk->data_sz);
+  uhdr_release_decoder(split_dec);
+  uhdr_release_encoder(enc);
+
+  EXPECT_EQ(is_uhdr_image(hagc_only.data(), static_cast<int>(hagc_only.size())), 1);
+  EXPECT_EQ(uhdr_is_supported_gainmap_image(hagc_only.data(), hagc_only.size()), 1);
+
+  uhdr_compressed_image_t hagc_img{};
+  hagc_img.data = hagc_only.data();
+  hagc_img.data_sz = hagc_only.size();
+  hagc_img.capacity = hagc_only.size();
+
+  for (const auto& [fmt, ct] : std::vector<std::pair<uhdr_img_fmt_t, uhdr_color_transfer_t>>{
+           {UHDR_IMG_FMT_32bppRGBA8888, UHDR_CT_SRGB},
+           {UHDR_IMG_FMT_64bppRGBAHalfFloat, UHDR_CT_LINEAR},
+           {UHDR_IMG_FMT_32bppRGBA1010102, UHDR_CT_HLG},
+           {UHDR_IMG_FMT_32bppRGBA1010102, UHDR_CT_PQ}}) {
+    uhdr_codec_private_t* dec = uhdr_create_decoder();
+    ASSERT_NE(dec, nullptr);
+    ASSERT_EQ(uhdr_dec_set_image(dec, &hagc_img).error_code, UHDR_CODEC_OK);
+    ASSERT_EQ(uhdr_dec_set_out_img_format(dec, fmt).error_code, UHDR_CODEC_OK);
+    ASSERT_EQ(uhdr_dec_set_out_color_transfer(dec, ct).error_code, UHDR_CODEC_OK);
+    ASSERT_EQ(uhdr_dec_set_out_max_display_boost(dec, 3.0f).error_code, UHDR_CODEC_OK);
+    ASSERT_EQ(uhdr_dec_probe(dec).error_code, UHDR_CODEC_OK);
+
+    EXPECT_EQ(uhdr_dec_get_image_width(dec), static_cast<int>(kImageWidth));
+    EXPECT_EQ(uhdr_dec_get_image_height(dec), static_cast<int>(kImageHeight));
+    EXPECT_EQ(uhdr_dec_get_gainmap_width(dec), 0);
+    EXPECT_EQ(uhdr_dec_get_gainmap_height(dec), 0);
+    EXPECT_NE(uhdr_dec_get_icc(dec), nullptr);
+    EXPECT_NE(uhdr_dec_get_base_image(dec), nullptr);
+    EXPECT_EQ(uhdr_dec_get_gainmap_image(dec), nullptr);
+    uhdr_gainmap_metadata_t* meta = uhdr_dec_get_gainmap_metadata(dec);
+    ASSERT_NE(meta, nullptr);
+    EXPECT_GE(meta->hdr_capacity_min, 1.0f);
+    EXPECT_GE(meta->hdr_capacity_max, meta->hdr_capacity_min);
+
+    ASSERT_EQ(uhdr_decode(dec).error_code, UHDR_CODEC_OK);
+    uhdr_raw_image_t* decoded = uhdr_get_decoded_image(dec);
+    ASSERT_NE(decoded, nullptr);
+    EXPECT_EQ(decoded->w, kImageWidth);
+    EXPECT_EQ(decoded->h, kImageHeight);
+    EXPECT_EQ(decoded->fmt, fmt);
+    EXPECT_EQ(decoded->ct, ct);
+    EXPECT_EQ(uhdr_get_decoded_gainmap_image(dec), nullptr);
+    uhdr_release_decoder(dec);
+  }
+
+  // 2. Post-decode effects (mirror, rotate, crop, resize) on HAGC-only JPEG must succeed cleanly
+  //    without dereferencing or dividing by a null/0x0 spatial gainmap buffer.
+  {
+    uhdr_codec_private_t* dec = uhdr_create_decoder();
+    ASSERT_NE(dec, nullptr);
+    ASSERT_EQ(uhdr_dec_set_image(dec, &hagc_img).error_code, UHDR_CODEC_OK);
+    ASSERT_EQ(uhdr_dec_set_out_img_format(dec, UHDR_IMG_FMT_64bppRGBAHalfFloat).error_code,
+              UHDR_CODEC_OK);
+    ASSERT_EQ(uhdr_dec_set_out_color_transfer(dec, UHDR_CT_LINEAR).error_code, UHDR_CODEC_OK);
+    ASSERT_EQ(uhdr_add_effect_mirror(dec, UHDR_MIRROR_HORIZONTAL).error_code, UHDR_CODEC_OK);
+    ASSERT_EQ(uhdr_add_effect_rotate(dec, 90).error_code, UHDR_CODEC_OK);
+    ASSERT_EQ(uhdr_add_effect_crop(dec, 0, 32, 0, 32).error_code, UHDR_CODEC_OK);
+    ASSERT_EQ(uhdr_add_effect_resize(dec, 16, 16).error_code, UHDR_CODEC_OK);
+    ASSERT_EQ(uhdr_decode(dec).error_code, UHDR_CODEC_OK);
+    uhdr_raw_image_t* decoded = uhdr_get_decoded_image(dec);
+    ASSERT_NE(decoded, nullptr);
+    EXPECT_EQ(decoded->w, 16u);
+    EXPECT_EQ(decoded->h, 16u);
+    EXPECT_EQ(uhdr_get_decoded_gainmap_image(dec), nullptr);
+    uhdr_release_decoder(dec);
+  }
+
+  // 3. Multi-chunk APP2 ICC_PROFILE (3 chunks) HAGC-only JPEG probes and decodes identically.
+  {
+    smpte2094_50::DynamicMetadata hagc{};
+    hagc.hdr_reference_white = 203.0f;
+    hagc.has_adaptive_tone_map_flag = true;
+    hagc.baseline_hdr_headroom_log2 = 0.0f;
+    smpte2094_50::ToneMappingRule rule{};
+    rule.alternate_hdr_headroom_log2 = 2.0f;
+    rule.mix.max = 1.0f;
+    rule.use_pchip_slope = true;
+    rule.curve = {{0.0f, 0.0f, 0.0f}, {0.5f, 1.0f, 0.0f}, {1.0f, 2.0f, 0.0f}};
+    hagc.rules = {rule};
+    ASSERT_EQ(smpte2094_50::populateImplicitParameters(hagc).error_code, UHDR_CODEC_OK);
+    std::vector<uint8_t> hagc_bytes;
+    ASSERT_EQ(smpte2094_50::encodeSt2094_50(hagc, hagc_bytes).error_code, UHDR_CODEC_OK);
+
+    auto icc = IccHelper::writeIccProfile(UHDR_CT_SRGB, UHDR_CG_BT_709, hagc_bytes.data(),
+                                          hagc_bytes.size());
+    ASSERT_NE(icc, nullptr);
+    const uint8_t* raw_prof = static_cast<const uint8_t*>(icc->getData()) + kICCIdentifierSize;
+    const size_t raw_len = icc->getLength() - kICCIdentifierSize;
+    const size_t s1 = raw_len / 3, s2 = raw_len / 3, s3 = raw_len - s1 - s2;
+    auto makeChunk = [](uint8_t seq, uint8_t tot, const uint8_t* p, size_t n) {
+      std::vector<uint8_t> c(14 + n);
+      std::memcpy(c.data(), "ICC_PROFILE\0", 12);
+      c[12] = seq;
+      c[13] = tot;
+      std::memcpy(c.data() + 14, p, n);
+      return c;
+    };
+    const std::vector<uint8_t> multi_jpg = buildSingleImageJpegWithApp2Markers(
+        static_cast<const uint8_t*>(mSdrCompressed.data), mSdrCompressed.data_sz,
+        {makeChunk(2, 3, raw_prof + s1, s2), makeChunk(1, 3, raw_prof, s1),
+         makeChunk(3, 3, raw_prof + s1 + s2, s3)});
+    ASSERT_FALSE(multi_jpg.empty());
+
+    EXPECT_EQ(
+        is_uhdr_image(const_cast<uint8_t*>(multi_jpg.data()), static_cast<int>(multi_jpg.size())),
+        1);
+    EXPECT_EQ(uhdr_is_supported_gainmap_image(multi_jpg.data(), multi_jpg.size()), 1);
+
+    uhdr_compressed_image_t multi_comp{const_cast<uint8_t*>(multi_jpg.data()),
+                                       multi_jpg.size(),
+                                       multi_jpg.size(),
+                                       UHDR_CG_UNSPECIFIED,
+                                       UHDR_CT_UNSPECIFIED,
+                                       UHDR_CR_UNSPECIFIED};
+    uhdr_codec_private_t* dec = uhdr_create_decoder();
+    ASSERT_NE(dec, nullptr);
+    ASSERT_EQ(uhdr_dec_set_image(dec, &multi_comp).error_code, UHDR_CODEC_OK);
+    ASSERT_EQ(uhdr_decode(dec).error_code, UHDR_CODEC_OK);
+    ASSERT_NE(uhdr_get_decoded_image(dec), nullptr);
+    uhdr_release_decoder(dec);
+  }
+}
+
+TEST_F(UltraHdrApiTest, HagcOnlyJpegRejectsOrdinaryAndMalformedHagcInputs) {
+  auto expectRejectedEverywhere = [](const std::vector<uint8_t>& jpg, const char* label) {
+    SCOPED_TRACE(label);
+    ASSERT_FALSE(jpg.empty());
+    EXPECT_EQ(is_uhdr_image(const_cast<uint8_t*>(jpg.data()), static_cast<int>(jpg.size())), 0);
+    EXPECT_EQ(uhdr_is_supported_gainmap_image(jpg.data(), jpg.size()), 0);
+
+    uhdr_compressed_image_t comp{const_cast<uint8_t*>(jpg.data()),
+                                 jpg.size(),
+                                 jpg.size(),
+                                 UHDR_CG_UNSPECIFIED,
+                                 UHDR_CT_UNSPECIFIED,
+                                 UHDR_CR_UNSPECIFIED};
+    uhdr_codec_private_t* dec = uhdr_create_decoder();
+    ASSERT_NE(dec, nullptr);
+    ASSERT_EQ(uhdr_dec_set_image(dec, &comp).error_code, UHDR_CODEC_OK);
+    EXPECT_EQ(uhdr_dec_probe(dec).error_code, UHDR_CODEC_INVALID_PARAM);
+    EXPECT_EQ(uhdr_decode(dec).error_code, UHDR_CODEC_INVALID_PARAM);
+    uhdr_release_decoder(dec);
+
+    jpegr_info_struct info{};
+    EXPECT_EQ(JpegR().getJPEGRInfo(&comp, &info).error_code, UHDR_CODEC_INVALID_PARAM);
+    uhdr_raw_image_ext_t out(UHDR_IMG_FMT_64bppRGBAHalfFloat, UHDR_CG_UNSPECIFIED, UHDR_CT_LINEAR,
+                             UHDR_CR_UNSPECIFIED, kImageWidth, kImageHeight, 1);
+    EXPECT_EQ(
+        JpegR()
+            .decodeJPEGR(&comp, &out, FLT_MAX, UHDR_CT_LINEAR, UHDR_IMG_FMT_64bppRGBAHalfFloat)
+            .error_code,
+        UHDR_CODEC_INVALID_PARAM);
+  };
+
+  // 1. Ordinary SDR JPEG without 'HAGC'.
+  const std::vector<uint8_t> plain_sdr(
+      static_cast<const uint8_t*>(mSdrCompressed.data),
+      static_cast<const uint8_t*>(mSdrCompressed.data) + mSdrCompressed.data_sz);
+  expectRejectedEverywhere(plain_sdr, "ordinary SDR JPEG without HAGC");
+
+  // 2. Single-image JPEG with has_adaptive_tone_map_flag == false.
+  {
+    smpte2094_50::DynamicMetadata no_atm{};
+    no_atm.hdr_reference_white = 203.0f;
+    no_atm.has_adaptive_tone_map_flag = false;
+    std::vector<uint8_t> annex_c;
+    ASSERT_EQ(smpte2094_50::encodeSt2094_50(no_atm, annex_c).error_code, UHDR_CODEC_OK);
+    auto icc =
+        IccHelper::writeIccProfile(UHDR_CT_SRGB, UHDR_CG_BT_709, annex_c.data(), annex_c.size());
+    ASSERT_NE(icc, nullptr);
+    std::vector<uint8_t> icc_payload(
+        static_cast<const uint8_t*>(icc->getData()),
+        static_cast<const uint8_t*>(icc->getData()) + icc->getLength());
+    expectRejectedEverywhere(
+        buildSingleImageJpegWithApp2Markers(plain_sdr.data(), plain_sdr.size(), {icc_payload}),
+        "has_adaptive_tone_map_flag == false");
+  }
+
+  // Build valid Annex C payload for mutation tests.
+  smpte2094_50::DynamicMetadata valid_meta{};
+  valid_meta.hdr_reference_white = 203.0f;
+  valid_meta.has_adaptive_tone_map_flag = true;
+  valid_meta.baseline_hdr_headroom_log2 = 0.0f;
+  smpte2094_50::ToneMappingRule rule{};
+  rule.alternate_hdr_headroom_log2 = 2.0f;
+  rule.mix.max = 1.0f;
+  rule.use_pchip_slope = false;
+  rule.curve = {{0.0f, 0.0f, 0.0f}, {1.0f, 2.0f, 0.0f}};
+  valid_meta.rules = {rule};
+  std::vector<uint8_t> valid_annex_c;
+  ASSERT_EQ(smpte2094_50::encodeSt2094_50(valid_meta, valid_annex_c).error_code, UHDR_CODEC_OK);
+
+  // 3. Truncated Annex C inside 'HAGC'.
+  {
+    std::vector<uint8_t> trunc(valid_annex_c.begin(), valid_annex_c.end() - 1);
+    auto icc = IccHelper::writeIccProfile(UHDR_CT_SRGB, UHDR_CG_BT_709, trunc.data(), trunc.size());
+    ASSERT_NE(icc, nullptr);
+    std::vector<uint8_t> icc_payload(
+        static_cast<const uint8_t*>(icc->getData()),
+        static_cast<const uint8_t*>(icc->getData()) + icc->getLength());
+    expectRejectedEverywhere(
+        buildSingleImageJpegWithApp2Markers(plain_sdr.data(), plain_sdr.size(), {icc_payload}),
+        "truncated Annex C payload");
+  }
+
+  // 4. Trailing byte appended to Annex C inside 'HAGC'.
+  {
+    std::vector<uint8_t> trailing = valid_annex_c;
+    trailing.push_back(0x00u);
+    auto icc =
+        IccHelper::writeIccProfile(UHDR_CT_SRGB, UHDR_CG_BT_709, trailing.data(), trailing.size());
+    ASSERT_NE(icc, nullptr);
+    std::vector<uint8_t> icc_payload(
+        static_cast<const uint8_t*>(icc->getData()),
+        static_cast<const uint8_t*>(icc->getData()) + icc->getLength());
+    expectRejectedEverywhere(
+        buildSingleImageJpegWithApp2Markers(plain_sdr.data(), plain_sdr.size(), {icc_payload}),
+        "trailing byte in Annex C payload");
+  }
+
+  // 5. Corrupt 'hagc' tag type in ICC profile.
+  {
+    auto icc = IccHelper::writeIccProfile(UHDR_CT_SRGB, UHDR_CG_BT_709, valid_annex_c.data(),
+                                          valid_annex_c.size());
+    ASSERT_NE(icc, nullptr);
+    std::vector<uint8_t> icc_payload(
+        static_cast<const uint8_t*>(icc->getData()),
+        static_cast<const uint8_t*>(icc->getData()) + icc->getLength());
+    // Corrupt last tag's type descriptor ('hagc' -> 'bad!').
+    for (size_t i = kICCIdentifierSize + sizeof(ICCHeader); i + 4 <= icc_payload.size(); ++i) {
+      if (std::memcmp(icc_payload.data() + i, "hagc", 4) == 0) {
+        std::memcpy(icc_payload.data() + i, "bad!", 4);
+        break;
+      }
+    }
+    expectRejectedEverywhere(
+        buildSingleImageJpegWithApp2Markers(plain_sdr.data(), plain_sdr.size(), {icc_payload}),
+        "corrupt hagc tag type");
+  }
+
+  // 6. Incomplete multi-chunk ICC_PROFILE (chunk 1/2 without chunk 2/2).
+  {
+    auto icc = IccHelper::writeIccProfile(UHDR_CT_SRGB, UHDR_CG_BT_709, valid_annex_c.data(),
+                                          valid_annex_c.size());
+    ASSERT_NE(icc, nullptr);
+    std::vector<uint8_t> chunk1(static_cast<const uint8_t*>(icc->getData()),
+                                static_cast<const uint8_t*>(icc->getData()) + icc->getLength() / 2);
+    chunk1[12] = 1;
+    chunk1[13] = 2;
+    expectRejectedEverywhere(
+        buildSingleImageJpegWithApp2Markers(plain_sdr.data(), plain_sdr.size(), {chunk1}),
+        "incomplete multi-chunk ICC APP2");
+  }
+
+  // 7. 2-image Dual JPEG_R + 'HAGC' with corrupted MPF association must be rejected by
+  //    uhdr_is_supported_gainmap_image and getJPEGRInfoForProbe (never falling back to HAGC-only).
+  {
+    uhdr_codec_private_t* enc = uhdr_create_encoder();
+    ASSERT_NE(enc, nullptr);
+    ASSERT_EQ(uhdr_enc_set_raw_image(enc, &mHdrRaw, UHDR_HDR_IMG).error_code, UHDR_CODEC_OK);
+    ASSERT_EQ(uhdr_enc_set_raw_image(enc, &mSdrRaw, UHDR_SDR_IMG).error_code, UHDR_CODEC_OK);
+    ASSERT_EQ(uhdr_enc_set_hagc_mode(enc, UHDR_HAGC_DERIVE_FROM_GAINMAP).error_code, UHDR_CODEC_OK);
+    ASSERT_EQ(uhdr_encode(enc).error_code, UHDR_CODEC_OK);
+    uhdr_compressed_image_t* dual = uhdr_get_encoded_stream(enc);
+    ASSERT_NE(dual, nullptr);
+    std::vector<uint8_t> broken_mpf(static_cast<const uint8_t*>(dual->data),
+                                    static_cast<const uint8_t*>(dual->data) + dual->data_sz);
+    uhdr_release_encoder(enc);
+
+    // Corrupt MPF version ("0100" -> "9999") inside the primary image's APP2 MPF segment.
+    bool corrupted = false;
+    for (size_t i = 2; i + 16 <= broken_mpf.size(); ++i) {
+      if (broken_mpf[i] == 0xFF && broken_mpf[i + 1] == 0xE2 &&
+          std::memcmp(broken_mpf.data() + i + 4, "MPF\0", 4) == 0) {
+        for (size_t j = i + 8; j + 4 <= broken_mpf.size() && j < i + 64; ++j) {
+          if (std::memcmp(broken_mpf.data() + j, "0100", 4) == 0) {
+            std::memcpy(broken_mpf.data() + j, "9999", 4);
+            corrupted = true;
+            break;
+          }
+        }
+        break;
+      }
+    }
+    ASSERT_TRUE(corrupted);
+    EXPECT_EQ(uhdr_is_supported_gainmap_image(broken_mpf.data(), broken_mpf.size()), 0);
+    uhdr_compressed_image_t broken_comp{broken_mpf.data(),   broken_mpf.size(),
+                                        broken_mpf.size(),   UHDR_CG_UNSPECIFIED,
+                                        UHDR_CT_UNSPECIFIED, UHDR_CR_UNSPECIFIED};
+    jpegr_info_struct info{};
+    EXPECT_EQ(JpegR().getJPEGRInfoForProbe(&broken_comp, &info).error_code,
+              UHDR_CODEC_INVALID_PARAM);
+  }
+}
+
 }  // namespace ultrahdr

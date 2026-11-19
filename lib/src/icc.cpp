@@ -990,16 +990,20 @@ bool IccHelper::readIccHagc(const void* icc_data, size_t icc_size, std::vector<u
   }
 
   const size_t table_end = sizeof(ICCHeader) + tag_count * kICCTagTableEntrySize;
+  const uint8_t* hagc_payload = nullptr;
+  size_t hagc_payload_sz = 0;
   for (size_t i = 0; i < tag_count; ++i) {
     const uint8_t* entry = profile + sizeof(ICCHeader) + i * kICCTagTableEntrySize;
     const uint32_t sig = readIccBE32(entry);
+    const size_t tag_off = readIccBE32(entry + 4);
+    const size_t tag_sz = readIccBE32(entry + 8);
+    if (tag_off < table_end || tag_off > encoded_size || tag_sz > encoded_size - tag_off) {
+      return false;
+    }
     if (sig != kTAG_HAGC) {
       continue;
     }
-    const size_t tag_off = readIccBE32(entry + 4);
-    const size_t tag_sz = readIccBE32(entry + 8);
-    if (tag_off < table_end || tag_off > encoded_size || tag_sz < kHagcTagHeaderSize ||
-        tag_sz > encoded_size - tag_off) {
+    if (hagc_payload != nullptr || tag_sz < kHagcTagHeaderSize) {
       return false;
     }
     const uint8_t* tag_ptr = profile + tag_off;
@@ -1010,10 +1014,68 @@ bool IccHelper::readIccHagc(const void* icc_data, size_t icc_size, std::vector<u
         payload_sz > tag_sz - kHagcTagHeaderSize) {
       return false;
     }
-    out_hagc.assign(tag_ptr + kHagcTagHeaderSize, tag_ptr + kHagcTagHeaderSize + payload_sz);
-    return true;
+    hagc_payload = tag_ptr + kHagcTagHeaderSize;
+    hagc_payload_sz = payload_sz;
   }
-  return false;
+  if (hagc_payload == nullptr) {
+    return false;
+  }
+  out_hagc.assign(hagc_payload, hagc_payload + hagc_payload_sz);
+  return true;
+}
+
+uhdr_color_transfer_t readIccColorTransfer(const void* icc_data, size_t icc_size) {
+  const uint8_t* profile = nullptr;
+  size_t profile_buf_size = 0;
+  bool has_jpeg_id = false;
+  if (!unwrapIccProfile(icc_data, icc_size, profile, profile_buf_size, has_jpeg_id)) {
+    return UHDR_CT_UNSPECIFIED;
+  }
+
+  const size_t encoded_size = readIccBE32(profile);
+  if (encoded_size < sizeof(ICCHeader) || encoded_size > profile_buf_size ||
+      readIccBE32(profile + offsetof(ICCHeader, signature)) != kACSP_Signature) {
+    return UHDR_CT_UNSPECIFIED;
+  }
+
+  const size_t tag_count = readIccBE32(profile + offsetof(ICCHeader, tag_count));
+  const size_t max_tags = (encoded_size - sizeof(ICCHeader)) / kICCTagTableEntrySize;
+  if (tag_count > max_tags) {
+    return UHDR_CT_UNSPECIFIED;
+  }
+
+  const size_t table_end = sizeof(ICCHeader) + tag_count * kICCTagTableEntrySize;
+  for (size_t i = 0; i < tag_count; ++i) {
+    const uint8_t* entry = profile + sizeof(ICCHeader) + i * kICCTagTableEntrySize;
+    if (readIccBE32(entry) != kTAG_cicp) {
+      continue;
+    }
+    const size_t tag_off = readIccBE32(entry + 4);
+    const size_t tag_sz = readIccBE32(entry + 8);
+    if (tag_off < table_end || tag_off > encoded_size || tag_sz != kCicpTagSize ||
+        tag_sz > encoded_size - tag_off) {
+      return UHDR_CT_UNSPECIFIED;
+    }
+    const uint8_t* cicp = profile + tag_off;
+    if (readIccBE32(cicp) != kTAG_cicp || readIccBE32(cicp + 4) != 0) {
+      return UHDR_CT_UNSPECIFIED;
+    }
+    switch (cicp[9]) {
+      case kCICPTrfnSRGB:
+      case 6:
+      case 13:
+        return UHDR_CT_SRGB;
+      case kCICPTrfnLinear:
+        return UHDR_CT_LINEAR;
+      case kCICPTrfnPQ:
+        return UHDR_CT_PQ;
+      case kCICPTrfnHLG:
+        return UHDR_CT_HLG;
+      default:
+        return UHDR_CT_UNSPECIFIED;
+    }
+  }
+  return UHDR_CT_UNSPECIFIED;
 }
 
 }  // namespace ultrahdr

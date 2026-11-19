@@ -1705,6 +1705,141 @@ uhdr_error_info_t JpegR::appendGainMap(uhdr_compressed_image_t* sdr_intent_compr
   return g_no_error;
 }
 
+namespace {
+
+void resetJpegInfoStruct(j_info_ptr info) {
+  if (info == nullptr) {
+    return;
+  }
+  info->imgData.clear();
+  info->iccData.clear();
+  info->exifData.clear();
+  info->xmpData.clear();
+  info->isoData.clear();
+  info->width = 0;
+  info->height = 0;
+  info->numComponents = 0;
+}
+
+uhdr_error_info_t decodeHagcOnlyJpeg(uhdr_compressed_image_t* primary_jpeg_image,
+                                     uhdr_raw_image_t* dest, float max_display_boost,
+                                     uhdr_color_transfer_t output_ct, uhdr_img_fmt_t output_format,
+                                     uhdr_raw_image_t* gainmap_img,
+                                     uhdr_gainmap_metadata_t* gainmap_metadata) {
+  if (gainmap_img != nullptr) {
+    uhdr_error_info_t status{};
+    status.error_code = UHDR_CODEC_INVALID_PARAM;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "input HAGC-only jpeg does not contain a spatial gainmap image");
+    return status;
+  }
+  if (dest == nullptr || dest->planes[UHDR_PLANE_PACKED] == nullptr) {
+    uhdr_error_info_t status{};
+    status.error_code = UHDR_CODEC_INVALID_PARAM;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "received nullptr for destination image or plane pointer");
+    return status;
+  }
+  if ((output_ct == UHDR_CT_SRGB && dest->fmt != UHDR_IMG_FMT_32bppRGBA8888) ||
+      (output_ct == UHDR_CT_LINEAR && dest->fmt != UHDR_IMG_FMT_64bppRGBAHalfFloat) ||
+      ((output_ct == UHDR_CT_HLG || output_ct == UHDR_CT_PQ) &&
+       dest->fmt != UHDR_IMG_FMT_32bppRGBA1010102) ||
+      (output_ct != UHDR_CT_SRGB && output_ct != UHDR_CT_LINEAR && output_ct != UHDR_CT_HLG &&
+       output_ct != UHDR_CT_PQ)) {
+    uhdr_error_info_t status{};
+    status.error_code = UHDR_CODEC_INVALID_PARAM;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "unsupported destination pixel format %d for output color transfer %d", dest->fmt,
+             output_ct);
+    return status;
+  }
+  if (std::isnan(max_display_boost) || max_display_boost < 1.0f) {
+    uhdr_error_info_t status{};
+    status.error_code = UHDR_CODEC_INVALID_PARAM;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail, "received bad value for max_display_boost %f",
+             max_display_boost);
+    return status;
+  }
+
+  JpegDecoderHelper header_parser;
+  if (header_parser.parseImage(primary_jpeg_image->data, primary_jpeg_image->data_sz).error_code !=
+      UHDR_CODEC_OK) {
+    uhdr_error_info_t status{};
+    status.error_code = UHDR_CODEC_INVALID_PARAM;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "input uhdr image does not contain gainmap image");
+    return status;
+  }
+
+  smpte2094_50::DynamicMetadata hagc{};
+  UHDR_ERR_CHECK(
+      parseAndValidateHagcFromIcc(header_parser.getICCPtr(), header_parser.getICCSize(), hagc));
+
+  if (dest->w != header_parser.getDecompressedImageWidth() ||
+      dest->h != header_parser.getDecompressedImageHeight() ||
+      dest->stride[UHDR_PLANE_PACKED] < dest->w) {
+    uhdr_error_info_t status{};
+    status.error_code = UHDR_CODEC_INVALID_PARAM;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "destination dimensions/stride (%ux%u, stride %u) do not match image (%ux%u)", dest->w,
+             dest->h, dest->stride[UHDR_PLANE_PACKED], header_parser.getDecompressedImageWidth(),
+             header_parser.getDecompressedImageHeight());
+    return status;
+  }
+
+  uhdr_color_gamut_t base_cg =
+      IccHelper::readIccColorGamut(header_parser.getICCPtr(), header_parser.getICCSize());
+  if (base_cg == UHDR_CG_UNSPECIFIED &&
+      (primary_jpeg_image->cg == UHDR_CG_BT_709 || primary_jpeg_image->cg == UHDR_CG_DISPLAY_P3 ||
+       primary_jpeg_image->cg == UHDR_CG_BT_2100)) {
+    base_cg = primary_jpeg_image->cg;
+  }
+  const uhdr_color_transfer_t icc_ct =
+      readIccColorTransfer(header_parser.getICCPtr(), header_parser.getICCSize());
+  const uhdr_color_transfer_t base_ct = (icc_ct == UHDR_CT_UNSPECIFIED) ? UHDR_CT_SRGB : icc_ct;
+
+  if (gainmap_metadata != nullptr) {
+    populateGainMapMetadataFromHagc(hagc, base_cg, gainmap_metadata);
+  }
+
+  if (output_ct == UHDR_CT_SRGB && base_ct == UHDR_CT_SRGB &&
+      hagc.baseline_hdr_headroom_log2 == 0.0f && header_parser.getNumComponentsInImage() == 3u) {
+    JpegDecoderHelper jpeg_dec_obj_sdr;
+    UHDR_ERR_CHECK(jpeg_dec_obj_sdr.decompressImage(primary_jpeg_image->data,
+                                                    primary_jpeg_image->data_sz, DECODE_TO_RGB_CS));
+    uhdr_raw_image_t sdr_intent = jpeg_dec_obj_sdr.getDecompressedImage();
+    sdr_intent.cg = (base_cg == UHDR_CG_UNSPECIFIED) ? UHDR_CG_BT_709 : base_cg;
+    sdr_intent.ct = UHDR_CT_SRGB;
+    sdr_intent.range = UHDR_CR_FULL_RANGE;
+    return copy_raw_image(&sdr_intent, dest);
+  }
+
+  JpegDecoderHelper jpeg_dec_obj_base;
+  bool base_is_601_yuv = true;
+  uhdr_error_info_t dec_status = jpeg_dec_obj_base.decompressImage(
+      primary_jpeg_image->data, primary_jpeg_image->data_sz, DECODE_TO_YCBCR_CS);
+  if (dec_status.error_code != UHDR_CODEC_OK ||
+      getPixelFn(jpeg_dec_obj_base.getDecompressedImage().fmt) == nullptr) {
+    UHDR_ERR_CHECK(jpeg_dec_obj_base.decompressImage(primary_jpeg_image->data,
+                                                     primary_jpeg_image->data_sz, DECODE_STREAM));
+    base_is_601_yuv = false;
+  }
+
+  uhdr_raw_image_t base_raw = jpeg_dec_obj_base.getDecompressedImage();
+  base_raw.cg = base_cg;
+  base_raw.ct = base_ct;
+  return applyHagc(&base_raw, hagc, output_ct, output_format, max_display_boost, base_is_601_yuv,
+                   dest);
+}
+
+}  // namespace
+
 uhdr_error_info_t JpegR::getJPEGRInfo(uhdr_compressed_image_t* uhdr_compressed_img,
                                       jr_info_ptr uhdr_image_info) {
   return getJPEGRInfo(uhdr_compressed_img, uhdr_image_info, true, false);
@@ -1718,10 +1853,43 @@ uhdr_error_info_t JpegR::getJPEGRInfoForProbe(uhdr_compressed_image_t* uhdr_comp
 uhdr_error_info_t JpegR::getJPEGRInfo(uhdr_compressed_image_t* uhdr_compressed_img,
                                       jr_info_ptr uhdr_image_info, bool copy_image_data,
                                       bool require_mpf_association) {
-  uhdr_compressed_image_t primary_image, gainmap;
+  if (uhdr_image_info == nullptr) {
+    uhdr_error_info_t status{};
+    status.error_code = UHDR_CODEC_INVALID_PARAM;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail, "received nullptr for uhdr_image_info");
+    return status;
+  }
 
-  UHDR_ERR_CHECK(extractPrimaryImageAndGainMap(uhdr_compressed_img, &primary_image, &gainmap,
-                                               require_mpf_association))
+  uhdr_compressed_image_t primary_image{}, gainmap{};
+  uhdr_error_info_t extract_status = extractPrimaryImageAndGainMap(
+      uhdr_compressed_img, &primary_image, &gainmap, require_mpf_association);
+  if (extract_status.error_code != UHDR_CODEC_OK) {
+    if (primary_image.data != nullptr && primary_image.data_sz > 0 && gainmap.data == nullptr) {
+      jpeg_info_struct parsed_primary;
+      unsigned int parsed_w = 0, parsed_h = 0;
+      smpte2094_50::DynamicMetadata hagc{};
+      if (parseJpegInfo(&primary_image, &parsed_primary, &parsed_w, &parsed_h,
+                        /*copy_image_data=*/false)
+                  .error_code == UHDR_CODEC_OK &&
+          parseAndValidateHagcFromIcc(parsed_primary.iccData.data(), parsed_primary.iccData.size(),
+                                      hagc)
+                  .error_code == UHDR_CODEC_OK) {
+        uhdr_image_info->width = parsed_w;
+        uhdr_image_info->height = parsed_h;
+        if (uhdr_image_info->primaryImgInfo != nullptr) {
+          if (copy_image_data) {
+            parsed_primary.imgData.resize(primary_image.data_sz);
+            memcpy(parsed_primary.imgData.data(), primary_image.data, primary_image.data_sz);
+          }
+          *uhdr_image_info->primaryImgInfo = std::move(parsed_primary);
+        }
+        resetJpegInfoStruct(uhdr_image_info->gainmapImgInfo);
+        return g_no_error;
+      }
+    }
+    return extract_status;
+  }
 
   UHDR_ERR_CHECK(parseJpegInfo(&primary_image, uhdr_image_info->primaryImgInfo,
                                &uhdr_image_info->width, &uhdr_image_info->height, copy_image_data))
@@ -1775,9 +1943,18 @@ uhdr_error_info_t JpegR::decodeJPEGR(uhdr_compressed_image_t* uhdr_compressed_im
                                      uhdr_color_transfer_t output_ct, uhdr_img_fmt_t output_format,
                                      uhdr_raw_image_t* gainmap_img,
                                      uhdr_gainmap_metadata_t* gainmap_metadata) {
-  uhdr_compressed_image_t primary_jpeg_image, gainmap_jpeg_image;
-  UHDR_ERR_CHECK(
-      extractPrimaryImageAndGainMap(uhdr_compressed_img, &primary_jpeg_image, &gainmap_jpeg_image))
+  uhdr_compressed_image_t primary_jpeg_image{}, gainmap_jpeg_image{};
+  uhdr_error_info_t extract_status =
+      extractPrimaryImageAndGainMap(uhdr_compressed_img, &primary_jpeg_image, &gainmap_jpeg_image);
+  if (extract_status.error_code != UHDR_CODEC_OK) {
+    if (primary_jpeg_image.data != nullptr && primary_jpeg_image.data_sz > 0 &&
+        gainmap_jpeg_image.data == nullptr) {
+      primary_jpeg_image.cg = uhdr_compressed_img->cg;
+      return decodeHagcOnlyJpeg(&primary_jpeg_image, dest, max_display_boost, output_ct,
+                                output_format, gainmap_img, gainmap_metadata);
+    }
+    return extract_status;
+  }
 
   JpegDecoderHelper jpeg_dec_obj_sdr;
   UHDR_ERR_CHECK(jpeg_dec_obj_sdr.decompressImage(
@@ -2274,6 +2451,22 @@ uhdr_error_info_t JpegR::extractPrimaryImageAndGainMap(uhdr_compressed_image_t* 
                                                        uhdr_compressed_image_t* primary_image,
                                                        uhdr_compressed_image_t* gainmap_image,
                                                        bool require_mpf_association) {
+  if (primary_image != nullptr) {
+    primary_image->data = nullptr;
+    primary_image->data_sz = 0;
+  }
+  if (gainmap_image != nullptr) {
+    gainmap_image->data = nullptr;
+    gainmap_image->data_sz = 0;
+  }
+  if (jpegr_image == nullptr || jpegr_image->data == nullptr || jpegr_image->data_sz == 0) {
+    uhdr_error_info_t status{};
+    status.error_code = UHDR_CODEC_INVALID_PARAM;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail, "received nullptr or empty jpegr image");
+    return status;
+  }
+
   MessageHandler msg_handler;
   msg_handler.SetMessageWriter(make_unique<AlogMessageWriter>(AlogMessageWriter()));
 
@@ -2326,6 +2519,11 @@ uhdr_error_info_t JpegR::extractPrimaryImageAndGainMap(uhdr_compressed_image_t* 
     return status;
   }
 
+  if (gainmap_image != nullptr) {
+    gainmap_image->data = static_cast<uint8_t*>(jpegr_image->data) + image_ranges[1].GetBegin();
+    gainmap_image->data_sz = image_ranges[1].GetLength();
+  }
+
   if (require_mpf_association && !hasValidMpfAssociation(jpegr_image, jpeg_info)) {
     uhdr_error_info_t status;
     status.error_code = UHDR_CODEC_INVALID_PARAM;
@@ -2333,11 +2531,6 @@ uhdr_error_info_t JpegR::extractPrimaryImageAndGainMap(uhdr_compressed_image_t* 
     snprintf(status.detail, sizeof status.detail,
              "input uhdr image does not contain a valid MPF gain map association");
     return status;
-  }
-
-  if (gainmap_image != nullptr) {
-    gainmap_image->data = static_cast<uint8_t*>(jpegr_image->data) + image_ranges[1].GetBegin();
-    gainmap_image->data_sz = image_ranges[1].GetLength();
   }
 
   // TODO: choose primary image and gain map image carefully
