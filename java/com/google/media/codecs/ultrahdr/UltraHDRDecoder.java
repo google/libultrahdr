@@ -414,7 +414,7 @@ public class UltraHDRDecoder implements AutoCloseable {
             if (decodedDataInt64 == null) {
                 ByteBuffer data = ByteBuffer.wrap(decodedDataNativeOrder);
                 data.order(ByteOrder.nativeOrder());
-                decodedDataInt64 = new long[imgWidth * imgHeight];
+                decodedDataInt64 = new long[imgStride * imgHeight];
                 data.asLongBuffer().get(decodedDataInt64);
             }
             return new RawImage64(decodedDataNativeOrder, imgFormat, imgGamut, imgTransfer,
@@ -424,7 +424,7 @@ public class UltraHDRDecoder implements AutoCloseable {
             if (decodedDataInt32 == null) {
                 ByteBuffer data = ByteBuffer.wrap(decodedDataNativeOrder);
                 data.order(ByteOrder.nativeOrder());
-                decodedDataInt32 = new int[imgWidth * imgHeight];
+                decodedDataInt32 = new int[imgStride * imgHeight];
                 data.asIntBuffer().get(decodedDataInt32);
             }
             return new RawImage32(decodedDataNativeOrder, imgFormat, imgGamut, imgTransfer,
@@ -448,12 +448,13 @@ public class UltraHDRDecoder implements AutoCloseable {
             if (decodedGainMapDataInt32 == null) {
                 ByteBuffer data = ByteBuffer.wrap(decodedGainMapDataNativeOrder);
                 data.order(ByteOrder.nativeOrder());
-                decodedGainMapDataInt32 = new int[imgWidth * imgHeight];
+                decodedGainMapDataInt32 = new int[gainmapStride * gainmapHeight];
                 data.asIntBuffer().get(decodedGainMapDataInt32);
             }
-            return new RawImage32(decodedGainMapDataNativeOrder, imgFormat, imgGamut, imgTransfer,
-                    imgRange, imgWidth, imgHeight, decodedGainMapDataInt32, imgStride);
-        } else if (imgFormat == UHDR_IMG_FMT_8bppYCbCr400) {
+            return new RawImage32(decodedGainMapDataNativeOrder, gainmapFormat,
+                    UHDR_CG_UNSPECIFIED, UHDR_CT_UNSPECIFIED, UHDR_CR_UNSPECIFIED, gainmapWidth,
+                    gainmapHeight, decodedGainMapDataInt32, gainmapStride);
+        } else if (gainmapFormat == UHDR_IMG_FMT_8bppYCbCr400) {
             return new RawImage8(decodedGainMapDataNativeOrder, gainmapFormat, UHDR_CG_UNSPECIFIED,
                     UHDR_CT_UNSPECIFIED, UHDR_CR_UNSPECIFIED, gainmapWidth, gainmapHeight,
                     decodedGainMapDataNativeOrder, gainmapStride);

@@ -915,9 +915,37 @@ if(UHDR_BUILD_JAVA)
   add_dependencies(${UHDR_JNI_TARGET_NAME} ${UHDR_TARGET_NAME})
   target_include_directories(${UHDR_JNI_TARGET_NAME} PRIVATE ${UHDR_JNI_INCLUDE_PATH} ${EXPORT_INCLUDE_DIR})
   target_compile_options(${UHDR_JNI_TARGET_NAME} PRIVATE ${UHDR_WERROR_FLAGS})
+  if(NOT MSVC)
+    target_compile_options(${UHDR_JNI_TARGET_NAME} PRIVATE -Wall -Wextra -Wshadow)
+  endif()
+  if(LIBHEIF_LIB_PREFIX)
+    set_target_properties(${UHDR_JNI_TARGET_NAME} PROPERTIES BUILD_RPATH "${LIBHEIF_LIB_PREFIX}")
+  endif()
   target_link_libraries(${UHDR_JNI_TARGET_NAME} PRIVATE ${UHDR_TARGET_NAME})
 
   add_jar(uhdr-java SOURCES ${UHDR_JAVA_SRCS_LIST} ${UHDR_APP_SRC} ENTRY_POINT UltraHdrApp)
+
+  if(UHDR_BUILD_TESTS)
+    add_jar(uhdr-jni-test
+            SOURCES "${TESTS_DIR}/java/UltraHdrJniTest.java"
+            INCLUDE_JARS uhdr-java
+            ENTRY_POINT UltraHdrJniTest)
+    add_dependencies(uhdr-jni-test uhdr-java ${UHDR_JNI_TARGET_NAME})
+    get_target_property(UHDR_JAVA_JAR_FILE uhdr-java JAR_FILE)
+    get_target_property(UHDR_JNI_TEST_JAR_FILE uhdr-jni-test JAR_FILE)
+    if(WIN32)
+      set(UHDR_JAVA_CLASSPATH "${UHDR_JNI_TEST_JAR_FILE};${UHDR_JAVA_JAR_FILE}")
+    else()
+      set(UHDR_JAVA_CLASSPATH "${UHDR_JNI_TEST_JAR_FILE}:${UHDR_JAVA_JAR_FILE}")
+    endif()
+    add_test(
+      NAME UHDRJniTests
+      COMMAND ${Java_JAVA_EXECUTABLE}
+        "-Djava.library.path=$<TARGET_FILE_DIR:${UHDR_JNI_TARGET_NAME}>"
+        -cp "${UHDR_JAVA_CLASSPATH}"
+        UltraHdrJniTest
+    )
+  endif()
 endif()
 
 if(UHDR_ENABLE_INSTALL)

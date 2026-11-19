@@ -8,7 +8,9 @@
  * except according to those terms.
  */
 
+#include <cstdint>
 #include <cstring>
+#include <limits>
 #include <string>
 
 #include "com_google_media_codecs_ultrahdr_UltraHDRCommon.h"
@@ -62,6 +64,50 @@ static_assert(sizeof(void *) <= sizeof(jlong),
                   "GetFieldID for field 'handle' returned with error", (val))                    \
   jlong handle = env->GetLongField(thiz, fid);
 
+namespace {
+
+bool validatePlaneArray(JNIEnv *env, jarray array, jint rows, jint stride, const char *null_msg,
+                        const char *stride_msg, const char *size_msg) {
+  RET_VAL_IF_TRUE(array == nullptr, "java/io/IOException", null_msg, false)
+  RET_VAL_IF_TRUE(rows <= 0 || stride <= 0, "java/io/IOException", stride_msg, false)
+  const jsize length = env->GetArrayLength(array);
+  const jlong required = static_cast<jlong>(rows) * static_cast<jlong>(stride);
+  RET_VAL_IF_TRUE(static_cast<jlong>(length) < required, "java/io/IOException", size_msg, false)
+  return true;
+}
+
+bool validateByteSlice(JNIEnv *env, jbyteArray data, jint size, const char *null_msg,
+                       const char *size_msg, const char *length_msg, jsize *out_length) {
+  RET_VAL_IF_TRUE(data == nullptr, "java/io/IOException", null_msg, false)
+  RET_VAL_IF_TRUE(size <= 0, "java/io/IOException", size_msg, false)
+  const jsize length = env->GetArrayLength(data);
+  RET_VAL_IF_TRUE(length < size, "java/io/IOException", length_msg, false)
+  if (out_length != nullptr) {
+    *out_length = length;
+  }
+  return true;
+}
+
+jbyteArray copyBytesToJavaByteArray(JNIEnv *env, const void *src, uint64_t byte_count) {
+  constexpr uint64_t kMaxJavaArrayLen =
+      static_cast<uint64_t>(std::numeric_limits<jsize>::max());
+  RET_VAL_IF_TRUE(byte_count > kMaxJavaArrayLen, "java/lang/OutOfMemoryError",
+                  "native buffer size exceeds integer max", nullptr)
+  RET_VAL_IF_TRUE(byte_count > 0 && src == nullptr, "java/io/IOException",
+                  "native output buffer is null", nullptr)
+  jbyteArray output = env->NewByteArray(static_cast<jsize>(byte_count));
+  RET_VAL_IF_TRUE(output == nullptr, "java/lang/OutOfMemoryError",
+                  "failed to allocate storage for output", nullptr)
+  if (byte_count > 0) {
+    env->SetByteArrayRegion(output, 0, static_cast<jsize>(byte_count),
+                            static_cast<const jbyte *>(src));
+    RET_VAL_IF_TRUE(false, "java/io/IOException", "failed to copy native output buffer", nullptr)
+  }
+  return output;
+}
+
+}  // namespace
+
 extern "C" JNIEXPORT void JNICALL
 Java_com_google_media_codecs_ultrahdr_UltraHDREncoder_init(JNIEnv *env, jobject thiz) {
   jclass clazz = env->GetObjectClass(thiz);
@@ -78,7 +124,7 @@ Java_com_google_media_codecs_ultrahdr_UltraHDREncoder_init(JNIEnv *env, jobject 
 extern "C" JNIEXPORT void JNICALL
 Java_com_google_media_codecs_ultrahdr_UltraHDREncoder_destroy(JNIEnv *env, jobject thiz) {
   GET_HANDLE()
-  if (!handle) {
+  if (handle != 0) {
     uhdr_release_encoder((uhdr_codec_private_t *)handle);
     env->SetLongField(thiz, fid, (jlong)0);
   }
@@ -90,10 +136,16 @@ Java_com_google_media_codecs_ultrahdr_UltraHDREncoder_setRawImageNative___3IIIII
     jint color_gamut, jint color_transfer, jint color_range, jint color_format, jint intent) {
   GET_HANDLE()
   RET_IF_TRUE(handle == 0, "java/io/IOException", "invalid encoder instance")
-  jsize length = env->GetArrayLength(rgb_buff);
-  RET_IF_TRUE(length < height * rgb_stride, "java/io/IOException",
-              "raw image rgba byteArray size is less than required size")
+  RET_IF_TRUE(width <= 0 || height <= 0, "java/io/IOException",
+              "received bad width and/or height, width or height is <= 0")
+  if (!validatePlaneArray(env, rgb_buff, height, rgb_stride, "received null for image data handle",
+                          "received bad stride, stride is <= 0",
+                          "raw image rgba intArray size is less than required size")) {
+    return;
+  }
   jint *rgbBody = env->GetIntArrayElements(rgb_buff, nullptr);
+  RET_IF_TRUE(rgbBody == nullptr, "java/lang/OutOfMemoryError",
+              "failed to access raw image rgba intArray elements")
   uhdr_raw_image_t img{(uhdr_img_fmt_t)color_format,
                        (uhdr_color_gamut_t)color_gamut,
                        (uhdr_color_transfer_t)color_transfer,
@@ -104,7 +156,7 @@ Java_com_google_media_codecs_ultrahdr_UltraHDREncoder_setRawImageNative___3IIIII
                        {(unsigned int)rgb_stride, 0u, 0u}};
   auto status =
       uhdr_enc_set_raw_image((uhdr_codec_private_t *)handle, &img, (uhdr_img_label_t)intent);
-  env->ReleaseIntArrayElements(rgb_buff, rgbBody, 0);
+  env->ReleaseIntArrayElements(rgb_buff, rgbBody, JNI_ABORT);
   RET_IF_TRUE(status.error_code != UHDR_CODEC_OK, "java/io/IOException",
               status.has_detail ? status.detail : "uhdr_enc_set_raw_image() returned with error")
 }
@@ -115,10 +167,16 @@ Java_com_google_media_codecs_ultrahdr_UltraHDREncoder_setRawImageNative___3JIIII
     jint color_gamut, jint color_transfer, jint color_range, jint color_format, jint intent) {
   GET_HANDLE()
   RET_IF_TRUE(handle == 0, "java/io/IOException", "invalid encoder instance")
-  jsize length = env->GetArrayLength(rgb_buff);
-  RET_IF_TRUE(length < height * rgb_stride, "java/io/IOException",
-              "raw image rgba byteArray size is less than required size")
+  RET_IF_TRUE(width <= 0 || height <= 0, "java/io/IOException",
+              "received bad width and/or height, width or height is <= 0")
+  if (!validatePlaneArray(env, rgb_buff, height, rgb_stride, "received null for image data handle",
+                          "received bad stride, stride is <= 0",
+                          "raw image rgba longArray size is less than required size")) {
+    return;
+  }
   jlong *rgbBody = env->GetLongArrayElements(rgb_buff, nullptr);
+  RET_IF_TRUE(rgbBody == nullptr, "java/lang/OutOfMemoryError",
+              "failed to access raw image rgba longArray elements")
   uhdr_raw_image_t img{(uhdr_img_fmt_t)color_format,
                        (uhdr_color_gamut_t)color_gamut,
                        (uhdr_color_transfer_t)color_transfer,
@@ -129,7 +187,7 @@ Java_com_google_media_codecs_ultrahdr_UltraHDREncoder_setRawImageNative___3JIIII
                        {(unsigned int)rgb_stride, 0u, 0u}};
   auto status =
       uhdr_enc_set_raw_image((uhdr_codec_private_t *)handle, &img, (uhdr_img_label_t)intent);
-  env->ReleaseLongArrayElements(rgb_buff, rgbBody, 0);
+  env->ReleaseLongArrayElements(rgb_buff, rgbBody, JNI_ABORT);
   RET_IF_TRUE(status.error_code != UHDR_CODEC_OK, "java/io/IOException",
               status.has_detail ? status.detail : "uhdr_enc_set_raw_image() returned with error")
 }
@@ -141,14 +199,29 @@ Java_com_google_media_codecs_ultrahdr_UltraHDREncoder_setRawImageNative___3S_3SI
     jint color_format, jint intent) {
   GET_HANDLE()
   RET_IF_TRUE(handle == 0, "java/io/IOException", "invalid encoder instance")
-  jsize length = env->GetArrayLength(y_buff);
-  RET_IF_TRUE(length < height * y_stride, "java/io/IOException",
-              "raw image luma byteArray size is less than required size")
-  length = env->GetArrayLength(uv_buff);
-  RET_IF_TRUE(length < height * uv_stride / 2, "java/io/IOException",
-              "raw image chroma byteArray size is less than required size")
+  RET_IF_TRUE(width <= 0 || height <= 0, "java/io/IOException",
+              "received bad width and/or height, width or height is <= 0")
+  const jint chroma_rows = height / 2 + (height % 2);
+  if (!validatePlaneArray(env, y_buff, height, y_stride, "received null for image data handle",
+                          "received bad stride, stride is <= 0",
+                          "raw image luma shortArray size is less than required size")) {
+    return;
+  }
+  if (!validatePlaneArray(env, uv_buff, chroma_rows, uv_stride,
+                          "received null for image data handle",
+                          "received bad stride, stride is <= 0",
+                          "raw image chroma shortArray size is less than required size")) {
+    return;
+  }
   jshort *lumaBody = env->GetShortArrayElements(y_buff, nullptr);
+  RET_IF_TRUE(lumaBody == nullptr, "java/lang/OutOfMemoryError",
+              "failed to access raw image luma shortArray elements")
   jshort *chromaBody = env->GetShortArrayElements(uv_buff, nullptr);
+  if (chromaBody == nullptr) {
+    env->ReleaseShortArrayElements(y_buff, lumaBody, JNI_ABORT);
+    RET_IF_TRUE(true, "java/lang/OutOfMemoryError",
+                "failed to access raw image chroma shortArray elements")
+  }
   uhdr_raw_image_t img{(uhdr_img_fmt_t)color_format,
                        (uhdr_color_gamut_t)color_gamut,
                        (uhdr_color_transfer_t)color_transfer,
@@ -159,8 +232,8 @@ Java_com_google_media_codecs_ultrahdr_UltraHDREncoder_setRawImageNative___3S_3SI
                        {(unsigned int)y_stride, (unsigned int)uv_stride, 0u}};
   auto status =
       uhdr_enc_set_raw_image((uhdr_codec_private_t *)handle, &img, (uhdr_img_label_t)intent);
-  env->ReleaseShortArrayElements(y_buff, lumaBody, 0);
-  env->ReleaseShortArrayElements(uv_buff, chromaBody, 0);
+  env->ReleaseShortArrayElements(y_buff, lumaBody, JNI_ABORT);
+  env->ReleaseShortArrayElements(uv_buff, chromaBody, JNI_ABORT);
   RET_IF_TRUE(status.error_code != UHDR_CODEC_OK, "java/io/IOException",
               status.has_detail ? status.detail : "uhdr_enc_set_raw_image() returned with error")
 }
@@ -172,18 +245,42 @@ Java_com_google_media_codecs_ultrahdr_UltraHDREncoder_setRawImageNative___3B_3B_
     jint color_range, jint color_format, jint intent) {
   GET_HANDLE()
   RET_IF_TRUE(handle == 0, "java/io/IOException", "invalid encoder instance")
-  jsize length = env->GetArrayLength(y_buff);
-  RET_IF_TRUE(length < height * y_stride, "java/io/IOException",
-              "raw image luma byteArray size is less than required size")
-  length = env->GetArrayLength(u_buff);
-  RET_IF_TRUE(length < height * u_stride / 4, "java/io/IOException",
-              "raw image cb byteArray size is less than required size")
-  length = env->GetArrayLength(v_buff);
-  RET_IF_TRUE(length < height * v_stride / 4, "java/io/IOException",
-              "raw image cb byteArray size is less than required size")
+  RET_IF_TRUE(width <= 0 || height <= 0, "java/io/IOException",
+              "received bad width and/or height, width or height is <= 0")
+  const jint chroma_rows = height / 2 + (height % 2);
+  if (!validatePlaneArray(env, y_buff, height, y_stride, "received null for image data handle",
+                          "received bad stride, stride is <= 0",
+                          "raw image luma byteArray size is less than required size")) {
+    return;
+  }
+  if (!validatePlaneArray(env, u_buff, chroma_rows, u_stride,
+                          "received null for image data handle",
+                          "received bad stride, stride is <= 0",
+                          "raw image cb byteArray size is less than required size")) {
+    return;
+  }
+  if (!validatePlaneArray(env, v_buff, chroma_rows, v_stride,
+                          "received null for image data handle",
+                          "received bad stride, stride is <= 0",
+                          "raw image cr byteArray size is less than required size")) {
+    return;
+  }
   jbyte *lumaBody = env->GetByteArrayElements(y_buff, nullptr);
+  RET_IF_TRUE(lumaBody == nullptr, "java/lang/OutOfMemoryError",
+              "failed to access raw image luma byteArray elements")
   jbyte *cbBody = env->GetByteArrayElements(u_buff, nullptr);
+  if (cbBody == nullptr) {
+    env->ReleaseByteArrayElements(y_buff, lumaBody, JNI_ABORT);
+    RET_IF_TRUE(true, "java/lang/OutOfMemoryError",
+                "failed to access raw image cb byteArray elements")
+  }
   jbyte *crBody = env->GetByteArrayElements(v_buff, nullptr);
+  if (crBody == nullptr) {
+    env->ReleaseByteArrayElements(u_buff, cbBody, JNI_ABORT);
+    env->ReleaseByteArrayElements(y_buff, lumaBody, JNI_ABORT);
+    RET_IF_TRUE(true, "java/lang/OutOfMemoryError",
+                "failed to access raw image cr byteArray elements")
+  }
   uhdr_raw_image_t img{(uhdr_img_fmt_t)color_format,
                        (uhdr_color_gamut_t)color_gamut,
                        (uhdr_color_transfer_t)color_transfer,
@@ -194,9 +291,9 @@ Java_com_google_media_codecs_ultrahdr_UltraHDREncoder_setRawImageNative___3B_3B_
                        {(unsigned int)y_stride, (unsigned int)u_stride, (unsigned int)v_stride}};
   auto status =
       uhdr_enc_set_raw_image((uhdr_codec_private_t *)handle, &img, (uhdr_img_label_t)intent);
-  env->ReleaseByteArrayElements(y_buff, lumaBody, 0);
-  env->ReleaseByteArrayElements(u_buff, cbBody, 0);
-  env->ReleaseByteArrayElements(v_buff, crBody, 0);
+  env->ReleaseByteArrayElements(y_buff, lumaBody, JNI_ABORT);
+  env->ReleaseByteArrayElements(u_buff, cbBody, JNI_ABORT);
+  env->ReleaseByteArrayElements(v_buff, crBody, JNI_ABORT);
   RET_IF_TRUE(status.error_code != UHDR_CODEC_OK, "java/io/IOException",
               status.has_detail ? status.detail : "uhdr_enc_set_raw_image() returned with error")
 }
@@ -207,10 +304,15 @@ Java_com_google_media_codecs_ultrahdr_UltraHDREncoder_setCompressedImageNative(
     jint range, jint intent) {
   GET_HANDLE()
   RET_IF_TRUE(handle == 0, "java/io/IOException", "invalid encoder instance")
-  jsize length = env->GetArrayLength(data);
-  RET_IF_TRUE(length < size, "java/io/IOException",
-              "compressed image byteArray size is less than configured size")
+  jsize length = 0;
+  if (!validateByteSlice(env, data, size, "received null for image data handle",
+                         "received invalid compressed image size, size is <= 0",
+                         "compressed image byteArray size is less than configured size", &length)) {
+    return;
+  }
   jbyte *body = env->GetByteArrayElements(data, nullptr);
+  RET_IF_TRUE(body == nullptr, "java/lang/OutOfMemoryError",
+              "failed to access compressed image byteArray elements")
   uhdr_compressed_image_t img{body,
                               (unsigned int)size,
                               (unsigned int)length,
@@ -219,7 +321,7 @@ Java_com_google_media_codecs_ultrahdr_UltraHDREncoder_setCompressedImageNative(
                               (uhdr_color_range_t)range};
   auto status =
       uhdr_enc_set_compressed_image((uhdr_codec_private_t *)handle, &img, (uhdr_img_label_t)intent);
-  env->ReleaseByteArrayElements(data, body, 0);
+  env->ReleaseByteArrayElements(data, body, JNI_ABORT);
   RET_IF_TRUE(
       status.error_code != UHDR_CODEC_OK, "java/io/IOException",
       status.has_detail ? status.detail : "uhdr_enc_set_compressed_image() returned with error")
@@ -233,23 +335,20 @@ Java_com_google_media_codecs_ultrahdr_UltraHDREncoder_setGainMapImageInfoNative(
     jboolean use_base_color_space) {
   GET_HANDLE()
   RET_IF_TRUE(handle == 0, "java/io/IOException", "invalid encoder instance")
-  jsize length = env->GetArrayLength(data);
-  RET_IF_TRUE(length < size, "java/io/IOException",
-              "compressed image byteArray size is less than configured size")
-  jbyte *body = env->GetByteArrayElements(data, nullptr);
-  uhdr_compressed_image_t img{body,
-                              (unsigned int)size,
-                              (unsigned int)length,
-                              UHDR_CG_UNSPECIFIED,
-                              UHDR_CT_UNSPECIFIED,
-                              UHDR_CR_UNSPECIFIED};
+  jsize length = 0;
+  if (!validateByteSlice(env, data, size, "received null for image data handle",
+                         "received invalid compressed image size, size is <= 0",
+                         "compressed image byteArray size is less than configured size", &length)) {
+    return;
+  }
 
-#define GET_FLOAT_ARRAY(env, srcArray, dstArray)                                   \
-  {                                                                                \
-    RET_IF_TRUE(srcArray == nullptr, "java/io/IOException", "received nullptr");   \
-    jsize length = env->GetArrayLength(srcArray);                                  \
-    RET_IF_TRUE(length != 3, "java/io/IOException", "array must have 3 elements"); \
-    env->GetFloatArrayRegion(srcArray, 0, 3, dstArray);                            \
+#define GET_FLOAT_ARRAY(env, srcArray, dstArray)                                        \
+  {                                                                                     \
+    RET_IF_TRUE(srcArray == nullptr, "java/io/IOException", "received nullptr")         \
+    jsize array_len = env->GetArrayLength(srcArray);                                    \
+    RET_IF_TRUE(array_len != 3, "java/io/IOException", "array must have 3 elements")    \
+    env->GetFloatArrayRegion(srcArray, 0, 3, dstArray);                                 \
+    RET_IF_TRUE(false, "java/io/IOException", "failed to read float array elements")    \
   }
   uhdr_gainmap_metadata_t metadata{};
   GET_FLOAT_ARRAY(env, max_content_boost, metadata.max_content_boost)
@@ -257,11 +356,22 @@ Java_com_google_media_codecs_ultrahdr_UltraHDREncoder_setGainMapImageInfoNative(
   GET_FLOAT_ARRAY(env, gainmap_gamma, metadata.gamma)
   GET_FLOAT_ARRAY(env, offset_sdr, metadata.offset_sdr)
   GET_FLOAT_ARRAY(env, offset_hdr, metadata.offset_hdr)
+#undef GET_FLOAT_ARRAY
   metadata.hdr_capacity_min = hdr_capacity_min;
   metadata.hdr_capacity_max = hdr_capacity_max;
   metadata.use_base_cg = use_base_color_space;
+
+  jbyte *body = env->GetByteArrayElements(data, nullptr);
+  RET_IF_TRUE(body == nullptr, "java/lang/OutOfMemoryError",
+              "failed to access gainmap image byteArray elements")
+  uhdr_compressed_image_t img{body,
+                              (unsigned int)size,
+                              (unsigned int)length,
+                              UHDR_CG_UNSPECIFIED,
+                              UHDR_CT_UNSPECIFIED,
+                              UHDR_CR_UNSPECIFIED};
   auto status = uhdr_enc_set_gainmap_image((uhdr_codec_private_t *)handle, &img, &metadata);
-  env->ReleaseByteArrayElements(data, body, 0);
+  env->ReleaseByteArrayElements(data, body, JNI_ABORT);
   RET_IF_TRUE(
       status.error_code != UHDR_CODEC_OK, "java/io/IOException",
       status.has_detail ? status.detail : "uhdr_enc_set_gainmap_image() returned with error")
@@ -273,13 +383,18 @@ Java_com_google_media_codecs_ultrahdr_UltraHDREncoder_setExifDataNative(JNIEnv *
                                                                         jint size) {
   GET_HANDLE()
   RET_IF_TRUE(handle == 0, "java/io/IOException", "invalid encoder instance")
-  jsize length = env->GetArrayLength(data);
-  RET_IF_TRUE(length < size, "java/io/IOException",
-              "compressed image byteArray size is less than configured size")
+  jsize length = 0;
+  if (!validateByteSlice(env, data, size, "received null for exif data handle",
+                         "received invalid exif size, size is <= 0",
+                         "exif byteArray size is less than configured size", &length)) {
+    return;
+  }
   jbyte *body = env->GetByteArrayElements(data, nullptr);
+  RET_IF_TRUE(body == nullptr, "java/lang/OutOfMemoryError",
+              "failed to access exif byteArray elements")
   uhdr_mem_block_t exif{body, (unsigned int)size, (unsigned int)length};
   auto status = uhdr_enc_set_exif_data((uhdr_codec_private_t *)handle, &exif);
-  env->ReleaseByteArrayElements(data, body, 0);
+  env->ReleaseByteArrayElements(data, body, JNI_ABORT);
   RET_IF_TRUE(status.error_code != UHDR_CODEC_OK, "java/io/IOException",
               status.has_detail ? status.detail : "uhdr_enc_set_exif_data() returned with error")
 }
@@ -397,13 +512,7 @@ Java_com_google_media_codecs_ultrahdr_UltraHDREncoder_getOutputNative(JNIEnv *en
                   "no output returned, may be call to uhdr_encode() was not made or encountered "
                   "error during encoding process.",
                   nullptr)
-  RET_VAL_IF_TRUE(enc_output->data_sz >= INT32_MAX, "java/lang/OutOfMemoryError",
-                  "encoded output size exceeds integer max", nullptr)
-  jbyteArray output = env->NewByteArray(enc_output->data_sz);
-  RET_VAL_IF_TRUE(output == nullptr, "java/io/IOException", "failed to allocate storage for output",
-                  nullptr)
-  env->SetByteArrayRegion(output, 0, enc_output->data_sz, (jbyte *)enc_output->data);
-  return output;
+  return copyBytesToJavaByteArray(env, enc_output->data, enc_output->data_sz);
 }
 
 extern "C" JNIEXPORT void JNICALL
@@ -414,15 +523,18 @@ Java_com_google_media_codecs_ultrahdr_UltraHDREncoder_resetNative(JNIEnv *env, j
 }
 
 extern "C" JNIEXPORT jint JNICALL
-Java_com_google_media_codecs_ultrahdr_UltraHDRDecoder_isUHDRImageNative(JNIEnv *env, jclass clazz,
-                                                                        jbyteArray data,
-                                                                        jint size) {
-  jsize length = env->GetArrayLength(data);
-  RET_VAL_IF_TRUE(length < size, "java/io/IOException",
-                  "compressed image byteArray size is less than configured size", 0)
+Java_com_google_media_codecs_ultrahdr_UltraHDRDecoder_isUHDRImageNative(
+    JNIEnv *env, [[maybe_unused]] jclass clazz, jbyteArray data, jint size) {
+  if (!validateByteSlice(env, data, size, "received null for image data handle",
+                         "received invalid compressed image size, size is <= 0",
+                         "compressed image byteArray size is less than configured size", nullptr)) {
+    return 0;
+  }
   jbyte *body = env->GetByteArrayElements(data, nullptr);
+  RET_VAL_IF_TRUE(body == nullptr, "java/lang/OutOfMemoryError",
+                  "failed to access compressed image byteArray elements", 0)
   auto status = is_uhdr_image(body, size);
-  env->ReleaseByteArrayElements(data, body, 0);
+  env->ReleaseByteArrayElements(data, body, JNI_ABORT);
   return status;
 }
 
@@ -442,7 +554,7 @@ Java_com_google_media_codecs_ultrahdr_UltraHDRDecoder_init(JNIEnv *env, jobject 
 extern "C" JNIEXPORT void JNICALL
 Java_com_google_media_codecs_ultrahdr_UltraHDRDecoder_destroy(JNIEnv *env, jobject thiz) {
   GET_HANDLE()
-  if (!handle) {
+  if (handle != 0) {
     uhdr_release_decoder((uhdr_codec_private *)handle);
     env->SetLongField(thiz, fid, (jlong)0);
   }
@@ -452,13 +564,17 @@ extern "C" JNIEXPORT void JNICALL
 Java_com_google_media_codecs_ultrahdr_UltraHDRDecoder_setCompressedImageNative(
     JNIEnv *env, jobject thiz, jbyteArray data, jint size, jint color_gamut, jint color_transfer,
     jint range) {
-  RET_IF_TRUE(size < 0, "java/io/IOException", "invalid compressed image size")
   GET_HANDLE()
   RET_IF_TRUE(handle == 0, "java/io/IOException", "invalid decoder instance")
-  jsize length = env->GetArrayLength(data);
-  RET_IF_TRUE(length < size, "java/io/IOException",
-              "compressed image byteArray size is less than configured size")
+  jsize length = 0;
+  if (!validateByteSlice(env, data, size, "received null for image data handle",
+                         "invalid compressed image size",
+                         "compressed image byteArray size is less than configured size", &length)) {
+    return;
+  }
   jbyte *body = env->GetByteArrayElements(data, nullptr);
+  RET_IF_TRUE(body == nullptr, "java/lang/OutOfMemoryError",
+              "failed to access compressed image byteArray elements")
   uhdr_compressed_image_t img{body,
                               (unsigned int)size,
                               (unsigned int)length,
@@ -466,7 +582,7 @@ Java_com_google_media_codecs_ultrahdr_UltraHDRDecoder_setCompressedImageNative(
                               (uhdr_color_transfer_t)color_transfer,
                               (uhdr_color_range_t)range};
   uhdr_error_info_t status = uhdr_dec_set_image((uhdr_codec_private_t *)handle, &img);
-  env->ReleaseByteArrayElements(data, body, 0);
+  env->ReleaseByteArrayElements(data, body, JNI_ABORT);
   RET_IF_TRUE(status.error_code != UHDR_CODEC_OK, "java/io/IOException",
               status.has_detail ? status.detail : "uhdr_dec_set_image() returned with error")
 }
@@ -576,11 +692,7 @@ Java_com_google_media_codecs_ultrahdr_UltraHDRDecoder_getExifNative(JNIEnv *env,
   uhdr_mem_block_t *exifData = uhdr_dec_get_exif((uhdr_codec_private_t *)handle);
   RET_VAL_IF_TRUE(exifData == nullptr, "java/io/IOException",
                   "uhdr_dec_probe() is not yet called or it has returned with error", nullptr)
-  jbyteArray data = env->NewByteArray(exifData->data_sz);
-  jbyte *dataptr = env->GetByteArrayElements(data, nullptr);
-  std::memcpy(dataptr, exifData->data, exifData->data_sz);
-  env->ReleaseByteArrayElements(data, dataptr, 0);
-  return data;
+  return copyBytesToJavaByteArray(env, exifData->data, exifData->data_sz);
 }
 
 extern "C" JNIEXPORT jbyteArray JNICALL
@@ -589,11 +701,7 @@ Java_com_google_media_codecs_ultrahdr_UltraHDRDecoder_getIccNative(JNIEnv *env, 
   uhdr_mem_block_t *iccData = uhdr_dec_get_icc((uhdr_codec_private_t *)handle);
   RET_VAL_IF_TRUE(iccData == nullptr, "java/io/IOException",
                   "uhdr_dec_probe() is not yet called or it has returned with error", nullptr)
-  jbyteArray data = env->NewByteArray(iccData->data_sz);
-  jbyte *dataptr = env->GetByteArrayElements(data, nullptr);
-  std::memcpy(dataptr, iccData->data, iccData->data_sz);
-  env->ReleaseByteArrayElements(data, dataptr, 0);
-  return data;
+  return copyBytesToJavaByteArray(env, iccData->data, iccData->data_sz);
 }
 
 extern "C" JNIEXPORT jbyteArray JNICALL
@@ -603,11 +711,7 @@ Java_com_google_media_codecs_ultrahdr_UltraHDRDecoder_getBaseImageNative(JNIEnv 
   uhdr_mem_block_t *baseImgData = uhdr_dec_get_base_image((uhdr_codec_private_t *)handle);
   RET_VAL_IF_TRUE(baseImgData == nullptr, "java/io/IOException",
                   "uhdr_dec_probe() is not yet called or it has returned with error", nullptr)
-  jbyteArray data = env->NewByteArray(baseImgData->data_sz);
-  jbyte *dataptr = env->GetByteArrayElements(data, nullptr);
-  std::memcpy(dataptr, baseImgData->data, baseImgData->data_sz);
-  env->ReleaseByteArrayElements(data, dataptr, 0);
-  return data;
+  return copyBytesToJavaByteArray(env, baseImgData->data, baseImgData->data_sz);
 }
 
 extern "C" JNIEXPORT jbyteArray JNICALL
@@ -617,11 +721,7 @@ Java_com_google_media_codecs_ultrahdr_UltraHDRDecoder_getGainMapImageNative(JNIE
   uhdr_mem_block_t *gainmapImgData = uhdr_dec_get_gainmap_image((uhdr_codec_private_t *)handle);
   RET_VAL_IF_TRUE(gainmapImgData == nullptr, "java/io/IOException",
                   "uhdr_dec_probe() is not yet called or it has returned with error", nullptr)
-  jbyteArray data = env->NewByteArray(gainmapImgData->data_sz);
-  jbyte *dataptr = env->GetByteArrayElements(data, nullptr);
-  std::memcpy(dataptr, gainmapImgData->data, gainmapImgData->data_sz);
-  env->ReleaseByteArrayElements(data, dataptr, 0);
-  return data;
+  return copyBytesToJavaByteArray(env, gainmapImgData->data, gainmapImgData->data_sz);
 }
 
 extern "C" JNIEXPORT void JNICALL
@@ -668,6 +768,9 @@ Java_com_google_media_codecs_ultrahdr_UltraHDRDecoder_getGainmapMetadataNative(J
     env->SetBooleanField(thiz, fID, (jboolean)val);                   \
   }
   SET_BOOLEAN_FIELD("useBaseColorSpace", gainmap_metadata->use_base_cg)
+#undef SET_FLOAT_ARRAY_FIELD
+#undef SET_FLOAT_FIELD
+#undef SET_BOOLEAN_FIELD
 }
 
 extern "C" JNIEXPORT void JNICALL
@@ -679,6 +782,14 @@ Java_com_google_media_codecs_ultrahdr_UltraHDRDecoder_decodeNative(JNIEnv *env, 
               status.has_detail ? status.detail : "uhdr_decode() returned with error")
 }
 
+#define SET_INT_FIELD(name, val)                                                   \
+  {                                                                                \
+    jfieldID fID = env->GetFieldID(clazz, name, "I");                              \
+    RET_VAL_IF_TRUE(fID == nullptr, "java/io/IOException",                         \
+                    "GetFieldID for field " #name " returned with error", nullptr) \
+    env->SetIntField(thiz, fID, (jint)val);                                        \
+  }
+
 extern "C" JNIEXPORT jbyteArray JNICALL
 Java_com_google_media_codecs_ultrahdr_UltraHDRDecoder_getDecodedImageNative(JNIEnv *env,
                                                                             jobject thiz) {
@@ -686,18 +797,13 @@ Java_com_google_media_codecs_ultrahdr_UltraHDRDecoder_getDecodedImageNative(JNIE
   uhdr_raw_image_t *decodedImg = uhdr_get_decoded_image((uhdr_codec_private_t *)handle);
   RET_VAL_IF_TRUE(decodedImg == nullptr, "java/io/IOException",
                   "uhdr_decode() is not yet called or it has returned with error", nullptr)
-  int bpp = decodedImg->fmt == UHDR_IMG_FMT_64bppRGBAHalfFloat ? 8 : 4;
-  jbyteArray data = env->NewByteArray(decodedImg->stride[UHDR_PLANE_PACKED] * decodedImg->h * bpp);
-  jbyte *dataptr = env->GetByteArrayElements(data, nullptr);
-  std::memcpy(dataptr, decodedImg->planes[UHDR_PLANE_PACKED],
-              decodedImg->stride[UHDR_PLANE_PACKED] * decodedImg->h * bpp);
-  env->ReleaseByteArrayElements(data, dataptr, 0);
-#define SET_INT_FIELD(name, val)                                                   \
-  {                                                                                \
-    jfieldID fID = env->GetFieldID(clazz, name, "I");                              \
-    RET_VAL_IF_TRUE(fID == nullptr, "java/io/IOException",                         \
-                    "GetFieldID for field " #name " returned with error", nullptr) \
-    env->SetIntField(thiz, fID, (jint)val);                                        \
+  const uint64_t bpp = decodedImg->fmt == UHDR_IMG_FMT_64bppRGBAHalfFloat ? 8u : 4u;
+  const uint64_t byte_count = static_cast<uint64_t>(decodedImg->stride[UHDR_PLANE_PACKED]) *
+                              static_cast<uint64_t>(decodedImg->h) * bpp;
+  jbyteArray data =
+      copyBytesToJavaByteArray(env, decodedImg->planes[UHDR_PLANE_PACKED], byte_count);
+  if (data == nullptr) {
+    return nullptr;
   }
   SET_INT_FIELD("imgWidth", decodedImg->w)
   SET_INT_FIELD("imgHeight", decodedImg->h)
@@ -716,18 +822,22 @@ Java_com_google_media_codecs_ultrahdr_UltraHDRDecoder_getDecodedGainMapImageNati
   uhdr_raw_image_t *gainmapImg = uhdr_get_decoded_gainmap_image((uhdr_codec_private_t *)handle);
   RET_VAL_IF_TRUE(gainmapImg == nullptr, "java/io/IOException",
                   "uhdr_decode() is not yet called or it has returned with error", nullptr)
-  int bpp = gainmapImg->fmt == UHDR_IMG_FMT_32bppRGBA8888 ? 4 : 1;
-  jbyteArray data = env->NewByteArray(gainmapImg->stride[UHDR_PLANE_PACKED] * gainmapImg->h * bpp);
-  jbyte *dataptr = env->GetByteArrayElements(data, nullptr);
-  std::memcpy(dataptr, gainmapImg->planes[UHDR_PLANE_PACKED],
-              gainmapImg->stride[UHDR_PLANE_PACKED] * gainmapImg->h * bpp);
-  env->ReleaseByteArrayElements(data, dataptr, 0);
+  const uint64_t bpp = gainmapImg->fmt == UHDR_IMG_FMT_32bppRGBA8888 ? 4u : 1u;
+  const uint64_t byte_count = static_cast<uint64_t>(gainmapImg->stride[UHDR_PLANE_PACKED]) *
+                              static_cast<uint64_t>(gainmapImg->h) * bpp;
+  jbyteArray data =
+      copyBytesToJavaByteArray(env, gainmapImg->planes[UHDR_PLANE_PACKED], byte_count);
+  if (data == nullptr) {
+    return nullptr;
+  }
   SET_INT_FIELD("gainmapWidth", gainmapImg->w)
   SET_INT_FIELD("gainmapHeight", gainmapImg->h)
   SET_INT_FIELD("gainmapStride", gainmapImg->stride[UHDR_PLANE_PACKED])
   SET_INT_FIELD("gainmapFormat", gainmapImg->fmt)
   return data;
 }
+
+#undef SET_INT_FIELD
 
 extern "C" JNIEXPORT void JNICALL
 Java_com_google_media_codecs_ultrahdr_UltraHDRDecoder_resetNative(JNIEnv *env, jobject thiz) {
@@ -737,13 +847,14 @@ Java_com_google_media_codecs_ultrahdr_UltraHDRDecoder_resetNative(JNIEnv *env, j
 }
 
 extern "C" JNIEXPORT jstring JNICALL
-Java_com_google_media_codecs_ultrahdr_UltraHDRCommon_getVersionStringNative(JNIEnv *env,
-                                                                            jclass clazz) {
+Java_com_google_media_codecs_ultrahdr_UltraHDRCommon_getVersionStringNative(
+    JNIEnv *env, [[maybe_unused]] jclass clazz) {
   std::string version{"v" UHDR_LIB_VERSION_STR};
   return env->NewStringUTF(version.c_str());
 }
 
 extern "C" JNIEXPORT jint JNICALL
-Java_com_google_media_codecs_ultrahdr_UltraHDRCommon_getVersionNative(JNIEnv *env, jclass clazz) {
+Java_com_google_media_codecs_ultrahdr_UltraHDRCommon_getVersionNative(
+    [[maybe_unused]] JNIEnv *env, [[maybe_unused]] jclass clazz) {
   return UHDR_LIB_VERSION;
 }
