@@ -258,7 +258,7 @@ class XMPXmlHandler : public XmlHandler {
       stringstream ss(maxContentBoostStr);
       float val;
       if (ss >> val) {
-        *max_content_boost = exp2(val);
+        *max_content_boost = isApple ? val : exp2(val);
         return true;
       } else {
         return false;
