@@ -710,6 +710,10 @@ uhdr_error_info_t UltraHdr::generateGainMap(uhdr_raw_image_t* sdr_intent,
     map_width = image_width / mMapDimensionScaleFactor;
     map_height = image_height / mMapDimensionScaleFactor;
   }
+  const bool sampleSdrInLinearLightBeforeScaling =
+      mUseMultiChannelGainMap && mMapDimensionScaleFactor > 1 &&
+      sdr_intent->fmt == UHDR_IMG_FMT_32bppRGBA8888 &&
+      hdr_intent->fmt == UHDR_IMG_FMT_64bppRGBAHalfFloat && hdr_intent->ct == UHDR_CT_LINEAR;
 
   // NOTE: Even though gainmap image raw descriptor is being initialized with hdr intent's color
   // aspects, one should not associate gainmap image to this color profile. gain map image gamut
@@ -726,7 +730,7 @@ uhdr_error_info_t UltraHdr::generateGainMap(uhdr_raw_image_t* sdr_intent,
                                  hdrInvOetf, hdrLuminanceFn, hdrOotfFn, hdrGamutConversionFn,
                                  sdrGamutConversionFn, luminanceFn, sdrYuvToRgbFn, hdrYuvToRgbFn,
                                  sdr_sample_pixel_fn, hdr_sample_pixel_fn, hdr_white_nits,
-                                 use_luminance]() -> void {
+                                 use_luminance, sampleSdrInLinearLightBeforeScaling]() -> void {
     std::fill_n(gainmap_metadata->max_content_boost, 3, hdr_white_nits / kSdrWhiteNits);
     std::fill_n(gainmap_metadata->min_content_boost, 3, 1.0f);
     std::fill_n(gainmap_metadata->gamma, 3, mGamma);
@@ -750,7 +754,7 @@ uhdr_error_info_t UltraHdr::generateGainMap(uhdr_raw_image_t* sdr_intent,
         [this, sdr_intent, hdr_intent, gainmap_metadata, dest, hdrInvOetf, hdrLuminanceFn,
          hdrOotfFn, hdrGamutConversionFn, sdrGamutConversionFn, luminanceFn, sdrYuvToRgbFn,
          hdrYuvToRgbFn, sdr_sample_pixel_fn, hdr_sample_pixel_fn, hdr_white_nits, log2MinBoost,
-         log2MaxBoost, use_luminance, &jobQueue]() -> void {
+         log2MaxBoost, use_luminance, sampleSdrInLinearLightBeforeScaling, &jobQueue]() -> void {
       unsigned int rowStart, rowEnd;
       const bool isHdrIntentRgb = isPixelFormatRgb(hdr_intent->fmt);
       const bool isSdrIntentRgb = isPixelFormatRgb(sdr_intent->fmt);
@@ -759,21 +763,25 @@ uhdr_error_info_t UltraHdr::generateGainMap(uhdr_raw_image_t* sdr_intent,
       while (jobQueue.dequeueJob(rowStart, rowEnd)) {
         for (size_t y = rowStart; y < rowEnd; ++y) {
           for (size_t x = 0; x < dest->w; ++x) {
-            Color sdr_rgb_gamma;
-
-            if (isSdrIntentRgb) {
-              sdr_rgb_gamma = sdr_sample_pixel_fn(sdr_intent, mMapDimensionScaleFactor, x, y);
+            Color sdr_rgb;
+            if (sampleSdrInLinearLightBeforeScaling) {
+              sdr_rgb = sampleRgba8888Linear(sdr_intent, mMapDimensionScaleFactor, x, y);
             } else {
-              Color sdr_yuv_gamma = sdr_sample_pixel_fn(sdr_intent, mMapDimensionScaleFactor, x, y);
-              sdr_rgb_gamma = sdrYuvToRgbFn(sdr_yuv_gamma);
-            }
+              Color sdr_rgb_gamma;
+              if (isSdrIntentRgb) {
+                sdr_rgb_gamma = sdr_sample_pixel_fn(sdr_intent, mMapDimensionScaleFactor, x, y);
+              } else {
+                Color sdr_yuv_gamma = sdr_sample_pixel_fn(sdr_intent, mMapDimensionScaleFactor, x, y);
+                sdr_rgb_gamma = sdrYuvToRgbFn(sdr_yuv_gamma);
+              }
 
-            // We are assuming the SDR input is always sRGB transfer.
+              // We are assuming the SDR input is always sRGB transfer.
 #if USE_SRGB_INVOETF_LUT
-            Color sdr_rgb = srgbInvOetfLUT(sdr_rgb_gamma);
+              sdr_rgb = srgbInvOetfLUT(sdr_rgb_gamma);
 #else
-            Color sdr_rgb = srgbInvOetf(sdr_rgb_gamma);
+              sdr_rgb = srgbInvOetf(sdr_rgb_gamma);
 #endif
+            }
             sdr_rgb = sdrGamutConversionFn(sdr_rgb);
             sdr_rgb = clipNegatives(sdr_rgb);
 
@@ -844,7 +852,8 @@ uhdr_error_info_t UltraHdr::generateGainMap(uhdr_raw_image_t* sdr_intent,
                                  map_height, hdrInvOetf, hdrLuminanceFn, hdrOotfFn,
                                  hdrGamutConversionFn, sdrGamutConversionFn, luminanceFn,
                                  sdrYuvToRgbFn, hdrYuvToRgbFn, sdr_sample_pixel_fn,
-                                 hdr_sample_pixel_fn, hdr_white_nits, use_luminance]() -> void {
+                                 hdr_sample_pixel_fn, hdr_white_nits, use_luminance,
+                                 sampleSdrInLinearLightBeforeScaling]() -> void {
     const float sdr_offset_nits = kSdrOffset * kSdrWhiteNits;
     const float hdr_offset_nits = kHdrOffset * kSdrWhiteNits;
 
@@ -863,7 +872,8 @@ uhdr_error_info_t UltraHdr::generateGainMap(uhdr_raw_image_t* sdr_intent,
         [this, sdr_intent, hdr_intent, gainmap_data, map_width, hdrInvOetf, hdrLuminanceFn,
          hdrOotfFn, hdrGamutConversionFn, sdrGamutConversionFn, luminanceFn, sdrYuvToRgbFn,
          hdrYuvToRgbFn, sdr_sample_pixel_fn, hdr_sample_pixel_fn, hdr_white_nits, use_luminance,
-         sdr_offset_nits, hdr_offset_nits, &gainmap_min, &gainmap_max, &gainmap_minmax,
+         sdr_offset_nits, hdr_offset_nits, sampleSdrInLinearLightBeforeScaling, &gainmap_min,
+         &gainmap_max, &gainmap_minmax,
          &jobQueue]() -> void {
       unsigned int rowStart, rowEnd;
       const bool isHdrIntentRgb = isPixelFormatRgb(hdr_intent->fmt);
@@ -876,21 +886,25 @@ uhdr_error_info_t UltraHdr::generateGainMap(uhdr_raw_image_t* sdr_intent,
       while (jobQueue.dequeueJob(rowStart, rowEnd)) {
         for (size_t y = rowStart; y < rowEnd; ++y) {
           for (size_t x = 0; x < map_width; ++x) {
-            Color sdr_rgb_gamma;
-
-            if (isSdrIntentRgb) {
-              sdr_rgb_gamma = sdr_sample_pixel_fn(sdr_intent, mMapDimensionScaleFactor, x, y);
+            Color sdr_rgb;
+            if (sampleSdrInLinearLightBeforeScaling) {
+              sdr_rgb = sampleRgba8888Linear(sdr_intent, mMapDimensionScaleFactor, x, y);
             } else {
-              Color sdr_yuv_gamma = sdr_sample_pixel_fn(sdr_intent, mMapDimensionScaleFactor, x, y);
-              sdr_rgb_gamma = sdrYuvToRgbFn(sdr_yuv_gamma);
-            }
+              Color sdr_rgb_gamma;
+              if (isSdrIntentRgb) {
+                sdr_rgb_gamma = sdr_sample_pixel_fn(sdr_intent, mMapDimensionScaleFactor, x, y);
+              } else {
+                Color sdr_yuv_gamma = sdr_sample_pixel_fn(sdr_intent, mMapDimensionScaleFactor, x, y);
+                sdr_rgb_gamma = sdrYuvToRgbFn(sdr_yuv_gamma);
+              }
 
-            // We are assuming the SDR input is always sRGB transfer.
+              // We are assuming the SDR input is always sRGB transfer.
 #if USE_SRGB_INVOETF_LUT
-            Color sdr_rgb = srgbInvOetfLUT(sdr_rgb_gamma);
+              sdr_rgb = srgbInvOetfLUT(sdr_rgb_gamma);
 #else
-            Color sdr_rgb = srgbInvOetf(sdr_rgb_gamma);
+              sdr_rgb = srgbInvOetf(sdr_rgb_gamma);
 #endif
+            }
             sdr_rgb = sdrGamutConversionFn(sdr_rgb);
             sdr_rgb = clipNegatives(sdr_rgb);
 

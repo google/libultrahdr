@@ -20,9 +20,11 @@
 #include <cstring>
 #include <fstream>
 #include <iostream>
+#include <vector>
 
 #include "ultrahdr_api.h"
 
+#include "ultrahdr/gainmapmath.h"
 #include "ultrahdr/ultrahdrcommon.h"
 #include "ultrahdr/jpegr.h"
 #include "ultrahdr/jpegrutils.h"
@@ -1584,6 +1586,171 @@ class TestJpegR : public JpegR {
  public:
   using JpegR::applyGainMap;
 };
+
+constexpr unsigned int kGainMapRegressionImageWidth = 32;
+constexpr unsigned int kGainMapRegressionImageHeight = 32;
+
+void fillPaddedBlackWhiteCheckerboard(uhdr_raw_image_ext_t& sdr_intent,
+                                      uhdr_raw_image_ext_t& hdr_intent) {
+  const size_t sdr_stride = sdr_intent.stride[UHDR_PLANE_PACKED];
+  const size_t hdr_stride = hdr_intent.stride[UHDR_PLANE_PACKED];
+  auto* sdr_pixels = static_cast<uint32_t*>(sdr_intent.planes[UHDR_PLANE_PACKED]);
+  auto* hdr_pixels = static_cast<uint64_t*>(hdr_intent.planes[UHDR_PLANE_PACKED]);
+  std::fill_n(sdr_pixels, sdr_stride * kGainMapRegressionImageHeight, 0);
+  std::fill_n(hdr_pixels, hdr_stride * kGainMapRegressionImageHeight, 0);
+
+  for (unsigned int y = 0; y < kGainMapRegressionImageHeight; ++y) {
+    for (unsigned int x = 0; x < kGainMapRegressionImageWidth; ++x) {
+      const bool white = ((x + y) & 1) == 0;
+      const uint32_t sdr_code = white ? 255 : 0;
+      sdr_pixels[y * sdr_stride + x] =
+          sdr_code | (sdr_code << 8) | (sdr_code << 16) | 0xff000000;
+
+      const uint64_t hdr_channel = floatToHalf(white ? 2.0f : 0.0f);
+      const uint64_t alpha = floatToHalf(1.0f);
+      hdr_pixels[y * hdr_stride + x] =
+          hdr_channel | (hdr_channel << 16) | (hdr_channel << 32) | (alpha << 48);
+    }
+  }
+}
+
+TEST(JpegRTest, GenerateGainMapUsesLinearSdrSamplingOnlyForScaledRgbMaps) {
+  uhdr_raw_image_ext_t sdr_intent(
+      UHDR_IMG_FMT_32bppRGBA8888, UHDR_CG_DISPLAY_P3, UHDR_CT_SRGB, UHDR_CR_FULL_RANGE,
+      kGainMapRegressionImageWidth, kGainMapRegressionImageHeight, 64);
+  uhdr_raw_image_ext_t hdr_intent(UHDR_IMG_FMT_64bppRGBAHalfFloat, UHDR_CG_DISPLAY_P3,
+                                  UHDR_CT_LINEAR, UHDR_CR_FULL_RANGE,
+                                  kGainMapRegressionImageWidth, kGainMapRegressionImageHeight, 64);
+  const size_t sdr_stride = sdr_intent.stride[UHDR_PLANE_PACKED];
+  const size_t hdr_stride = hdr_intent.stride[UHDR_PLANE_PACKED];
+  ASSERT_GT(sdr_stride, kGainMapRegressionImageWidth);
+  ASSERT_GT(hdr_stride, kGainMapRegressionImageWidth);
+  fillPaddedBlackWhiteCheckerboard(sdr_intent, hdr_intent);
+
+  // These ratios are derived in normalized linear light, before conversion to nits.
+  const float expectedScaledGainRatio = (1.0f + kHdrOffset) / (0.5f + kSdrOffset);
+  for (const int scale : {2, 4}) {
+    UltraHdr encoder(nullptr, scale, kQuality, true, 1.0f, UHDR_USAGE_BEST_QUALITY);
+    uhdr_gainmap_metadata_ext_t metadata(kJpegrVersion);
+    std::unique_ptr<uhdr_raw_image_ext_t> gainmap;
+    const uhdr_error_info_t status =
+        encoder.generateGainMap(&sdr_intent, &hdr_intent, &metadata, gainmap);
+
+    ASSERT_EQ(UHDR_CODEC_OK, status.error_code);
+    ASSERT_NE(gainmap, nullptr);
+    ASSERT_EQ(UHDR_IMG_FMT_24bppRGB888, gainmap->fmt);
+    EXPECT_EQ(kGainMapRegressionImageWidth / scale, gainmap->w);
+    EXPECT_EQ(kGainMapRegressionImageHeight / scale, gainmap->h);
+    for (int channel = 0; channel < 3; ++channel) {
+      EXPECT_NEAR(expectedScaledGainRatio, metadata.min_content_boost[channel], 1e-3f);
+    }
+
+    const uint8_t* gainmap_pixels =
+        reinterpret_cast<const uint8_t*>(gainmap->planes[UHDR_PLANE_PACKED]);
+    for (unsigned int y = 0; y < gainmap->h; ++y) {
+      for (unsigned int x = 0; x < gainmap->w; ++x) {
+        const size_t pixel_index =
+            (x + y * gainmap->stride[UHDR_PLANE_PACKED]) * 3;
+        for (int channel = 0; channel < 3; ++channel) {
+          // The best-quality path maps offset-adjusted log gains in two passes. encodeGain
+          // instead encodes an unoffset HDR/SDR ratio for the realtime path.
+          const uint8_t expected = affineMapGain(
+              log2(expectedScaledGainRatio), log2(metadata.min_content_boost[channel]),
+              log2(metadata.max_content_boost[channel]), metadata.gamma[channel]);
+          EXPECT_EQ(expected, gainmap_pixels[pixel_index + channel])
+              << "scale=" << scale << ", x=" << x << ", y=" << y
+              << ", channel=" << channel;
+        }
+      }
+    }
+  }
+
+  // Scale one is the full-resolution control and keeps the legacy per-pixel gains.
+  UltraHdr full_resolution_encoder(nullptr, 1, kQuality, true, 1.0f, UHDR_USAGE_BEST_QUALITY);
+  uhdr_gainmap_metadata_ext_t full_resolution_metadata(kJpegrVersion);
+  std::unique_ptr<uhdr_raw_image_ext_t> full_resolution_gainmap;
+  const uhdr_error_info_t full_resolution_status = full_resolution_encoder.generateGainMap(
+      &sdr_intent, &hdr_intent, &full_resolution_metadata, full_resolution_gainmap);
+  ASSERT_EQ(UHDR_CODEC_OK, full_resolution_status.error_code);
+  ASSERT_NE(full_resolution_gainmap, nullptr);
+  const float expectedBlackGainRatio = kHdrOffset / kSdrOffset;
+  const float expectedWhiteGainRatio = (2.0f + kHdrOffset) / (1.0f + kSdrOffset);
+  EXPECT_NEAR(expectedBlackGainRatio, full_resolution_metadata.min_content_boost[0], 1e-3f);
+  EXPECT_NEAR(expectedWhiteGainRatio, full_resolution_metadata.max_content_boost[0], 1e-3f);
+
+  // The monochrome gain-map path remains outside the RGB-only sampling correction.
+  UltraHdr monochrome_encoder(nullptr, 2, kQuality, false, 1.0f, UHDR_USAGE_BEST_QUALITY);
+  uhdr_gainmap_metadata_ext_t monochrome_metadata(kJpegrVersion);
+  std::unique_ptr<uhdr_raw_image_ext_t> monochrome_gainmap;
+  const uhdr_error_info_t monochrome_status = monochrome_encoder.generateGainMap(
+      &sdr_intent, &hdr_intent, &monochrome_metadata, monochrome_gainmap);
+  ASSERT_EQ(UHDR_CODEC_OK, monochrome_status.error_code);
+  ASSERT_NE(monochrome_gainmap, nullptr);
+  ASSERT_EQ(UHDR_IMG_FMT_8bppYCbCr400, monochrome_gainmap->fmt);
+#if USE_SRGB_INVOETF_LUT
+  const float legacy_sdr_linear = srgbInvOetfLUT(0.5f);
+#else
+  const float legacy_sdr_linear = srgbInvOetf(0.5f);
+#endif
+  const float expectedMonochromeGainRatio =
+      (1.0f + kHdrOffset) / (legacy_sdr_linear + kSdrOffset);
+  EXPECT_NEAR(expectedMonochromeGainRatio, monochrome_metadata.min_content_boost[0], 1e-3f);
+}
+
+TEST(JpegRTest, GenerateRealtimeGainMapUsesLinearSdrSamplingForScaledRgbMaps) {
+  uhdr_raw_image_ext_t sdr_intent(
+      UHDR_IMG_FMT_32bppRGBA8888, UHDR_CG_DISPLAY_P3, UHDR_CT_SRGB, UHDR_CR_FULL_RANGE,
+      kGainMapRegressionImageWidth, kGainMapRegressionImageHeight, 64);
+  uhdr_raw_image_ext_t hdr_intent(UHDR_IMG_FMT_64bppRGBAHalfFloat, UHDR_CG_DISPLAY_P3,
+                                  UHDR_CT_LINEAR, UHDR_CR_FULL_RANGE,
+                                  kGainMapRegressionImageWidth, kGainMapRegressionImageHeight, 64);
+  ASSERT_GT(sdr_intent.stride[UHDR_PLANE_PACKED], kGainMapRegressionImageWidth);
+  ASSERT_GT(hdr_intent.stride[UHDR_PLANE_PACKED], kGainMapRegressionImageWidth);
+  fillPaddedBlackWhiteCheckerboard(sdr_intent, hdr_intent);
+
+  // Each scaled block has linear SDR/HDR means of 0.5 and 1.0, so its unoffset gain is 2.
+  // Realtime maps [1, kPqMaxNits / kSdrWhiteNits] with gamma 1 and truncates to a byte.
+  // Averaging the sRGB codes before linearization would instead produce the baseline code 100.
+  const float expectedGainRatio = 2.0f;
+  const float expectedMaxBoost = kPqMaxNits / kSdrWhiteNits;
+  const uint8_t expectedRealtimeCode = static_cast<uint8_t>(
+      255.0f * log2(expectedGainRatio) / log2(expectedMaxBoost));
+  EXPECT_EQ(45, expectedRealtimeCode);
+
+  for (const int scale : {2, 4}) {
+    UltraHdr encoder(nullptr, scale, kQuality, true, 1.0f, UHDR_USAGE_REALTIME);
+    uhdr_gainmap_metadata_ext_t metadata(kJpegrVersion);
+    std::unique_ptr<uhdr_raw_image_ext_t> gainmap;
+    const uhdr_error_info_t status =
+        encoder.generateGainMap(&sdr_intent, &hdr_intent, &metadata, gainmap);
+
+    ASSERT_EQ(UHDR_CODEC_OK, status.error_code);
+    ASSERT_NE(gainmap, nullptr);
+    ASSERT_EQ(UHDR_IMG_FMT_24bppRGB888, gainmap->fmt);
+    EXPECT_EQ(kGainMapRegressionImageWidth / scale, gainmap->w);
+    EXPECT_EQ(kGainMapRegressionImageHeight / scale, gainmap->h);
+    for (int channel = 0; channel < 3; ++channel) {
+      EXPECT_FLOAT_EQ(1.0f, metadata.min_content_boost[channel]);
+      EXPECT_FLOAT_EQ(expectedMaxBoost, metadata.max_content_boost[channel]);
+      EXPECT_FLOAT_EQ(1.0f, metadata.gamma[channel]);
+      EXPECT_FLOAT_EQ(0.0f, metadata.offset_sdr[channel]);
+      EXPECT_FLOAT_EQ(0.0f, metadata.offset_hdr[channel]);
+    }
+
+    const uint8_t* gainmap_pixels =
+        reinterpret_cast<const uint8_t*>(gainmap->planes[UHDR_PLANE_PACKED]);
+    for (unsigned int y = 0; y < gainmap->h; ++y) {
+      for (unsigned int x = 0; x < gainmap->w; ++x) {
+        const size_t pixel_index = (x + y * gainmap->stride[UHDR_PLANE_PACKED]) * 3;
+        for (int channel = 0; channel < 3; ++channel) {
+          EXPECT_EQ(expectedRealtimeCode, gainmap_pixels[pixel_index + channel])
+              << "scale=" << scale << ", x=" << x << ", y=" << y
+              << ", channel=" << channel;
+        }
+      }
+    }
+  }
+}
 
 TEST(JpegRTest, ApplyGainMapInvalidArgs) {
   TestJpegR uHdrLib;
