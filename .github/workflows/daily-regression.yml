@@ -41,6 +41,20 @@ jobs:
             cmake-opts: "-DUHDR_BUILD_TESTS=1 -DUHDR_BUILD_DEPS=1 -DUHDR_ENABLE_HEIF=0 -DUHDR_ENABLE_WERROR=1"
             enable_heif: "OFF"
 
+          - name: "Linux GCC (HEIF ON, Dual ISO+XMP)"
+            os: ubuntu-latest
+            cc: gcc
+            cxx: g++
+            cmake-opts: "-DUHDR_BUILD_TESTS=1 -DUHDR_BUILD_DEPS=1 -DUHDR_ENABLE_HEIF=1 -DUHDR_WRITE_ISO=1 -DUHDR_WRITE_XMP=1 -DUHDR_ENABLE_WERROR=1"
+            enable_heif: "ON"
+
+          - name: "Linux Clang (HEIF ON, XMP Only)"
+            os: ubuntu-latest
+            cc: clang
+            cxx: clang++
+            cmake-opts: "-DUHDR_BUILD_TESTS=1 -DUHDR_BUILD_DEPS=1 -DUHDR_ENABLE_HEIF=1 -DUHDR_WRITE_ISO=0 -DUHDR_WRITE_XMP=1 -DUHDR_ENABLE_WERROR=1"
+            enable_heif: "ON"
+
           # --- System libheif Configuration ---
           - name: "Linux GCC (System libheif-dev)"
             os: ubuntu-latest
