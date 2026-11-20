@@ -25,6 +25,7 @@
 #include "ultrahdr/heifultrahdr.h"
 #include "ultrahdr/gainmapmath.h"
 #include "ultrahdr/gainmapmetadata.h"
+#include "ultrahdr/jpegrutils.h"
 
 #define UHDR_CG_BT_601 static_cast<uhdr_color_gamut_t>(3)
 
@@ -367,13 +368,16 @@ HeifUltraHdr::HeifUltraHdr(void* uhdrGLESCtxt, int mapDimensionScaleFactor, int 
       mCodec(codec) {}
 
 /* Encode API-0 */
-uhdr_error_info_t HeifUltraHdr::encodeHeicUltraHdr(uhdr_raw_image_t* hdr_intent, uhdr_compressed_image_t* dest,
-                                     int quality, uhdr_mem_block_t* exif) {
+uhdr_error_info_t HeifUltraHdr::encodeHeicUltraHdr(uhdr_raw_image_t* hdr_intent,
+                                                   uhdr_compressed_image_t* dest, int quality,
+                                                   uhdr_mem_block_t* exif,
+                                                   uhdr_mem_block_t* xmp) {
   uhdr_owned_buffer_t output;
   if (dest == nullptr || dest->data == nullptr) {
     return invalidOutputDestination();
   }
-  uhdr_error_info_t status = encodeHeicUltraHdrToOwnedBuffer(hdr_intent, &output, quality, exif);
+  uhdr_error_info_t status =
+      encodeHeicUltraHdrToOwnedBuffer(hdr_intent, &output, quality, exif, xmp);
   if (status.error_code != UHDR_CODEC_OK) return status;
   return copyOwnedBufferToCompressedImage(output, dest);
 }
@@ -381,7 +385,8 @@ uhdr_error_info_t HeifUltraHdr::encodeHeicUltraHdr(uhdr_raw_image_t* hdr_intent,
 uhdr_error_info_t HeifUltraHdr::encodeHeicUltraHdrToOwnedBuffer(uhdr_raw_image_t* hdr_intent,
                                                                 uhdr_owned_buffer_t* dest,
                                                                 int quality,
-                                                                uhdr_mem_block_t* exif) {
+                                                                uhdr_mem_block_t* exif,
+                                                                uhdr_mem_block_t* xmp) {
   if (dest == nullptr) {
     return invalidOutputDestination();
   }
@@ -444,26 +449,28 @@ uhdr_error_info_t HeifUltraHdr::encodeHeicUltraHdrToOwnedBuffer(uhdr_raw_image_t
       IccHelper::writeIccProfile(gainmap->ct, gainmap->cg);
 
   return encodeHeicUltraHdr(sdr_intent_yuv, hdr_intent, gainmap.get(), &metadata, dest, quality,
-                            exif, baseIcc.get(), alternateIcc.get());
+                            exif, baseIcc.get(), alternateIcc.get(), xmp);
 }
 
 /* Encode API-1 */
-uhdr_error_info_t HeifUltraHdr::encodeHeicUltraHdr(uhdr_raw_image_t* hdr_intent, uhdr_raw_image_t* sdr_intent,
-                                     uhdr_compressed_image_t* dest, int quality,
-                                     uhdr_mem_block_t* exif) {
+uhdr_error_info_t HeifUltraHdr::encodeHeicUltraHdr(uhdr_raw_image_t* hdr_intent,
+                                                   uhdr_raw_image_t* sdr_intent,
+                                                   uhdr_compressed_image_t* dest, int quality,
+                                                   uhdr_mem_block_t* exif,
+                                                   uhdr_mem_block_t* xmp) {
   uhdr_owned_buffer_t output;
   if (dest == nullptr || dest->data == nullptr) {
     return invalidOutputDestination();
   }
   uhdr_error_info_t status =
-      encodeHeicUltraHdrToOwnedBuffer(hdr_intent, sdr_intent, &output, quality, exif);
+      encodeHeicUltraHdrToOwnedBuffer(hdr_intent, sdr_intent, &output, quality, exif, xmp);
   if (status.error_code != UHDR_CODEC_OK) return status;
   return copyOwnedBufferToCompressedImage(output, dest);
 }
 
 uhdr_error_info_t HeifUltraHdr::encodeHeicUltraHdrToOwnedBuffer(
     uhdr_raw_image_t* hdr_intent, uhdr_raw_image_t* sdr_intent, uhdr_owned_buffer_t* dest,
-    int quality, uhdr_mem_block_t* exif) {
+    int quality, uhdr_mem_block_t* exif, uhdr_mem_block_t* xmp) {
   if (dest == nullptr) {
     return invalidOutputDestination();
   }
@@ -497,7 +504,7 @@ uhdr_error_info_t HeifUltraHdr::encodeHeicUltraHdrToOwnedBuffer(
       IccHelper::writeIccProfile(gainmap->ct, gainmap->cg);
 
   return encodeHeicUltraHdr(sdr_intent_yuv, sdr_intent, gainmap.get(), &metadata, dest, quality,
-                            exif, baseIcc.get(), alternateIcc.get());
+                            exif, baseIcc.get(), alternateIcc.get(), xmp);
 }
 
 uhdr_error_info_t HeifUltraHdr::encodeHeicUltraHdr(uhdr_raw_image_t* sdr_intent,
@@ -506,7 +513,8 @@ uhdr_error_info_t HeifUltraHdr::encodeHeicUltraHdr(uhdr_raw_image_t* sdr_intent,
                                                    uhdr_gainmap_metadata_ext_t* metadata,
                                                    uhdr_owned_buffer_t* dest, int quality,
                                                    uhdr_mem_block_t* exif, DataStruct* baseIcc,
-                                                   DataStruct* alternateIcc) {
+                                                   DataStruct* alternateIcc,
+                                                   uhdr_mem_block_t* xmp) {
   uhdr_error_info_t status = g_no_error;
   if (dest == nullptr) {
     return invalidOutputDestination();
@@ -598,6 +606,46 @@ uhdr_error_info_t HeifUltraHdr::encodeHeicUltraHdr(uhdr_raw_image_t* sdr_intent,
   HEIF_ERR_CHECK(heif_context_encode_image(ctx, baseImage, encoder, options, &baseHandle));
   if (exif != nullptr) {
     HEIF_ERR_CHECK(heif_context_add_exif_metadata(ctx, baseHandle, exif->data, exif->data_sz));
+  }
+  if (xmp != nullptr) {
+    if (xmp->data == nullptr && xmp->data_sz > 0) {
+      status.error_code = UHDR_CODEC_INVALID_PARAM;
+      status.has_detail = 1;
+      snprintf(status.detail, sizeof status.detail, "received nullptr for xmp->data");
+      goto CleanUp;
+    }
+    const char* xmp_data = static_cast<const char*>(xmp->data);
+    size_t xmp_size = xmp->data_sz;
+    constexpr char kXmpHeader[] = "http://ns.adobe.com/xap/1.0/";
+    constexpr size_t kXmpHeaderLen = sizeof(kXmpHeader) - 1;
+    if (xmp_data != nullptr && xmp_size > kXmpHeaderLen &&
+        memcmp(xmp_data, kXmpHeader, kXmpHeaderLen) == 0) {
+      size_t offset = kXmpHeaderLen;
+      if (xmp_data[offset] == '\0') {
+        offset++;
+      }
+      xmp_data += offset;
+      xmp_size -= offset;
+    }
+    if (xmp_size > static_cast<size_t>(std::numeric_limits<int>::max())) {
+      status.error_code = UHDR_CODEC_INVALID_PARAM;
+      status.has_detail = 1;
+      snprintf(status.detail, sizeof status.detail,
+               "xmp size %zu exceeds maximum supported size", xmp_size);
+      goto CleanUp;
+    }
+    std::string cleaned_xmp;
+    if (xmp_data != nullptr && xmp_size > 0) {
+      std::string raw_xmp(xmp_data, xmp_size);
+      if (stripGainMapFromXmp(raw_xmp, &cleaned_xmp)) {
+        xmp_data = cleaned_xmp.data();
+        xmp_size = cleaned_xmp.size();
+      }
+    }
+    if (xmp_data != nullptr && xmp_size > 0) {
+      HEIF_ERR_CHECK(
+          heif_context_add_XMP_metadata(ctx, baseHandle, xmp_data, static_cast<int>(xmp_size)));
+    }
   }
 
   // encode the gain map image
