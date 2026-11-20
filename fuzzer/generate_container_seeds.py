@@ -23,6 +23,10 @@ container parsing paths. Random bytes cannot produce this hierarchy, which is
 why the corpus is generated here (run from ossfuzz.sh) instead of relied upon
 from mutation alone.
 
+Each seed ends with a trailing 0x00 mode byte so the harness selects decode
+mode without truncating the container payload (FuzzedDataProvider consumes
+integrals from the end of the buffer).
+
 Usage: generate_container_seeds.py <output-dir>
 """
 
@@ -46,21 +50,27 @@ def fourcc(s: str) -> bytes:
 def iso21496_metadata(multichannel: bool, use_base_cg: bool, backward: bool,
                       common_denominator: bool) -> bytes:
     """ISO/IEC 21496-1 gain map metadata blob, layout per
-    uhdr_gainmap_metadata_frac::decodeGainmapMetadata()."""
+    uhdr_gainmap_metadata_frac::decodeGainmapMetadata().
+
+    Flag bits (see gainmapmetadata.h):
+      bit 7 = multichannel, bit 6 = use base colour space,
+      bit 2 = backward, bit 3 = common denominator (legacy layout).
+    """
     channels = 3 if multichannel else 1
-    flags = ((1 << 0) if multichannel else 0) | ((1 << 1) if use_base_cg else 0) \
+    flags = ((1 << 7) if multichannel else 0) | ((1 << 6) if use_base_cg else 0) \
         | ((1 << 2) if backward else 0) | ((1 << 3) if common_denominator else 0)
     out = struct.pack(">HHB", 0, 0, flags)  # min_version, writer_version, flags
     if common_denominator:
+        # Legacy layout: one common D, then numerators only.
         out += struct.pack(">I", 1 << 8)  # common denominator
         out += struct.pack(">I", 1 << 8)  # base hdr headroom N
         out += struct.pack(">I", 16 << 8)  # alternate hdr headroom N
         for _ in range(channels):
-            out += struct.pack(">iI", -1 << 8, 1 << 8)  # gain map min N/D
-            out += struct.pack(">iI", 1 << 12, 1 << 8)  # gain map max N/D
-            out += struct.pack(">iI", 1 << 8, 1 << 8)  # gamma N/D
-            out += struct.pack(">iI", 1 << 8, 1 << 8)  # base offset N/D
-            out += struct.pack(">iI", 0, 1 << 8)  # alternate offset N/D
+            out += struct.pack(">i", -1 << 8)  # gain map min N
+            out += struct.pack(">i", 1 << 12)  # gain map max N
+            out += struct.pack(">I", 1 << 8)  # gamma N
+            out += struct.pack(">i", 1 << 8)  # base offset N
+            out += struct.pack(">i", 0)  # alternate offset N
     else:
         out += struct.pack(">I", 1 << 8) + struct.pack(">I", 1 << 8)  # base headroom N/D
         out += struct.pack(">I", 16 << 8) + struct.pack(">I", 1 << 8)  # alt headroom N/D
@@ -90,6 +100,17 @@ def hvcc() -> bytes:
                                0x00, 0x00, 0x00, 0x00, 0xF0]))
 
 
+def build_iloc(locs: list) -> bytes:
+    # offset_size=4, length_size=4, base_offset_size=0, index_size=0
+    return fullbox(b"iloc", 0, 0,
+                   bytes([0x44, 0x00]) + struct.pack(">H", len(locs)) + b"".join(locs))
+
+
+def iloc_entry(item_id: int, offset: int, length: int) -> bytes:
+    # construction_method=0 (file), data_reference_index=0, extent_count=1
+    return struct.pack(">HHH", item_id, 0, 1) + struct.pack(">II", offset, length)
+
+
 def build_container(codec: str, multichannel: bool, use_base_cg: bool, backward: bool,
                     common_denominator: bool, with_gainmap: bool) -> bytes:
     item_type = fourcc("av01") if codec == "avif" else fourcc("hvc1")
@@ -104,9 +125,9 @@ def build_container(codec: str, multichannel: bool, use_base_cg: bool, backward:
     metadata = iso21496_metadata(multichannel, use_base_cg, backward, common_denominator)
 
     mdat_payload = codestream_a + (codestream_b if with_gainmap else b"") + metadata
-    off_a = 0
-    off_b = len(codestream_a)
-    off_m = off_b + (len(codestream_b) if with_gainmap else 0)
+    rel_a = 0
+    rel_b = len(codestream_a)
+    rel_m = rel_b + (len(codestream_b) if with_gainmap else 0)
 
     # ---- properties (ipco) ----
     ispe = fullbox(b"ispe", 0, 0, struct.pack(">II", 64, 64))
@@ -141,29 +162,32 @@ def build_container(codec: str, multichannel: bool, use_base_cg: bool, backward:
     entries.append(infe(3, fourcc("tmap"), b"GMapData"))
     iinf = fullbox(b"iinf", 0, 0, struct.pack(">H", len(entries)) + b"".join(entries))
 
-    # ---- item location (iloc), offset/length size = 4 bytes, no base offset ----
-    def iloc_entry(item_id: int, offset: int, length: int) -> bytes:
-        return struct.pack(">HHH", item_id, 0, 1) + struct.pack(">II", offset, length)
-
-    locs = [iloc_entry(1, off_a, len(codestream_a))]
-    if with_gainmap:
-        locs.append(iloc_entry(2, off_b, len(codestream_b)))
-    locs.append(iloc_entry(3, off_m, len(metadata)))
-    iloc = fullbox(b"iloc", 0, 0,
-                   bytes([0x44, 0x00]) + struct.pack(">H", len(locs)) + b"".join(locs))
-
-
     hdlr = fullbox(b"hdlr", 0, 0,
                    struct.pack(">I", 0) + fourcc("pict") + struct.pack(">III", 0, 0, 0) + b"\x00")
     pitm = fullbox(b"pitm", 0, 0, struct.pack(">H", 1))
 
-    meta_payload = hdlr + pitm + iinf
+    iref = b""
     if with_gainmap:
-        # iref: tmap item (3) --dimg--> [primary (1), gain map (2)]
-        iref = fullbox(b"iref", 0, 0, struct.pack(">HHHH", 3, 2, 1, 2))
-        meta_payload += iref
-    meta_payload += iprp + iloc
-    meta = fullbox(b"meta", 0, 0, meta_payload)
+        # iref contains a SingleItemTypeReferenceBox 'dimg':
+        # tmap item (3) --dimg--> [primary (1), gain map (2)]
+        dimg = box(b"dimg", struct.pack(">HHHH", 3, 2, 1, 2))
+        iref = fullbox(b"iref", 0, 0, dimg)
+
+    # Build meta once with placeholder file offsets (iloc size is fixed), then
+    # rewrite iloc with absolute offsets into the file (mdat payload start).
+    n_items = 2 + (1 if with_gainmap else 0)
+    placeholder_locs = [iloc_entry(i + 1, 0, 1) for i in range(n_items)]
+    meta_prefix = hdlr + pitm + iinf + iref + iprp
+    meta_with_placeholder = fullbox(b"meta", 0, 0,
+                                    meta_prefix + build_iloc(placeholder_locs))
+    mdat_data_off = len(ftyp) + len(meta_with_placeholder) + 8
+
+    locs = [iloc_entry(1, mdat_data_off + rel_a, len(codestream_a))]
+    if with_gainmap:
+        locs.append(iloc_entry(2, mdat_data_off + rel_b, len(codestream_b)))
+    locs.append(iloc_entry(3, mdat_data_off + rel_m, len(metadata)))
+    meta = fullbox(b"meta", 0, 0, meta_prefix + build_iloc(locs))
+    assert len(meta) == len(meta_with_placeholder)
 
     mdat = box(b"mdat", mdat_payload)
     return ftyp + meta + mdat
@@ -199,7 +223,9 @@ def main() -> None:
     ]
 
     for name, kwargs in variants:
-        data = build_container(**kwargs)
+        # Trailing 0 selects decode mode in the harness without truncating the
+        # ISOBMFF payload (FDP reads integrals from the end).
+        data = build_container(**kwargs) + b"\x00"
         with open(os.path.join(out_dir, f"ultrahdr_container_{name}.uhdr"), "wb") as fh:
             fh.write(data)
     print(f"wrote {len(variants)} seeds to {out_dir}")
@@ -207,4 +233,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

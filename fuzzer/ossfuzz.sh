@@ -14,6 +14,11 @@ test "${WORK}" != "" || exit 1
 # Build static, instrumented libaom (av1 decode + encode) and install
 # system-wide so libheif's FindAOM picks it up; runtime images ship no codec
 # shared libraries, so the codecs must be compiled into the fuzz targets.
+# Requires $SRC/aom from the OSS-Fuzz Dockerfile (google/oss-fuzz#16583).
+if [ ! -d "$SRC/aom" ]; then
+  echo "error: $SRC/aom missing; clone libaom in the OSS-Fuzz Dockerfile" >&2
+  exit 1
+fi
 aom_build=$WORK/aom-build
 rm -rf ${aom_build}
 cmake -S $SRC/aom -B ${aom_build} -DCMAKE_BUILD_TYPE= \

@@ -66,20 +66,13 @@ constexpr int kDimMax = 144;
 
 int evenDim(int v) { return v & ~1; }
 
-// Decodes |data| as an Ultra HDR container image (HEIF/AVIF or JPEG) with a
-// fuzz-selected output color transfer / pixel format / display boost.
-void decodeContainer(const uint8_t* data, size_t size, FuzzedDataProvider& fdp) {
+// Decodes |data| as an Ultra HDR container image (HEIF/AVIF or JPEG) with the
+// given output colour transfer / pixel format / display boost.
+void decodeContainer(const uint8_t* data, size_t size, uhdr_color_transfer_t outCt,
+                     uhdr_img_fmt_t outFmt, float maxBoost) {
   uhdr_compressed_image_t input{const_cast<uint8_t*>(data), (unsigned int)size,
                                 (unsigned int)size,
                                 UHDR_CG_UNSPECIFIED, UHDR_CT_UNSPECIFIED, UHDR_CR_UNSPECIFIED};
-
-  uhdr_color_transfer_t outCt = static_cast<uhdr_color_transfer_t>(
-      fdp.ConsumeIntegralInRange<int8_t>(UHDR_CT_LINEAR, UHDR_CT_SRGB));
-  uhdr_img_fmt_t outFmt = (outCt == UHDR_CT_LINEAR)  ? UHDR_IMG_FMT_64bppRGBAHalfFloat
-                          : (outCt == UHDR_CT_SRGB) ? UHDR_IMG_FMT_32bppRGBA8888
-                                                    : UHDR_IMG_FMT_32bppRGBA1010102;
-  // keep the display boost positive and bounded
-  float maxBoost = 1.0f * (1 + fdp.ConsumeIntegralInRange<uint8_t>(0, 16));
 
   uhdr_codec_private_t* dec = uhdr_create_decoder();
   if (dec == nullptr) return;
@@ -92,6 +85,17 @@ void decodeContainer(const uint8_t* data, size_t size, FuzzedDataProvider& fdp) 
   (void)uhdr_get_decoded_gainmap_image(dec);
   (void)uhdr_dec_get_gainmap_metadata(dec);
   uhdr_release_decoder(dec);
+}
+
+// Picks decode output controls from |fdp| (safe when the provider is empty).
+void pickDecodeControls(FuzzedDataProvider& fdp, uhdr_color_transfer_t& outCt,
+                        uhdr_img_fmt_t& outFmt, float& maxBoost) {
+  outCt = static_cast<uhdr_color_transfer_t>(
+      fdp.ConsumeIntegralInRange<int8_t>(UHDR_CT_LINEAR, UHDR_CT_SRGB));
+  outFmt = (outCt == UHDR_CT_LINEAR)  ? UHDR_IMG_FMT_64bppRGBAHalfFloat
+           : (outCt == UHDR_CT_SRGB) ? UHDR_IMG_FMT_32bppRGBA8888
+                                     : UHDR_IMG_FMT_32bppRGBA1010102;
+  maxBoost = 1.0f * (1 + fdp.ConsumeIntegralInRange<uint8_t>(0, 16));
 }
 
 // Allocates and FDP-fills a raw image of |fmt|. Returns false when the input
@@ -146,22 +150,32 @@ bool makeRawImage(FuzzedDataProvider& fdp, uhdr_img_fmt_t fmt, int w, int h,
     case UHDR_IMG_FMT_64bppRGBAHalfFloat:
       return fillPacked(fmt == UHDR_IMG_FMT_32bppRGBA1010102 ? 4 : 8);
     case UHDR_IMG_FMT_12bppYCbCr420: {
-      lumaBuf.resize((size_t)w * h);
-      chromaBuf.resize((size_t)w * (h / 2));
+      // Planar 4:2:0: Y, then U, then V (separate planes; V must be non-null).
+      size_t ySize = (size_t)w * h;
+      size_t uvSize = (size_t)(w / 2) * (h / 2);
+      lumaBuf.resize(ySize);
+      chromaBuf.resize(uvSize * 2);
       if (fdp.remaining_bytes() == 0) return false;
-      std::vector<uint8_t> row(w);
+      std::vector<uint8_t> yrow(w);
       for (int j = 0; j < h; j++) {
-        for (int i = 0; i < w; i++) row[i] = fdp.ConsumeIntegral<uint8_t>();
-        memcpy(lumaBuf.data() + (size_t)j * w, row.data(), w);
+        for (int i = 0; i < w; i++) yrow[i] = fdp.ConsumeIntegral<uint8_t>();
+        memcpy(lumaBuf.data() + (size_t)j * w, yrow.data(), w);
+      }
+      std::vector<uint8_t> crow(w / 2);
+      for (int j = 0; j < h / 2; j++) {
+        for (int i = 0; i < w / 2; i++) crow[i] = fdp.ConsumeIntegral<uint8_t>();
+        memcpy(chromaBuf.data() + (size_t)j * (w / 2), crow.data(), w / 2);
       }
       for (int j = 0; j < h / 2; j++) {
-        for (int i = 0; i < w; i++) row[i] = fdp.ConsumeIntegral<uint8_t>();
-        memcpy(chromaBuf.data() + (size_t)j * w, row.data(), w);
+        for (int i = 0; i < w / 2; i++) crow[i] = fdp.ConsumeIntegral<uint8_t>();
+        memcpy(chromaBuf.data() + uvSize + (size_t)j * (w / 2), crow.data(), w / 2);
       }
       img.planes[UHDR_PLANE_Y] = lumaBuf.data();
       img.stride[UHDR_PLANE_Y] = (unsigned int)w;
-      img.planes[UHDR_PLANE_UV] = chromaBuf.data();
-      img.stride[UHDR_PLANE_UV] = (unsigned int)w;
+      img.planes[UHDR_PLANE_U] = chromaBuf.data();
+      img.stride[UHDR_PLANE_U] = (unsigned int)(w / 2);
+      img.planes[UHDR_PLANE_V] = chromaBuf.data() + uvSize;
+      img.stride[UHDR_PLANE_V] = (unsigned int)(w / 2);
       img.cg = UHDR_CG_BT_709;
       img.ct = UHDR_CT_SRGB;
       return true;
@@ -201,8 +215,14 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
   int mode = fdp.ConsumeIntegralInRange<int8_t>(0, 4);
 
   if (mode == 0) {
+    // Consume decode controls before the container payload so they are not
+    // stuck at defaults after ConsumeRemainingBytes().
+    uhdr_color_transfer_t outCt;
+    uhdr_img_fmt_t outFmt;
+    float maxBoost;
+    pickDecodeControls(fdp, outCt, outFmt, maxBoost);
     auto buffer = fdp.ConsumeRemainingBytes<uint8_t>();
-    decodeContainer(buffer.data(), buffer.size(), fdp);
+    decodeContainer(buffer.data(), buffer.size(), outCt, outFmt, maxBoost);
     return 0;
   }
 
@@ -249,7 +269,12 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
       // round trip: decode the freshly produced container (real codestream +
       // metadata); this drives the deep container-decode paths with valid
       // inputs and feeds decode-oriented corpus entries.
-      decodeContainer(static_cast<const uint8_t*>(stream->data), stream->data_sz, fdp);
+      uhdr_color_transfer_t outCt;
+      uhdr_img_fmt_t outFmt;
+      float maxBoost;
+      pickDecodeControls(fdp, outCt, outFmt, maxBoost);
+      decodeContainer(static_cast<const uint8_t*>(stream->data), stream->data_sz, outCt, outFmt,
+                      maxBoost);
     }
   }
   uhdr_release_encoder(enc);
@@ -259,4 +284,3 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
 #endif
   return 0;
 }
-
