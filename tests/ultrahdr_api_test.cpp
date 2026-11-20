@@ -4277,10 +4277,8 @@ void mockEncoderQueryInputColorspace2(void*, heif_colorspace* inout_cs, heif_chr
   mockEncoderQueryInputColorspace(inout_cs, inout_ch);
 }
 
-heif_error mockEncoderEncodeImage(void* raw, const heif_image* img, heif_image_input_class) {
-  if (!g_mock_heif_encoder_enabled &&
-      heif_image_get_colorspace(img) != heif_colorspace_RGB &&
-      !heif_image_has_channel(img, heif_channel_Alpha)) {
+heif_error mockEncoderEncodeImage(void* raw, const heif_image*, heif_image_input_class) {
+  if (!g_mock_heif_encoder_enabled) {
     return {heif_error_Unsupported_filetype, heif_suberror_Unspecified,
             "Unsupported file-type: No encoder available"};
   }
@@ -4577,7 +4575,7 @@ TEST_F(UltraHdrHeifXmpTest, HeicAndAvifEncodeAndProbeXmpMetadata) {
   }
 }
 
-TEST_F(UltraHdrApiTest, HeifProbeExtractsXmpMetadataFromContainer) {
+TEST_F(UltraHdrHeifXmpTest, HeifProbeExtractsXmpMetadataFromContainer) {
   std::vector<uint8_t> hevc_gainmap;
   ASSERT_TRUE(loadFile(kHevcGainmapFileName, hevc_gainmap));
 
@@ -4595,7 +4593,13 @@ TEST_F(UltraHdrApiTest, HeifProbeExtractsXmpMetadataFromContainer) {
     uhdr_release_decoder(dec);
   }
 
-  // Attach an XMP ("mime" / "application/rdf+xml") item to the primary image and re-serialize.
+  // Encode a self-contained HEIC gain-map container in memory (using ScopedMockHeifEncoders so all
+  // item extents are populated in memory and heif_context_write never calls StreamWriter::write on
+  // unloaded empty extents in bundled libheif 1.19.7), attach a 1-byte placeholder XMP item
+  // followed by the valid XMP ("mime" / "application/rdf+xml") item, and then rewrite the first
+  // XMP item's iloc extent_length to 0 so uhdr_dec_probe() genuinely encounters a 0-byte
+  // "application/rdf+xml" block before extracting the valid XMP packet.
+  ScopedMockHeifEncoders mock_encoders;
   const std::string kXmpPacket =
       "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\">"
       "<rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">"
@@ -4606,75 +4610,168 @@ TEST_F(UltraHdrApiTest, HeifProbeExtractsXmpMetadataFromContainer) {
 
   HeifContextPtr ctx(heif_context_alloc(), heif_context_free);
   ASSERT_NE(ctx, nullptr);
-  ASSERT_EQ(heif_context_read_from_memory_without_copy(ctx.get(), hevc_gainmap.data(),
-                                                       hevc_gainmap.size(), nullptr)
+
+  constexpr int kBaseW = 16;
+  constexpr int kBaseH = 16;
+  constexpr int kGmW = 8;
+  constexpr int kGmH = 8;
+
+  heif_image* base_raw = nullptr;
+  ASSERT_EQ(
+      heif_image_create(kBaseW, kBaseH, heif_colorspace_YCbCr, heif_chroma_420, &base_raw).code,
+      heif_error_Ok);
+  HeifImagePtr base(base_raw, heif_image_release);
+  ASSERT_EQ(heif_image_add_plane(base.get(), heif_channel_Y, kBaseW, kBaseH, 8).code,
+            heif_error_Ok);
+  ASSERT_EQ(heif_image_add_plane(base.get(), heif_channel_Cb, kBaseW / 2, kBaseH / 2, 8).code,
+            heif_error_Ok);
+  ASSERT_EQ(heif_image_add_plane(base.get(), heif_channel_Cr, kBaseW / 2, kBaseH / 2, 8).code,
+            heif_error_Ok);
+  ASSERT_TRUE(fillHeifPlane(base.get(), heif_channel_Y, kBaseW, kBaseH, 128));
+  ASSERT_TRUE(fillHeifPlane(base.get(), heif_channel_Cb, kBaseW / 2, kBaseH / 2, 128));
+  ASSERT_TRUE(fillHeifPlane(base.get(), heif_channel_Cr, kBaseW / 2, kBaseH / 2, 128));
+
+  heif_image* gm_raw = nullptr;
+  ASSERT_EQ(heif_image_create(kGmW, kGmH, heif_colorspace_monochrome, heif_chroma_monochrome,
+                              &gm_raw)
                 .code,
             heif_error_Ok);
+  HeifImagePtr gainmap(gm_raw, heif_image_release);
+  ASSERT_EQ(heif_image_add_plane(gainmap.get(), heif_channel_Y, kGmW, kGmH, 8).code, heif_error_Ok);
+  ASSERT_TRUE(fillHeifPlane(gainmap.get(), heif_channel_Y, kGmW, kGmH, 96));
+
+  HeifProfilePtr base_profile = makeNclxProfile(
+      heif_color_primaries_ITU_R_BT_709_5, heif_transfer_characteristic_IEC_61966_2_1,
+      heif_matrix_coefficients_ITU_R_BT_709_5);
+  HeifProfilePtr gm_profile =
+      makeNclxProfile(heif_color_primaries_unspecified, heif_transfer_characteristic_unspecified,
+                      heif_matrix_coefficients_ITU_R_BT_601_6);
+  HeifProfilePtr derived_profile =
+      makeNclxProfile(heif_color_primaries_ITU_R_BT_2020_2_and_2100_0,
+                      heif_transfer_characteristic_ITU_R_BT_2100_0_HLG,
+                      heif_matrix_coefficients_ITU_R_BT_2020_2_non_constant_luminance);
+  ASSERT_NE(base_profile, nullptr);
+  ASSERT_NE(gm_profile, nullptr);
+  ASSERT_NE(derived_profile, nullptr);
+  ASSERT_EQ(heif_image_set_nclx_color_profile(base.get(), base_profile.get()).code, heif_error_Ok);
+  ASSERT_EQ(heif_image_set_nclx_color_profile(gainmap.get(), gm_profile.get()).code, heif_error_Ok);
+
+  heif_encoder* encoder_raw = nullptr;
+  ASSERT_EQ(heif_context_get_encoder_for_format(ctx.get(), heif_compression_HEVC, &encoder_raw).code,
+            heif_error_Ok);
+  HeifEncoderPtr encoder(encoder_raw, heif_encoder_release);
+  HeifOptionsPtr options(heif_encoding_options_alloc(), heif_encoding_options_free);
+  ASSERT_NE(options, nullptr);
+  options->output_nclx_profile = base_profile.get();
 
   heif_image_handle* raw_primary = nullptr;
-  ASSERT_EQ(heif_context_get_primary_image_handle(ctx.get(), &raw_primary).code, heif_error_Ok);
+  ASSERT_EQ(
+      heif_context_encode_image(ctx.get(), base.get(), encoder.get(), options.get(), &raw_primary)
+          .code,
+      heif_error_Ok);
   HeifHandlePtr primary(raw_primary, heif_image_handle_release);
   ASSERT_NE(primary, nullptr);
 
-  // Attach an empty XMP item followed by the valid XMP ("mime" / "application/rdf+xml") item to
-  // verify probe skips empty "application/rdf+xml" blocks and extracts the non-empty XMP packet.
-  ASSERT_EQ(heif_context_add_XMP_metadata(ctx.get(), primary.get(), "", 0).code, heif_error_Ok);
+  uhdr_gainmap_metadata_frac gm_frac;
+  gm_frac.alternateHdrHeadroomN = 2;
+  std::vector<uint8_t> iso_metadata;
+  ASSERT_EQ(uhdr_gainmap_metadata_frac::encodeGainmapMetadata(&gm_frac, iso_metadata).error_code,
+            UHDR_CODEC_OK);
+
+  options->output_nclx_profile = gm_profile.get();
+  heif_image_handle* raw_gm_handle = nullptr;
+  ASSERT_EQ(heif_context_encode_gain_map_image(
+                ctx.get(), primary.get(), encoder.get(), gainmap.get(), options.get(),
+                iso_metadata.data(), static_cast<int>(iso_metadata.size()), derived_profile.get(),
+                &raw_gm_handle)
+                .code,
+            heif_error_Ok);
+  HeifHandlePtr gm_handle(raw_gm_handle, heif_image_handle_release);
+
+  const char kEmptyXmpPlaceholder = 'x';
+  ASSERT_EQ(heif_context_add_XMP_metadata(ctx.get(), primary.get(), &kEmptyXmpPlaceholder, 1).code,
+            heif_error_Ok);
   ASSERT_EQ(heif_context_add_XMP_metadata(ctx.get(), primary.get(), kXmpPacket.data(),
                                           static_cast<int>(kXmpPacket.size()))
                 .code,
             heif_error_Ok);
 
   std::vector<uint8_t> hevc_with_xmp;
-  heif_writer writer{};
-  writer.writer_api_version = 1;
-  writer.write = [](heif_context*, const void* data, size_t size, void* userdata) -> heif_error {
-    auto* out = static_cast<std::vector<uint8_t>*>(userdata);
-    const auto* bytes = static_cast<const uint8_t*>(data);
-    out->insert(out->end(), bytes, bytes + size);
-    return {heif_error_Ok, heif_suberror_Unspecified, ""};
-  };
+  heif_writer writer{1, writeHeifToVector};
   ASSERT_EQ(heif_context_write(ctx.get(), &writer, &hevc_with_xmp).code, heif_error_Ok);
-  ASSERT_GT(hevc_with_xmp.size(), kXmpPacket.size() + 8);
+  ASSERT_GT(hevc_with_xmp.size(), kXmpPacket.size() + 16);
 
-  // libheif's writer only serializes in-memory item extents (the newly added XMP item) into mdat
-  // while accounting for all item lengths in the mdat box header and iloc table. Splice the
-  // original mdat payload bytes from the fixture and update the running iloc base_offsets so all
-  // items resolve in the serialized container without requiring an HEVC encoder plugin.
-  const std::string kMdatFourcc("mdat", 4);
-  const auto orig_mdat_it =
-      std::search(hevc_gainmap.begin(), hevc_gainmap.end(), kMdatFourcc.begin(), kMdatFourcc.end());
-  ASSERT_NE(orig_mdat_it, hevc_gainmap.end());
-  const size_t orig_mdat_payload_offset =
-      static_cast<size_t>(std::distance(hevc_gainmap.begin(), orig_mdat_it)) + 4;
-  ASSERT_LT(orig_mdat_payload_offset, hevc_gainmap.size());
-
-  const size_t new_mdat_payload_offset = hevc_with_xmp.size() - kXmpPacket.size();
-  hevc_with_xmp.insert(hevc_with_xmp.begin() + static_cast<ptrdiff_t>(new_mdat_payload_offset),
-                       hevc_gainmap.begin() + static_cast<ptrdiff_t>(orig_mdat_payload_offset),
-                       hevc_gainmap.end());
-
+  // Walk the ISO/IEC 14496-12 iloc box and zero out the 1-byte placeholder XMP item's
+  // extent_length so the serialized container exposes an authentic 0-byte "application/rdf+xml"
+  // item without triggering bundled libheif 1.19.7's 0-byte memcpy(nullptr, ..., 0) UB.
   const std::string kIlocFourcc("iloc", 4);
   const auto iloc_it =
       std::search(hevc_with_xmp.begin(), hevc_with_xmp.end(), kIlocFourcc.begin(), kIlocFourcc.end());
   ASSERT_NE(iloc_it, hevc_with_xmp.end());
   const size_t iloc_offset = static_cast<size_t>(std::distance(hevc_with_xmp.begin(), iloc_it)) - 4;
-  const uint16_t item_count =
-      (static_cast<uint16_t>(hevc_with_xmp[iloc_offset + 14]) << 8) |
-      static_cast<uint16_t>(hevc_with_xmp[iloc_offset + 15]);
-  ASSERT_EQ(item_count, 5u);
-  uint32_t running_offset = static_cast<uint32_t>(new_mdat_payload_offset);
-  for (uint16_t i = 0; i < item_count; ++i) {
-    const size_t entry_offset = iloc_offset + 16 + static_cast<size_t>(i) * 18;
-    hevc_with_xmp[entry_offset + 4] = static_cast<uint8_t>((running_offset >> 24) & 0xFF);
-    hevc_with_xmp[entry_offset + 5] = static_cast<uint8_t>((running_offset >> 16) & 0xFF);
-    hevc_with_xmp[entry_offset + 6] = static_cast<uint8_t>((running_offset >> 8) & 0xFF);
-    hevc_with_xmp[entry_offset + 7] = static_cast<uint8_t>(running_offset & 0xFF);
-    const uint32_t item_len =
-        (static_cast<uint32_t>(hevc_with_xmp[entry_offset + 14]) << 24) |
-        (static_cast<uint32_t>(hevc_with_xmp[entry_offset + 15]) << 16) |
-        (static_cast<uint32_t>(hevc_with_xmp[entry_offset + 16]) << 8) |
-        static_cast<uint32_t>(hevc_with_xmp[entry_offset + 17]);
-    running_offset += item_len;
+  ASSERT_LE(iloc_offset + 16, hevc_with_xmp.size());
+  const uint8_t iloc_version = hevc_with_xmp[iloc_offset + 8];
+  const size_t offset_size = (hevc_with_xmp[iloc_offset + 12] >> 4) & 0x0F;
+  const size_t length_size = hevc_with_xmp[iloc_offset + 12] & 0x0F;
+  const size_t base_offset_size = (hevc_with_xmp[iloc_offset + 13] >> 4) & 0x0F;
+  const size_t index_size = (iloc_version >= 1) ? (hevc_with_xmp[iloc_offset + 13] & 0x0F) : 0;
+  ASSERT_GT(length_size, 0u);
+
+  auto readBe = [&](size_t pos, size_t n) -> uint64_t {
+    uint64_t v = 0;
+    for (size_t b = 0; b < n; ++b) v = (v << 8) | hevc_with_xmp[pos + b];
+    return v;
+  };
+
+  size_t cursor = iloc_offset + 14;
+  const size_t id_bytes = (iloc_version < 2) ? 2 : 4;
+  const uint64_t item_count = readBe(cursor, id_bytes);
+  cursor += id_bytes;
+  ASSERT_GE(item_count, 5u);
+
+  bool zeroed_placeholder_xmp = false;
+  for (uint64_t i = 0; i < item_count; ++i) {
+    cursor += id_bytes;  // item_ID
+    if (iloc_version >= 1) cursor += 2;  // construction_method
+    cursor += 2 + base_offset_size;  // data_reference_index + base_offset
+    const uint64_t extent_count = readBe(cursor, 2);
+    cursor += 2;
+    ASSERT_EQ(extent_count, 1u);
+    cursor += index_size + offset_size;
+    const uint64_t ext_len = readBe(cursor, length_size);
+    if (!zeroed_placeholder_xmp && ext_len == 1u) {
+      std::fill_n(&hevc_with_xmp[cursor], length_size, uint8_t{0});
+      zeroed_placeholder_xmp = true;
+    }
+    cursor += length_size;
+  }
+  ASSERT_TRUE(zeroed_placeholder_xmp);
+
+  // Confirm the serialized container genuinely exposes a 0-byte "application/rdf+xml" item first,
+  // followed by the valid non-empty XMP item, before calling uhdr_dec_probe().
+  {
+    HeifContextPtr verify_ctx(heif_context_alloc(), heif_context_free);
+    ASSERT_NE(verify_ctx, nullptr);
+    ASSERT_EQ(heif_context_read_from_memory_without_copy(verify_ctx.get(), hevc_with_xmp.data(),
+                                                         hevc_with_xmp.size(), nullptr)
+                  .code,
+              heif_error_Ok);
+    heif_image_handle* verify_primary_raw = nullptr;
+    ASSERT_EQ(heif_context_get_primary_image_handle(verify_ctx.get(), &verify_primary_raw).code,
+              heif_error_Ok);
+    HeifHandlePtr verify_primary(verify_primary_raw, heif_image_handle_release);
+    ASSERT_EQ(heif_image_handle_get_number_of_metadata_blocks(verify_primary.get(), "mime"), 2);
+    heif_item_id mime_ids[2] = {};
+    ASSERT_EQ(
+        heif_image_handle_get_list_of_metadata_block_IDs(verify_primary.get(), "mime", mime_ids, 2),
+        2);
+    EXPECT_STREQ(heif_image_handle_get_metadata_content_type(verify_primary.get(), mime_ids[0]),
+                 "application/rdf+xml");
+    EXPECT_EQ(heif_image_handle_get_metadata_size(verify_primary.get(), mime_ids[0]), 0u);
+    EXPECT_STREQ(heif_image_handle_get_metadata_content_type(verify_primary.get(), mime_ids[1]),
+                 "application/rdf+xml");
+    EXPECT_EQ(heif_image_handle_get_metadata_size(verify_primary.get(), mime_ids[1]),
+              kXmpPacket.size());
   }
 
   uhdr_compressed_image_t input_with_xmp{};
