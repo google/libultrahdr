@@ -849,6 +849,45 @@ TEST_F(UltraHdrApiTest, JpegEncodeApi2AndDecode) {
   uhdr_release_encoder(enc);
 }
 
+// A JPEG APP1 segment holds at most 65533 bytes of payload. Larger EXIF must be rejected rather
+// than written with a wrapped 16-bit length, which would expose the EXIF tail as JPEG markers.
+TEST_F(UltraHdrApiTest, JpegEncodeExifMustFitInOneApp1Segment) {
+  constexpr size_t kMaxExifSize = 0xFFFF - 2;
+
+  for (const size_t exif_size : {kMaxExifSize, kMaxExifSize + 1, kMaxExifSize + 64 + 1}) {
+    std::vector<uint8_t> exif(exif_size, 0);
+    memcpy(exif.data(), "Exif\0\0II*\0\x08\0\0\0", 14);
+    uhdr_mem_block_t exif_block{exif.data(), exif.size(), exif.size()};
+
+    uhdr_codec_private_t* enc = uhdr_create_encoder();
+    ASSERT_NE(enc, nullptr);
+    EXPECT_EQ(uhdr_enc_set_raw_image(enc, &mHdrRaw, UHDR_HDR_IMG).error_code, UHDR_CODEC_OK);
+    EXPECT_EQ(uhdr_enc_set_output_format(enc, UHDR_CODEC_JPG).error_code, UHDR_CODEC_OK);
+    EXPECT_EQ(uhdr_enc_set_exif_data(enc, &exif_block).error_code, UHDR_CODEC_OK);
+
+    uhdr_error_info_t status = uhdr_encode(enc);
+    if (exif_size > kMaxExifSize) {
+      EXPECT_EQ(status.error_code, UHDR_CODEC_INVALID_PARAM) << "exif size " << exif_size;
+      uhdr_release_encoder(enc);
+      continue;
+    }
+    ASSERT_EQ(status.error_code, UHDR_CODEC_OK) << (status.has_detail ? status.detail : "");
+    uhdr_compressed_image_t* output = uhdr_get_encoded_stream(enc);
+    ASSERT_NE(output, nullptr);
+
+    uhdr_codec_private_t* dec = uhdr_create_decoder();
+    ASSERT_NE(dec, nullptr);
+    EXPECT_EQ(uhdr_dec_set_image(dec, output).error_code, UHDR_CODEC_OK);
+    EXPECT_EQ(uhdr_dec_probe(dec).error_code, UHDR_CODEC_OK);
+    uhdr_mem_block_t* decoded_exif = uhdr_dec_get_exif(dec);
+    ASSERT_NE(decoded_exif, nullptr);
+    EXPECT_EQ(decoded_exif->data_sz, exif_size);
+
+    uhdr_release_decoder(dec);
+    uhdr_release_encoder(enc);
+  }
+}
+
 // ============================================================================
 // HEIF / HEIC Tests (API-0, API-1, and Unsupported APIs)
 // ============================================================================
