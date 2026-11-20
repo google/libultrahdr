@@ -20,6 +20,7 @@
 #ifdef UHDR_ENABLE_HEIF
 
 #include <cfloat>
+#include <string_view>
 
 #include "ultrahdr_api.h"
 #include "ultrahdr/ultrahdrcommon.h"
@@ -176,8 +177,7 @@ class AvifUltraHdr : public UltraHdr {
    *                                    compressed output
    * \param[in]       baseIcc           base image icc
    * \param[in]       alternateIcc      alternate image icc
-   * \param[in]       xmp               optional xmp metadata that needs to be inserted in
-   *                                    compressed output
+   * \param[in]       cleaned_xmp       optional pre-validated/stripped XMP XML payload
    *
    * \return uhdr_error_info_t #UHDR_CODEC_OK if operation succeeds, uhdr_codec_err_t otherwise.
    */
@@ -188,7 +188,7 @@ class AvifUltraHdr : public UltraHdr {
                                        uhdr_owned_buffer_t* dest, int quality,
                                        uhdr_mem_block_t* exif, DataStruct* baseIcc,
                                        DataStruct* alternateIcc,
-                                       uhdr_mem_block_t* xmp = nullptr);
+                                       std::string_view cleaned_xmp = {});
 
   uhdr_codec_t mCodec;
 };

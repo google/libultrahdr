@@ -414,6 +414,10 @@ uhdr_error_info_t AvifUltraHdr::encodeAvifUltraHdrToOwnedBuffer(uhdr_raw_image_t
              hdr_intent->fmt);
     return status;
   }
+  std::string cleaned_xmp;
+  UHDR_ERR_CHECK(prepareXmpForEncoding(
+      xmp, &cleaned_xmp, static_cast<size_t>((std::numeric_limits<int>::max)())));
+
   std::unique_ptr<uhdr_raw_image_ext_t> sdr_intent = std::make_unique<uhdr_raw_image_ext_t>(
       sdr_intent_fmt, UHDR_CG_UNSPECIFIED, UHDR_CT_UNSPECIFIED, UHDR_CR_UNSPECIFIED, hdr_intent->w,
       hdr_intent->h, 64);
@@ -449,7 +453,7 @@ uhdr_error_info_t AvifUltraHdr::encodeAvifUltraHdrToOwnedBuffer(uhdr_raw_image_t
       IccHelper::writeIccProfile(gainmap->ct, gainmap->cg);
 
   return encodeAvifUltraHdr(sdr_intent_yuv, hdr_intent, gainmap.get(), &metadata, dest, quality,
-                            exif, baseIcc.get(), alternateIcc.get(), xmp);
+                            exif, baseIcc.get(), alternateIcc.get(), cleaned_xmp);
 }
 
 /* Encode API-1 */
@@ -482,6 +486,10 @@ uhdr_error_info_t AvifUltraHdr::encodeAvifUltraHdrToOwnedBuffer(
     snprintf(status.detail, sizeof status.detail, "hdr or sdr intent is null");
     return status;
   }
+  std::string cleaned_xmp;
+  UHDR_ERR_CHECK(prepareXmpForEncoding(
+      xmp, &cleaned_xmp, static_cast<size_t>((std::numeric_limits<int>::max)())));
+
   // generate gain map
   uhdr_gainmap_metadata_ext_t metadata(kJpegrVersion);
   std::unique_ptr<uhdr_raw_image_ext_t> gainmap;
@@ -504,7 +512,7 @@ uhdr_error_info_t AvifUltraHdr::encodeAvifUltraHdrToOwnedBuffer(
       IccHelper::writeIccProfile(gainmap->ct, gainmap->cg);
 
   return encodeAvifUltraHdr(sdr_intent_yuv, sdr_intent, gainmap.get(), &metadata, dest, quality,
-                            exif, baseIcc.get(), alternateIcc.get(), xmp);
+                            exif, baseIcc.get(), alternateIcc.get(), cleaned_xmp);
 }
 
 uhdr_error_info_t AvifUltraHdr::encodeAvifUltraHdr(uhdr_raw_image_t* sdr_intent,
@@ -514,7 +522,7 @@ uhdr_error_info_t AvifUltraHdr::encodeAvifUltraHdr(uhdr_raw_image_t* sdr_intent,
                                                    uhdr_owned_buffer_t* dest, int quality,
                                                    uhdr_mem_block_t* exif, DataStruct* baseIcc,
                                                    DataStruct* alternateIcc,
-                                                   uhdr_mem_block_t* xmp) {
+                                                   std::string_view cleaned_xmp) {
   uhdr_error_info_t status = g_no_error;
   if (dest == nullptr) {
     return invalidOutputDestination();
@@ -607,45 +615,9 @@ uhdr_error_info_t AvifUltraHdr::encodeAvifUltraHdr(uhdr_raw_image_t* sdr_intent,
   if (exif != nullptr) {
     HEIF_ERR_CHECK(heif_context_add_exif_metadata(ctx, baseHandle, exif->data, exif->data_sz));
   }
-  if (xmp != nullptr) {
-    if (xmp->data == nullptr && xmp->data_sz > 0) {
-      status.error_code = UHDR_CODEC_INVALID_PARAM;
-      status.has_detail = 1;
-      snprintf(status.detail, sizeof status.detail, "received nullptr for xmp->data");
-      goto CleanUp;
-    }
-    const char* xmp_data = static_cast<const char*>(xmp->data);
-    size_t xmp_size = xmp->data_sz;
-    constexpr char kXmpHeader[] = "http://ns.adobe.com/xap/1.0/";
-    constexpr size_t kXmpHeaderLen = sizeof(kXmpHeader) - 1;
-    if (xmp_data != nullptr && xmp_size > kXmpHeaderLen &&
-        memcmp(xmp_data, kXmpHeader, kXmpHeaderLen) == 0) {
-      size_t offset = kXmpHeaderLen;
-      if (xmp_data[offset] == '\0') {
-        offset++;
-      }
-      xmp_data += offset;
-      xmp_size -= offset;
-    }
-    if (xmp_size > static_cast<size_t>(std::numeric_limits<int>::max())) {
-      status.error_code = UHDR_CODEC_INVALID_PARAM;
-      status.has_detail = 1;
-      snprintf(status.detail, sizeof status.detail,
-               "xmp size %zu exceeds maximum supported size", xmp_size);
-      goto CleanUp;
-    }
-    std::string cleaned_xmp;
-    if (xmp_data != nullptr && xmp_size > 0) {
-      std::string raw_xmp(xmp_data, xmp_size);
-      if (stripGainMapFromXmp(raw_xmp, &cleaned_xmp)) {
-        xmp_data = cleaned_xmp.data();
-        xmp_size = cleaned_xmp.size();
-      }
-    }
-    if (xmp_data != nullptr && xmp_size > 0) {
-      HEIF_ERR_CHECK(
-          heif_context_add_XMP_metadata(ctx, baseHandle, xmp_data, static_cast<int>(xmp_size)));
-    }
+  if (!cleaned_xmp.empty()) {
+    HEIF_ERR_CHECK(heif_context_add_XMP_metadata(ctx, baseHandle, cleaned_xmp.data(),
+                                                 static_cast<int>(cleaned_xmp.size())));
   }
 
   // encode the gain map image

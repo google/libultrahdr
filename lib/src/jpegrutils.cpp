@@ -428,6 +428,7 @@ class XMPXmlHandler : public XmlHandler {
 // GContainer XMP constants - URI and namespace prefix
 const string kRdfUri = "http://www.w3.org/1999/02/22-rdf-syntax-ns#";
 const string kAppleGainMapUri = "http://ns.apple.com/HDRGainMap/1.0/";
+const string kApplePixelDataInfoUri = "http://ns.apple.com/pixeldatainfo/1.0/";
 const string kContainerUri = "http://ns.google.com/photos/1.0/container/";
 const string kContainerPrefix = "Container";
 
@@ -1033,10 +1034,9 @@ bool IsXmlWhitespace(char c) {
   return c == ' ' || c == '\t' || c == '\r' || c == '\n';
 }
 
-string TrimTrailingNulls(const string& xmp) {
-  size_t end = xmp.size();
-  while (end > 0 && xmp[end - 1] == '\0') --end;
-  return xmp.substr(0, end);
+std::string_view TrimTrailingNulls(std::string_view xmp) {
+  while (!xmp.empty() && xmp.back() == '\0') xmp.remove_suffix(1);
+  return xmp;
 }
 
 bool FindXmlMarkupEnd(const string& xml, size_t begin, size_t* end) {
@@ -1346,7 +1346,8 @@ class XmpMergeXmlHandler : public XmlHandler {
 };
 
 bool IsGainMapPropertyUri(const string& uri) {
-  return uri == kContainerUri || uri == kItemUri || uri == kGainMapUri || uri == kAppleGainMapUri;
+  return uri == kContainerUri || uri == kItemUri || uri == kGainMapUri ||
+         uri == kAppleGainMapUri || uri == kApplePixelDataInfoUri;
 }
 
 void WritePrimaryDescriptionElement(photos_editing_formats::image_io::XmlWriter* writer,
@@ -1392,8 +1393,17 @@ struct ParsedXmpPacket {
   size_t root_index() const { return handler->root_index(); }
 };
 
-bool ParseXmpPacket(const string& clean_xmp, ParsedXmpPacket* packet) {
-  packet->parse_xml = string(kSyntheticOpen) + clean_xmp + kSyntheticClose;
+bool ParseXmpPacket(std::string_view clean_xmp, ParsedXmpPacket* packet) {
+  constexpr size_t kSyntheticCloseLen = sizeof(kSyntheticClose) - 1;
+  if (clean_xmp.size() >
+      (std::numeric_limits<size_t>::max)() - kSyntheticOffset - kSyntheticCloseLen) {
+    return false;
+  }
+  packet->parse_xml.clear();
+  packet->parse_xml.reserve(kSyntheticOffset + clean_xmp.size() + kSyntheticCloseLen);
+  packet->parse_xml.append(kSyntheticOpen, kSyntheticOffset);
+  packet->parse_xml.append(clean_xmp.data(), clean_xmp.size());
+  packet->parse_xml.append(kSyntheticClose, kSyntheticCloseLen);
   packet->handler = std::make_unique<XmpMergeXmlHandler>(packet->parse_xml);
   MessageHandler message_handler;
   unique_ptr<XmlRule> rule(new XmlElementRule);
@@ -1496,7 +1506,7 @@ bool ProcessExtendedXmpGuid(const string& xmp_data, const string* replacement_gu
     return false;
   }
 
-  const string clean_xmp = TrimTrailingNulls(xmp_data);
+  const std::string_view clean_xmp = TrimTrailingNulls(xmp_data);
   if (clean_xmp.empty()) {
     if (rewritten_xmp != nullptr) rewritten_xmp->clear();
     return true;
@@ -1564,7 +1574,7 @@ bool ProcessExtendedXmpGuid(const string& xmp_data, const string* replacement_gu
 
   if (guid_out != nullptr) *guid_out = found_guid;
   if (rewritten_xmp == nullptr || edits.empty() || *replacement_guid == found_guid) {
-    if (rewritten_xmp != nullptr) *rewritten_xmp = clean_xmp;
+    if (rewritten_xmp != nullptr) rewritten_xmp->assign(clean_xmp.data(), clean_xmp.size());
     return true;
   }
 
@@ -1583,16 +1593,16 @@ bool ProcessExtendedXmpGuid(const string& xmp_data, const string* replacement_gu
   string rewritten;
   size_t cursor = 0;
   for (const auto& [begin, end] : edits) {
-    rewritten.append(clean_xmp, cursor, begin - cursor);
+    rewritten.append(clean_xmp.data() + cursor, begin - cursor);
     if (!replacement_guid->empty()) rewritten.append(*replacement_guid);
     cursor = end;
   }
-  rewritten.append(clean_xmp, cursor, clean_xmp.size() - cursor);
+  rewritten.append(clean_xmp.data() + cursor, clean_xmp.size() - cursor);
   *rewritten_xmp = std::move(rewritten);
   return true;
 }
 
-string MergePrimaryXmp(const string& existing_xmp, size_t secondary_image_length,
+string MergePrimaryXmp(std::string_view existing_xmp, size_t secondary_image_length,
                        uhdr_gainmap_metadata_ext_t& metadata,
                        const string& extended_xmp_guid) {
   ParsedXmpPacket pkt;
@@ -1644,13 +1654,13 @@ string MergePrimaryXmp(const string& existing_xmp, size_t secondary_image_length
   size_t cursor = 0;
   for (const auto& [begin, end] : removals) {
     if (begin < cursor || end > insertion || end > existing_xmp.size()) return string();
-    merged.append(existing_xmp, cursor, begin - cursor);
+    merged.append(existing_xmp.data() + cursor, begin - cursor);
     cursor = end;
   }
-  merged.append(existing_xmp, cursor, insertion - cursor);
+  merged.append(existing_xmp.data() + cursor, insertion - cursor);
   merged.append(ss.str());
   merged.push_back('\n');
-  merged.append(existing_xmp, insertion, existing_xmp.size() - insertion);
+  merged.append(existing_xmp.data() + insertion, existing_xmp.size() - insertion);
   return merged;
 }
 
@@ -1667,9 +1677,70 @@ bool replaceExtendedXmpGuidInXmp(const string& xmp_data, const string& new_guid,
   return ProcessExtendedXmpGuid(xmp_data, &new_guid, nullptr, rewritten_xmp);
 }
 
-bool stripGainMapFromXmp(const std::string& xmp_data, std::string* stripped_xmp) {
+std::string_view stripXmpApp1HeaderView(const void* data, size_t size) {
+  if (data == nullptr || size == 0) return {};
+  constexpr std::string_view kXmpHeader = "http://ns.adobe.com/xap/1.0/";
+  std::string_view view(static_cast<const char*>(data), size);
+  if (view.size() >= kXmpHeader.size() && view.substr(0, kXmpHeader.size()) == kXmpHeader) {
+    view.remove_prefix(kXmpHeader.size());
+    if (!view.empty() && view.front() == '\0') {
+      view.remove_prefix(1);
+    }
+  }
+  return view;
+}
+
+uhdr_error_info_t prepareXmpForEncoding(const uhdr_mem_block_t* xmp, std::string* cleaned_xmp,
+                                        size_t max_size) {
+  uhdr_error_info_t status = g_no_error;
+  if (cleaned_xmp == nullptr) {
+    status.error_code = UHDR_CODEC_INVALID_PARAM;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail, "cleaned_xmp output pointer is null");
+    return status;
+  }
+  cleaned_xmp->clear();
+  if (xmp == nullptr) return status;
+  if (xmp->data == nullptr) {
+    if (xmp->data_sz > 0) {
+      status.error_code = UHDR_CODEC_INVALID_PARAM;
+      status.has_detail = 1;
+      snprintf(status.detail, sizeof status.detail, "received nullptr for xmp->data");
+    }
+    return status;
+  }
+  const std::string_view xml_view = stripXmpApp1HeaderView(xmp->data, xmp->data_sz);
+  if (xml_view.size() > max_size) {
+    status.error_code = UHDR_CODEC_INVALID_PARAM;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "xmp size %zu exceeds maximum supported size %zu", xml_view.size(), max_size);
+    return status;
+  }
+  if (xml_view.empty()) return status;
+  if (!stripGainMapFromXmp(xml_view, cleaned_xmp)) {
+    cleaned_xmp->clear();
+    status.error_code = UHDR_CODEC_INVALID_PARAM;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "unable to parse or strip gain map metadata from XMP packet");
+    return status;
+  }
+  if (cleaned_xmp->size() > max_size) {
+    cleaned_xmp->clear();
+    status.error_code = UHDR_CODEC_INVALID_PARAM;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "cleaned xmp size %zu exceeds maximum supported size %zu", cleaned_xmp->size(),
+             max_size);
+    return status;
+  }
+  return status;
+}
+
+bool stripGainMapFromXmp(std::string_view xmp_data, std::string* stripped_xmp) {
   if (stripped_xmp == nullptr) return false;
-  const string clean_xmp = TrimTrailingNulls(xmp_data);
+  const std::string_view clean_xmp = TrimTrailingNulls(xmp_data);
   if (clean_xmp.empty()) {
     stripped_xmp->clear();
     return true;
@@ -1736,7 +1807,7 @@ bool stripGainMapFromXmp(const std::string& xmp_data, std::string* stripped_xmp)
     return true;
   }
   if (removals.empty()) {
-    *stripped_xmp = clean_xmp;
+    stripped_xmp->assign(clean_xmp.data(), clean_xmp.size());
     return true;
   }
 
@@ -1761,10 +1832,10 @@ bool stripGainMapFromXmp(const std::string& xmp_data, std::string* stripped_xmp)
   size_t cursor = 0;
   for (const auto& [begin, end] : coalesced) {
     if (begin < cursor || end > clean_xmp.size()) return false;
-    result.append(clean_xmp, cursor, begin - cursor);
+    result.append(clean_xmp.data() + cursor, begin - cursor);
     cursor = end;
   }
-  result.append(clean_xmp, cursor, clean_xmp.size() - cursor);
+  result.append(clean_xmp.data() + cursor, clean_xmp.size() - cursor);
   *stripped_xmp = std::move(result);
   return true;
 }
@@ -1772,7 +1843,7 @@ bool stripGainMapFromXmp(const std::string& xmp_data, std::string* stripped_xmp)
 bool mergeStandardAndExtendedXmp(const std::string& standard_xmp, const std::string& extended_xmp,
                                  std::string* merged_xmp) {
   if (merged_xmp == nullptr) return false;
-  const string clean_ext = TrimTrailingNulls(extended_xmp);
+  const std::string_view clean_ext = TrimTrailingNulls(extended_xmp);
 
   string std_without_guid;
   string std_user_only;
@@ -1781,7 +1852,7 @@ bool mergeStandardAndExtendedXmp(const std::string& standard_xmp, const std::str
     return false;
   }
   if (std_user_only.empty()) {
-    *merged_xmp = clean_ext;
+    merged_xmp->assign(clean_ext.data(), clean_ext.size());
     return true;
   }
 
@@ -1803,7 +1874,7 @@ bool mergeStandardAndExtendedXmp(const std::string& standard_xmp, const std::str
   }
 
   if (retained_descriptions.empty()) {
-    *merged_xmp = clean_ext;
+    merged_xmp->assign(clean_ext.data(), clean_ext.size());
     return true;
   }
   if (clean_ext.empty()) {
@@ -1934,9 +2005,9 @@ bool mergeStandardAndExtendedXmp(const std::string& standard_xmp, const std::str
   const size_t insert_pos = ext_rdf_open_end - kSyntheticOffset;
   string result;
   result.reserve(clean_ext.size() + descriptions_to_insert.size());
-  result.append(clean_ext, 0, insert_pos);
+  result.append(clean_ext.data(), insert_pos);
   result.append(descriptions_to_insert);
-  result.append(clean_ext, insert_pos, clean_ext.size() - insert_pos);
+  result.append(clean_ext.data() + insert_pos, clean_ext.size() - insert_pos);
   *merged_xmp = std::move(result);
   return true;
 }
@@ -1946,20 +2017,11 @@ string generateXmpForPrimaryImage(size_t secondary_image_length,
                                   uhdr_mem_block_t* user_xmp,
                                   const std::string& extended_xmp_guid) {
   if (user_xmp != nullptr && user_xmp->data != nullptr && user_xmp->data_sz > 0) {
-    const std::string kXmpHeader = "http://ns.adobe.com/xap/1.0/";
-    std::string existing_xmp;
-    if (user_xmp->data_sz > kXmpHeader.size() &&
-        memcmp(user_xmp->data, kXmpHeader.c_str(), kXmpHeader.size()) == 0) {
-      size_t offset = kXmpHeader.size();
-      if (static_cast<const char*>(user_xmp->data)[offset] == '\0') {
-        offset++;
-      }
-      existing_xmp = std::string(static_cast<const char*>(user_xmp->data) + offset,
-                                 user_xmp->data_sz - offset);
-    } else {
-      existing_xmp = std::string(static_cast<const char*>(user_xmp->data), user_xmp->data_sz);
+    const std::string_view existing_xmp =
+        stripXmpApp1HeaderView(user_xmp->data, user_xmp->data_sz);
+    if (!existing_xmp.empty()) {
+      return MergePrimaryXmp(existing_xmp, secondary_image_length, metadata, extended_xmp_guid);
     }
-    return MergePrimaryXmp(existing_xmp, secondary_image_length, metadata, extended_xmp_guid);
   }
 
   std::stringstream ss;

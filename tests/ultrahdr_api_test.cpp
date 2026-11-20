@@ -1488,6 +1488,8 @@ TEST_F(UltraHdrApiTest, JpegApi4XmpMergeKeepsOwnedPropertiesOnNodeIdDescription)
   EXPECT_NE(decoded_packet.find("primary-probe"), std::string::npos);
 }
 
+#endif
+
 TEST_F(UltraHdrApiTest, JpegApi4RejectsMalformedOrUnmergeableXmp) {
   const char* packets[] = {
       "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF "
@@ -1512,7 +1514,6 @@ TEST_F(UltraHdrApiTest, JpegApi4RejectsMalformedOrUnmergeableXmp) {
     EXPECT_EQ(status.error_code, UHDR_CODEC_INVALID_PARAM) << status.detail;
   }
 }
-#endif
 
 #if !defined(UHDR_WRITE_XMP) && defined(UHDR_WRITE_ISO)
 TEST_F(UltraHdrApiTest, JpegApi4IsoOnlyPassesThroughXmpExactly) {
@@ -1530,6 +1531,141 @@ TEST_F(UltraHdrApiTest, JpegApi4IsoOnlyPassesThroughXmpExactly) {
   ASSERT_NE(decoded_xmp, nullptr);
   ASSERT_NE(decoded_xmp->data, nullptr);
   EXPECT_EQ(getXmpPacket(decoded_xmp), user_xmp);
+}
+
+TEST_F(UltraHdrApiTest, JpegIsoOnlyStripsStaleGainMapAndOmitsGainMapOnlyXmp) {
+  uhdr_gainmap_metadata_t metadata = makeTestGainmapMetadata();
+  const std::string mixed_xmp =
+      "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF "
+      "xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">"
+      "<rdf:Description rdf:about=\"\" xmlns:dc=\"http://purl.org/dc/elements/1.1/\" "
+      "xmlns:hdrgm=\"http://ns.adobe.com/hdr-gain-map/1.0/\" "
+      "xmlns:apdi=\"http://ns.apple.com/pixeldatainfo/1.0/\" "
+      "xmlns:Container=\"http://ns.google.com/photos/1.0/container/\" "
+      "xmlns:Item=\"http://ns.google.com/photos/1.0/container/item/\" "
+      "dc:creator=\"iso-user\" hdrgm:Version=\"1.0\" hdrgm:GainMapMax=\"4.0\" "
+      "apdi:AuxiliaryImageType=\"urn:com:apple:photo:2020:aux:hdrgainmap\">"
+      "<dc:title>keep-iso-title</dc:title>"
+      "<Container:Directory><rdf:Seq>"
+      "<rdf:li rdf:parseType=\"Resource\">"
+      "<Container:Item Item:Semantic=\"Primary\" Item:Mime=\"image/jpeg\"/></rdf:li>"
+      "<rdf:li rdf:parseType=\"Resource\">"
+      "<Container:Item Item:Semantic=\"GainMap\" Item:Mime=\"image/jpeg\" Item:Length=\"99999\"/>"
+      "</rdf:li></rdf:Seq></Container:Directory>"
+      "</rdf:Description></rdf:RDF></x:xmpmeta>";
+  const std::string gainmap_only_xmp =
+      "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF "
+      "xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">"
+      "<rdf:Description rdf:about=\"\" "
+      "xmlns:Container=\"http://ns.google.com/photos/1.0/container/\" "
+      "xmlns:Item=\"http://ns.google.com/photos/1.0/container/item/\" "
+      "xmlns:hdrgm=\"http://ns.adobe.com/hdr-gain-map/1.0/\" hdrgm:Version=\"1.0\">"
+      "<Container:Directory><rdf:Seq><rdf:li rdf:parseType=\"Resource\">"
+      "<Container:Item Item:Semantic=\"GainMap\" Item:Mime=\"image/jpeg\" Item:Length=\"99999\"/>"
+      "</rdf:li></rdf:Seq></Container:Directory>"
+      "</rdf:Description></rdf:RDF></x:xmpmeta>";
+
+  // Helper to splice an arbitrary raw XMP APP1 segment right after SOI of mSdrCompressed so we can
+  // test API-4 re-encode when the base JPEG itself carries stale gain-map XMP.
+  auto makeBaseJpegWithRawXmp = [&](const std::string& raw_xml) {
+    const auto* src = static_cast<const uint8_t*>(mSdrCompressed.data);
+    std::vector<uint8_t> out(src, src + 2);
+    constexpr std::string_view kNs = "http://ns.adobe.com/xap/1.0/";
+    const size_t seg_len = 2 + kNs.size() + 1 + raw_xml.size();
+    const uint8_t hdr[4] = {0xFF, 0xE1, static_cast<uint8_t>((seg_len >> 8) & 0xFF),
+                            static_cast<uint8_t>(seg_len & 0xFF)};
+    out.insert(out.end(), hdr, hdr + 4);
+    out.insert(out.end(), kNs.begin(), kNs.end());
+    const uint8_t nul = 0;
+    out.insert(out.end(), &nul, &nul + 1);
+    out.insert(out.end(), raw_xml.begin(), raw_xml.end());
+    out.insert(out.end(), src + 2, src + mSdrCompressed.data_sz);
+    return out;
+  };
+
+  // 1a. Explicit uhdr_enc_set_xmp_data with mixed user + stale gain-map XMP.
+  {
+    uhdr_mem_block_t xmp_block{const_cast<char*>(mixed_xmp.data()), mixed_xmp.size(),
+                               mixed_xmp.size()};
+    JpegXmpRoundTrip rt;
+    ASSERT_TRUE(encodeAndProbeJpegXmp(&mSdrCompressed, &mSdrCompressed, &metadata, &xmp_block, rt));
+    uhdr_mem_block_t* decoded_xmp = uhdr_dec_get_xmp(rt.decoder.get());
+    ASSERT_NE(decoded_xmp, nullptr);
+    const std::string pkt = getXmpPacket(decoded_xmp);
+    EXPECT_NE(pkt.find("iso-user"), std::string::npos);
+    EXPECT_NE(pkt.find("keep-iso-title"), std::string::npos);
+    EXPECT_EQ(pkt.find("hdrgm:Version"), std::string::npos);
+    EXPECT_EQ(pkt.find("hdrgm:GainMapMax"), std::string::npos);
+    EXPECT_EQ(pkt.find("apdi:AuxiliaryImageType"), std::string::npos);
+    EXPECT_EQ(pkt.find("Container:Directory"), std::string::npos);
+    EXPECT_EQ(pkt.find("99999"), std::string::npos);
+  }
+
+  // 1b. Explicit uhdr_enc_set_xmp_data with gain-map-only XMP -> omits XMP APP1 segment entirely.
+  {
+    uhdr_mem_block_t xmp_block{const_cast<char*>(gainmap_only_xmp.data()), gainmap_only_xmp.size(),
+                               gainmap_only_xmp.size()};
+    JpegXmpRoundTrip rt;
+    ASSERT_TRUE(encodeAndProbeJpegXmp(&mSdrCompressed, &mSdrCompressed, &metadata, &xmp_block, rt));
+    EXPECT_EQ(uhdr_dec_get_xmp(rt.decoder.get()), nullptr);
+    uhdr_compressed_image_t* stream = uhdr_get_encoded_stream(rt.encoder.get());
+    ASSERT_NE(stream, nullptr);
+    const std::vector<uint8_t> bytes(static_cast<const uint8_t*>(stream->data),
+                                     static_cast<const uint8_t*>(stream->data) + stream->data_sz);
+    EXPECT_TRUE(findApp1Segments(bytes, "http://ns.adobe.com/xap/1.0/").empty());
+  }
+
+  // 2a. API-4 re-encode (no explicit setter) from base JPEG containing mixed user + stale XMP.
+  {
+    std::vector<uint8_t> base_bytes = makeBaseJpegWithRawXmp(mixed_xmp);
+    uhdr_compressed_image_t base_desc = mSdrCompressed;
+    base_desc.data = base_bytes.data();
+    base_desc.data_sz = base_desc.capacity = base_bytes.size();
+    JpegXmpRoundTrip rt;
+    ASSERT_TRUE(encodeAndProbeJpegXmp(&base_desc, &mSdrCompressed, &metadata, nullptr, rt));
+    uhdr_mem_block_t* decoded_xmp = uhdr_dec_get_xmp(rt.decoder.get());
+    ASSERT_NE(decoded_xmp, nullptr);
+    const std::string pkt = getXmpPacket(decoded_xmp);
+    EXPECT_NE(pkt.find("iso-user"), std::string::npos);
+    EXPECT_NE(pkt.find("keep-iso-title"), std::string::npos);
+    EXPECT_EQ(pkt.find("Container:Directory"), std::string::npos);
+    EXPECT_EQ(pkt.find("99999"), std::string::npos);
+  }
+
+  // 2b. API-4 re-encode (no explicit setter) from base JPEG containing gain-map-only XMP -> omits.
+  {
+    std::vector<uint8_t> base_bytes = makeBaseJpegWithRawXmp(gainmap_only_xmp);
+    uhdr_compressed_image_t base_desc = mSdrCompressed;
+    base_desc.data = base_bytes.data();
+    base_desc.data_sz = base_desc.capacity = base_bytes.size();
+    JpegXmpRoundTrip rt;
+    ASSERT_TRUE(encodeAndProbeJpegXmp(&base_desc, &mSdrCompressed, &metadata, nullptr, rt));
+    EXPECT_EQ(uhdr_dec_get_xmp(rt.decoder.get()), nullptr);
+    uhdr_compressed_image_t* stream = uhdr_get_encoded_stream(rt.encoder.get());
+    ASSERT_NE(stream, nullptr);
+    const std::vector<uint8_t> bytes(static_cast<const uint8_t*>(stream->data),
+                                     static_cast<const uint8_t*>(stream->data) + stream->data_sz);
+    EXPECT_TRUE(findApp1Segments(bytes, "http://ns.adobe.com/xap/1.0/").empty());
+  }
+
+  // 3. Large (> 64 KB) XMP with stale hdrgm attribute strips hdrgm and spills cleanly to Extended.
+  {
+    std::string large_mixed = makeLargeXmp(90000);
+    const size_t pos = large_mixed.find("rdf:about=\"\"");
+    ASSERT_NE(pos, std::string::npos);
+    large_mixed.insert(pos + strlen("rdf:about=\"\""),
+                       " xmlns:hdrgm=\"http://ns.adobe.com/hdr-gain-map/1.0/\" "
+                       "hdrgm:Version=\"1.0\"");
+    uhdr_mem_block_t xmp_block{const_cast<char*>(large_mixed.data()), large_mixed.size(),
+                               large_mixed.size()};
+    JpegXmpRoundTrip rt;
+    ASSERT_TRUE(encodeAndProbeJpegXmp(&mSdrCompressed, &mSdrCompressed, &metadata, &xmp_block, rt));
+    uhdr_mem_block_t* decoded_xmp = uhdr_dec_get_xmp(rt.decoder.get());
+    ASSERT_NE(decoded_xmp, nullptr);
+    const std::string pkt = getXmpPacket(decoded_xmp);
+    EXPECT_EQ(pkt.find("hdrgm:Version"), std::string::npos);
+    EXPECT_NE(pkt.find("<dc:Pad"), std::string::npos);
+  }
 }
 #endif
 
@@ -1654,6 +1790,70 @@ TEST_F(UltraHdrApiTest, StripGainMapDropsGeneratedOnlyXmpSegment) {
   EXPECT_EQ(stripped_decoder.getXMPSize(), 0u);
 }
 
+static bool makeUhdrJpegWithRawLinkedExtendedXmp(const uhdr_compressed_image_t* sdr_compressed,
+                                                 const std::string& raw_ext_xmp,
+                                                 std::vector<uint8_t>* out_jpeg) {
+  const std::string ext_guid = computeMd5Guid(
+      reinterpret_cast<const uint8_t*>(raw_ext_xmp.data()), raw_ext_xmp.size());
+  const std::string std_xmp = generateStandardXmpWithExtendedGuid(ext_guid);
+  uhdr_mem_block_t std_xmp_block{const_cast<char*>(std_xmp.data()), std_xmp.size(), std_xmp.size()};
+  EncoderPtr enc = makeEncoder();
+  if (!enc) return false;
+  uhdr_gainmap_metadata_t metadata = makeTestGainmapMetadata();
+  if (configureJpegGainmapEncoder(enc.get(), const_cast<uhdr_compressed_image_t*>(sdr_compressed),
+                                  const_cast<uhdr_compressed_image_t*>(sdr_compressed), &metadata,
+                                  &std_xmp_block)
+          .error_code != UHDR_CODEC_OK) {
+    return false;
+  }
+  if (uhdr_encode(enc.get()).error_code != UHDR_CODEC_OK) return false;
+  uhdr_compressed_image_t* encoded = uhdr_get_encoded_stream(enc.get());
+  if (encoded == nullptr) return false;
+
+  std::vector<uint8_t> jpeg(static_cast<const uint8_t*>(encoded->data),
+                            static_cast<const uint8_t*>(encoded->data) + encoded->data_sz);
+  const std::vector<JpegSegmentSpan> std_segments =
+      findApp1Segments(jpeg, "http://ns.adobe.com/xap/1.0/");
+  if (std_segments.empty()) return false;
+
+  constexpr std::string_view kExtNs = "http://ns.adobe.com/xmp/extension/";
+  std::vector<uint8_t> ext_segs;
+  const uint32_t total_len = static_cast<uint32_t>(raw_ext_xmp.size());
+  size_t offset = 0;
+  while (offset < raw_ext_xmp.size()) {
+    const size_t chunk_sz =
+        (std::min)(raw_ext_xmp.size() - offset, kExtendedXmpMaxChunkSize);
+    const size_t seg_len = 2 + kExtNs.size() + 1 + 32 + 4 + 4 + chunk_sz;
+    const uint8_t seg_hdr[4] = {0xFF, 0xE1, static_cast<uint8_t>((seg_len >> 8) & 0xFF),
+                                static_cast<uint8_t>(seg_len & 0xFF)};
+    ext_segs.insert(ext_segs.end(), seg_hdr, seg_hdr + 4);
+    ext_segs.insert(ext_segs.end(), kExtNs.begin(), kExtNs.end());
+    const uint8_t nul = 0;
+    ext_segs.insert(ext_segs.end(), &nul, &nul + 1);
+    ext_segs.insert(ext_segs.end(), ext_guid.begin(), ext_guid.end());
+    const uint32_t off32 = static_cast<uint32_t>(offset);
+    const uint8_t len_off[8] = {
+        static_cast<uint8_t>((total_len >> 24) & 0xFF),
+        static_cast<uint8_t>((total_len >> 16) & 0xFF),
+        static_cast<uint8_t>((total_len >> 8) & 0xFF),
+        static_cast<uint8_t>(total_len & 0xFF),
+        static_cast<uint8_t>((off32 >> 24) & 0xFF),
+        static_cast<uint8_t>((off32 >> 16) & 0xFF),
+        static_cast<uint8_t>((off32 >> 8) & 0xFF),
+        static_cast<uint8_t>(off32 & 0xFF),
+    };
+    ext_segs.insert(ext_segs.end(), len_off, len_off + 8);
+    ext_segs.insert(ext_segs.end(), raw_ext_xmp.begin() + static_cast<ptrdiff_t>(offset),
+                    raw_ext_xmp.begin() + static_cast<ptrdiff_t>(offset + chunk_sz));
+    offset += chunk_sz;
+  }
+
+  jpeg.insert(jpeg.begin() + static_cast<ptrdiff_t>(std_segments[0].end), ext_segs.begin(),
+              ext_segs.end());
+  *out_jpeg = std::move(jpeg);
+  return true;
+}
+
 TEST_F(UltraHdrApiTest, StripGainMapPreservesSharedDescriptionAndExtendedXmp) {
   // Part 1: Shared <rdf:Description> containing both user properties and gain-map properties.
   const std::string shared_xmp =
@@ -1690,21 +1890,8 @@ TEST_F(UltraHdrApiTest, StripGainMapPreservesSharedDescriptionAndExtendedXmp) {
   ASSERT_TRUE(stripGainMapFromXmp(ext_xmp, &expected_ext_xmp));
   EXPECT_EQ(expected_ext_xmp.find("hdrgm:Version"), std::string::npos);
   EXPECT_NE(expected_ext_xmp.find("<dc:Pad"), std::string::npos);
-  uhdr_mem_block_t ext_xmp_block{const_cast<char*>(ext_xmp.data()), ext_xmp.size(), ext_xmp.size()};
-  EncoderPtr enc = makeEncoder();
-  ASSERT_NE(enc, nullptr);
-  uhdr_gainmap_metadata_t metadata = makeTestGainmapMetadata();
-  ASSERT_EQ(configureJpegGainmapEncoder(enc.get(), &mSdrCompressed, &mSdrCompressed, &metadata,
-                                        &ext_xmp_block)
-                .error_code,
-            UHDR_CODEC_OK);
-  ASSERT_EQ(uhdr_encode(enc.get()).error_code, UHDR_CODEC_OK);
-  uhdr_compressed_image_t* uhdr_stream = uhdr_get_encoded_stream(enc.get());
-  ASSERT_NE(uhdr_stream, nullptr);
-
-  std::vector<uint8_t> reordered_input(
-      static_cast<const uint8_t*>(uhdr_stream->data),
-      static_cast<const uint8_t*>(uhdr_stream->data) + uhdr_stream->data_sz);
+  std::vector<uint8_t> reordered_input;
+  ASSERT_TRUE(makeUhdrJpegWithRawLinkedExtendedXmp(&mSdrCompressed, ext_xmp, &reordered_input));
   ASSERT_TRUE(reverseExtendedXmpSegments(&reordered_input));
   uhdr_compressed_image_t reordered_stream{reordered_input.data(), reordered_input.size(),
                                            reordered_input.size(), UHDR_CG_UNSPECIFIED,
@@ -1789,21 +1976,14 @@ TEST_F(UltraHdrApiTest, StripGainMapRemovesEmptyLinkedExtendedXmp) {
   std::string stripped_xmp;
   ASSERT_TRUE(stripGainMapFromXmp(gainmap_only_xmp, &stripped_xmp));
   ASSERT_TRUE(stripped_xmp.empty());
-  uhdr_mem_block_t xmp_block{const_cast<char*>(gainmap_only_xmp.data()), gainmap_only_xmp.size(),
-                             gainmap_only_xmp.size()};
-  EncoderPtr enc = makeEncoder();
-  ASSERT_NE(enc, nullptr);
-  uhdr_gainmap_metadata_t metadata = makeTestGainmapMetadata();
-  ASSERT_EQ(configureJpegGainmapEncoder(enc.get(), &mSdrCompressed, &mSdrCompressed, &metadata,
-                                        &xmp_block)
-                .error_code,
-            UHDR_CODEC_OK);
-  ASSERT_EQ(uhdr_encode(enc.get()).error_code, UHDR_CODEC_OK);
-  uhdr_compressed_image_t* encoded = uhdr_get_encoded_stream(enc.get());
-  ASSERT_NE(encoded, nullptr);
-  std::vector<uint8_t> output(encoded->data_sz);
+  std::vector<uint8_t> encoded_bytes;
+  ASSERT_TRUE(
+      makeUhdrJpegWithRawLinkedExtendedXmp(&mSdrCompressed, gainmap_only_xmp, &encoded_bytes));
+  uhdr_compressed_image_t encoded{encoded_bytes.data(), encoded_bytes.size(), encoded_bytes.size(),
+                                  UHDR_CG_UNSPECIFIED, UHDR_CT_UNSPECIFIED, UHDR_CR_UNSPECIFIED};
+  std::vector<uint8_t> output(encoded.data_sz);
   uhdr_mem_block_t output_block{output.data(), 0, output.size()};
-  ASSERT_EQ(uhdr_strip_gain_map(encoded, &output_block).error_code, UHDR_CODEC_OK);
+  ASSERT_EQ(uhdr_strip_gain_map(&encoded, &output_block).error_code, UHDR_CODEC_OK);
   output.resize(output_block.data_sz);
   EXPECT_TRUE(findExtendedXmpSegments(output).empty());
   JpegDecoderHelper decoder;
@@ -1825,19 +2005,8 @@ TEST_F(UltraHdrApiTest, StripGainMapRejectsMalformedLinkedExtendedXmpWithoutWrit
   ext_xmp.insert(about_pos + std::string("rdf:about=\"\"").size(),
                  " xmlns:hdrgm=\"http://ns.adobe.com/hdr-gain-map/1.0/\" "
                  "hdrgm:Version=\"1.0\"");
-  uhdr_mem_block_t xmp_block{const_cast<char*>(ext_xmp.data()), ext_xmp.size(), ext_xmp.size()};
-  EncoderPtr enc = makeEncoder();
-  ASSERT_NE(enc, nullptr);
-  uhdr_gainmap_metadata_t metadata = makeTestGainmapMetadata();
-  ASSERT_EQ(configureJpegGainmapEncoder(enc.get(), &mSdrCompressed, &mSdrCompressed, &metadata,
-                                        &xmp_block)
-                .error_code,
-            UHDR_CODEC_OK);
-  ASSERT_EQ(uhdr_encode(enc.get()).error_code, UHDR_CODEC_OK);
-  uhdr_compressed_image_t* encoded = uhdr_get_encoded_stream(enc.get());
-  ASSERT_NE(encoded, nullptr);
-  const std::vector<uint8_t> original(static_cast<const uint8_t*>(encoded->data),
-                                      static_cast<const uint8_t*>(encoded->data) + encoded->data_sz);
+  std::vector<uint8_t> original;
+  ASSERT_TRUE(makeUhdrJpegWithRawLinkedExtendedXmp(&mSdrCompressed, ext_xmp, &original));
   const std::vector<JpegSegmentSpan> segments = findExtendedXmpSegments(original);
   ASSERT_GE(segments.size(), 2u);
   const size_t extension_header = kExtensionNamespace.size() + 1 + 32 + 8;
@@ -4019,6 +4188,52 @@ heif_error mockAv1GetCompressedData(void* raw, uint8_t** data, int* size,
   return {heif_error_Ok, heif_suberror_Unspecified, ""};
 }
 
+void initMockHeifEncoderPlugin(
+    heif_encoder_plugin& p, heif_compression_format format, const char* id_name,
+    const char* (*get_plugin_name)(),
+    heif_error (*get_compressed_data)(void*, uint8_t**, int*, heif_encoded_data_type*)) {
+  p = {};
+  p.plugin_api_version = 3;
+  p.compression_format = format;
+  p.id_name = id_name;
+  p.priority = 1;
+  p.get_plugin_name = get_plugin_name;
+  p.new_encoder = mockEncoderNew;
+  p.free_encoder = mockEncoderFree;
+  p.set_parameter_quality = mockEncoderNoopInt;
+  p.set_parameter_lossless = mockEncoderNoopInt;
+  p.set_parameter_logging_level = mockEncoderNoopInt;
+  p.set_parameter_integer = [](void*, const char*, int) -> heif_error {
+    return {heif_error_Ok, heif_suberror_Unspecified, ""};
+  };
+  p.set_parameter_boolean = [](void*, const char*, int) -> heif_error {
+    return {heif_error_Ok, heif_suberror_Unspecified, ""};
+  };
+  p.set_parameter_string = mockEncoderNoopStr;
+  p.list_parameters = [](void*) -> const heif_encoder_parameter** {
+    static const heif_encoder_parameter* kEmpty[] = {nullptr};
+    return kEmpty;
+  };
+  p.query_input_colorspace = mockEncoderQueryInputColorspace;
+  p.query_input_colorspace2 = mockEncoderQueryInputColorspace2;
+  p.encode_image = mockEncoderEncodeImage;
+  p.get_compressed_data = get_compressed_data;
+}
+
+void prepareMockHeifEncoderPlugins(bool real_hevc, bool real_av1,
+                                   heif_encoder_plugin& hevc_plugin,
+                                   heif_encoder_plugin& av1_plugin, bool* need_hevc_mock,
+                                   bool* need_av1_mock) {
+  initMockHeifEncoderPlugin(
+      hevc_plugin, heif_compression_HEVC, "uhdr-test-hevc",
+      []() { return "uhdr-test-hevc"; }, mockHevcGetCompressedData);
+  initMockHeifEncoderPlugin(
+      av1_plugin, heif_compression_AV1, "uhdr-test-av1",
+      []() { return "uhdr-test-av1"; }, mockAv1GetCompressedData);
+  *need_hevc_mock = !real_hevc;
+  *need_av1_mock = !real_av1;
+}
+
 class ScopedMockHeifEncoders {
  public:
   ScopedMockHeifEncoders() {
@@ -4027,46 +4242,28 @@ class ScopedMockHeifEncoders {
     had_real_hevc_ = kRealHevc;
     had_real_av1_ = kRealAv1;
 
+    static bool plugins_initialized = false;
     static bool hevc_registered = false;
     static bool av1_registered = false;
     static heif_encoder_plugin hevc_plugin{};
     static heif_encoder_plugin av1_plugin{};
 
-    if (!kRealHevc && !hevc_registered) {
-      hevc_plugin.plugin_api_version = 3;
-      hevc_plugin.compression_format = heif_compression_HEVC;
-      hevc_plugin.id_name = "uhdr-test-hevc";
-      hevc_plugin.priority = 1;
-      hevc_plugin.get_plugin_name = []() { return "uhdr-test-hevc"; };
-      hevc_plugin.new_encoder = mockEncoderNew;
-      hevc_plugin.free_encoder = mockEncoderFree;
-      hevc_plugin.set_parameter_quality = mockEncoderNoopInt;
-      hevc_plugin.set_parameter_lossless = mockEncoderNoopInt;
-      hevc_plugin.set_parameter_logging_level = mockEncoderNoopInt;
-      hevc_plugin.set_parameter_integer = [](void*, const char*, int) -> heif_error {
-        return {heif_error_Ok, heif_suberror_Unspecified, ""};
-      };
-      hevc_plugin.set_parameter_boolean = [](void*, const char*, int) -> heif_error {
-        return {heif_error_Ok, heif_suberror_Unspecified, ""};
-      };
-      hevc_plugin.set_parameter_string = mockEncoderNoopStr;
-      hevc_plugin.list_parameters = [](void*) -> const heif_encoder_parameter** {
-        static const heif_encoder_parameter* kEmpty[] = {nullptr};
-        return kEmpty;
-      };
-      hevc_plugin.query_input_colorspace = mockEncoderQueryInputColorspace;
-      hevc_plugin.query_input_colorspace2 = mockEncoderQueryInputColorspace2;
-      hevc_plugin.encode_image = mockEncoderEncodeImage;
-      hevc_plugin.get_compressed_data = mockHevcGetCompressedData;
+    bool need_hevc_mock = false;
+    bool need_av1_mock = false;
+    if (!plugins_initialized) {
+      prepareMockHeifEncoderPlugins(kRealHevc, kRealAv1, hevc_plugin, av1_plugin, &need_hevc_mock,
+                                    &need_av1_mock);
+      plugins_initialized = true;
+    } else {
+      need_hevc_mock = !kRealHevc;
+      need_av1_mock = !kRealAv1;
+    }
+
+    if (need_hevc_mock && !hevc_registered) {
       heif_register_encoder_plugin(&hevc_plugin);
       hevc_registered = true;
     }
-    if (!kRealAv1 && !av1_registered) {
-      av1_plugin = hevc_plugin;
-      av1_plugin.compression_format = heif_compression_AV1;
-      av1_plugin.id_name = "uhdr-test-av1";
-      av1_plugin.get_plugin_name = []() { return "uhdr-test-av1"; };
-      av1_plugin.get_compressed_data = mockAv1GetCompressedData;
+    if (need_av1_mock && !av1_registered) {
       heif_register_encoder_plugin(&av1_plugin);
       av1_registered = true;
     }
@@ -4356,6 +4553,184 @@ TEST_F(UltraHdrApiTest, HeifProbeExtractsXmpMetadataFromContainer) {
             kXmpPacket);
 
   uhdr_release_decoder(dec);
+}
+
+TEST_F(UltraHdrHeifXmpTest, HeicAndAvifProbeIgnoresUnreadableXmpItem) {
+  // Verify probe resilience when reading the "mime" ("application/rdf+xml") XMP item fails:
+  // for both HEIF and AVIF containers, a failed XMP metadata read must be ignored (matching EXIF
+  // and ICC resilience) rather than failing uhdr_dec_probe() with UHDR_CODEC_ERROR.
+  ScopedMockHeifEncoders mock_encoders;
+  const std::string kExifPayload("Exif\0\0II*\0\x08\0\0\0\0\0", 16);
+  const std::string kXmpPacket =
+      "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\">"
+      "<rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">"
+      "<rdf:Description rdf:about=\"\" xmlns:dc=\"http://purl.org/dc/elements/1.1/\" "
+      "dc:creator=\"probe-resilience-test\"/>"
+      "</rdf:RDF>"
+      "</x:xmpmeta>";
+
+  for (uhdr_codec_t codec : {UHDR_CODEC_HEIF, UHDR_CODEC_AVIF}) {
+    SCOPED_TRACE(codec == UHDR_CODEC_AVIF ? "AVIF" : "HEIF");
+    EncoderPtr enc = makeEncoder();
+    ASSERT_NE(enc, nullptr);
+    ASSERT_EQ(uhdr_enc_set_raw_image(enc.get(), &mHdrRaw, UHDR_HDR_IMG).error_code, UHDR_CODEC_OK);
+    ASSERT_EQ(uhdr_enc_set_output_format(enc.get(), codec).error_code, UHDR_CODEC_OK);
+    uhdr_mem_block_t exif_block{const_cast<char*>(kExifPayload.data()), kExifPayload.size(),
+                                kExifPayload.size()};
+    ASSERT_EQ(uhdr_enc_set_exif_data(enc.get(), &exif_block).error_code, UHDR_CODEC_OK);
+    uhdr_mem_block_t xmp_block{const_cast<char*>(kXmpPacket.data()), kXmpPacket.size(),
+                               kXmpPacket.size()};
+    ASSERT_EQ(uhdr_enc_set_xmp_data(enc.get(), &xmp_block).error_code, UHDR_CODEC_OK);
+    ASSERT_EQ(uhdr_encode(enc.get()).error_code, UHDR_CODEC_OK);
+    uhdr_compressed_image_t* stream = uhdr_get_encoded_stream(enc.get());
+    ASSERT_NE(stream, nullptr);
+
+    HeifContextPtr read_ctx(heif_context_alloc(), heif_context_free);
+    ASSERT_NE(read_ctx, nullptr);
+    ASSERT_EQ(heif_context_read_from_memory_without_copy(read_ctx.get(), stream->data,
+                                                         stream->data_sz, nullptr)
+                  .code,
+              heif_error_Ok);
+    heif_image_handle* primary_raw = nullptr;
+    ASSERT_EQ(heif_context_get_primary_image_handle(read_ctx.get(), &primary_raw).code,
+              heif_error_Ok);
+    HeifHandlePtr primary_handle(primary_raw, heif_image_handle_release);
+
+    DecoderPtr probe_dec = makeDecoder();
+    ASSERT_NE(probe_dec, nullptr);
+    auto* dec_priv = dynamic_cast<uhdr_decoder_private*>(probe_dec.get());
+    ASSERT_NE(dec_priv, nullptr);
+    dec_priv->m_probed = true;
+    dec_priv->m_probe_call_status = g_no_error;
+
+    auto fail_mime_get_metadata = [](const heif_image_handle* h, heif_item_id id,
+                                     void* out) -> heif_error {
+      const char* type = heif_image_handle_get_metadata_type(h, id);
+      if (type != nullptr && strcmp(type, "mime") == 0) {
+        return {heif_error_Invalid_input, heif_suberror_End_of_data,
+                "simulated unreadable XMP mime item"};
+      }
+      return heif_image_handle_get_metadata(h, id, out);
+    };
+    extractHeifProbeMetadata(primary_handle.get(), dec_priv, fail_mime_get_metadata);
+
+    EXPECT_EQ(dec_priv->m_probe_call_status.error_code, UHDR_CODEC_OK);
+    EXPECT_EQ(uhdr_dec_get_xmp(probe_dec.get()), nullptr);
+    uhdr_mem_block_t* exif_out = uhdr_dec_get_exif(probe_dec.get());
+    ASSERT_NE(exif_out, nullptr);
+    EXPECT_EQ(std::string(static_cast<const char*>(exif_out->data), exif_out->data_sz),
+              kExifPayload);
+    EXPECT_NE(uhdr_dec_get_icc(probe_dec.get()), nullptr);
+  }
+}
+
+TEST_F(UltraHdrHeifXmpTest, MockHeifEncoderFallbackWithPartialRealCodecs) {
+  heif_encoder_plugin hevc_plugin{};
+  heif_encoder_plugin av1_plugin{};
+  bool need_hevc_mock = true;
+  bool need_av1_mock = false;
+
+  // Simulate (real_hevc = true, real_av1 = false): av1_plugin must still be fully initialized
+  // with API version 3 and working callbacks instead of copying a zero-initialized hevc_plugin.
+  prepareMockHeifEncoderPlugins(/*real_hevc=*/true, /*real_av1=*/false, hevc_plugin, av1_plugin,
+                                &need_hevc_mock, &need_av1_mock);
+  EXPECT_FALSE(need_hevc_mock);
+  EXPECT_TRUE(need_av1_mock);
+
+  EXPECT_EQ(av1_plugin.plugin_api_version, 3);
+  EXPECT_EQ(av1_plugin.compression_format, heif_compression_AV1);
+  ASSERT_NE(av1_plugin.get_plugin_name, nullptr);
+  EXPECT_STREQ(av1_plugin.get_plugin_name(), "uhdr-test-av1");
+  ASSERT_NE(av1_plugin.new_encoder, nullptr);
+  ASSERT_NE(av1_plugin.free_encoder, nullptr);
+  ASSERT_NE(av1_plugin.encode_image, nullptr);
+  ASSERT_NE(av1_plugin.get_compressed_data, nullptr);
+
+  void* enc_state = nullptr;
+  ASSERT_EQ(av1_plugin.new_encoder(&enc_state).code, heif_error_Ok);
+  ASSERT_NE(enc_state, nullptr);
+
+  heif_image* img = nullptr;
+  ASSERT_EQ(heif_image_create(16, 16, heif_colorspace_YCbCr, heif_chroma_420, &img).code,
+            heif_error_Ok);
+  ASSERT_EQ(heif_image_add_plane(img, heif_channel_Y, 16, 16, 8).code, heif_error_Ok);
+  ScopedMockHeifEncoders enable_scope;
+  EXPECT_EQ(av1_plugin.encode_image(enc_state, img, heif_image_input_class_normal).code,
+            heif_error_Ok);
+
+  uint8_t* pkt_data = nullptr;
+  int pkt_size = 0;
+  ASSERT_EQ(av1_plugin.get_compressed_data(enc_state, &pkt_data, &pkt_size, nullptr).code,
+            heif_error_Ok);
+  EXPECT_NE(pkt_data, nullptr);
+  EXPECT_EQ(pkt_size, static_cast<int>(sizeof(kMockAv1Obu)));
+  ASSERT_EQ(av1_plugin.get_compressed_data(enc_state, &pkt_data, &pkt_size, nullptr).code,
+            heif_error_Ok);
+  EXPECT_EQ(pkt_data, nullptr);
+  EXPECT_EQ(pkt_size, 0);
+
+  heif_image_release(img);
+  av1_plugin.free_encoder(enc_state);
+}
+
+TEST_F(UltraHdrHeifXmpTest, HeicAndAvifRejectMalformedXmpUpfront) {
+  ScopedMockHeifEncoders mock_encoders;
+  const std::string kApp1Header("http://ns.adobe.com/xap/1.0/\0", 29);
+  const std::vector<std::string> malformed_packets = {
+      "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF "
+      "xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description>",
+      kApp1Header +
+          "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF "
+          "xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description>"
+          "</rdf:Other></rdf:RDF></x:xmpmeta>",
+      "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><ex:Metadata xmlns:ex=\"urn:test\">"
+      "<ex:Probe>missing-rdf</ex:Probe></ex:Metadata></x:xmpmeta>",
+      "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF "
+      "xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description "
+      "rdf:about=\"\" dc:pad=\"" +
+          std::string(70000, 'x') + "\">",
+  };
+
+  for (uhdr_codec_t codec : {UHDR_CODEC_HEIF, UHDR_CODEC_AVIF}) {
+    SCOPED_TRACE(codec == UHDR_CODEC_AVIF ? "AVIF" : "HEIF");
+    for (bool use_api1 : {false, true}) {
+      SCOPED_TRACE(use_api1 ? "API-1" : "API-0");
+      for (const std::string& bad_xml : malformed_packets) {
+        EncoderPtr enc = makeEncoder();
+        ASSERT_NE(enc, nullptr);
+        ASSERT_EQ(uhdr_enc_set_raw_image(enc.get(), &mHdrRaw, UHDR_HDR_IMG).error_code,
+                  UHDR_CODEC_OK);
+        if (use_api1) {
+          ASSERT_EQ(uhdr_enc_set_raw_image(enc.get(), &mSdrRaw, UHDR_SDR_IMG).error_code,
+                    UHDR_CODEC_OK);
+        }
+        ASSERT_EQ(uhdr_enc_set_output_format(enc.get(), codec).error_code, UHDR_CODEC_OK);
+        uhdr_mem_block_t xmp_block{const_cast<char*>(bad_xml.data()), bad_xml.size(),
+                                   bad_xml.size()};
+        ASSERT_EQ(uhdr_enc_set_xmp_data(enc.get(), &xmp_block).error_code, UHDR_CODEC_OK);
+        EXPECT_EQ(uhdr_encode(enc.get()).error_code, UHDR_CODEC_INVALID_PARAM);
+        EXPECT_EQ(uhdr_get_encoded_stream(enc.get()), nullptr);
+      }
+    }
+
+    // Also verify direct *ToOwnedBuffer overloads reject malformed XMP and leave output empty.
+    uhdr_owned_buffer_t owned;
+    uhdr_mem_block_t bad_block{const_cast<char*>(malformed_packets[0].data()),
+                               malformed_packets[0].size(), malformed_packets[0].size()};
+    if (codec == UHDR_CODEC_HEIF) {
+      HeifUltraHdr heif_codec;
+      EXPECT_EQ(heif_codec.encodeHeicUltraHdrToOwnedBuffer(&mHdrRaw, &owned, 85, nullptr, &bad_block)
+                    .error_code,
+                UHDR_CODEC_INVALID_PARAM);
+    } else {
+      AvifUltraHdr avif_codec;
+      EXPECT_EQ(avif_codec.encodeAvifUltraHdrToOwnedBuffer(&mHdrRaw, &owned, 85, nullptr, &bad_block)
+                    .error_code,
+                UHDR_CODEC_INVALID_PARAM);
+    }
+    EXPECT_EQ(owned.data(), nullptr);
+    EXPECT_EQ(owned.size(), 0u);
+  }
 }
 
 TEST_F(UltraHdrApiTest, AvifPreservesRawAlpha) {

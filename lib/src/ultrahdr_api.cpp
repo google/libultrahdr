@@ -2076,17 +2076,80 @@ uhdr_error_info_t uhdr_dec_set_out_max_display_boost(uhdr_codec_private_t* dec,
 }
 
 static void stripXmpApp1Header(std::vector<uint8_t>& xmp_buf) {
-  constexpr char kXmpHeader[] = "http://ns.adobe.com/xap/1.0/";
-  constexpr size_t kXmpHeaderLen = sizeof(kXmpHeader) - 1;
-  if (xmp_buf.size() >= kXmpHeaderLen &&
-      memcmp(xmp_buf.data(), kXmpHeader, kXmpHeaderLen) == 0) {
-    size_t offset = kXmpHeaderLen;
-    if (offset < xmp_buf.size() && xmp_buf[offset] == '\0') {
-      ++offset;
-    }
+  const std::string_view stripped =
+      ultrahdr::stripXmpApp1HeaderView(xmp_buf.data(), xmp_buf.size());
+  const size_t offset = xmp_buf.size() - stripped.size();
+  if (offset > 0) {
     xmp_buf.erase(xmp_buf.begin(), xmp_buf.begin() + static_cast<ptrdiff_t>(offset));
   }
 }
+
+#ifdef UHDR_ENABLE_HEIF
+namespace ultrahdr {
+
+void extractHeifProbeMetadata(const heif_image_handle* base_handle, uhdr_decoder_private* handle,
+                              decltype(&heif_image_handle_get_metadata) get_metadata_fn) {
+  if (base_handle == nullptr || handle == nullptr || get_metadata_fn == nullptr) return;
+
+  const int num_exif_blocks = heif_image_handle_get_number_of_metadata_blocks(base_handle, "Exif");
+  if (num_exif_blocks > 0) {
+    std::vector<heif_item_id> exif_ids(num_exif_blocks);
+    const int fetched_exif = heif_image_handle_get_list_of_metadata_block_IDs(
+        base_handle, "Exif", exif_ids.data(), num_exif_blocks);
+    for (int i = 0; i < fetched_exif; ++i) {
+      const size_t exif_size = heif_image_handle_get_metadata_size(base_handle, exif_ids[i]);
+      if (exif_size > 4) {
+        std::vector<uint8_t> exif_buf(exif_size);
+        if (get_metadata_fn(base_handle, exif_ids[i], exif_buf.data()).code == heif_error_Ok) {
+          handle->m_exif.assign(exif_buf.begin() + 4, exif_buf.end());
+          handle->m_exif_block.data = handle->m_exif.data();
+          handle->m_exif_block.data_sz = handle->m_exif_block.capacity = handle->m_exif.size();
+        }
+        break;
+      }
+    }
+  }
+
+  const size_t icc_size = heif_image_handle_get_raw_color_profile_size(base_handle);
+  if (icc_size > 0) {
+    std::vector<uint8_t> icc_buf(icc_size);
+    if (heif_image_handle_get_raw_color_profile(base_handle, icc_buf.data()).code ==
+        heif_error_Ok) {
+      handle->m_icc = std::move(icc_buf);
+      handle->m_icc_block.data = handle->m_icc.data();
+      handle->m_icc_block.data_sz = handle->m_icc_block.capacity = handle->m_icc.size();
+    }
+  }
+
+  const int num_mime_blocks = heif_image_handle_get_number_of_metadata_blocks(base_handle, "mime");
+  if (num_mime_blocks > 0) {
+    std::vector<heif_item_id> mime_ids(num_mime_blocks);
+    const int fetched_blocks = heif_image_handle_get_list_of_metadata_block_IDs(
+        base_handle, "mime", mime_ids.data(), num_mime_blocks);
+    for (int i = 0; i < fetched_blocks; ++i) {
+      const char* content_type =
+          heif_image_handle_get_metadata_content_type(base_handle, mime_ids[i]);
+      if (content_type != nullptr && strcmp(content_type, "application/rdf+xml") == 0) {
+        const size_t xmp_size = heif_image_handle_get_metadata_size(base_handle, mime_ids[i]);
+        if (xmp_size > 0) {
+          std::vector<uint8_t> xmp_buf(xmp_size);
+          if (get_metadata_fn(base_handle, mime_ids[i], xmp_buf.data()).code == heif_error_Ok) {
+            stripXmpApp1Header(xmp_buf);
+            if (!xmp_buf.empty()) {
+              handle->m_xmp = std::move(xmp_buf);
+              handle->m_xmp_block.data = handle->m_xmp.data();
+              handle->m_xmp_block.data_sz = handle->m_xmp_block.capacity = handle->m_xmp.size();
+            }
+          }
+          break;
+        }
+      }
+    }
+  }
+}
+
+}  // namespace ultrahdr
+#endif
 
 uhdr_error_info_t uhdr_dec_probe(uhdr_codec_private_t* dec) {
   if (dynamic_cast<uhdr_decoder_private*>(dec) == nullptr) {
@@ -2178,78 +2241,7 @@ uhdr_error_info_t uhdr_dec_probe(uhdr_codec_private_t* dec) {
                     handle->m_metadata.hdr_capacity_min = metadata.hdr_capacity_min;
                     handle->m_metadata.hdr_capacity_max = metadata.hdr_capacity_max;
                     handle->m_metadata.use_base_cg = metadata.use_base_cg;
-
-                    const int num_exif_blocks =
-                        heif_image_handle_get_number_of_metadata_blocks(base_handle, "Exif");
-                    if (num_exif_blocks > 0) {
-                      std::vector<heif_item_id> exif_ids(num_exif_blocks);
-                      const int fetched_exif = heif_image_handle_get_list_of_metadata_block_IDs(
-                          base_handle, "Exif", exif_ids.data(), num_exif_blocks);
-                      for (int i = 0; i < fetched_exif; ++i) {
-                        const size_t exif_size =
-                            heif_image_handle_get_metadata_size(base_handle, exif_ids[i]);
-                        if (exif_size > 4) {
-                          std::vector<uint8_t> exif_buf(exif_size);
-                          heif_error exif_err = heif_image_handle_get_metadata(
-                              base_handle, exif_ids[i], exif_buf.data());
-                          if (exif_err.code == heif_error_Ok) {
-                            handle->m_exif.assign(exif_buf.begin() + 4, exif_buf.end());
-                            handle->m_exif_block.data = handle->m_exif.data();
-                            handle->m_exif_block.data_sz = handle->m_exif_block.capacity =
-                                handle->m_exif.size();
-                          }
-                          break;
-                        }
-                      }
-                    }
-
-                    const size_t icc_size =
-                        heif_image_handle_get_raw_color_profile_size(base_handle);
-                    if (icc_size > 0) {
-                      std::vector<uint8_t> icc_buf(icc_size);
-                      heif_error icc_err =
-                          heif_image_handle_get_raw_color_profile(base_handle, icc_buf.data());
-                      if (icc_err.code == heif_error_Ok) {
-                        handle->m_icc = std::move(icc_buf);
-                        handle->m_icc_block.data = handle->m_icc.data();
-                        handle->m_icc_block.data_sz = handle->m_icc_block.capacity =
-                            handle->m_icc.size();
-                      }
-                    }
-
-                    const int num_mime_blocks =
-                        heif_image_handle_get_number_of_metadata_blocks(base_handle, "mime");
-                    if (num_mime_blocks > 0) {
-                      std::vector<heif_item_id> mime_ids(num_mime_blocks);
-                      const int fetched_blocks = heif_image_handle_get_list_of_metadata_block_IDs(
-                          base_handle, "mime", mime_ids.data(), num_mime_blocks);
-                      for (int i = 0; i < fetched_blocks; ++i) {
-                        const char* content_type =
-                            heif_image_handle_get_metadata_content_type(base_handle, mime_ids[i]);
-                        if (content_type != nullptr &&
-                            strcmp(content_type, "application/rdf+xml") == 0) {
-                          const size_t xmp_size =
-                              heif_image_handle_get_metadata_size(base_handle, mime_ids[i]);
-                          if (xmp_size > 0) {
-                            std::vector<uint8_t> xmp_buf(xmp_size);
-                            heif_error xmp_err = heif_image_handle_get_metadata(
-                                base_handle, mime_ids[i], xmp_buf.data());
-                            if (xmp_err.code == heif_error_Ok) {
-                              stripXmpApp1Header(xmp_buf);
-                              handle->m_xmp = std::move(xmp_buf);
-                              handle->m_xmp_block.data = handle->m_xmp.data();
-                              handle->m_xmp_block.data_sz = handle->m_xmp_block.capacity =
-                                  handle->m_xmp.size();
-                            } else {
-                              status.error_code = UHDR_CODEC_ERROR;
-                              status.has_detail = 1;
-                              snprintf(status.detail, sizeof status.detail, "%s", xmp_err.message);
-                            }
-                            break;
-                          }
-                        }
-                      }
-                    }
+                    ultrahdr::extractHeifProbeMetadata(base_handle, handle);
                   }
                 }
               } else {

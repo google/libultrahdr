@@ -11,6 +11,10 @@
 #ifndef ULTRAHDR_JPEGRUTILS_H
 #define ULTRAHDR_JPEGRUTILS_H
 
+#include <limits>
+#include <string>
+#include <string_view>
+
 #include "ultrahdr/jpegr.h"
 
 #if (defined(__BYTE_ORDER__) && defined(__ORDER_LITTLE_ENDIAN__) && \
@@ -145,6 +149,27 @@ std::string generateXmpForPrimaryImage(size_t secondary_image_length,
                                        const std::string& extended_xmp_guid = "");
 
 /*
+ * Slices off an optional JPEG APP1 XMP namespace prefix ("http://ns.adobe.com/xap/1.0/" with or
+ * without trailing NUL) without copying.
+ */
+std::string_view stripXmpApp1HeaderView(const void* data, size_t size);
+
+/*
+ * Validates and strips gain-map XMP metadata from an optional caller/container XMP block for
+ * codecs or modes that signal gain-map metadata outside XMP (ISO-only JPEG, HEIF, AVIF).
+ *
+ * - Rejects non-null `xmp` blocks where `xmp->data == nullptr && xmp->data_sz > 0`.
+ * - Slices off an optional JPEG APP1 XMP namespace prefix without an extra copy.
+ * - Strips Ultra HDR / Adobe / Apple gain-map XMP (`Container:Directory`, `hdrgm:*`, `apdi:*`) via
+ *   `stripGainMapFromXmp()`, returning `UHDR_CODEC_INVALID_PARAM` on malformed XML.
+ * - Enforces `cleaned_xmp->size() <= max_size`.
+ * - Produces an empty string when `xmp` is null/empty or contained only gain-map XMP.
+ */
+uhdr_error_info_t prepareXmpForEncoding(
+    const uhdr_mem_block_t* xmp, std::string* cleaned_xmp,
+    size_t max_size = (std::numeric_limits<size_t>::max)());
+
+/*
  * Strips Ultra HDR gain-map and GContainer directory properties from a primary-image XMP packet
  * while preserving all unrelated XMP metadata and packet wrappers.
  *
@@ -153,7 +178,7 @@ std::string generateXmpForPrimaryImage(size_t secondary_image_length,
  *                     packet contained only gain-map metadata and no remaining descriptions.
  * @return true if the XMP packet was valid and processed, false if the XML could not be parsed.
  */
-bool stripGainMapFromXmp(const std::string& xmp_data, std::string* stripped_xmp);
+bool stripGainMapFromXmp(std::string_view xmp_data, std::string* stripped_xmp);
 
 /* Reads or updates xmpNote:HasExtendedXMP on primary RDF descriptions. An empty replacement
  * removes the link; unrelated RDF subjects and packet content are preserved. */
