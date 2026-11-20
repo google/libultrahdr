@@ -404,6 +404,19 @@ UHDR_EXTERN uhdr_error_info_t uhdr_enc_set_quality(uhdr_codec_private_t* enc, in
 UHDR_EXTERN uhdr_error_info_t uhdr_enc_set_exif_data(uhdr_codec_private_t* enc,
                                                      uhdr_mem_block_t* exif);
 
+/*!\brief Set XMP data that needs to be inserted in the output compressed stream. This function
+ * does not generate or validate xmp data on its own. It merely copies the supplied information
+ * into the bitstream (or merges with gain map metadata in xmp mode for JPEG output).
+ *
+ * \param[in]  enc  encoder instance
+ * \param[in]  xmp  xmp data memory block.
+ *
+ * \return uhdr_error_info_t #UHDR_CODEC_OK if operation succeeds,
+ *                           #UHDR_CODEC_INVALID_PARAM otherwise.
+ */
+UHDR_EXTERN uhdr_error_info_t uhdr_enc_set_xmp_data(uhdr_codec_private_t* enc,
+                                                     uhdr_mem_block_t* xmp);
+
 /*!\brief Enable/Disable multi-channel gainmap. By default multi-channel gainmap is enabled.
  *
  * \param[in]  enc  encoder instance.
@@ -783,6 +796,14 @@ UHDR_EXTERN uhdr_mem_block_t* uhdr_dec_get_exif(uhdr_codec_private_t* dec);
  */
 UHDR_EXTERN uhdr_mem_block_t* uhdr_dec_get_icc(uhdr_codec_private_t* dec);
 
+/*!\brief Get xmp information
+ *
+ * \param[in]  dec  decoder instance.
+ *
+ * \return nullptr if probe call is unsuccessful, memory block with xmp data otherwise
+ */
+UHDR_EXTERN uhdr_mem_block_t* uhdr_dec_get_xmp(uhdr_codec_private_t* dec);
+
 /*!\brief Get base image (compressed)
  *
  * \param[in]  dec  decoder instance.
@@ -937,5 +958,21 @@ UHDR_EXTERN uhdr_error_info_t uhdr_add_effect_crop(uhdr_codec_private_t* codec, 
  */
 UHDR_EXTERN uhdr_error_info_t uhdr_add_effect_resize(uhdr_codec_private_t* codec, int width,
                                                      int height);
+
+/*!\brief Losslessly strip gain map bitstream and gain map metadata from an Ultra HDR image.
+ *
+ * Produces a clean standard SDR compressed stream:
+ * - Strips secondary gain map JPEG image data and MPF pointers.
+ * - Strips ISO 21496-1 gain map metadata from APP2 (urn:iso:std:iso:ts:21496:-1).
+ * - Strips legacy Ultra HDR tags (Container:Directory, hdrgm:*) from APP1 XMP.
+ * - Preserves primary image scan data bit-for-bit (lossless, no DCT re-encoding).
+ * - Preserves Exif, ICC profile, and all user/application XMP metadata intact.
+ *
+ * \param[in]  in_stream   Input compressed Ultra HDR stream.
+ * \param[out] out_stream  Output descriptor receiving the clean SDR compressed stream.
+ * \return uhdr_error_info_t #UHDR_CODEC_OK on success, #UHDR_CODEC_INVALID_PARAM otherwise.
+ */
+UHDR_EXTERN uhdr_error_info_t uhdr_strip_gain_map(uhdr_compressed_image_t* in_stream,
+                                                  uhdr_mem_block_t* out_stream);
 
 #endif  // ULTRAHDR_API_H

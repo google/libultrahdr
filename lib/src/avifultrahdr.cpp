@@ -25,6 +25,7 @@
 #include "ultrahdr/avifultrahdr.h"
 #include "ultrahdr/gainmapmath.h"
 #include "ultrahdr/gainmapmetadata.h"
+#include "ultrahdr/jpegrutils.h"
 
 #define UHDR_CG_BT_601 static_cast<uhdr_color_gamut_t>(3)
 
@@ -367,13 +368,16 @@ AvifUltraHdr::AvifUltraHdr(void* uhdrGLESCtxt, int mapDimensionScaleFactor, int 
       mCodec(codec) {}
 
 /* Encode API-0 */
-uhdr_error_info_t AvifUltraHdr::encodeAvifUltraHdr(uhdr_raw_image_t* hdr_intent, uhdr_compressed_image_t* dest,
-                                     int quality, uhdr_mem_block_t* exif) {
+uhdr_error_info_t AvifUltraHdr::encodeAvifUltraHdr(uhdr_raw_image_t* hdr_intent,
+                                                   uhdr_compressed_image_t* dest, int quality,
+                                                   uhdr_mem_block_t* exif,
+                                                   uhdr_mem_block_t* xmp) {
   uhdr_owned_buffer_t output;
   if (dest == nullptr || dest->data == nullptr) {
     return invalidOutputDestination();
   }
-  uhdr_error_info_t status = encodeAvifUltraHdrToOwnedBuffer(hdr_intent, &output, quality, exif);
+  uhdr_error_info_t status =
+      encodeAvifUltraHdrToOwnedBuffer(hdr_intent, &output, quality, exif, xmp);
   if (status.error_code != UHDR_CODEC_OK) return status;
   return copyOwnedBufferToCompressedImage(output, dest);
 }
@@ -381,7 +385,8 @@ uhdr_error_info_t AvifUltraHdr::encodeAvifUltraHdr(uhdr_raw_image_t* hdr_intent,
 uhdr_error_info_t AvifUltraHdr::encodeAvifUltraHdrToOwnedBuffer(uhdr_raw_image_t* hdr_intent,
                                                                 uhdr_owned_buffer_t* dest,
                                                                 int quality,
-                                                                uhdr_mem_block_t* exif) {
+                                                                uhdr_mem_block_t* exif,
+                                                                uhdr_mem_block_t* xmp) {
   if (dest == nullptr) {
     return invalidOutputDestination();
   }
@@ -409,6 +414,10 @@ uhdr_error_info_t AvifUltraHdr::encodeAvifUltraHdrToOwnedBuffer(uhdr_raw_image_t
              hdr_intent->fmt);
     return status;
   }
+  std::string cleaned_xmp;
+  UHDR_ERR_CHECK(prepareXmpForEncoding(
+      xmp, &cleaned_xmp, static_cast<size_t>((std::numeric_limits<int>::max)())));
+
   std::unique_ptr<uhdr_raw_image_ext_t> sdr_intent = std::make_unique<uhdr_raw_image_ext_t>(
       sdr_intent_fmt, UHDR_CG_UNSPECIFIED, UHDR_CT_UNSPECIFIED, UHDR_CR_UNSPECIFIED, hdr_intent->w,
       hdr_intent->h, 64);
@@ -444,26 +453,28 @@ uhdr_error_info_t AvifUltraHdr::encodeAvifUltraHdrToOwnedBuffer(uhdr_raw_image_t
       IccHelper::writeIccProfile(gainmap->ct, gainmap->cg);
 
   return encodeAvifUltraHdr(sdr_intent_yuv, hdr_intent, gainmap.get(), &metadata, dest, quality,
-                            exif, baseIcc.get(), alternateIcc.get());
+                            exif, baseIcc.get(), alternateIcc.get(), cleaned_xmp);
 }
 
 /* Encode API-1 */
-uhdr_error_info_t AvifUltraHdr::encodeAvifUltraHdr(uhdr_raw_image_t* hdr_intent, uhdr_raw_image_t* sdr_intent,
-                                     uhdr_compressed_image_t* dest, int quality,
-                                     uhdr_mem_block_t* exif) {
+uhdr_error_info_t AvifUltraHdr::encodeAvifUltraHdr(uhdr_raw_image_t* hdr_intent,
+                                                   uhdr_raw_image_t* sdr_intent,
+                                                   uhdr_compressed_image_t* dest, int quality,
+                                                   uhdr_mem_block_t* exif,
+                                                   uhdr_mem_block_t* xmp) {
   uhdr_owned_buffer_t output;
   if (dest == nullptr || dest->data == nullptr) {
     return invalidOutputDestination();
   }
   uhdr_error_info_t status =
-      encodeAvifUltraHdrToOwnedBuffer(hdr_intent, sdr_intent, &output, quality, exif);
+      encodeAvifUltraHdrToOwnedBuffer(hdr_intent, sdr_intent, &output, quality, exif, xmp);
   if (status.error_code != UHDR_CODEC_OK) return status;
   return copyOwnedBufferToCompressedImage(output, dest);
 }
 
 uhdr_error_info_t AvifUltraHdr::encodeAvifUltraHdrToOwnedBuffer(
     uhdr_raw_image_t* hdr_intent, uhdr_raw_image_t* sdr_intent, uhdr_owned_buffer_t* dest,
-    int quality, uhdr_mem_block_t* exif) {
+    int quality, uhdr_mem_block_t* exif, uhdr_mem_block_t* xmp) {
   if (dest == nullptr) {
     return invalidOutputDestination();
   }
@@ -475,6 +486,10 @@ uhdr_error_info_t AvifUltraHdr::encodeAvifUltraHdrToOwnedBuffer(
     snprintf(status.detail, sizeof status.detail, "hdr or sdr intent is null");
     return status;
   }
+  std::string cleaned_xmp;
+  UHDR_ERR_CHECK(prepareXmpForEncoding(
+      xmp, &cleaned_xmp, static_cast<size_t>((std::numeric_limits<int>::max)())));
+
   // generate gain map
   uhdr_gainmap_metadata_ext_t metadata(kJpegrVersion);
   std::unique_ptr<uhdr_raw_image_ext_t> gainmap;
@@ -497,7 +512,7 @@ uhdr_error_info_t AvifUltraHdr::encodeAvifUltraHdrToOwnedBuffer(
       IccHelper::writeIccProfile(gainmap->ct, gainmap->cg);
 
   return encodeAvifUltraHdr(sdr_intent_yuv, sdr_intent, gainmap.get(), &metadata, dest, quality,
-                            exif, baseIcc.get(), alternateIcc.get());
+                            exif, baseIcc.get(), alternateIcc.get(), cleaned_xmp);
 }
 
 uhdr_error_info_t AvifUltraHdr::encodeAvifUltraHdr(uhdr_raw_image_t* sdr_intent,
@@ -506,7 +521,8 @@ uhdr_error_info_t AvifUltraHdr::encodeAvifUltraHdr(uhdr_raw_image_t* sdr_intent,
                                                    uhdr_gainmap_metadata_ext_t* metadata,
                                                    uhdr_owned_buffer_t* dest, int quality,
                                                    uhdr_mem_block_t* exif, DataStruct* baseIcc,
-                                                   DataStruct* alternateIcc) {
+                                                   DataStruct* alternateIcc,
+                                                   std::string_view cleaned_xmp) {
   uhdr_error_info_t status = g_no_error;
   if (dest == nullptr) {
     return invalidOutputDestination();
@@ -598,6 +614,10 @@ uhdr_error_info_t AvifUltraHdr::encodeAvifUltraHdr(uhdr_raw_image_t* sdr_intent,
   HEIF_ERR_CHECK(heif_context_encode_image(ctx, baseImage, encoder, options, &baseHandle));
   if (exif != nullptr) {
     HEIF_ERR_CHECK(heif_context_add_exif_metadata(ctx, baseHandle, exif->data, exif->data_sz));
+  }
+  if (!cleaned_xmp.empty()) {
+    HEIF_ERR_CHECK(heif_context_add_XMP_metadata(ctx, baseHandle, cleaned_xmp.data(),
+                                                 static_cast<int>(cleaned_xmp.size())));
   }
 
   // encode the gain map image

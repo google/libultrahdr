@@ -651,6 +651,7 @@ if(UHDR_ENABLE_HEIF)
   if(LIBHEIF_FOUND)
     message(STATUS "Found libheif: ${LIBHEIF_LIBRARIES}")
     add_compile_options(-DUHDR_ENABLE_HEIF)
+    set(UHDR_PC_REQUIRES_PRIVATE " libheif")
     if(LIBHEIF_HAS_ITEM_API)
       message(STATUS "libheif item inspection API - Available")
       add_compile_options(-DUHDR_HAS_HEIF_ITEM_API)
@@ -752,6 +753,7 @@ if(UHDR_BUILD_TESTS)
   target_include_directories(ultrahdr_unit_test PRIVATE
     ${PRIVATE_INCLUDE_DIR}
     ${GTEST_INCLUDE_DIRS}
+    "${THIRD_PARTY_DIR}/image_io/includes"
   )
   if(UHDR_BUILD_FUZZERS)
     target_link_options(ultrahdr_unit_test PRIVATE -fsanitize=fuzzer-no-link)

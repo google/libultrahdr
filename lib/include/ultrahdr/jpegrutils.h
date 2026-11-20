@@ -11,6 +11,10 @@
 #ifndef ULTRAHDR_JPEGRUTILS_H
 #define ULTRAHDR_JPEGRUTILS_H
 
+#include <limits>
+#include <string>
+#include <string_view>
+
 #include "ultrahdr/jpegr.h"
 
 #if (defined(__BYTE_ORDER__) && defined(__ORDER_LITTLE_ENDIAN__) && \
@@ -87,6 +91,16 @@ uhdr_error_info_t getMetadataFromXMP(uint8_t* xmp_data, size_t xmp_size, uint8_t
                                      int exif_size, uhdr_gainmap_metadata_ext_t* metadata);
 
 /*
+ * Computes 128-bit MD5 digest formatted as a 32-character uppercase hexadecimal GUID.
+ */
+std::string computeMd5Guid(const uint8_t* data, size_t len);
+
+/*
+ * Generates a minimal standard XMP packet referencing Extended XMP via xmpNote:HasExtendedXMP.
+ */
+std::string generateStandardXmpWithExtendedGuid(const std::string& guid);
+
+/*
  * This method generates XMP metadata for the primary image.
  *
  * below is an example of the XMP metadata that this function generates where
@@ -124,10 +138,60 @@ uhdr_error_info_t getMetadataFromXMP(uint8_t* xmp_data, size_t xmp_size, uint8_t
  * </x:xmpmeta>
  *
  * @param secondary_image_length length of secondary image
- * @return XMP metadata in type of string
+ * @param user_xmp optional XMP packet from the primary image. Its unrelated XML is preserved while
+ *                  the encoder-owned primary-image gain-map description is replaced.
+ * @return XMP metadata in type of string. An empty string means that a supplied packet could not be
+ *         safely merged.
  */
 std::string generateXmpForPrimaryImage(size_t secondary_image_length,
-                                       uhdr_gainmap_metadata_ext_t& metadata);
+                                       uhdr_gainmap_metadata_ext_t& metadata,
+                                       uhdr_mem_block_t* user_xmp = nullptr,
+                                       const std::string& extended_xmp_guid = "");
+
+/*
+ * Slices off an optional JPEG APP1 XMP namespace prefix ("http://ns.adobe.com/xap/1.0/" with or
+ * without trailing NUL) without copying, and optionally trims trailing NUL padding.
+ */
+std::string_view stripXmpApp1HeaderView(const void* data, size_t size,
+                                        bool trim_trailing_nulls = false);
+
+/*
+ * Validates and strips gain-map XMP metadata from an optional caller/container XMP block for
+ * codecs or modes that signal gain-map metadata outside XMP (ISO-only JPEG, HEIF, AVIF).
+ *
+ * - Rejects non-null `xmp` blocks where `xmp->data == nullptr && xmp->data_sz > 0`.
+ * - Slices off an optional JPEG APP1 XMP namespace prefix without an extra copy.
+ * - Strips Ultra HDR / Adobe / Apple gain-map XMP (`Container:Directory`, `hdrgm:*`, `apdi:*`) via
+ *   `stripGainMapFromXmp()`, returning `UHDR_CODEC_INVALID_PARAM` on malformed XML.
+ * - Enforces `cleaned_xmp->size() <= max_size`.
+ * - Produces an empty string when `xmp` is null/empty or contained only gain-map XMP.
+ */
+uhdr_error_info_t prepareXmpForEncoding(
+    const uhdr_mem_block_t* xmp, std::string* cleaned_xmp,
+    size_t max_size = (std::numeric_limits<size_t>::max)());
+
+/*
+ * Strips Ultra HDR gain-map and GContainer directory properties from a primary-image XMP packet
+ * while preserving all unrelated XMP metadata and packet wrappers.
+ *
+ * @param xmp_data     Input XMP packet XML string (without the JPEG APP1 namespace header).
+ * @param stripped_xmp Output string receiving the sanitized XMP packet, or empty string if the
+ *                     packet contained only gain-map metadata and no remaining descriptions.
+ * @return true if the XMP packet was valid and processed, false if the XML could not be parsed.
+ */
+bool stripGainMapFromXmp(std::string_view xmp_data, std::string* stripped_xmp);
+
+/* Reads or updates xmpNote:HasExtendedXMP on primary RDF descriptions. An empty replacement
+ * removes the link; unrelated RDF subjects and packet content are preserved. */
+bool getExtendedXmpGuidFromXmp(const std::string& xmp_data, std::string* guid);
+bool replaceExtendedXmpGuidInXmp(const std::string& xmp_data, const std::string& new_guid,
+                                 std::string* rewritten_xmp);
+
+/* Merges user RDF descriptions from a standard XMP packet (removing xmpNote:HasExtendedXMP and
+ * encoder-generated gain-map properties) into a linked Extended XMP packet so user properties
+ * split across Standard and Extended XMP packets are both preserved. */
+bool mergeStandardAndExtendedXmp(const std::string& standard_xmp, const std::string& extended_xmp,
+                                 std::string* merged_xmp);
 
 /*
  * This method generates XMP metadata for the recovery map image.
