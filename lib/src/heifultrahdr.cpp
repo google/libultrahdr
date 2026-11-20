@@ -439,9 +439,9 @@ uhdr_error_info_t HeifUltraHdr::encodeHeicUltraHdrToOwnedBuffer(uhdr_raw_image_t
     sdr_intent_yuv = sdr_intent_yuv_ext.get();
   }
 
-  std::shared_ptr<DataStruct> baseIcc = IccHelper::writeIccProfile(UHDR_CT_SRGB, sdr_intent->cg);
+  std::shared_ptr<DataStruct> baseIcc = IccHelper::writeRawIccProfile(UHDR_CT_SRGB, sdr_intent->cg);
   std::shared_ptr<DataStruct> alternateIcc =
-      IccHelper::writeIccProfile(gainmap->ct, gainmap->cg);
+      IccHelper::writeRawIccProfile(gainmap->ct, gainmap->cg);
 
   return encodeHeicUltraHdr(sdr_intent_yuv, hdr_intent, gainmap.get(), &metadata, dest, quality,
                             exif, baseIcc.get(), alternateIcc.get());
@@ -492,9 +492,9 @@ uhdr_error_info_t HeifUltraHdr::encodeHeicUltraHdrToOwnedBuffer(
     sdr_intent_yuv = sdr_intent_yuv_ext.get();
   }
 
-  std::shared_ptr<DataStruct> baseIcc = IccHelper::writeIccProfile(UHDR_CT_SRGB, sdr_intent->cg);
+  std::shared_ptr<DataStruct> baseIcc = IccHelper::writeRawIccProfile(UHDR_CT_SRGB, sdr_intent->cg);
   std::shared_ptr<DataStruct> alternateIcc =
-      IccHelper::writeIccProfile(gainmap->ct, gainmap->cg);
+      IccHelper::writeRawIccProfile(gainmap->ct, gainmap->cg);
 
   return encodeHeicUltraHdr(sdr_intent_yuv, sdr_intent, gainmap.get(), &metadata, dest, quality,
                             exif, baseIcc.get(), alternateIcc.get());
@@ -562,9 +562,8 @@ uhdr_error_info_t HeifUltraHdr::encodeHeicUltraHdr(uhdr_raw_image_t* sdr_intent,
                                 chromaWd, chromaHt, sdr_intent->stride[UHDR_PLANE_V]));
   HEIF_ERR_CHECK(add_alpha_plane(baseImage, base_alpha_source));
   if (baseIcc != nullptr) {
-    void* ptr = (uint8_t*)baseIcc->getData() + kICCIdentifierSize;
-    HEIF_ERR_CHECK(heif_image_set_raw_color_profile(baseImage, "prof", ptr,
-                                                    baseIcc->getLength() - kICCIdentifierSize));
+    HEIF_ERR_CHECK(heif_image_set_raw_color_profile(baseImage, "prof", baseIcc->getData(),
+                                                    baseIcc->getLength()));
   }
   sdrNclx = heif_nclx_color_profile_alloc();
   if (!sdrNclx) {

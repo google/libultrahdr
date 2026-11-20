@@ -241,8 +241,24 @@ struct ICCHeader {
   uint32_t tag_count = 0;
 };
 
+namespace detail {
+bool writeRawIccProfile(uhdr_color_transfer_t tf, uhdr_color_gamut_t gamut, const void* hagc_data,
+                        size_t hagc_size, std::vector<uint8_t>& out_raw_icc);
+bool injectHagcIntoRawIccProfile(const void* base_icc_data, size_t base_icc_size,
+                                 const void* hagc_data, size_t hagc_size,
+                                 std::vector<uint8_t>& out_raw_icc);
+}  // namespace detail
+
 class IccHelper {
  private:
+  struct Serializer;
+  friend bool detail::writeRawIccProfile(uhdr_color_transfer_t tf, uhdr_color_gamut_t gamut,
+                                         const void* hagc_data, size_t hagc_size,
+                                         std::vector<uint8_t>& out_raw_icc);
+  friend bool detail::injectHagcIntoRawIccProfile(const void* base_icc_data, size_t base_icc_size,
+                                                  const void* hagc_data, size_t hagc_size,
+                                                  std::vector<uint8_t>& out_raw_icc);
+
   static constexpr uint32_t kTrcTableSize = 65;
   static constexpr uint32_t kGridSize = 17;
   static constexpr size_t kNumChannels = 3;
@@ -277,11 +293,22 @@ class IccHelper {
                                                      const uhdr_color_gamut_t gamut,
                                                      const void* hagc_data = nullptr,
                                                      size_t hagc_size = 0);
+  // Serializes a raw ICC profile starting directly at the 128-byte ICCHeader
+  // ('acsp' at bytes [36..39], without the 14-byte JPEG APP2 "ICC_PROFILE\0\x01\x01"
+  // prefix), suitable for ISO/IEC 14496-12 'colr'('prof') boxes (HEIF/HEIC, AVIF, MP4).
+  // Low-level container serializer: callers embedding untrusted HAGC payloads should use
+  // encodeRawIccProfileWithEncodedHagc / encodeRawIccProfileWithDerivedHagc in ultrahdr/agtm.h.
+  static std::shared_ptr<DataStruct> writeRawIccProfile(const uhdr_color_transfer_t tf,
+                                                        const uhdr_color_gamut_t gamut,
+                                                        const void* hagc_data = nullptr,
+                                                        size_t hagc_size = 0);
   // Preserves all existing tags in an ICC profile while inserting or replacing
   // the canonical ICC v4.4 'HAGC' tag, bumping header version to >= 4.4,
   // clearing any stale MD5 Profile ID checksum, and updating total profile size.
   // Accepts ICC bytes either with or without the 14-byte JPEG APP2 identifier
   // ("ICC_PROFILE\0\x01\x01") and preserves the input framing.
+  // Low-level container mutator: callers embedding untrusted HAGC payloads into raw
+  // 'colr'('prof') profiles should use encodeRawIccProfileWithEncodedHagc in ultrahdr/agtm.h.
   static std::shared_ptr<DataStruct> injectHagcIntoIccProfile(const void* icc_data,
                                                               size_t icc_size,
                                                               const void* hagc_data,

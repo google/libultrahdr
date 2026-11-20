@@ -168,16 +168,24 @@ class AnnexCBitWriter {
 
   bool writeU16BE(uint16_t value) { return writeBits(value, 16); }
 
-  bool finish(std::vector<uint8_t>& out) {
+  bool flush() {
     if (mBitCount > 0) {
       if (mByteLen >= mBuf.size()) return false;
       mBuf[mByteLen++] = static_cast<uint8_t>((mBitBuffer << (8 - mBitCount)) & 0xFFu);
       mBitBuffer = 0;
       mBitCount = 0;
     }
+    return true;
+  }
+
+  bool finish(std::vector<uint8_t>& out) {
+    if (!flush()) return false;
     out.assign(mBuf.data(), mBuf.data() + mByteLen);
     return true;
   }
+
+  const uint8_t* data() const { return mBuf.data(); }
+  size_t size() const { return mByteLen; }
 
  private:
   std::array<uint8_t, kMaxAnnexCBytes> mBuf{};
@@ -801,14 +809,14 @@ uhdr_error_info_t validateDynamicMetadata(const DynamicMetadata& metadata) {
   return g_no_error;
 }
 
-uhdr_error_info_t encodeSt2094_50(const DynamicMetadata& metadata,
-                                  std::vector<uint8_t>& out_bitstream) {
+namespace {
+
+uhdr_error_info_t encodeSt2094_50ToWriter(const DynamicMetadata& metadata,
+                                          AnnexCBitWriter& writer) {
   uhdr_error_info_t status = validateDynamicMetadata(metadata);
   if (status.error_code != UHDR_CODEC_OK) {
     return status;
   }
-
-  AnnexCBitWriter writer;
 
   // Table C.1: smpte_st_2094_50_application_info()
   writer.writeBits(DynamicMetadata::kApplicationVersion, 3);
@@ -827,7 +835,7 @@ uhdr_error_info_t encodeSt2094_50(const DynamicMetadata& metadata,
   }
 
   if (!metadata.has_adaptive_tone_map_flag) {
-    if (!writer.finish(out_bitstream)) {
+    if (!writer.flush()) {
       return makeStatusError(UHDR_CODEC_MEM_ERROR, "Annex C buffer overflow");
     }
     return g_no_error;
@@ -840,7 +848,7 @@ uhdr_error_info_t encodeSt2094_50(const DynamicMetadata& metadata,
   writer.writeBit(metadata.use_reference_white_tone_mapping_flag);
   if (metadata.use_reference_white_tone_mapping_flag) {
     writer.writeBits(0u, 7);  // reserved_zero_7bits
-    if (!writer.finish(out_bitstream)) {
+    if (!writer.flush()) {
       return makeStatusError(UHDR_CODEC_MEM_ERROR, "Annex C buffer overflow");
     }
     return g_no_error;
@@ -933,9 +941,19 @@ uhdr_error_info_t encodeSt2094_50(const DynamicMetadata& metadata,
     }
   }
 
-  if (!writer.finish(out_bitstream)) {
+  if (!writer.flush()) {
     return makeStatusError(UHDR_CODEC_MEM_ERROR, "Annex C buffer overflow");
   }
+  return g_no_error;
+}
+
+}  // namespace
+
+uhdr_error_info_t encodeSt2094_50(const DynamicMetadata& metadata,
+                                  std::vector<uint8_t>& out_bitstream) {
+  AnnexCBitWriter writer;
+  UHDR_ERR_CHECK(encodeSt2094_50ToWriter(metadata, writer));
+  out_bitstream.assign(writer.data(), writer.data() + writer.size());
   return g_no_error;
 }
 
@@ -2863,6 +2881,195 @@ uhdr_error_info_t deriveEncodedHagcFromGainMap(
     return status;
   }
   return smpte2094_50::encodeSt2094_50(hagc, out_bitstream);
+}
+
+namespace {
+
+template <typename EnumT>
+inline int loadEnumRaw(const EnumT& value) {
+  static_assert(sizeof(EnumT) == sizeof(int), "Expected int-sized enum");
+  int raw = 0;
+  std::memcpy(&raw, &value, sizeof(raw));
+  return raw;
+}
+
+inline bool isSupportedIccColorGamutRaw(int cg) {
+  return cg == UHDR_CG_BT_709 || cg == UHDR_CG_DISPLAY_P3 || cg == UHDR_CG_BT_2100;
+}
+
+inline bool isSupportedIccColorTransferRaw(int tf) {
+  return tf == UHDR_CT_SRGB || tf == UHDR_CT_LINEAR || tf == UHDR_CT_HLG || tf == UHDR_CT_PQ;
+}
+
+}  // namespace
+
+uhdr_error_info_t validateHagcPayload(const void* hagc_data, size_t hagc_size) {
+  if (hagc_data == nullptr || hagc_size < 2 || hagc_size > kMaxHagcPayloadBytes) {
+    return makeStatusError(UHDR_CODEC_INVALID_PARAM,
+                           "Invalid HAGC payload pointer or size %zu (expected [2, %zu])",
+                           hagc_size, kMaxHagcPayloadBytes);
+  }
+  smpte2094_50::DynamicMetadata parsed{};
+  UHDR_ERR_CHECK(
+      smpte2094_50::parseSt2094_50(static_cast<const uint8_t*>(hagc_data), hagc_size, parsed));
+  return smpte2094_50::validateDynamicMetadata(parsed);
+}
+
+uhdr_error_info_t validateHagcMemBlock(const uhdr_mem_block_t* hagc) {
+  if (hagc == nullptr) {
+    return makeStatusError(UHDR_CODEC_INVALID_PARAM, "Received nullptr for HAGC descriptor");
+  }
+  if (hagc->data == nullptr) {
+    return makeStatusError(UHDR_CODEC_INVALID_PARAM, "Received nullptr for HAGC data buffer");
+  }
+  if (hagc->capacity < hagc->data_sz) {
+    return makeStatusError(UHDR_CODEC_INVALID_PARAM,
+                           "HAGC buffer capacity %zu is less than data_sz %zu", hagc->capacity,
+                           hagc->data_sz);
+  }
+  return validateHagcPayload(hagc->data, hagc->data_sz);
+}
+
+uhdr_error_info_t encodeRawIccProfileWithEncodedHagc(uhdr_color_transfer_t tf,
+                                                     uhdr_color_gamut_t cg, const void* hagc_data,
+                                                     size_t hagc_size,
+                                                     std::vector<uint8_t>& out_raw_icc) {
+  const int tf_raw = loadEnumRaw(tf);
+  const int cg_raw = loadEnumRaw(cg);
+  if (!isSupportedIccColorTransferRaw(tf_raw)) {
+    return makeStatusError(UHDR_CODEC_INVALID_PARAM,
+                           "Unsupported color transfer %d in encodeRawIccProfileWithEncodedHagc",
+                           tf_raw);
+  }
+  if (!isSupportedIccColorGamutRaw(cg_raw)) {
+    return makeStatusError(UHDR_CODEC_INVALID_PARAM,
+                           "Unsupported color gamut %d in encodeRawIccProfileWithEncodedHagc",
+                           cg_raw);
+  }
+  UHDR_ERR_CHECK(validateHagcPayload(hagc_data, hagc_size));
+  if (!detail::writeRawIccProfile(static_cast<uhdr_color_transfer_t>(tf_raw),
+                                  static_cast<uhdr_color_gamut_t>(cg_raw), hagc_data, hagc_size,
+                                  out_raw_icc)) {
+    return makeStatusError(UHDR_CODEC_INVALID_PARAM,
+                           "Failed to serialize raw ICC v4.4 profile with encoded HAGC");
+  }
+  return g_no_error;
+}
+
+uhdr_error_info_t encodeRawIccProfileWithEncodedHagc(const void* base_icc_data,
+                                                     size_t base_icc_size, const void* hagc_data,
+                                                     size_t hagc_size,
+                                                     std::vector<uint8_t>& out_raw_icc) {
+  if (base_icc_data == nullptr || base_icc_size < sizeof(ICCHeader)) {
+    return makeStatusError(UHDR_CODEC_INVALID_PARAM,
+                           "Invalid or truncated base ICC profile (size %zu)", base_icc_size);
+  }
+  UHDR_ERR_CHECK(validateHagcPayload(hagc_data, hagc_size));
+  if (!detail::injectHagcIntoRawIccProfile(base_icc_data, base_icc_size, hagc_data, hagc_size,
+                                           out_raw_icc)) {
+    return makeStatusError(UHDR_CODEC_INVALID_PARAM,
+                           "Failed to encode raw ICC v4.4 profile from base ICC and encoded HAGC");
+  }
+  return g_no_error;
+}
+
+uhdr_error_info_t encodeRawIccProfileWithDerivedHagc(
+    const uhdr_raw_image_t* sdr_intent, const uhdr_raw_image_t* gainmap_img,
+    const uhdr_gainmap_metadata_t* gainmap_metadata, std::vector<uint8_t>& out_raw_icc,
+    const smpte2094_50::HagcDerivationOptions& options) {
+  if (sdr_intent == nullptr || gainmap_img == nullptr || gainmap_metadata == nullptr) {
+    return makeStatusError(UHDR_CODEC_INVALID_PARAM,
+                           "Null image or metadata pointer in encodeRawIccProfileWithDerivedHagc");
+  }
+  const int sdr_cg_raw = loadEnumRaw(sdr_intent->cg);
+  if (!isSupportedIccColorGamutRaw(sdr_cg_raw)) {
+    return makeStatusError(UHDR_CODEC_INVALID_PARAM,
+                           "Unsupported base color gamut %d in encodeRawIccProfileWithDerivedHagc",
+                           sdr_cg_raw);
+  }
+  const int sdr_ct_raw = loadEnumRaw(sdr_intent->ct);
+  const int icc_tf_raw = (sdr_ct_raw == UHDR_CT_UNSPECIFIED) ? UHDR_CT_SRGB : sdr_ct_raw;
+  if (!isSupportedIccColorTransferRaw(icc_tf_raw)) {
+    return makeStatusError(
+        UHDR_CODEC_INVALID_PARAM,
+        "Unsupported base color transfer %d in encodeRawIccProfileWithDerivedHagc", sdr_ct_raw);
+  }
+  if (gainmap_metadata->use_base_cg != 0 && gainmap_metadata->use_base_cg != 1) {
+    return makeStatusError(UHDR_CODEC_INVALID_PARAM,
+                           "Invalid use_base_cg %d in encodeRawIccProfileWithDerivedHagc",
+                           gainmap_metadata->use_base_cg);
+  }
+  const int gm_cg_raw = loadEnumRaw(gainmap_img->cg);
+  if (gainmap_metadata->use_base_cg == 0) {
+    if (!isSupportedIccColorGamutRaw(gm_cg_raw)) {
+      return makeStatusError(
+          UHDR_CODEC_INVALID_PARAM,
+          "Alternate gain-map color space (use_base_cg=0) requires a valid gainmap_img->cg");
+    }
+  } else if (gm_cg_raw != UHDR_CG_UNSPECIFIED && !isSupportedIccColorGamutRaw(gm_cg_raw)) {
+    return makeStatusError(UHDR_CODEC_INVALID_PARAM,
+                           "Invalid gainmap_img->cg %d in encodeRawIccProfileWithDerivedHagc",
+                           gm_cg_raw);
+  }
+  const int gm_ct_raw = loadEnumRaw(gainmap_img->ct);
+  if (gm_ct_raw != UHDR_CT_UNSPECIFIED && !isSupportedIccColorTransferRaw(gm_ct_raw)) {
+    return makeStatusError(UHDR_CODEC_INVALID_PARAM,
+                           "Invalid gainmap_img->ct %d in encodeRawIccProfileWithDerivedHagc",
+                           gm_ct_raw);
+  }
+
+  const int sdr_fmt_raw = loadEnumRaw(sdr_intent->fmt);
+  const int gm_fmt_raw = loadEnumRaw(gainmap_img->fmt);
+  if (gm_fmt_raw != UHDR_IMG_FMT_8bppYCbCr400 && gm_fmt_raw != UHDR_IMG_FMT_24bppRGB888 &&
+      gm_fmt_raw != UHDR_IMG_FMT_32bppRGBA8888) {
+    return makeStatusError(
+        UHDR_CODEC_INVALID_PARAM,
+        "Unsupported gain-map pixel format %d in encodeRawIccProfileWithDerivedHagc", gm_fmt_raw);
+  }
+  if (sdr_fmt_raw < UHDR_IMG_FMT_24bppYCbCrP010 || sdr_fmt_raw > UHDR_IMG_FMT_30bppYCbCr444 ||
+      getPixelFn(static_cast<uhdr_img_fmt_t>(sdr_fmt_raw)) == nullptr) {
+    return makeStatusError(UHDR_CODEC_INVALID_PARAM,
+                           "Unsupported base pixel format %d in encodeRawIccProfileWithDerivedHagc",
+                           sdr_fmt_raw);
+  }
+
+  UHDR_ERR_CHECK(
+      validateRawImagePlanesAndStrides(sdr_intent, "encodeRawIccProfileWithDerivedHagc(sdr)"));
+  UHDR_ERR_CHECK(
+      validateRawImagePlanesAndStrides(gainmap_img, "encodeRawIccProfileWithDerivedHagc(gainmap)"));
+  if (gainmap_img->w > sdr_intent->w || gainmap_img->h > sdr_intent->h) {
+    return makeStatusError(UHDR_CODEC_INVALID_PARAM,
+                           "Gain-map dimensions %ux%u exceed base dimensions %ux%u in "
+                           "encodeRawIccProfileWithDerivedHagc",
+                           gainmap_img->w, gainmap_img->h, sdr_intent->w, sdr_intent->h);
+  }
+  if (!std::isfinite(gainmap_metadata->hdr_capacity_min) ||
+      !std::isfinite(gainmap_metadata->hdr_capacity_max) ||
+      gainmap_metadata->hdr_capacity_min < 1.0f ||
+      gainmap_metadata->hdr_capacity_max < gainmap_metadata->hdr_capacity_min) {
+    return makeStatusError(
+        UHDR_CODEC_INVALID_PARAM,
+        "Invalid hdr_capacity_min/max (%f, %f) in encodeRawIccProfileWithDerivedHagc",
+        gainmap_metadata->hdr_capacity_min, gainmap_metadata->hdr_capacity_max);
+  }
+
+  const uhdr_color_transfer_t icc_tf = static_cast<uhdr_color_transfer_t>(icc_tf_raw);
+  const uhdr_color_gamut_t sdr_cg = static_cast<uhdr_color_gamut_t>(sdr_cg_raw);
+  uhdr_raw_image_t sdr_local = *sdr_intent;
+  sdr_local.ct = icc_tf;
+  uhdr_raw_image_t gm_local = *gainmap_img;
+  uhdr_gainmap_metadata_t meta_base = *gainmap_metadata;
+  uhdr_gainmap_metadata_ext_t meta_ext(meta_base, std::string());
+
+  smpte2094_50::DynamicMetadata hagc{};
+  UHDR_ERR_CHECK(deriveHagcFromGainMap(&sdr_local, &gm_local, &meta_ext, hagc, options));
+  smpte2094_50::AnnexCBitWriter writer;
+  UHDR_ERR_CHECK(smpte2094_50::encodeSt2094_50ToWriter(hagc, writer));
+  if (!detail::writeRawIccProfile(icc_tf, sdr_cg, writer.data(), writer.size(), out_raw_icc)) {
+    return makeStatusError(UHDR_CODEC_INVALID_PARAM,
+                           "Failed to serialize raw ICC v4.4 profile with derived HAGC");
+  }
+  return g_no_error;
 }
 
 namespace {

@@ -26,7 +26,9 @@
 #include <vector>
 
 #include "ultrahdr/agtm.h"
+#include "ultrahdr/gainmapmetadata.h"
 #include "ultrahdr/icc.h"
+#include "ultrahdr/jpegr.h"
 
 namespace ultrahdr {
 
@@ -1432,6 +1434,817 @@ TEST_F(AgtmTest, ApplyHagcExactSt2094_50Clause6MathAndValidation) {
   no_atm.rules.clear();
   EXPECT_EQ(applyHagc(&sdr, no_atm, UHDR_CT_LINEAR, out_lin.fmt, 2.0f, false, &out_lin).error_code,
             UHDR_CODEC_INVALID_PARAM);
+}
+
+namespace {
+
+uint32_t readBE32AgtmTest(const uint8_t* p) {
+  return (static_cast<uint32_t>(p[0]) << 24) | (static_cast<uint32_t>(p[1]) << 16) |
+         (static_cast<uint32_t>(p[2]) << 8) | static_cast<uint32_t>(p[3]);
+}
+
+void writeBE32AgtmTest(uint8_t* p, uint32_t v) {
+  p[0] = static_cast<uint8_t>((v >> 24) & 0xFFu);
+  p[1] = static_cast<uint8_t>((v >> 16) & 0xFFu);
+  p[2] = static_cast<uint8_t>((v >> 8) & 0xFFu);
+  p[3] = static_cast<uint8_t>(v & 0xFFu);
+}
+
+void verifyRawAcspHagcProfileLayout(const std::vector<uint8_t>& raw_icc,
+                                    const std::vector<uint8_t>& expected_annex_c,
+                                    uhdr_color_gamut_t expected_cg,
+                                    uhdr_color_transfer_t expected_cicp_ct) {
+  ASSERT_GE(raw_icc.size(), sizeof(ICCHeader));
+  EXPECT_EQ(raw_icc.size() % 4u, 0u);
+  EXPECT_NE(std::memcmp(raw_icc.data(), kICCIdentifier, sizeof(kICCIdentifier)), 0);
+  EXPECT_EQ(readBE32AgtmTest(raw_icc.data()), static_cast<uint32_t>(raw_icc.size()));
+  EXPECT_EQ(readBE32AgtmTest(raw_icc.data() + offsetof(ICCHeader, version)), 0x04400000u);
+  EXPECT_EQ(readBE32AgtmTest(raw_icc.data() + offsetof(ICCHeader, signature)), kACSP_Signature);
+
+  const uint32_t tag_count = readBE32AgtmTest(raw_icc.data() + offsetof(ICCHeader, tag_count));
+  const size_t table_end =
+      sizeof(ICCHeader) + static_cast<size_t>(tag_count) * kICCTagTableEntrySize;
+  ASSERT_LE(table_end, raw_icc.size());
+
+  size_t hagc_tag_count = 0;
+  size_t a2b0_tag_count = 0;
+  size_t b2a0_tag_count = 0;
+  for (uint32_t i = 0; i < tag_count; ++i) {
+    const uint8_t* entry = raw_icc.data() + sizeof(ICCHeader) + i * kICCTagTableEntrySize;
+    const uint32_t sig = readBE32AgtmTest(entry);
+    const uint32_t off = readBE32AgtmTest(entry + 4);
+    const uint32_t sz = readBE32AgtmTest(entry + 8);
+    EXPECT_GE(off, table_end);
+    EXPECT_EQ(off % 4u, 0u);
+    ASSERT_LE(off, raw_icc.size());
+    ASSERT_LE(sz, raw_icc.size() - off);
+
+    if (sig == kTAG_HAGC) {
+      ++hagc_tag_count;
+      const size_t expected_tag_sz = ALIGNM(kHagcTagHeaderSize + expected_annex_c.size(), 4);
+      ASSERT_EQ(sz, expected_tag_sz);
+      const uint8_t* tag_ptr = raw_icc.data() + off;
+      EXPECT_EQ(readBE32AgtmTest(tag_ptr), kTAG_HAGCType);
+      EXPECT_EQ(readBE32AgtmTest(tag_ptr + 4), 0u);
+      EXPECT_EQ(readBE32AgtmTest(tag_ptr + 8), static_cast<uint32_t>(expected_annex_c.size()));
+      EXPECT_EQ(std::memcmp(tag_ptr + kHagcTagHeaderSize, expected_annex_c.data(),
+                            expected_annex_c.size()),
+                0);
+      for (size_t pad = kHagcTagHeaderSize + expected_annex_c.size(); pad < sz; ++pad) {
+        EXPECT_EQ(tag_ptr[pad], 0u);
+      }
+    } else if (sig == kTAG_A2B0) {
+      ++a2b0_tag_count;
+      // 32-byte mAB header + 3*16B B-curves + 29500B 17x17x17x3 16-bit CLUT + 3*16B A-curves.
+      ASSERT_EQ(sz, 29628u);
+      const uint8_t* tag_ptr = raw_icc.data() + off;
+      EXPECT_EQ(readBE32AgtmTest(tag_ptr), kTAG_mABType);
+      EXPECT_EQ(tag_ptr[8], 3u);
+      EXPECT_EQ(tag_ptr[9], 3u);
+      EXPECT_EQ(readBE32AgtmTest(tag_ptr + 12), 32u);
+      EXPECT_EQ(readBE32AgtmTest(tag_ptr + 24), 80u);
+      EXPECT_EQ(readBE32AgtmTest(tag_ptr + 28), 29580u);
+      for (size_t c = 0; c < 3; ++c) {
+        EXPECT_EQ(readBE32AgtmTest(tag_ptr + 32 + c * 16), kTAG_ParaCurveType);
+        EXPECT_EQ(readBE32AgtmTest(tag_ptr + 29580 + c * 16), kTAG_ParaCurveType);
+      }
+      const uint8_t* clut = tag_ptr + 80;
+      EXPECT_EQ(clut[0], 17u);
+      EXPECT_EQ(clut[1], 17u);
+      EXPECT_EQ(clut[2], 17u);
+      EXPECT_EQ(clut[16], 2u);
+      bool has_nonzero_grid_entry = false;
+      for (size_t g = 0; g < 17u * 17u * 17u * 3u * 2u; ++g) {
+        if (clut[20 + g] != 0u) {
+          has_nonzero_grid_entry = true;
+          break;
+        }
+      }
+      EXPECT_TRUE(has_nonzero_grid_entry);
+    } else if (sig == kTAG_B2A0) {
+      ++b2a0_tag_count;
+      ASSERT_EQ(sz, 80u);
+      const uint8_t* tag_ptr = raw_icc.data() + off;
+      EXPECT_EQ(readBE32AgtmTest(tag_ptr), kTAG_mBAType);
+      EXPECT_EQ(tag_ptr[8], 3u);
+      EXPECT_EQ(tag_ptr[9], 3u);
+      EXPECT_EQ(readBE32AgtmTest(tag_ptr + 12), 32u);
+      EXPECT_EQ(readBE32AgtmTest(tag_ptr + 24), 0u);
+      EXPECT_EQ(readBE32AgtmTest(tag_ptr + 28), 0u);
+      for (size_t c = 0; c < 3; ++c) {
+        EXPECT_EQ(readBE32AgtmTest(tag_ptr + 32 + c * 16), kTAG_ParaCurveType);
+      }
+    }
+  }
+  EXPECT_EQ(hagc_tag_count, 1u);
+  if (expected_cicp_ct == UHDR_CT_PQ) {
+    EXPECT_EQ(a2b0_tag_count, 1u);
+    EXPECT_EQ(b2a0_tag_count, 1u);
+  }
+
+  EXPECT_EQ(IccHelper::readIccColorGamut(const_cast<uint8_t*>(raw_icc.data()), raw_icc.size()),
+            expected_cg);
+  EXPECT_EQ(readIccColorTransfer(raw_icc.data(), raw_icc.size()), expected_cicp_ct);
+
+  std::vector<uint8_t> extracted;
+  ASSERT_TRUE(IccHelper::readIccHagc(raw_icc.data(), raw_icc.size(), extracted));
+  EXPECT_EQ(extracted, expected_annex_c);
+
+  smpte2094_50::DynamicMetadata parsed{};
+  ASSERT_EQ(smpte2094_50::parseSt2094_50(extracted.data(), extracted.size(), parsed).error_code,
+            UHDR_CODEC_OK);
+  EXPECT_EQ(smpte2094_50::validateDynamicMetadata(parsed).error_code, UHDR_CODEC_OK);
+}
+
+}  // namespace
+
+TEST_F(AgtmTest, ValidateHagcPayloadAndMemBlockSharedContract) {
+  std::vector<uint8_t> valid_bytes;
+  ASSERT_EQ(smpte2094_50::encodeSt2094_50(makeValidSingleRuleMetadata(), valid_bytes).error_code,
+            UHDR_CODEC_OK);
+  EXPECT_EQ(validateHagcPayload(valid_bytes.data(), valid_bytes.size()).error_code, UHDR_CODEC_OK);
+
+  uhdr_mem_block_t valid_blk{valid_bytes.data(), valid_bytes.size(), valid_bytes.size()};
+  EXPECT_EQ(validateHagcMemBlock(&valid_blk).error_code, UHDR_CODEC_OK);
+
+  // Minimal (no-ATM) and RWTM Annex C bitstreams are also valid bare ST 2094-50 payloads.
+  smpte2094_50::DynamicMetadata minimal{};
+  minimal.has_adaptive_tone_map_flag = false;
+  std::vector<uint8_t> min_bytes;
+  ASSERT_EQ(smpte2094_50::encodeSt2094_50(minimal, min_bytes).error_code, UHDR_CODEC_OK);
+  EXPECT_EQ(validateHagcPayload(min_bytes.data(), min_bytes.size()).error_code, UHDR_CODEC_OK);
+
+  // Rejects null, < 2 bytes, > 65533 bytes, and invalid mem_block descriptors.
+  EXPECT_EQ(validateHagcPayload(nullptr, 0).error_code, UHDR_CODEC_INVALID_PARAM);
+  EXPECT_EQ(validateHagcPayload(nullptr, valid_bytes.size()).error_code, UHDR_CODEC_INVALID_PARAM);
+  EXPECT_EQ(validateHagcPayload(valid_bytes.data(), 0).error_code, UHDR_CODEC_INVALID_PARAM);
+  EXPECT_EQ(validateHagcPayload(valid_bytes.data(), 1).error_code, UHDR_CODEC_INVALID_PARAM);
+  std::vector<uint8_t> oversized(kMaxHagcPayloadBytes + 1, 0u);
+  EXPECT_EQ(validateHagcPayload(oversized.data(), oversized.size()).error_code,
+            UHDR_CODEC_INVALID_PARAM);
+
+  EXPECT_EQ(validateHagcMemBlock(nullptr).error_code, UHDR_CODEC_INVALID_PARAM);
+  uhdr_mem_block_t null_data_blk{nullptr, 4, 4};
+  EXPECT_EQ(validateHagcMemBlock(&null_data_blk).error_code, UHDR_CODEC_INVALID_PARAM);
+  uhdr_mem_block_t short_cap_blk{valid_bytes.data(), valid_bytes.size(), valid_bytes.size() - 1};
+  EXPECT_EQ(validateHagcMemBlock(&short_cap_blk).error_code, UHDR_CODEC_INVALID_PARAM);
+
+  // Rejects trailing bytes, ITU-T T.35 (0xB5) prefix, and out-of-range Annex C u(16) fields.
+  std::vector<uint8_t> trailing = valid_bytes;
+  trailing.push_back(0x00u);
+  EXPECT_EQ(validateHagcPayload(trailing.data(), trailing.size()).error_code,
+            UHDR_CODEC_INVALID_PARAM);
+
+  std::vector<uint8_t> t35_framed = {0xB5u, 0x00u, 0x3Cu, 0x00u, 0x01u};
+  t35_framed.insert(t35_framed.end(), valid_bytes.begin(), valid_bytes.end());
+  EXPECT_EQ(validateHagcPayload(t35_framed.data(), t35_framed.size()).error_code,
+            UHDR_CODEC_INVALID_PARAM);
+
+  // hdr_reference_white u(16) == 0 (< 1) and == 50001 (> 50000).
+  const std::array<uint8_t, 4> zero_white = {0x00u, 0x80u, 0x00u, 0x00u};
+  EXPECT_EQ(validateHagcPayload(zero_white.data(), zero_white.size()).error_code,
+            UHDR_CODEC_INVALID_PARAM);
+  const std::array<uint8_t, 4> huge_white = {0x00u, 0x80u, 0xC3u, 0x51u};  // 50001
+  EXPECT_EQ(validateHagcPayload(huge_white.data(), huge_white.size()).error_code,
+            UHDR_CODEC_INVALID_PARAM);
+
+  // baseline_hdr_headroom u(16) == 60001 (> 60000) in RWTM payload.
+  const std::array<uint8_t, 5> huge_baseline = {0x00u, 0x40u, 0xEAu, 0x61u, 0x80u};
+  EXPECT_EQ(validateHagcPayload(huge_baseline.data(), huge_baseline.size()).error_code,
+            UHDR_CODEC_INVALID_PARAM);
+}
+
+TEST_F(AgtmTest, EncodeRawIccProfileWithEncodedHagcFullGamutTransferMatrixAndLayout) {
+  smpte2094_50::DynamicMetadata meta = makeValidSingleRuleMetadata();
+  meta.rules[0].mix = {{0.2f, 0.5f, 0.1f}, 0.1f, 0.05f, 0.05f};
+  std::vector<uint8_t> annex_c;
+  ASSERT_EQ(smpte2094_50::encodeSt2094_50(meta, annex_c).error_code, UHDR_CODEC_OK);
+
+  const uhdr_color_gamut_t gamuts[] = {UHDR_CG_BT_709, UHDR_CG_DISPLAY_P3, UHDR_CG_BT_2100};
+  const uhdr_color_transfer_t transfers[] = {UHDR_CT_SRGB, UHDR_CT_LINEAR, UHDR_CT_HLG, UHDR_CT_PQ};
+
+  for (uhdr_color_gamut_t cg : gamuts) {
+    for (uhdr_color_transfer_t tf : transfers) {
+      std::vector<uint8_t> raw_icc = {0xFFu, 0xEEu, 0xDDu};
+      ASSERT_EQ(encodeRawIccProfileWithEncodedHagc(tf, cg, annex_c.data(), annex_c.size(), raw_icc)
+                    .error_code,
+                UHDR_CODEC_OK);
+
+      const uhdr_color_transfer_t expected_cicp_ct =
+          (tf == UHDR_CT_SRGB) ? UHDR_CT_UNSPECIFIED : tf;
+      verifyRawAcspHagcProfileLayout(raw_icc, annex_c, cg, expected_cicp_ct);
+
+      smpte2094_50::DynamicMetadata parsed_from_icc{};
+      ASSERT_EQ(
+          parseAndValidateHagcFromIcc(raw_icc.data(), raw_icc.size(), parsed_from_icc).error_code,
+          UHDR_CODEC_OK);
+      ASSERT_EQ(parsed_from_icc.rules.size(), 1u);
+      EXPECT_FLOAT_EQ(parsed_from_icc.rules[0].alternate_hdr_headroom_log2, 2.0f);
+    }
+  }
+
+  // Aliasing safety: hagc_data pointing inside out_raw_icc itself.
+  std::vector<uint8_t> aliased = annex_c;
+  ASSERT_EQ(encodeRawIccProfileWithEncodedHagc(UHDR_CT_SRGB, UHDR_CG_DISPLAY_P3, aliased.data(),
+                                               aliased.size(), aliased)
+                .error_code,
+            UHDR_CODEC_OK);
+  verifyRawAcspHagcProfileLayout(aliased, annex_c, UHDR_CG_DISPLAY_P3, UHDR_CT_UNSPECIFIED);
+}
+
+TEST_F(AgtmTest, EncodeRawIccProfileWithEncodedHagcBaseIccOverloadAcceptsRawAndApp2) {
+  std::vector<uint8_t> annex_c_v1;
+  ASSERT_EQ(smpte2094_50::encodeSt2094_50(makeValidSingleRuleMetadata(), annex_c_v1).error_code,
+            UHDR_CODEC_OK);
+
+  smpte2094_50::DynamicMetadata meta_v2 = makeValidSingleRuleMetadata();
+  meta_v2.rules[0].alternate_hdr_headroom_log2 = 3.0f;
+  meta_v2.rules[0].curve = {{0.0f, 1.0f, 0.0f}, {0.5f, 2.0f, 0.0f}, {1.0f, 3.0f, 0.0f}};
+  std::vector<uint8_t> annex_c_v2;
+  ASSERT_EQ(smpte2094_50::encodeSt2094_50(meta_v2, annex_c_v2).error_code, UHDR_CODEC_OK);
+  ASSERT_NE(annex_c_v1, annex_c_v2);
+
+  // 1. Full 3x4 gamut x transfer matrix across both APP2-prefixed and raw 'acsp' base ICC inputs.
+  const uhdr_color_gamut_t gamuts[] = {UHDR_CG_BT_709, UHDR_CG_DISPLAY_P3, UHDR_CG_BT_2100};
+  const uhdr_color_transfer_t transfers[] = {UHDR_CT_SRGB, UHDR_CT_LINEAR, UHDR_CT_HLG, UHDR_CT_PQ};
+  for (uhdr_color_gamut_t cg : gamuts) {
+    for (uhdr_color_transfer_t tf : transfers) {
+      auto app2_base = IccHelper::writeIccProfile(tf, cg);
+      auto raw_base = IccHelper::writeRawIccProfile(tf, cg);
+      ASSERT_NE(app2_base, nullptr);
+      ASSERT_NE(raw_base, nullptr);
+
+      std::vector<uint8_t> from_app2, from_raw;
+      ASSERT_EQ(encodeRawIccProfileWithEncodedHagc(app2_base->getData(), app2_base->getLength(),
+                                                   annex_c_v1.data(), annex_c_v1.size(), from_app2)
+                    .error_code,
+                UHDR_CODEC_OK);
+      ASSERT_EQ(encodeRawIccProfileWithEncodedHagc(raw_base->getData(), raw_base->getLength(),
+                                                   annex_c_v1.data(), annex_c_v1.size(), from_raw)
+                    .error_code,
+                UHDR_CODEC_OK);
+      EXPECT_EQ(from_app2, from_raw);
+
+      const uhdr_color_transfer_t expected_cicp_ct =
+          (tf == UHDR_CT_SRGB) ? UHDR_CT_UNSPECIFIED : tf;
+      verifyRawAcspHagcProfileLayout(from_app2, annex_c_v1, cg, expected_cicp_ct);
+    }
+  }
+
+  // 2. Custom odd-sized vendor tag ('cust'), shared/aliased TRC offsets, stale MD5 profile_id,
+  //    dirty output-buffer reuse padding, and in-place 'HAGC' replacement.
+  auto std_raw = IccHelper::writeRawIccProfile(UHDR_CT_SRGB, UHDR_CG_DISPLAY_P3);
+  ASSERT_NE(std_raw, nullptr);
+  const uint8_t* orig = static_cast<const uint8_t*>(std_raw->getData());
+  const size_t orig_len = std_raw->getLength();
+  ASSERT_GT(orig_len, sizeof(ICCHeader));
+  ASSERT_LT(orig_len, 1u << 20);
+  const size_t orig_tc = readBE32AgtmTest(orig + offsetof(ICCHeader, tag_count));
+  const size_t orig_table_end = sizeof(ICCHeader) + orig_tc * kICCTagTableEntrySize;
+  ASSERT_LE(orig_table_end, orig_len);
+
+  const std::vector<uint8_t> kVendorTag = {'c', 'a', 'm', '2', 0x42, 0x7F, 0x99};
+  const size_t delta = kICCTagTableEntrySize;
+  const size_t cust_off = ALIGNM(orig_len + delta, 4);
+  const size_t custom_raw_len = ALIGNM(cust_off + kVendorTag.size(), 4);
+  std::vector<uint8_t> custom_base(custom_raw_len);
+  ASSERT_GE(custom_base.size(), sizeof(ICCHeader) + orig_tc * kICCTagTableEntrySize + delta);
+  std::memcpy(custom_base.data(), orig, sizeof(ICCHeader));
+  std::memset(custom_base.data() + offsetof(ICCHeader, profile_id), 0xA5,
+              sizeof(ICCHeader::profile_id));
+  writeBE32AgtmTest(custom_base.data() + offsetof(ICCHeader, size),
+                    static_cast<uint32_t>(custom_raw_len));
+  writeBE32AgtmTest(custom_base.data() + offsetof(ICCHeader, tag_count),
+                    static_cast<uint32_t>(orig_tc + 1));
+
+  uint32_t rtrc_off = 0, rtrc_sz = 0;
+  for (size_t i = 0; i < orig_tc; ++i) {
+    const uint8_t* oe = orig + sizeof(ICCHeader) + i * kICCTagTableEntrySize;
+    uint8_t* ne = custom_base.data() + sizeof(ICCHeader) + i * kICCTagTableEntrySize;
+    const uint32_t sig = readBE32AgtmTest(oe);
+    const uint32_t shifted_off = readBE32AgtmTest(oe + 4) + static_cast<uint32_t>(delta);
+    const uint32_t sz = readBE32AgtmTest(oe + 8);
+    if (sig == kTAG_rTRC) {
+      rtrc_off = shifted_off;
+      rtrc_sz = sz;
+    }
+    writeBE32AgtmTest(ne, sig);
+    writeBE32AgtmTest(ne + 4, (sig == kTAG_gTRC || sig == kTAG_bTRC) ? rtrc_off : shifted_off);
+    writeBE32AgtmTest(ne + 8, (sig == kTAG_gTRC || sig == kTAG_bTRC) ? rtrc_sz : sz);
+  }
+  uint8_t* cust_entry = custom_base.data() + sizeof(ICCHeader) + orig_tc * kICCTagTableEntrySize;
+  writeBE32AgtmTest(cust_entry, SetFourByteTag('c', 'u', 's', 't'));
+  writeBE32AgtmTest(cust_entry + 4, static_cast<uint32_t>(cust_off));
+  writeBE32AgtmTest(cust_entry + 8, static_cast<uint32_t>(kVendorTag.size()));
+  std::memcpy(custom_base.data() + orig_table_end + delta, orig + orig_table_end,
+              orig_len - orig_table_end);
+  std::memcpy(custom_base.data() + cust_off, kVendorTag.data(), kVendorTag.size());
+
+  // Pre-fill reused destination vector with 0xFF so padding zero-fill is exercised.
+  std::vector<uint8_t> out_icc(4096, 0xFFu);
+  ASSERT_EQ(encodeRawIccProfileWithEncodedHagc(custom_base.data(), custom_base.size(),
+                                               annex_c_v1.data(), annex_c_v1.size(), out_icc)
+                .error_code,
+            UHDR_CODEC_OK);
+  verifyRawAcspHagcProfileLayout(out_icc, annex_c_v1, UHDR_CG_DISPLAY_P3, UHDR_CT_UNSPECIFIED);
+  for (size_t i = 0; i < sizeof(ICCHeader::profile_id); ++i) {
+    EXPECT_EQ(out_icc[offsetof(ICCHeader, profile_id) + i], 0u);
+  }
+
+  // Verify 'cust' tag payload, zero-padding byte after 7-byte 'cust', and aliased TRC offsets.
+  const uint32_t tc1 = readBE32AgtmTest(out_icc.data() + offsetof(ICCHeader, tag_count));
+  uint32_t r_off = 0, g_off = 0, b_off = 0, c_off = 0, c_sz = 0;
+  for (uint32_t i = 0; i < tc1; ++i) {
+    const uint8_t* e = out_icc.data() + sizeof(ICCHeader) + i * kICCTagTableEntrySize;
+    const uint32_t sig = readBE32AgtmTest(e);
+    if (sig == kTAG_rTRC) r_off = readBE32AgtmTest(e + 4);
+    if (sig == kTAG_gTRC) g_off = readBE32AgtmTest(e + 4);
+    if (sig == kTAG_bTRC) b_off = readBE32AgtmTest(e + 4);
+    if (sig == SetFourByteTag('c', 'u', 's', 't')) {
+      c_off = readBE32AgtmTest(e + 4);
+      c_sz = readBE32AgtmTest(e + 8);
+    }
+  }
+  EXPECT_NE(r_off, 0u);
+  EXPECT_EQ(r_off, g_off);
+  EXPECT_EQ(r_off, b_off);
+  ASSERT_EQ(c_sz, kVendorTag.size());
+  EXPECT_EQ(std::memcmp(out_icc.data() + c_off, kVendorTag.data(), kVendorTag.size()), 0);
+  EXPECT_EQ(out_icc[c_off + kVendorTag.size()], 0u);
+
+  // In-place replacement (base_icc_data aliases out_icc) replaces 'HAGC' cleanly without
+  // duplicating it.
+  ASSERT_EQ(encodeRawIccProfileWithEncodedHagc(out_icc.data(), out_icc.size(), annex_c_v2.data(),
+                                               annex_c_v2.size(), out_icc)
+                .error_code,
+            UHDR_CODEC_OK);
+  verifyRawAcspHagcProfileLayout(out_icc, annex_c_v2, UHDR_CG_DISPLAY_P3, UHDR_CT_UNSPECIFIED);
+
+  // 3. Base ICC containing >= 2 pre-existing 'HAGC' tag entries is deduplicated down to a single
+  //    canonical 'HAGC' tag carrying the newly supplied Annex C payload.
+  {
+    auto one_hagc = IccHelper::writeRawIccProfile(UHDR_CT_SRGB, UHDR_CG_BT_709, annex_c_v1.data(),
+                                                  annex_c_v1.size());
+    ASSERT_NE(one_hagc, nullptr);
+    const uint8_t* src_p = static_cast<const uint8_t*>(one_hagc->getData());
+    const size_t src_len = one_hagc->getLength();
+    ASSERT_GT(src_len, sizeof(ICCHeader));
+    ASSERT_LT(src_len, 1u << 20);
+    const uint32_t src_tc = readBE32AgtmTest(src_p + offsetof(ICCHeader, tag_count));
+    const size_t src_table_end = sizeof(ICCHeader) + src_tc * kICCTagTableEntrySize;
+    ASSERT_LE(src_table_end, src_len);
+
+    uint32_t existing_hagc_off = 0, existing_hagc_sz = 0;
+    for (uint32_t i = 0; i < src_tc; ++i) {
+      const uint8_t* e = src_p + sizeof(ICCHeader) + i * kICCTagTableEntrySize;
+      if (readBE32AgtmTest(e) == kTAG_HAGC) {
+        existing_hagc_off = readBE32AgtmTest(e + 4) + static_cast<uint32_t>(kICCTagTableEntrySize);
+        existing_hagc_sz = readBE32AgtmTest(e + 8);
+      }
+    }
+    ASSERT_NE(existing_hagc_off, 0u);
+
+    std::vector<uint8_t> two_hagc_base(src_len + kICCTagTableEntrySize, 0u);
+    ASSERT_GE(two_hagc_base.size(), src_table_end + kICCTagTableEntrySize);
+    std::memcpy(two_hagc_base.data(), src_p, sizeof(ICCHeader));
+    writeBE32AgtmTest(two_hagc_base.data() + offsetof(ICCHeader, size),
+                      static_cast<uint32_t>(two_hagc_base.size()));
+    writeBE32AgtmTest(two_hagc_base.data() + offsetof(ICCHeader, tag_count), src_tc + 1u);
+    for (uint32_t i = 0; i < src_tc; ++i) {
+      const uint8_t* oe = src_p + sizeof(ICCHeader) + i * kICCTagTableEntrySize;
+      uint8_t* ne = two_hagc_base.data() + sizeof(ICCHeader) + i * kICCTagTableEntrySize;
+      writeBE32AgtmTest(ne, readBE32AgtmTest(oe));
+      writeBE32AgtmTest(ne + 4,
+                        readBE32AgtmTest(oe + 4) + static_cast<uint32_t>(kICCTagTableEntrySize));
+      writeBE32AgtmTest(ne + 8, readBE32AgtmTest(oe + 8));
+    }
+    uint8_t* dup_e = two_hagc_base.data() + sizeof(ICCHeader) + src_tc * kICCTagTableEntrySize;
+    writeBE32AgtmTest(dup_e, kTAG_HAGC);
+    writeBE32AgtmTest(dup_e + 4, existing_hagc_off);
+    writeBE32AgtmTest(dup_e + 8, existing_hagc_sz);
+    std::memcpy(two_hagc_base.data() + src_table_end + kICCTagTableEntrySize, src_p + src_table_end,
+                src_len - src_table_end);
+
+    std::vector<uint8_t> dedup_out;
+    ASSERT_EQ(encodeRawIccProfileWithEncodedHagc(two_hagc_base.data(), two_hagc_base.size(),
+                                                 annex_c_v2.data(), annex_c_v2.size(), dedup_out)
+                  .error_code,
+              UHDR_CODEC_OK);
+    verifyRawAcspHagcProfileLayout(dedup_out, annex_c_v2, UHDR_CG_BT_709, UHDR_CT_UNSPECIFIED);
+  }
+}
+
+TEST_F(AgtmTest, EncodeRawIccProfileWithDerivedHagcSingleAndMultiChannelGainMaps) {
+  constexpr unsigned int kW = 32;
+  constexpr unsigned int kH = 32;
+
+  // Simulate Android Camera2 HeicCompositeStream pipeline: P010 HDR -> JpegR::toneMap ->
+  // JpegR::generateGainMap (both 1-channel and 3-channel) -> encodeGainmapMetadata +
+  // encodeRawIccProfileWithDerivedHagc.
+  std::vector<uint16_t> p010_y(kW * kH), p010_uv((kW / 2u) * (kH / 2u) * 2u);
+  for (unsigned int y = 0; y < kH; ++y) {
+    for (unsigned int x = 0; x < kW; ++x) {
+      const uint16_t luma10 = static_cast<uint16_t>(64u + ((x + y) * 900u) / (kW + kH - 2u));
+      p010_y[y * kW + x] = static_cast<uint16_t>(luma10 << 6);
+    }
+  }
+  std::fill(p010_uv.begin(), p010_uv.end(), static_cast<uint16_t>(512u << 6));
+
+  uhdr_raw_image_t hdr_p010{};
+  hdr_p010.fmt = UHDR_IMG_FMT_24bppYCbCrP010;
+  hdr_p010.cg = UHDR_CG_BT_2100;
+  hdr_p010.ct = UHDR_CT_HLG;
+  hdr_p010.range = UHDR_CR_FULL_RANGE;
+  hdr_p010.w = kW;
+  hdr_p010.h = kH;
+  hdr_p010.planes[UHDR_PLANE_Y] = p010_y.data();
+  hdr_p010.planes[UHDR_PLANE_UV] = p010_uv.data();
+  hdr_p010.stride[UHDR_PLANE_Y] = kW;
+  hdr_p010.stride[UHDR_PLANE_UV] = kW;
+
+  for (bool multi_channel : {false, true}) {
+    JpegR helper(nullptr, /*mapDimensionScaleFactor=*/2, /*mapCompressQuality=*/85, multi_channel);
+    uhdr_raw_image_ext_t sdr_yuv(UHDR_IMG_FMT_12bppYCbCr420, UHDR_CG_UNSPECIFIED,
+                                 UHDR_CT_UNSPECIFIED, UHDR_CR_UNSPECIFIED, kW, kH, 64);
+    ASSERT_EQ(helper.toneMap(&hdr_p010, &sdr_yuv).error_code, UHDR_CODEC_OK);
+
+    uhdr_gainmap_metadata_ext_t gm_meta(kJpegrVersion);
+    std::unique_ptr<uhdr_raw_image_ext_t> gainmap;
+    ASSERT_EQ(helper
+                  .generateGainMap(&sdr_yuv, &hdr_p010, &gm_meta, gainmap,
+                                   /*sdr_is_601=*/sdr_yuv.cg == UHDR_CG_DISPLAY_P3)
+                  .error_code,
+              UHDR_CODEC_OK);
+    ASSERT_NE(gainmap, nullptr);
+    EXPECT_EQ(gainmap->fmt, multi_channel ? UHDR_IMG_FMT_24bppRGB888 : UHDR_IMG_FMT_8bppYCbCr400);
+
+    smpte2094_50::HagcDerivationOptions opts{};
+    opts.sdr_is_601 = (sdr_yuv.cg == UHDR_CG_DISPLAY_P3);
+
+    std::vector<uint8_t> expected_annex_c;
+    ASSERT_EQ(
+        deriveEncodedHagcFromGainMap(&sdr_yuv, gainmap.get(), &gm_meta, expected_annex_c, opts)
+            .error_code,
+        UHDR_CODEC_OK);
+
+    // Works with both uhdr_gainmap_metadata_ext_t and base uhdr_gainmap_metadata_t pointers.
+    std::vector<uint8_t> raw_icc_ext, raw_icc_base;
+    const uhdr_gainmap_metadata_t base_meta = gm_meta;
+    ASSERT_EQ(
+        encodeRawIccProfileWithDerivedHagc(&sdr_yuv, gainmap.get(), &gm_meta, raw_icc_ext, opts)
+            .error_code,
+        UHDR_CODEC_OK);
+    ASSERT_EQ(
+        encodeRawIccProfileWithDerivedHagc(&sdr_yuv, gainmap.get(), &base_meta, raw_icc_base, opts)
+            .error_code,
+        UHDR_CODEC_OK);
+    EXPECT_EQ(raw_icc_ext, raw_icc_base);
+
+    verifyRawAcspHagcProfileLayout(raw_icc_ext, expected_annex_c, UHDR_CG_DISPLAY_P3,
+                                   UHDR_CT_UNSPECIFIED);
+
+    smpte2094_50::DynamicMetadata decoded_hagc{};
+    ASSERT_EQ(parseAndValidateHagcFromIcc(raw_icc_ext.data(), raw_icc_ext.size(), decoded_hagc)
+                  .error_code,
+              UHDR_CODEC_OK);
+    uhdr_raw_image_ext_t recon_hdr(UHDR_IMG_FMT_64bppRGBAHalfFloat, UHDR_CG_UNSPECIFIED,
+                                   UHDR_CT_UNSPECIFIED, UHDR_CR_UNSPECIFIED, kW, kH, 64);
+    ASSERT_EQ(applyHagc(&sdr_yuv, decoded_hagc, UHDR_CT_LINEAR, recon_hdr.fmt, 4.0f,
+                        /*base_is_601_yuv=*/opts.sdr_is_601, &recon_hdr)
+                  .error_code,
+              UHDR_CODEC_OK);
+  }
+}
+
+TEST_F(AgtmTest, RawIccHagcHelpersFailClosedAndLeaveOutputUnmodified) {
+  std::vector<uint8_t> valid_hagc;
+  ASSERT_EQ(smpte2094_50::encodeSt2094_50(makeValidSingleRuleMetadata(), valid_hagc).error_code,
+            UHDR_CODEC_OK);
+  auto valid_base_app2 = IccHelper::writeIccProfile(UHDR_CT_SRGB, UHDR_CG_BT_709);
+  auto valid_base_raw = IccHelper::writeRawIccProfile(UHDR_CT_SRGB, UHDR_CG_BT_709);
+  ASSERT_NE(valid_base_app2, nullptr);
+  ASSERT_NE(valid_base_raw, nullptr);
+
+  const std::vector<uint8_t> kSentinel = {0xDEu, 0xADu, 0xBEu, 0xEFu};
+  auto expectFailUntouched = [&](uhdr_error_info_t status, const std::vector<uint8_t>& buf) {
+    EXPECT_EQ(status.error_code, UHDR_CODEC_INVALID_PARAM) << status.detail;
+    EXPECT_EQ(buf, kSentinel);
+  };
+
+  // 1. encodeRawIccProfileWithEncodedHagc (fresh) negative cases.
+  {
+    std::vector<uint8_t> out = kSentinel;
+    expectFailUntouched(
+        encodeRawIccProfileWithEncodedHagc(UHDR_CT_UNSPECIFIED, UHDR_CG_BT_709, valid_hagc.data(),
+                                           valid_hagc.size(), out),
+        out);
+    expectFailUntouched(
+        encodeRawIccProfileWithEncodedHagc(static_cast<uhdr_color_transfer_t>(-2), UHDR_CG_BT_709,
+                                           valid_hagc.data(), valid_hagc.size(), out),
+        out);
+    expectFailUntouched(
+        encodeRawIccProfileWithEncodedHagc(static_cast<uhdr_color_transfer_t>(999), UHDR_CG_BT_709,
+                                           valid_hagc.data(), valid_hagc.size(), out),
+        out);
+    expectFailUntouched(
+        encodeRawIccProfileWithEncodedHagc(UHDR_CT_SRGB, UHDR_CG_UNSPECIFIED, valid_hagc.data(),
+                                           valid_hagc.size(), out),
+        out);
+    expectFailUntouched(
+        encodeRawIccProfileWithEncodedHagc(UHDR_CT_SRGB, static_cast<uhdr_color_gamut_t>(-2),
+                                           valid_hagc.data(), valid_hagc.size(), out),
+        out);
+    expectFailUntouched(
+        encodeRawIccProfileWithEncodedHagc(UHDR_CT_SRGB, static_cast<uhdr_color_gamut_t>(999),
+                                           valid_hagc.data(), valid_hagc.size(), out),
+        out);
+    expectFailUntouched(
+        encodeRawIccProfileWithEncodedHagc(UHDR_CT_SRGB, UHDR_CG_BT_709, nullptr, 0, out), out);
+    expectFailUntouched(
+        encodeRawIccProfileWithEncodedHagc(UHDR_CT_SRGB, UHDR_CG_BT_709, valid_hagc.data(), 0, out),
+        out);
+    expectFailUntouched(
+        encodeRawIccProfileWithEncodedHagc(UHDR_CT_SRGB, UHDR_CG_BT_709, valid_hagc.data(), 1, out),
+        out);
+
+    std::vector<uint8_t> oversized(kMaxHagcPayloadBytes + 1, 0u);
+    expectFailUntouched(encodeRawIccProfileWithEncodedHagc(UHDR_CT_SRGB, UHDR_CG_BT_709,
+                                                           oversized.data(), oversized.size(), out),
+                        out);
+
+    std::vector<uint8_t> trailing = valid_hagc;
+    trailing.push_back(0u);
+    expectFailUntouched(encodeRawIccProfileWithEncodedHagc(UHDR_CT_SRGB, UHDR_CG_BT_709,
+                                                           trailing.data(), trailing.size(), out),
+                        out);
+
+    std::vector<uint8_t> t35 = {0xB5u, 0x00u, 0x3Cu, 0x00u, 0x01u};
+    t35.insert(t35.end(), valid_hagc.begin(), valid_hagc.end());
+    expectFailUntouched(encodeRawIccProfileWithEncodedHagc(UHDR_CT_SRGB, UHDR_CG_BT_709, t35.data(),
+                                                           t35.size(), out),
+                        out);
+
+    // Out-of-range Annex C u(16) fields: hdr_reference_white=0, 50001 and baseline_headroom=60001.
+    const std::array<uint8_t, 4> zero_white = {0x00u, 0x80u, 0x00u, 0x00u};
+    const std::array<uint8_t, 4> huge_white = {0x00u, 0x80u, 0xC3u, 0x51u};
+    const std::array<uint8_t, 5> huge_baseline = {0x00u, 0x40u, 0xEAu, 0x61u, 0x80u};
+    expectFailUntouched(
+        encodeRawIccProfileWithEncodedHagc(UHDR_CT_SRGB, UHDR_CG_BT_709, zero_white.data(),
+                                           zero_white.size(), out),
+        out);
+    expectFailUntouched(
+        encodeRawIccProfileWithEncodedHagc(UHDR_CT_SRGB, UHDR_CG_BT_709, huge_white.data(),
+                                           huge_white.size(), out),
+        out);
+    expectFailUntouched(
+        encodeRawIccProfileWithEncodedHagc(UHDR_CT_SRGB, UHDR_CG_BT_709, huge_baseline.data(),
+                                           huge_baseline.size(), out),
+        out);
+    expectFailUntouched(
+        encodeRawIccProfileWithEncodedHagc(valid_base_raw->getData(), valid_base_raw->getLength(),
+                                           huge_white.data(), huge_white.size(), out),
+        out);
+    expectFailUntouched(
+        encodeRawIccProfileWithEncodedHagc(valid_base_raw->getData(), valid_base_raw->getLength(),
+                                           huge_baseline.data(), huge_baseline.size(), out),
+        out);
+  }
+
+  // 2. encodeRawIccProfileWithEncodedHagc (base ICC overload) negative base-ICC and payload cases.
+  {
+    std::vector<uint8_t> out = kSentinel;
+    expectFailUntouched(
+        encodeRawIccProfileWithEncodedHagc(nullptr, 0, valid_hagc.data(), valid_hagc.size(), out),
+        out);
+    expectFailUntouched(
+        encodeRawIccProfileWithEncodedHagc(valid_base_raw->getData(), 64, valid_hagc.data(),
+                                           valid_hagc.size(), out),
+        out);
+    expectFailUntouched(
+        encodeRawIccProfileWithEncodedHagc(valid_base_app2->getData(), 140, valid_hagc.data(),
+                                           valid_hagc.size(), out),
+        out);
+
+    // Bad 'acsp' magic.
+    std::vector<uint8_t> bad_magic(
+        static_cast<const uint8_t*>(valid_base_raw->getData()),
+        static_cast<const uint8_t*>(valid_base_raw->getData()) + valid_base_raw->getLength());
+    bad_magic[offsetof(ICCHeader, signature)] ^= 0xFFu;
+    expectFailUntouched(
+        encodeRawIccProfileWithEncodedHagc(bad_magic.data(), bad_magic.size(), valid_hagc.data(),
+                                           valid_hagc.size(), out),
+        out);
+
+    // Unsupported major ICC version (> 4, e.g. 0x05000000), rejected by skcms_Parse.
+    std::vector<uint8_t> bad_version(
+        static_cast<const uint8_t*>(valid_base_raw->getData()),
+        static_cast<const uint8_t*>(valid_base_raw->getData()) + valid_base_raw->getLength());
+    writeBE32AgtmTest(bad_version.data() + offsetof(ICCHeader, version), 0x05000000u);
+    expectFailUntouched(
+        encodeRawIccProfileWithEncodedHagc(bad_version.data(), bad_version.size(),
+                                           valid_hagc.data(), valid_hagc.size(), out),
+        out);
+    EXPECT_EQ(IccHelper::injectHagcIntoIccProfile(bad_version.data(), bad_version.size(),
+                                                  valid_hagc.data(), valid_hagc.size()),
+              nullptr);
+
+    // Invalid PCS signature (neither 'XYZ ' nor 'Lab '), rejected by skcms_Parse.
+    std::vector<uint8_t> bad_pcs(
+        static_cast<const uint8_t*>(valid_base_raw->getData()),
+        static_cast<const uint8_t*>(valid_base_raw->getData()) + valid_base_raw->getLength());
+    writeBE32AgtmTest(bad_pcs.data() + offsetof(ICCHeader, pcs), Signature_CMYK);
+    expectFailUntouched(
+        encodeRawIccProfileWithEncodedHagc(bad_pcs.data(), bad_pcs.size(), valid_hagc.data(),
+                                           valid_hagc.size(), out),
+        out);
+
+    // Tag size < 4 (missing 4-byte tag type signature), rejected by skcms_Parse.
+    for (uint32_t short_sz : {0u, 3u}) {
+      std::vector<uint8_t> bad_tag_sz(
+          static_cast<const uint8_t*>(valid_base_raw->getData()),
+          static_cast<const uint8_t*>(valid_base_raw->getData()) + valid_base_raw->getLength());
+      writeBE32AgtmTest(bad_tag_sz.data() + sizeof(ICCHeader) + 8, short_sz);
+      expectFailUntouched(
+          encodeRawIccProfileWithEncodedHagc(bad_tag_sz.data(), bad_tag_sz.size(),
+                                             valid_hagc.data(), valid_hagc.size(), out),
+          out);
+      EXPECT_EQ(IccHelper::injectHagcIntoIccProfile(bad_tag_sz.data(), bad_tag_sz.size(),
+                                                    valid_hagc.data(), valid_hagc.size()),
+                nullptr);
+    }
+
+    // Tagless 132-byte 'acsp' shell (tag_count == 0) and 'HAGC'-only 1-tag shell (kept_count == 0).
+    ICCHeader empty_hdr{};
+    empty_hdr.size = Endian_SwapBE32(static_cast<uint32_t>(sizeof(ICCHeader)));
+    empty_hdr.tag_count = 0;
+    expectFailUntouched(
+        encodeRawIccProfileWithEncodedHagc(&empty_hdr, sizeof(empty_hdr), valid_hagc.data(),
+                                           valid_hagc.size(), out),
+        out);
+    EXPECT_EQ(IccHelper::injectHagcIntoIccProfile(&empty_hdr, sizeof(empty_hdr), valid_hagc.data(),
+                                                  valid_hagc.size()),
+              nullptr);
+
+    const size_t hagc_only_tag_len = ALIGNM(kHagcTagHeaderSize + valid_hagc.size(), 4);
+    const size_t hagc_only_len = sizeof(ICCHeader) + kICCTagTableEntrySize + hagc_only_tag_len;
+    std::vector<uint8_t> hagc_only_shell(hagc_only_len, 0u);
+    std::memcpy(hagc_only_shell.data(), &empty_hdr, sizeof(ICCHeader));
+    writeBE32AgtmTest(hagc_only_shell.data() + offsetof(ICCHeader, size),
+                      static_cast<uint32_t>(hagc_only_len));
+    writeBE32AgtmTest(hagc_only_shell.data() + offsetof(ICCHeader, version), 0x04400000u);
+    writeBE32AgtmTest(hagc_only_shell.data() + offsetof(ICCHeader, tag_count), 1u);
+    writeBE32AgtmTest(hagc_only_shell.data() + sizeof(ICCHeader), kTAG_HAGC);
+    writeBE32AgtmTest(hagc_only_shell.data() + sizeof(ICCHeader) + 4,
+                      static_cast<uint32_t>(sizeof(ICCHeader) + kICCTagTableEntrySize));
+    writeBE32AgtmTest(hagc_only_shell.data() + sizeof(ICCHeader) + 8,
+                      static_cast<uint32_t>(hagc_only_tag_len));
+    writeBE32AgtmTest(hagc_only_shell.data() + sizeof(ICCHeader) + kICCTagTableEntrySize,
+                      kTAG_HAGCType);
+    writeBE32AgtmTest(hagc_only_shell.data() + sizeof(ICCHeader) + kICCTagTableEntrySize + 8,
+                      static_cast<uint32_t>(valid_hagc.size()));
+    std::memcpy(
+        hagc_only_shell.data() + sizeof(ICCHeader) + kICCTagTableEntrySize + kHagcTagHeaderSize,
+        valid_hagc.data(), valid_hagc.size());
+    expectFailUntouched(
+        encodeRawIccProfileWithEncodedHagc(hagc_only_shell.data(), hagc_only_shell.size(),
+                                           valid_hagc.data(), valid_hagc.size(), out),
+        out);
+
+    // Multi-chunk and malformed chunk headers on APP2 ICC.
+    std::vector<uint8_t> multi_chunk(
+        static_cast<const uint8_t*>(valid_base_app2->getData()),
+        static_cast<const uint8_t*>(valid_base_app2->getData()) + valid_base_app2->getLength());
+    multi_chunk[12] = 1;
+    multi_chunk[13] = 2;
+    expectFailUntouched(
+        encodeRawIccProfileWithEncodedHagc(multi_chunk.data(), multi_chunk.size(),
+                                           valid_hagc.data(), valid_hagc.size(), out),
+        out);
+    multi_chunk[12] = 0;
+    multi_chunk[13] = 1;
+    expectFailUntouched(
+        encodeRawIccProfileWithEncodedHagc(multi_chunk.data(), multi_chunk.size(),
+                                           valid_hagc.data(), valid_hagc.size(), out),
+        out);
+
+    // Corrupt tag offset exceeding profile size.
+    std::vector<uint8_t> bad_tag_off(
+        static_cast<const uint8_t*>(valid_base_raw->getData()),
+        static_cast<const uint8_t*>(valid_base_raw->getData()) + valid_base_raw->getLength());
+    writeBE32AgtmTest(bad_tag_off.data() + sizeof(ICCHeader) + 4,
+                      static_cast<uint32_t>(bad_tag_off.size() + 32));
+    expectFailUntouched(
+        encodeRawIccProfileWithEncodedHagc(bad_tag_off.data(), bad_tag_off.size(),
+                                           valid_hagc.data(), valid_hagc.size(), out),
+        out);
+
+    // Invalid HAGC payload with valid base ICC.
+    expectFailUntouched(
+        encodeRawIccProfileWithEncodedHagc(valid_base_raw->getData(), valid_base_raw->getLength(),
+                                           nullptr, 0, out),
+        out);
+  }
+
+  // 3. encodeRawIccProfileWithDerivedHagc negative / mismatched descriptor cases.
+  {
+    uhdr_raw_image_ext_t sdr(UHDR_IMG_FMT_32bppRGBA8888, UHDR_CG_BT_709, UHDR_CT_SRGB,
+                             UHDR_CR_FULL_RANGE, 8, 8, 64);
+    uhdr_raw_image_ext_t gm(UHDR_IMG_FMT_8bppYCbCr400, UHDR_CG_BT_709, UHDR_CT_UNSPECIFIED,
+                            UHDR_CR_FULL_RANGE, 4, 4, 64);
+    std::memset(sdr.planes[UHDR_PLANE_PACKED], 128, 8 * sdr.stride[UHDR_PLANE_PACKED] * 4);
+    std::memset(gm.planes[UHDR_PLANE_Y], 128, 4 * gm.stride[UHDR_PLANE_Y]);
+
+    uhdr_gainmap_metadata_t meta{};
+    for (int c = 0; c < 3; ++c) {
+      meta.min_content_boost[c] = 1.0f;
+      meta.max_content_boost[c] = 4.0f;
+      meta.gamma[c] = 1.0f;
+      meta.offset_sdr[c] = 0.0f;
+      meta.offset_hdr[c] = 0.0f;
+    }
+    meta.hdr_capacity_min = 1.0f;
+    meta.hdr_capacity_max = 4.0f;
+    meta.use_base_cg = 1;
+
+    std::vector<uint8_t> out = kSentinel;
+    expectFailUntouched(encodeRawIccProfileWithDerivedHagc(nullptr, &gm, &meta, out), out);
+    expectFailUntouched(encodeRawIccProfileWithDerivedHagc(&sdr, nullptr, &meta, out), out);
+    expectFailUntouched(encodeRawIccProfileWithDerivedHagc(&sdr, &gm, nullptr, out), out);
+
+    uhdr_raw_image_t sdr_unspec_cg = sdr;
+    sdr_unspec_cg.cg = UHDR_CG_UNSPECIFIED;
+    expectFailUntouched(encodeRawIccProfileWithDerivedHagc(&sdr_unspec_cg, &gm, &meta, out), out);
+
+    for (int bad_cg_val : {-2, 999}) {
+      uhdr_raw_image_t sdr_bad_cg = sdr;
+      std::memcpy(&sdr_bad_cg.cg, &bad_cg_val, sizeof(bad_cg_val));
+      expectFailUntouched(encodeRawIccProfileWithDerivedHagc(&sdr_bad_cg, &gm, &meta, out), out);
+    }
+
+    for (int bad_ct_val : {-2, 999}) {
+      uhdr_raw_image_t sdr_bad_ct = sdr;
+      std::memcpy(&sdr_bad_ct.ct, &bad_ct_val, sizeof(bad_ct_val));
+      expectFailUntouched(encodeRawIccProfileWithDerivedHagc(&sdr_bad_ct, &gm, &meta, out), out);
+    }
+
+    // Gainmap larger than base image.
+    uhdr_raw_image_ext_t gm_oversized(UHDR_IMG_FMT_8bppYCbCr400, UHDR_CG_BT_709,
+                                      UHDR_CT_UNSPECIFIED, UHDR_CR_FULL_RANGE, 16, 8, 64);
+    expectFailUntouched(encodeRawIccProfileWithDerivedHagc(&sdr, &gm_oversized, &meta, out), out);
+
+    // Alternate color space (use_base_cg == 0) with unspecified gainmap gamut.
+    uhdr_gainmap_metadata_t alt_meta = meta;
+    alt_meta.use_base_cg = 0;
+    uhdr_raw_image_t gm_unspec_cg = gm;
+    gm_unspec_cg.cg = UHDR_CG_UNSPECIFIED;
+    expectFailUntouched(encodeRawIccProfileWithDerivedHagc(&sdr, &gm_unspec_cg, &alt_meta, out),
+                        out);
+
+    // Invalid hdr_capacity_max < hdr_capacity_min.
+    uhdr_gainmap_metadata_t bad_cap = meta;
+    bad_cap.hdr_capacity_min = 4.0f;
+    bad_cap.hdr_capacity_max = 2.0f;
+    expectFailUntouched(encodeRawIccProfileWithDerivedHagc(&sdr, &gm, &bad_cap, out), out);
+  }
+}
+
+TEST_F(AgtmTest, HalSideloadRawIccZeroSolverFastPathLatency) {
+  std::vector<uint8_t> hal_annex_c;
+  ASSERT_EQ(smpte2094_50::encodeSt2094_50(makeValidSingleRuleMetadata(), hal_annex_c).error_code,
+            UHDR_CODEC_OK);
+  auto base_raw = IccHelper::writeRawIccProfile(UHDR_CT_SRGB, UHDR_CG_DISPLAY_P3);
+  ASSERT_NE(base_raw, nullptr);
+
+  constexpr int kIterations = 1000;
+  std::vector<uint8_t> out_fresh;
+  std::vector<uint8_t> out_injected;
+  const uint8_t* fresh_ptr = nullptr;
+  const uint8_t* injected_ptr = nullptr;
+
+  const auto t0 = std::chrono::steady_clock::now();
+  for (int i = 0; i < kIterations; ++i) {
+    ASSERT_EQ(encodeRawIccProfileWithEncodedHagc(UHDR_CT_SRGB, UHDR_CG_DISPLAY_P3,
+                                                 hal_annex_c.data(), hal_annex_c.size(), out_fresh)
+                  .error_code,
+              UHDR_CODEC_OK);
+    ASSERT_EQ(
+        encodeRawIccProfileWithEncodedHagc(base_raw->getData(), base_raw->getLength(),
+                                           hal_annex_c.data(), hal_annex_c.size(), out_injected)
+            .error_code,
+        UHDR_CODEC_OK);
+    if (i == 0) {
+      fresh_ptr = out_fresh.data();
+      injected_ptr = out_injected.data();
+    } else {
+      EXPECT_EQ(out_fresh.data(), fresh_ptr);
+      EXPECT_EQ(out_injected.data(), injected_ptr);
+    }
+  }
+  const auto t1 = std::chrono::steady_clock::now();
+  const double avg_us =
+      std::chrono::duration<double, std::micro>(t1 - t0).count() / (2.0 * kIterations);
+  EXPECT_LT(avg_us, 100.0) << "Expected microsecond-scale latency (< 100 us/call), got " << avg_us
+                           << " us";
 }
 
 }  // namespace ultrahdr

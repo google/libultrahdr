@@ -482,4 +482,103 @@ TEST_F(IccHelperTest, ReadIccColorTransferParsesCicpAndDefaultsUnspecified) {
   EXPECT_EQ(readIccColorTransfer(nullptr, 0), UHDR_CT_UNSPECIFIED);
 }
 
+TEST_F(IccHelperTest, WriteRawIccProfileMatchesStrippedApp2BitForBit) {
+  smpte2094_50::DynamicMetadata rwtm{};
+  rwtm.baseline_hdr_headroom_log2 = 1.5f;
+  smpte2094_50::populateUsingRwtm(rwtm);
+  std::vector<uint8_t> hagc_bytes;
+  ASSERT_EQ(smpte2094_50::encodeSt2094_50(rwtm, hagc_bytes).error_code, UHDR_CODEC_OK);
+
+  const uhdr_color_gamut_t gamuts[] = {UHDR_CG_BT_709, UHDR_CG_DISPLAY_P3, UHDR_CG_BT_2100};
+  const uhdr_color_transfer_t transfers[] = {UHDR_CT_SRGB, UHDR_CT_LINEAR, UHDR_CT_HLG, UHDR_CT_PQ};
+
+  for (uhdr_color_gamut_t cg : gamuts) {
+    for (uhdr_color_transfer_t tf : transfers) {
+      for (bool with_hagc : {false, true}) {
+        const void* h_ptr = with_hagc ? hagc_bytes.data() : nullptr;
+        const size_t h_sz = with_hagc ? hagc_bytes.size() : 0;
+
+        auto app2_icc = IccHelper::writeIccProfile(tf, cg, h_ptr, h_sz);
+        auto raw_icc = IccHelper::writeRawIccProfile(tf, cg, h_ptr, h_sz);
+        ASSERT_NE(app2_icc, nullptr);
+        ASSERT_NE(raw_icc, nullptr);
+        ASSERT_EQ(app2_icc->getLength(), raw_icc->getLength() + kICCIdentifierSize);
+
+        const uint8_t* raw_ptr = static_cast<const uint8_t*>(raw_icc->getData());
+        const size_t raw_len = raw_icc->getLength();
+        ASSERT_GE(raw_len, sizeof(ICCHeader));
+        EXPECT_NE(std::memcmp(raw_ptr, kICCIdentifier, sizeof(kICCIdentifier)), 0);
+        EXPECT_EQ(readBE32IccTest(raw_ptr), static_cast<uint32_t>(raw_len));
+        EXPECT_EQ(readBE32IccTest(raw_ptr + offsetof(ICCHeader, signature)), kACSP_Signature);
+        EXPECT_EQ(std::memcmp(raw_ptr,
+                              static_cast<const uint8_t*>(app2_icc->getData()) + kICCIdentifierSize,
+                              raw_len),
+                  0);
+
+        EXPECT_EQ(IccHelper::readIccColorGamut(raw_icc->getData(), raw_len), cg);
+        std::vector<uint8_t> extracted;
+        if (with_hagc) {
+          EXPECT_EQ(readBE32IccTest(raw_ptr + offsetof(ICCHeader, version)), 0x04400000u);
+          ASSERT_TRUE(IccHelper::readIccHagc(raw_ptr, raw_len, extracted));
+          EXPECT_EQ(extracted, hagc_bytes);
+        } else {
+          EXPECT_FALSE(IccHelper::readIccHagc(raw_ptr, raw_len, extracted));
+        }
+      }
+    }
+  }
+
+  // Invalid enums and mismatched pointer/size pairs must fail closed with nullptr.
+  EXPECT_EQ(IccHelper::writeRawIccProfile(UHDR_CT_UNSPECIFIED, UHDR_CG_BT_709), nullptr);
+  EXPECT_EQ(IccHelper::writeRawIccProfile(static_cast<uhdr_color_transfer_t>(-2), UHDR_CG_BT_709),
+            nullptr);
+  EXPECT_EQ(IccHelper::writeRawIccProfile(static_cast<uhdr_color_transfer_t>(999), UHDR_CG_BT_709),
+            nullptr);
+  EXPECT_EQ(IccHelper::writeRawIccProfile(UHDR_CT_SRGB, UHDR_CG_UNSPECIFIED), nullptr);
+  EXPECT_EQ(IccHelper::writeRawIccProfile(UHDR_CT_SRGB, static_cast<uhdr_color_gamut_t>(-2)),
+            nullptr);
+  EXPECT_EQ(IccHelper::writeRawIccProfile(UHDR_CT_SRGB, static_cast<uhdr_color_gamut_t>(999)),
+            nullptr);
+  EXPECT_EQ(IccHelper::writeRawIccProfile(UHDR_CT_SRGB, UHDR_CG_BT_709, nullptr, 4), nullptr);
+  EXPECT_EQ(IccHelper::writeRawIccProfile(UHDR_CT_SRGB, UHDR_CG_BT_709, hagc_bytes.data(), 0),
+            nullptr);
+  EXPECT_EQ(IccHelper::writeIccProfile(static_cast<uhdr_color_transfer_t>(-2), UHDR_CG_BT_709),
+            nullptr);
+  EXPECT_EQ(IccHelper::writeIccProfile(static_cast<uhdr_color_transfer_t>(999), UHDR_CG_BT_709),
+            nullptr);
+}
+
+TEST_F(IccHelperTest, ReadIccColorGamutHandlesUnalignedBuffersAndTagOffsets) {
+  for (uhdr_color_gamut_t cg : {UHDR_CG_BT_709, UHDR_CG_DISPLAY_P3, UHDR_CG_BT_2100}) {
+    auto raw_icc = IccHelper::writeRawIccProfile(UHDR_CT_SRGB, cg);
+    ASSERT_NE(raw_icc, nullptr);
+    const uint8_t* src = static_cast<const uint8_t*>(raw_icc->getData());
+    const size_t len = raw_icc->getLength();
+
+    // 1. Unaligned base buffer address (+1, +2, +3 byte offsets).
+    for (size_t misalign = 1; misalign <= 3; ++misalign) {
+      std::vector<uint8_t> shifted(misalign + len, 0u);
+      std::memcpy(shifted.data() + misalign, src, len);
+      EXPECT_EQ(IccHelper::readIccColorGamut(shifted.data() + misalign, len), cg);
+    }
+
+    // 2. Non-4-byte-aligned rXYZ/gXYZ/bXYZ tag offsets inside the profile itself.
+    std::vector<uint8_t> odd_tags(len + 3u, 0u);
+    std::memcpy(odd_tags.data(), src, sizeof(ICCHeader));
+    const size_t new_size = odd_tags.size();
+    writeBE32IccTest(odd_tags.data() + offsetof(ICCHeader, size), static_cast<uint32_t>(new_size));
+    const uint32_t tc = readBE32IccTest(src + offsetof(ICCHeader, tag_count));
+    const size_t table_end = sizeof(ICCHeader) + tc * kICCTagTableEntrySize;
+    std::memcpy(odd_tags.data() + table_end + 1u, src + table_end, len - table_end);
+    for (uint32_t i = 0; i < tc; ++i) {
+      const uint8_t* oe = src + sizeof(ICCHeader) + i * kICCTagTableEntrySize;
+      uint8_t* ne = odd_tags.data() + sizeof(ICCHeader) + i * kICCTagTableEntrySize;
+      writeBE32IccTest(ne, readBE32IccTest(oe));
+      writeBE32IccTest(ne + 4, readBE32IccTest(oe + 4) + 1u);
+      writeBE32IccTest(ne + 8, readBE32IccTest(oe + 8));
+    }
+    EXPECT_EQ(IccHelper::readIccColorGamut(odd_tags.data(), odd_tags.size()), cg);
+  }
+}
+
 }  // namespace ultrahdr

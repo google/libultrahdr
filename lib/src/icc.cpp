@@ -8,7 +8,9 @@
  * except according to those terms.
  */
 
+#include <array>
 #include <cmath>
+#include <cstdint>
 #include <cstring>
 #include <limits>
 #include <utility>
@@ -113,15 +115,202 @@ static void float_XYZD50_to_grid16_lab(const float* xyz_float, uint8_t* grid16_l
   // table, but the spec appears to indicate that the value should be 0xFF00.
   // https://crbug.com/skia/13807
   for (size_t i = 0; i < 3; ++i) {
-    reinterpret_cast<uint16_t*>(grid16_lab)[i] =
-        Endian_SwapBE16(float_round_to_unorm16(Lab_unorm[i]));
+    const uint16_t u16 = float_round_to_unorm16(Lab_unorm[i]);
+    grid16_lab[2 * i] = static_cast<uint8_t>((u16 >> 8) & 0xFFu);
+    grid16_lab[2 * i + 1] = static_cast<uint8_t>(u16 & 0xFFu);
   }
 }
 
+namespace {
+
+template <typename EnumT>
+inline int loadIccEnumRaw(const EnumT& value) {
+  static_assert(sizeof(EnumT) == sizeof(int), "Expected int-sized enum");
+  int raw = 0;
+  std::memcpy(&raw, &value, sizeof(raw));
+  return raw;
+}
+
+inline uint32_t readIccBE32(const uint8_t* ptr) {
+  return (static_cast<uint32_t>(ptr[0]) << 24) | (static_cast<uint32_t>(ptr[1]) << 16) |
+         (static_cast<uint32_t>(ptr[2]) << 8) | static_cast<uint32_t>(ptr[3]);
+}
+
+inline void writeIccBE32(uint8_t* ptr, uint32_t val) {
+  ptr[0] = static_cast<uint8_t>((val >> 24) & 0xFFu);
+  ptr[1] = static_cast<uint8_t>((val >> 16) & 0xFFu);
+  ptr[2] = static_cast<uint8_t>((val >> 8) & 0xFFu);
+  ptr[3] = static_cast<uint8_t>(val & 0xFFu);
+}
+
+inline const char* getDescLiteral(int tf_raw, int gamut_raw) {
+  switch (gamut_raw) {
+    case UHDR_CG_BT_709:
+      switch (tf_raw) {
+        case UHDR_CT_SRGB:
+          return "sRGB Gamut with sRGB Transfer";
+        case UHDR_CT_LINEAR:
+          return "sRGB Gamut with Linear Transfer";
+        case UHDR_CT_PQ:
+          return "sRGB Gamut with PQ Transfer";
+        case UHDR_CT_HLG:
+          return "sRGB Gamut with HLG Transfer";
+        default:
+          return nullptr;
+      }
+    case UHDR_CG_DISPLAY_P3:
+      switch (tf_raw) {
+        case UHDR_CT_SRGB:
+          return "Display P3 Gamut with sRGB Transfer";
+        case UHDR_CT_LINEAR:
+          return "Display P3 Gamut with Linear Transfer";
+        case UHDR_CT_PQ:
+          return "Display P3 Gamut with PQ Transfer";
+        case UHDR_CT_HLG:
+          return "Display P3 Gamut with HLG Transfer";
+        default:
+          return nullptr;
+      }
+    case UHDR_CG_BT_2100:
+      switch (tf_raw) {
+        case UHDR_CT_SRGB:
+          return "Rec2020 Gamut with sRGB Transfer";
+        case UHDR_CT_LINEAR:
+          return "Rec2020 Gamut with Linear Transfer";
+        case UHDR_CT_PQ:
+          return "Rec2020 Gamut with PQ Transfer";
+        case UHDR_CT_HLG:
+          return "Rec2020 Gamut with HLG Transfer";
+        default:
+          return nullptr;
+      }
+    default:
+      return nullptr;
+  }
+}
+
+inline size_t textTagPaddedSize(size_t text_length) { return ALIGNM(28 + text_length * 2, 4); }
+
+inline void writeTextTagBytes(uint8_t* dst, const char* text, size_t text_length,
+                              size_t padded_length) {
+  writeIccBE32(dst, kTAG_TextType);
+  writeIccBE32(dst + 4, 0u);
+  writeIccBE32(dst + 8, 1u);
+  writeIccBE32(dst + 12, 12u);
+  writeIccBE32(dst + 16, SetFourByteTag('e', 'n', 'U', 'S'));
+  writeIccBE32(dst + 20, static_cast<uint32_t>(2u * text_length));
+  writeIccBE32(dst + 24, 28u);
+  for (size_t i = 0; i < text_length; ++i) {
+    dst[28 + 2 * i] = 0u;
+    dst[28 + 2 * i + 1] = static_cast<uint8_t>(text[i]);
+  }
+  const size_t unpadded = 28 + 2 * text_length;
+  if (padded_length > unpadded) {
+    std::memset(dst + unpadded, 0, padded_length - unpadded);
+  }
+}
+
+inline void writeXyzTagBytes(uint8_t* dst, float x, float y, float z) {
+  writeIccBE32(dst, kXYZ_PCSSpace);
+  writeIccBE32(dst + 4, 0u);
+  writeIccBE32(dst + 8, static_cast<uint32_t>(float_round_to_fixed(x)));
+  writeIccBE32(dst + 12, static_cast<uint32_t>(float_round_to_fixed(y)));
+  writeIccBE32(dst + 16, static_cast<uint32_t>(float_round_to_fixed(z)));
+}
+
+inline size_t curveTableTagPaddedSize(size_t table_entries) {
+  return ALIGNM(12 + table_entries * 2, 4);
+}
+
+inline void writeCurveTableTagBytes(uint8_t* dst, uint32_t table_entries, const void* table_16,
+                                    size_t padded_length) {
+  writeIccBE32(dst, kTAG_CurveType);
+  writeIccBE32(dst + 4, 0u);
+  writeIccBE32(dst + 8, table_entries);
+  const size_t table_bytes = static_cast<size_t>(table_entries) * 2u;
+  if (table_bytes > 0) {
+    std::memcpy(dst + 12, table_16, table_bytes);
+  }
+  const size_t unpadded = 12 + table_bytes;
+  if (padded_length > unpadded) {
+    std::memset(dst + unpadded, 0, padded_length - unpadded);
+  }
+}
+
+inline bool isExponentialParaCurve(const TransferFunction& fn) {
+  return fn.a == 1.f && fn.b == 0.f && fn.c == 0.f && fn.d == 0.f && fn.e == 0.f && fn.f == 0.f;
+}
+
+inline size_t paraCurveTagSize(const TransferFunction& fn) {
+  return isExponentialParaCurve(fn) ? 16u : 40u;
+}
+
+inline void writeParaCurveTagBytes(uint8_t* dst, const TransferFunction& fn) {
+  writeIccBE32(dst, kTAG_ParaCurveType);
+  writeIccBE32(dst + 4, 0u);
+  if (isExponentialParaCurve(fn)) {
+    writeIccBE32(dst + 8, static_cast<uint32_t>(kExponential_ParaCurveType) << 16);
+    writeIccBE32(dst + 12, static_cast<uint32_t>(float_round_to_fixed(fn.g)));
+    return;
+  }
+  writeIccBE32(dst + 8, static_cast<uint32_t>(kGABCDEF_ParaCurveType) << 16);
+  writeIccBE32(dst + 12, static_cast<uint32_t>(float_round_to_fixed(fn.g)));
+  writeIccBE32(dst + 16, static_cast<uint32_t>(float_round_to_fixed(fn.a)));
+  writeIccBE32(dst + 20, static_cast<uint32_t>(float_round_to_fixed(fn.b)));
+  writeIccBE32(dst + 24, static_cast<uint32_t>(float_round_to_fixed(fn.c)));
+  writeIccBE32(dst + 28, static_cast<uint32_t>(float_round_to_fixed(fn.d)));
+  writeIccBE32(dst + 32, static_cast<uint32_t>(float_round_to_fixed(fn.e)));
+  writeIccBE32(dst + 36, static_cast<uint32_t>(float_round_to_fixed(fn.f)));
+}
+
+inline void writeCicpTagBytes(uint8_t* dst, uint32_t color_primaries,
+                              uint32_t transfer_characteristics) {
+  writeIccBE32(dst, kTAG_cicp);
+  writeIccBE32(dst + 4, 0u);
+  dst[8] = static_cast<uint8_t>(color_primaries);
+  dst[9] = static_cast<uint8_t>(transfer_characteristics);
+  dst[10] = 0u;
+  dst[11] = 1u;
+}
+
+inline bool isValidHagcTagSize(const void* hagc_data, size_t hagc_size) {
+  return hagc_data != nullptr && hagc_size > 0 &&
+         hagc_size <=
+             static_cast<size_t>((std::numeric_limits<uint32_t>::max)() - kHagcTagHeaderSize - 3u);
+}
+
+inline void writeHagcTagBytes(uint8_t* dst, const void* hagc_data, size_t hagc_size,
+                              size_t padded_length) {
+  writeIccBE32(dst, kTAG_HAGCType);
+  writeIccBE32(dst + 4, 0u);
+  writeIccBE32(dst + 8, static_cast<uint32_t>(hagc_size));
+  std::memcpy(dst + kHagcTagHeaderSize, hagc_data, hagc_size);
+  const size_t unpadded = kHagcTagHeaderSize + hagc_size;
+  if (padded_length > unpadded) {
+    std::memset(dst + unpadded, 0, padded_length - unpadded);
+  }
+}
+
+inline bool bufferAliasesVector(const std::vector<uint8_t>& vec, const void* ptr) {
+  if (ptr == nullptr || vec.data() == nullptr || vec.capacity() == 0) {
+    return false;
+  }
+  const uintptr_t begin = reinterpret_cast<uintptr_t>(vec.data());
+  const uintptr_t end = begin + vec.capacity();
+  const uintptr_t addr = reinterpret_cast<uintptr_t>(ptr);
+  return addr >= begin && addr < end;
+}
+
+}  // namespace
+
 std::string IccHelper::get_desc_string(const uhdr_color_transfer_t tf,
                                        const uhdr_color_gamut_t gamut) {
+  const char* literal = getDescLiteral(loadIccEnumRaw(tf), loadIccEnumRaw(gamut));
+  if (literal != nullptr) {
+    return std::string(literal);
+  }
   std::string result;
-  switch (gamut) {
+  switch (loadIccEnumRaw(gamut)) {
     case UHDR_CG_BT_709:
       result += "sRGB";
       break;
@@ -136,7 +325,7 @@ std::string IccHelper::get_desc_string(const uhdr_color_transfer_t tf,
       break;
   }
   result += " Gamut with ";
-  switch (tf) {
+  switch (loadIccEnumRaw(tf)) {
     case UHDR_CT_SRGB:
       result += "sRGB";
       break;
@@ -158,86 +347,46 @@ std::string IccHelper::get_desc_string(const uhdr_color_transfer_t tf,
 }
 
 std::shared_ptr<DataStruct> IccHelper::write_text_tag(const char* text) {
-  uint32_t text_length = strlen(text);
-  uint32_t header[] = {
-      Endian_SwapBE32(kTAG_TextType),                       // Type signature
-      0,                                                    // Reserved
-      Endian_SwapBE32(1),                                   // Number of records
-      Endian_SwapBE32(12),                                  // Record size (must be 12)
-      Endian_SwapBE32(SetFourByteTag('e', 'n', 'U', 'S')),  // English USA
-      Endian_SwapBE32(2 * text_length),                     // Length of string in bytes
-      Endian_SwapBE32(28),                                  // Offset of string
-  };
-
-  uint32_t total_length = text_length * 2 + sizeof(header);
-  total_length = (((total_length + 2) >> 2) << 2);  // 4 aligned
+  const size_t text_length = std::strlen(text);
+  const size_t total_length = textTagPaddedSize(text_length);
   std::shared_ptr<DataStruct> dataStruct = std::make_shared<DataStruct>(total_length);
-
-  if (!dataStruct->write(header, sizeof(header))) {
-    ALOGE("write_text_tag(): error in writing data");
-    return dataStruct;
+  uint8_t* dst = static_cast<uint8_t*>(dataStruct->getData());
+  if (dst != nullptr) {
+    writeTextTagBytes(dst, text, text_length, total_length);
   }
-
-  for (size_t i = 0; i < text_length; i++) {
-    // Convert ASCII to big-endian UTF-16.
-    dataStruct->write8(0);
-    dataStruct->write8(text[i]);
-  }
-
   return dataStruct;
 }
 
 std::shared_ptr<DataStruct> IccHelper::write_xyz_tag(float x, float y, float z) {
-  uint32_t data[] = {
-      Endian_SwapBE32(kXYZ_PCSSpace),
-      0,
-      static_cast<uint32_t>(Endian_SwapBE32(float_round_to_fixed(x))),
-      static_cast<uint32_t>(Endian_SwapBE32(float_round_to_fixed(y))),
-      static_cast<uint32_t>(Endian_SwapBE32(float_round_to_fixed(z))),
-  };
-  std::shared_ptr<DataStruct> dataStruct = std::make_shared<DataStruct>(sizeof(data));
-  dataStruct->write(&data, sizeof(data));
+  std::shared_ptr<DataStruct> dataStruct = std::make_shared<DataStruct>(kColorantTagSize);
+  uint8_t* dst = static_cast<uint8_t*>(dataStruct->getData());
+  if (dst != nullptr) {
+    writeXyzTagBytes(dst, x, y, z);
+  }
   return dataStruct;
 }
 
 std::shared_ptr<DataStruct> IccHelper::write_trc_tag(const int table_entries,
                                                      const void* table_16) {
-  int total_length = 4 + 4 + 4 + table_entries * 2;
-  total_length = (((total_length + 2) >> 2) << 2);  // 4 aligned
+  if (table_entries < 0) {
+    return nullptr;
+  }
+  const size_t total_length = curveTableTagPaddedSize(static_cast<size_t>(table_entries));
   std::shared_ptr<DataStruct> dataStruct = std::make_shared<DataStruct>(total_length);
-  dataStruct->write32(Endian_SwapBE32(kTAG_CurveType));  // Type
-  dataStruct->write32(0);                                // Reserved
-  dataStruct->write32(Endian_SwapBE32(table_entries));   // Value count
-  for (int i = 0; i < table_entries; ++i) {
-    uint16_t value = reinterpret_cast<const uint16_t*>(table_16)[i];
-    dataStruct->write16(value);
+  uint8_t* dst = static_cast<uint8_t*>(dataStruct->getData());
+  if (dst != nullptr) {
+    writeCurveTableTagBytes(dst, static_cast<uint32_t>(table_entries), table_16, total_length);
   }
   return dataStruct;
 }
 
 std::shared_ptr<DataStruct> IccHelper::write_trc_tag(const TransferFunction& fn) {
-  if (fn.a == 1.f && fn.b == 0.f && fn.c == 0.f && fn.d == 0.f && fn.e == 0.f && fn.f == 0.f) {
-    int total_length = 16;
-    std::shared_ptr<DataStruct> dataStruct = std::make_shared<DataStruct>(total_length);
-    dataStruct->write32(Endian_SwapBE32(kTAG_ParaCurveType));  // Type
-    dataStruct->write32(0);                                    // Reserved
-    dataStruct->write32(Endian_SwapBE16(kExponential_ParaCurveType));
-    dataStruct->write32(Endian_SwapBE32(float_round_to_fixed(fn.g)));
-    return dataStruct;
-  }
-
-  int total_length = 40;
+  const size_t total_length = paraCurveTagSize(fn);
   std::shared_ptr<DataStruct> dataStruct = std::make_shared<DataStruct>(total_length);
-  dataStruct->write32(Endian_SwapBE32(kTAG_ParaCurveType));  // Type
-  dataStruct->write32(0);                                    // Reserved
-  dataStruct->write32(Endian_SwapBE16(kGABCDEF_ParaCurveType));
-  dataStruct->write32(Endian_SwapBE32(float_round_to_fixed(fn.g)));
-  dataStruct->write32(Endian_SwapBE32(float_round_to_fixed(fn.a)));
-  dataStruct->write32(Endian_SwapBE32(float_round_to_fixed(fn.b)));
-  dataStruct->write32(Endian_SwapBE32(float_round_to_fixed(fn.c)));
-  dataStruct->write32(Endian_SwapBE32(float_round_to_fixed(fn.d)));
-  dataStruct->write32(Endian_SwapBE32(float_round_to_fixed(fn.e)));
-  dataStruct->write32(Endian_SwapBE32(float_round_to_fixed(fn.f)));
+  uint8_t* dst = static_cast<uint8_t*>(dataStruct->getData());
+  if (dst != nullptr) {
+    writeParaCurveTagBytes(dst, fn);
+  }
   return dataStruct;
 }
 
@@ -270,29 +419,24 @@ float IccHelper::compute_tone_map_gain(const uhdr_color_transfer_t tf, float L) 
 std::shared_ptr<DataStruct> IccHelper::write_cicp_tag(uint32_t color_primaries,
                                                       uint32_t transfer_characteristics) {
   std::shared_ptr<DataStruct> dataStruct = std::make_shared<DataStruct>(kCicpTagSize);
-  dataStruct->write32(Endian_SwapBE32(kTAG_cicp));  // Type signature
-  dataStruct->write32(0);                           // Reserved
-  dataStruct->write8(color_primaries);              // Color primaries
-  dataStruct->write8(transfer_characteristics);     // Transfer characteristics
-  dataStruct->write8(0);                            // RGB matrix
-  dataStruct->write8(1);                            // Full range
+  uint8_t* dst = static_cast<uint8_t*>(dataStruct->getData());
+  if (dst != nullptr) {
+    writeCicpTagBytes(dst, color_primaries, transfer_characteristics);
+  }
   return dataStruct;
 }
 
 std::shared_ptr<DataStruct> IccHelper::write_hagc_tag(const void* hagc_data, size_t hagc_size) {
-  if (hagc_data == nullptr || hagc_size == 0 ||
-      hagc_size > static_cast<size_t>((std::numeric_limits<uint32_t>::max)() - kHagcTagHeaderSize - 3u)) {
+  if (!isValidHagcTagSize(hagc_data, hagc_size)) {
     return nullptr;
   }
   const size_t total_length = ALIGNM(kHagcTagHeaderSize + hagc_size, 4);
   std::shared_ptr<DataStruct> dataStruct = std::make_shared<DataStruct>(total_length);
-  if (!dataStruct->write32(Endian_SwapBE32(kTAG_HAGCType)) ||  // Type signature ('hagc')
-      !dataStruct->write32(0) ||                               // Reserved (0)
-      !dataStruct->write32(Endian_SwapBE32(static_cast<uint32_t>(hagc_size))) ||
-      !dataStruct->write(hagc_data, hagc_size)) {
-    ALOGE("write_hagc_tag(): error in writing data");
+  uint8_t* dst = static_cast<uint8_t*>(dataStruct->getData());
+  if (dst == nullptr) {
     return nullptr;
   }
+  writeHagcTagBytes(dst, hagc_data, hagc_size, total_length);
   return dataStruct;
 }
 
@@ -329,470 +473,114 @@ void IccHelper::compute_lut_entry(const Matrix3x3& src_to_XYZD50, float rgb[3]) 
   Matrix3x3_apply(&rec2020_to_XYZD50, rgb);
 }
 
-std::shared_ptr<DataStruct> IccHelper::write_clut(const uint8_t* grid_points,
-                                                  const uint8_t* grid_16) {
-  uint32_t value_count = kNumChannels;
-  for (uint32_t i = 0; i < kNumChannels; ++i) {
+namespace {
+
+inline size_t clutPaddedSize(size_t num_channels, const uint8_t* grid_points) {
+  size_t value_count = num_channels;
+  for (size_t i = 0; i < num_channels; ++i) {
     value_count *= grid_points[i];
   }
+  return ALIGNM(20 + 2 * value_count, 4);
+}
 
-  int total_length = 20 + 2 * value_count;
-  total_length = (((total_length + 2) >> 2) << 2);  // 4 aligned
-  std::shared_ptr<DataStruct> dataStruct = std::make_shared<DataStruct>(total_length);
-
+inline void writeClutHeaderBytes(uint8_t* dst, size_t num_channels, const uint8_t* grid_points) {
   for (size_t i = 0; i < 16; ++i) {
-    dataStruct->write8(i < kNumChannels ? grid_points[i] : 0);  // Grid size
+    dst[i] = i < num_channels ? grid_points[i] : 0u;
   }
-  dataStruct->write8(2);  // Grid byte width (always 16-bit)
-  dataStruct->write8(0);  // Reserved
-  dataStruct->write8(0);  // Reserved
-  dataStruct->write8(0);  // Reserved
+  dst[16] = 2u;  // Grid byte width (always 16-bit)
+  dst[17] = 0u;  // Reserved
+  dst[18] = 0u;  // Reserved
+  dst[19] = 0u;  // Reserved
+}
 
-  for (uint32_t i = 0; i < value_count; ++i) {
-    uint16_t value = reinterpret_cast<const uint16_t*>(grid_16)[i];
-    dataStruct->write16(value);
+inline void writeClutBytes(uint8_t* dst, size_t num_channels, const uint8_t* grid_points,
+                           const uint8_t* grid_16, size_t padded_length) {
+  writeClutHeaderBytes(dst, num_channels, grid_points);
+  size_t value_count = num_channels;
+  for (size_t i = 0; i < num_channels; ++i) {
+    value_count *= grid_points[i];
   }
+  const size_t grid_bytes = 2 * value_count;
+  if (grid_bytes > 0) {
+    std::memcpy(dst + 20, grid_16, grid_bytes);
+  }
+  const size_t unpadded = 20 + grid_bytes;
+  if (padded_length > unpadded) {
+    std::memset(dst + unpadded, 0, padded_length - unpadded);
+  }
+}
 
+inline size_t mabOrMbaTagSize(bool has_a_curves, size_t num_channels, const uint8_t* grid_points) {
+  const size_t curve_set_bytes = num_channels * paraCurveTagSize(kLinear_TransFun);
+  size_t total = 32 + curve_set_bytes;
+  if (has_a_curves) {
+    total += clutPaddedSize(num_channels, grid_points) + curve_set_bytes;
+  }
+  return total;
+}
+
+inline void writeMabOrMbaHeaderAndCurves(uint8_t* dst, uint32_t type, bool has_a_curves,
+                                         size_t num_channels, const uint8_t* grid_points) {
+  const size_t b_curves_offset = 32;
+  const size_t single_curve_len = paraCurveTagSize(kLinear_TransFun);
+  const size_t curve_set_bytes = num_channels * single_curve_len;
+  const size_t clut_len = has_a_curves ? clutPaddedSize(num_channels, grid_points) : 0;
+  const size_t clut_offset = has_a_curves ? (b_curves_offset + curve_set_bytes) : 0;
+  const size_t a_curves_offset = has_a_curves ? (clut_offset + clut_len) : 0;
+
+  writeIccBE32(dst, type);                                         // Type signature
+  writeIccBE32(dst + 4, 0u);                                       // Reserved
+  dst[8] = static_cast<uint8_t>(num_channels);                     // Input channels
+  dst[9] = static_cast<uint8_t>(num_channels);                     // Output channels
+  dst[10] = 0u;                                                    // Reserved
+  dst[11] = 0u;                                                    // Reserved
+  writeIccBE32(dst + 12, static_cast<uint32_t>(b_curves_offset));  // B curve offset
+  writeIccBE32(dst + 16, 0u);                                      // Matrix offset
+  writeIccBE32(dst + 20, 0u);                                      // M curve offset
+  writeIccBE32(dst + 24, static_cast<uint32_t>(clut_offset));      // CLUT offset
+  writeIccBE32(dst + 28, static_cast<uint32_t>(a_curves_offset));  // A curve offset
+
+  for (size_t i = 0; i < num_channels; ++i) {
+    writeParaCurveTagBytes(dst + b_curves_offset + i * single_curve_len, kLinear_TransFun);
+  }
+  if (has_a_curves) {
+    for (size_t i = 0; i < num_channels; ++i) {
+      writeParaCurveTagBytes(dst + a_curves_offset + i * single_curve_len, kLinear_TransFun);
+    }
+  }
+}
+
+}  // namespace
+
+std::shared_ptr<DataStruct> IccHelper::write_clut(const uint8_t* grid_points,
+                                                  const uint8_t* grid_16) {
+  const size_t total_length = clutPaddedSize(kNumChannels, grid_points);
+  std::shared_ptr<DataStruct> dataStruct = std::make_shared<DataStruct>(total_length);
+  uint8_t* dst = static_cast<uint8_t*>(dataStruct->getData());
+  if (dst != nullptr) {
+    writeClutBytes(dst, kNumChannels, grid_points, grid_16, total_length);
+  }
   return dataStruct;
 }
 
 std::shared_ptr<DataStruct> IccHelper::write_mAB_or_mBA_tag(uint32_t type, bool has_a_curves,
                                                             const uint8_t* grid_points,
                                                             const uint8_t* grid_16) {
-  const size_t b_curves_offset = 32;
-  std::shared_ptr<DataStruct> b_curves_data[kNumChannels];
-  std::shared_ptr<DataStruct> a_curves_data[kNumChannels];
-  size_t clut_offset = 0;
-  std::shared_ptr<DataStruct> clut;
-  size_t a_curves_offset = 0;
-
-  // The "B" curve is required.
-  for (size_t i = 0; i < kNumChannels; ++i) {
-    b_curves_data[i] = write_trc_tag(kLinear_TransFun);
-  }
-
-  // The "A" curve and CLUT are optional.
-  if (has_a_curves) {
-    clut_offset = b_curves_offset;
-    for (size_t i = 0; i < kNumChannels; ++i) {
-      clut_offset += b_curves_data[i]->getLength();
-    }
-    clut = write_clut(grid_points, grid_16);
-
-    a_curves_offset = clut_offset + clut->getLength();
-    for (size_t i = 0; i < kNumChannels; ++i) {
-      a_curves_data[i] = write_trc_tag(kLinear_TransFun);
-    }
-  }
-
-  int total_length = b_curves_offset;
-  for (size_t i = 0; i < kNumChannels; ++i) {
-    total_length += b_curves_data[i]->getLength();
-  }
-  if (has_a_curves) {
-    total_length += clut->getLength();
-    for (size_t i = 0; i < kNumChannels; ++i) {
-      total_length += a_curves_data[i]->getLength();
-    }
-  }
+  const size_t total_length = mabOrMbaTagSize(has_a_curves, kNumChannels, grid_points);
   std::shared_ptr<DataStruct> dataStruct = std::make_shared<DataStruct>(total_length);
-  dataStruct->write32(Endian_SwapBE32(type));             // Type signature
-  dataStruct->write32(0);                                 // Reserved
-  dataStruct->write8(kNumChannels);                       // Input channels
-  dataStruct->write8(kNumChannels);                       // Output channels
-  dataStruct->write16(0);                                 // Reserved
-  dataStruct->write32(Endian_SwapBE32(b_curves_offset));  // B curve offset
-  dataStruct->write32(Endian_SwapBE32(0));                // Matrix offset (ignored)
-  dataStruct->write32(Endian_SwapBE32(0));                // M curve offset (ignored)
-  dataStruct->write32(Endian_SwapBE32(clut_offset));      // CLUT offset
-  dataStruct->write32(Endian_SwapBE32(a_curves_offset));  // A curve offset
-  for (size_t i = 0; i < kNumChannels; ++i) {
-    if (dataStruct->write(b_curves_data[i]->getData(), b_curves_data[i]->getLength())) {
-      return dataStruct;
-    }
-  }
-  if (has_a_curves) {
-    dataStruct->write(clut->getData(), clut->getLength());
-    for (size_t i = 0; i < kNumChannels; ++i) {
-      dataStruct->write(a_curves_data[i]->getData(), a_curves_data[i]->getLength());
+  uint8_t* dst = static_cast<uint8_t*>(dataStruct->getData());
+  if (dst != nullptr) {
+    writeMabOrMbaHeaderAndCurves(dst, type, has_a_curves, kNumChannels, grid_points);
+    if (has_a_curves) {
+      const size_t clut_offset = 32 + kNumChannels * paraCurveTagSize(kLinear_TransFun);
+      const size_t clut_len = clutPaddedSize(kNumChannels, grid_points);
+      writeClutBytes(dst + clut_offset, kNumChannels, grid_points, grid_16, clut_len);
     }
   }
   return dataStruct;
-}
-
-std::shared_ptr<DataStruct> IccHelper::writeIccProfile(uhdr_color_transfer_t tf,
-                                                       uhdr_color_gamut_t gamut,
-                                                       const void* hagc_data,
-                                                       size_t hagc_size) {
-  ICCHeader header;
-
-  std::vector<std::pair<uint32_t, std::shared_ptr<DataStruct>>> tags;
-
-  // Compute profile description tag
-  std::string desc = get_desc_string(tf, gamut);
-  tags.emplace_back(kTAG_desc, write_text_tag(desc.c_str()));
-
-  Matrix3x3 toXYZD50;
-  switch (gamut) {
-    case UHDR_CG_BT_709:
-      toXYZD50 = kSRGB;
-      break;
-    case UHDR_CG_DISPLAY_P3:
-      toXYZD50 = kDisplayP3;
-      break;
-    case UHDR_CG_BT_2100:
-      toXYZD50 = kRec2020;
-      break;
-    default:
-      // Should not fall here.
-      return nullptr;
-  }
-
-  // Compute primaries.
-  {
-    tags.emplace_back(kTAG_rXYZ,
-                      write_xyz_tag(toXYZD50.vals[0][0], toXYZD50.vals[1][0], toXYZD50.vals[2][0]));
-    tags.emplace_back(kTAG_gXYZ,
-                      write_xyz_tag(toXYZD50.vals[0][1], toXYZD50.vals[1][1], toXYZD50.vals[2][1]));
-    tags.emplace_back(kTAG_bXYZ,
-                      write_xyz_tag(toXYZD50.vals[0][2], toXYZD50.vals[1][2], toXYZD50.vals[2][2]));
-  }
-
-  // Compute white point tag (must be D50)
-  tags.emplace_back(kTAG_wtpt, write_xyz_tag(kD50_x, kD50_y, kD50_z));
-
-  // Compute transfer curves.
-  if (tf != UHDR_CT_PQ) {
-    if (tf == UHDR_CT_HLG) {
-      std::vector<uint8_t> trc_table;
-      trc_table.resize(kTrcTableSize * 2);
-      for (uint32_t i = 0; i < kTrcTableSize; ++i) {
-        float x = i / (kTrcTableSize - 1.f);
-        float y = hlgOetf(x);
-        y *= compute_tone_map_gain(tf, y);
-        float_to_table16(y, &trc_table[2 * i]);
-      }
-
-      tags.emplace_back(kTAG_rTRC,
-                        write_trc_tag(kTrcTableSize, reinterpret_cast<uint8_t*>(trc_table.data())));
-      tags.emplace_back(kTAG_gTRC,
-                        write_trc_tag(kTrcTableSize, reinterpret_cast<uint8_t*>(trc_table.data())));
-      tags.emplace_back(kTAG_bTRC,
-                        write_trc_tag(kTrcTableSize, reinterpret_cast<uint8_t*>(trc_table.data())));
-    } else if (tf == UHDR_CT_SRGB) {
-      tags.emplace_back(kTAG_rTRC, write_trc_tag(kSRGB_TransFun));
-      tags.emplace_back(kTAG_gTRC, write_trc_tag(kSRGB_TransFun));
-      tags.emplace_back(kTAG_bTRC, write_trc_tag(kSRGB_TransFun));
-    } else if (tf == UHDR_CT_LINEAR) {
-      tags.emplace_back(kTAG_rTRC, write_trc_tag(kLinear_TransFun));
-      tags.emplace_back(kTAG_gTRC, write_trc_tag(kLinear_TransFun));
-      tags.emplace_back(kTAG_bTRC, write_trc_tag(kLinear_TransFun));
-    }
-  }
-
-  // Compute CICP - for hdr images icc profile shall contain cicp.
-  if (tf == UHDR_CT_HLG || tf == UHDR_CT_PQ || tf == UHDR_CT_LINEAR) {
-    // The CICP tag is present in ICC 4.4, so update the header's version.
-    header.version = Endian_SwapBE32(0x04400000);
-
-    uint32_t color_primaries = kCICPPrimariesUnSpecified;
-    if (gamut == UHDR_CG_BT_709) {
-      color_primaries = kCICPPrimariesSRGB;
-    } else if (gamut == UHDR_CG_DISPLAY_P3) {
-      color_primaries = kCICPPrimariesP3;
-    } else if (gamut == UHDR_CG_BT_2100) {
-      color_primaries = kCICPPrimariesRec2020;
-    }
-
-    uint32_t transfer_characteristics = kCICPTrfnUnSpecified;
-    if (tf == UHDR_CT_SRGB) {
-      transfer_characteristics = kCICPTrfnSRGB;
-    } else if (tf == UHDR_CT_LINEAR) {
-      transfer_characteristics = kCICPTrfnLinear;
-    } else if (tf == UHDR_CT_PQ) {
-      transfer_characteristics = kCICPTrfnPQ;
-    } else if (tf == UHDR_CT_HLG) {
-      transfer_characteristics = kCICPTrfnHLG;
-    }
-    tags.emplace_back(kTAG_cicp, write_cicp_tag(color_primaries, transfer_characteristics));
-  }
-
-  // Compute HAGC (SMPTE ST 2094-50 Headroom Adaptive Gain Curves).
-  if (hagc_data != nullptr && hagc_size > 0) {
-    std::shared_ptr<DataStruct> hagc_tag = write_hagc_tag(hagc_data, hagc_size);
-    if (hagc_tag == nullptr) {
-      return nullptr;
-    }
-    // The HAGC tag requires ICC 4.4, matching Skia's SkICC::write_hagc_tag().
-    header.version = Endian_SwapBE32(0x04400000);
-    tags.emplace_back(kTAG_HAGC, std::move(hagc_tag));
-  }
-
-  // Compute A2B0.
-  if (tf == UHDR_CT_PQ) {
-    std::vector<uint8_t> a2b_grid;
-    a2b_grid.resize(kGridSize * kGridSize * kGridSize * kNumChannels * 2);
-    size_t a2b_grid_index = 0;
-    for (uint32_t r_index = 0; r_index < kGridSize; ++r_index) {
-      for (uint32_t g_index = 0; g_index < kGridSize; ++g_index) {
-        for (uint32_t b_index = 0; b_index < kGridSize; ++b_index) {
-          float rgb[3] = {
-              r_index / (kGridSize - 1.f),
-              g_index / (kGridSize - 1.f),
-              b_index / (kGridSize - 1.f),
-          };
-          compute_lut_entry(toXYZD50, rgb);
-          float_XYZD50_to_grid16_lab(rgb, &a2b_grid[a2b_grid_index]);
-          a2b_grid_index += 6;
-        }
-      }
-    }
-    const uint8_t* grid_16 = reinterpret_cast<const uint8_t*>(a2b_grid.data());
-
-    uint8_t grid_points[kNumChannels];
-    for (size_t i = 0; i < kNumChannels; ++i) {
-      grid_points[i] = kGridSize;
-    }
-
-    auto a2b_data = write_mAB_or_mBA_tag(kTAG_mABType,
-                                         /* has_a_curves */ true, grid_points, grid_16);
-    tags.emplace_back(kTAG_A2B0, std::move(a2b_data));
-  }
-
-  // Compute B2A0.
-  if (tf == UHDR_CT_PQ) {
-    auto b2a_data = write_mAB_or_mBA_tag(kTAG_mBAType,
-                                         /* has_a_curves */ false,
-                                         /* grid_points */ nullptr,
-                                         /* grid_16 */ nullptr);
-    tags.emplace_back(kTAG_B2A0, std::move(b2a_data));
-  }
-
-  // Compute copyright tag
-  tags.emplace_back(kTAG_cprt, write_text_tag("Google Inc. 2022"));
-
-  // Compute the size of the profile.
-  size_t tag_data_size = 0;
-  for (const auto& tag : tags) {
-    tag_data_size += tag.second->getLength();
-  }
-  size_t tag_table_size = kICCTagTableEntrySize * tags.size();
-  size_t profile_size = kICCHeaderSize + tag_table_size + tag_data_size;
-
-  std::shared_ptr<DataStruct> dataStruct =
-      std::make_shared<DataStruct>(profile_size + kICCIdentifierSize);
-
-  // Write identifier, chunk count, and chunk ID
-  if (!dataStruct->write(kICCIdentifier, sizeof(kICCIdentifier)) || !dataStruct->write8(1) ||
-      !dataStruct->write8(1)) {
-    ALOGE("writeIccProfile(): error in identifier");
-    return dataStruct;
-  }
-
-  // Write the header.
-  header.data_color_space = Endian_SwapBE32(Signature_RGB);
-  header.pcs = Endian_SwapBE32(tf == UHDR_CT_PQ ? Signature_Lab : Signature_XYZ);
-  header.size = Endian_SwapBE32(profile_size);
-  header.tag_count = Endian_SwapBE32(tags.size());
-
-  if (!dataStruct->write(&header, sizeof(header))) {
-    ALOGE("writeIccProfile(): error in header");
-    return dataStruct;
-  }
-
-  // Write the tag table. Track the offset and size of the previous tag to
-  // compute each tag's offset. An empty SkData indicates that the previous
-  // tag is to be reused.
-  uint32_t last_tag_offset = sizeof(header) + tag_table_size;
-  uint32_t last_tag_size = 0;
-  for (const auto& tag : tags) {
-    last_tag_offset = last_tag_offset + last_tag_size;
-    last_tag_size = tag.second->getLength();
-    uint32_t tag_table_entry[3] = {
-        Endian_SwapBE32(tag.first),
-        Endian_SwapBE32(last_tag_offset),
-        Endian_SwapBE32(last_tag_size),
-    };
-    if (!dataStruct->write(tag_table_entry, sizeof(tag_table_entry))) {
-      ALOGE("writeIccProfile(): error in writing tag table");
-      return dataStruct;
-    }
-  }
-
-  // Write the tags.
-  for (const auto& tag : tags) {
-    if (!dataStruct->write(tag.second->getData(), tag.second->getLength())) {
-      ALOGE("writeIccProfile(): error in writing tags");
-      return dataStruct;
-    }
-  }
-
-  return dataStruct;
-}
-
-bool IccHelper::tagsEqualToMatrix(const Matrix3x3& matrix, const uint8_t* red_tag,
-                                  const uint8_t* green_tag, const uint8_t* blue_tag) {
-  const float tolerance = 0.001f;
-  Fixed r_x_fixed = Endian_SwapBE32(reinterpret_cast<int32_t*>(const_cast<uint8_t*>(red_tag))[2]);
-  Fixed r_y_fixed = Endian_SwapBE32(reinterpret_cast<int32_t*>(const_cast<uint8_t*>(red_tag))[3]);
-  Fixed r_z_fixed = Endian_SwapBE32(reinterpret_cast<int32_t*>(const_cast<uint8_t*>(red_tag))[4]);
-  float r_x = FixedToFloat(r_x_fixed);
-  float r_y = FixedToFloat(r_y_fixed);
-  float r_z = FixedToFloat(r_z_fixed);
-  if (fabs(r_x - matrix.vals[0][0]) > tolerance || fabs(r_y - matrix.vals[1][0]) > tolerance ||
-      fabs(r_z - matrix.vals[2][0]) > tolerance) {
-    return false;
-  }
-
-  Fixed g_x_fixed = Endian_SwapBE32(reinterpret_cast<int32_t*>(const_cast<uint8_t*>(green_tag))[2]);
-  Fixed g_y_fixed = Endian_SwapBE32(reinterpret_cast<int32_t*>(const_cast<uint8_t*>(green_tag))[3]);
-  Fixed g_z_fixed = Endian_SwapBE32(reinterpret_cast<int32_t*>(const_cast<uint8_t*>(green_tag))[4]);
-  float g_x = FixedToFloat(g_x_fixed);
-  float g_y = FixedToFloat(g_y_fixed);
-  float g_z = FixedToFloat(g_z_fixed);
-  if (fabs(g_x - matrix.vals[0][1]) > tolerance || fabs(g_y - matrix.vals[1][1]) > tolerance ||
-      fabs(g_z - matrix.vals[2][1]) > tolerance) {
-    return false;
-  }
-
-  Fixed b_x_fixed = Endian_SwapBE32(reinterpret_cast<int32_t*>(const_cast<uint8_t*>(blue_tag))[2]);
-  Fixed b_y_fixed = Endian_SwapBE32(reinterpret_cast<int32_t*>(const_cast<uint8_t*>(blue_tag))[3]);
-  Fixed b_z_fixed = Endian_SwapBE32(reinterpret_cast<int32_t*>(const_cast<uint8_t*>(blue_tag))[4]);
-  float b_x = FixedToFloat(b_x_fixed);
-  float b_y = FixedToFloat(b_y_fixed);
-  float b_z = FixedToFloat(b_z_fixed);
-  if (fabs(b_x - matrix.vals[0][2]) > tolerance || fabs(b_y - matrix.vals[1][2]) > tolerance ||
-      fabs(b_z - matrix.vals[2][2]) > tolerance) {
-    return false;
-  }
-
-  return true;
-}
-
-uhdr_color_gamut_t IccHelper::readIccColorGamut(void* icc_data, size_t icc_size) {
-  // Each tag table entry consists of 3 fields of 4 bytes each.
-  static const size_t kTagTableEntrySize = 12;
-
-  if (icc_data == nullptr || icc_size < sizeof(ICCHeader) + kICCIdentifierSize) {
-    return UHDR_CG_UNSPECIFIED;
-  }
-
-  if (memcmp(icc_data, kICCIdentifier, sizeof(kICCIdentifier)) != 0) {
-    return UHDR_CG_UNSPECIFIED;
-  }
-
-  uint8_t* icc_bytes = reinterpret_cast<uint8_t*>(icc_data) + kICCIdentifierSize;
-  auto alignment_needs = alignof(ICCHeader);
-  uint8_t* aligned_block = nullptr;
-  if (((uintptr_t)icc_bytes) % alignment_needs != 0) {
-    aligned_block = static_cast<uint8_t*>(
-        ::operator new[](icc_size - kICCIdentifierSize, std::align_val_t(alignment_needs)));
-    if (!aligned_block) {
-      ALOGE("unable allocate memory, icc parsing failed");
-      return UHDR_CG_UNSPECIFIED;
-    }
-    std::memcpy(aligned_block, icc_bytes, icc_size - kICCIdentifierSize);
-    icc_bytes = aligned_block;
-  }
-  ICCHeader* header = reinterpret_cast<ICCHeader*>(icc_bytes);
-
-  const size_t profile_size = icc_size - kICCIdentifierSize;
-  const size_t max_tags = (profile_size - sizeof(ICCHeader)) / kTagTableEntrySize;
-  size_t tag_count = Endian_SwapBE32(header->tag_count);
-  if (tag_count > max_tags) {
-    ALOGE("Tag table size exceeds buffer size during icc parsing. tag count %zu, max tags %zu",
-          tag_count, max_tags);
-    if (aligned_block) ::operator delete[](aligned_block, std::align_val_t(alignment_needs));
-    return UHDR_CG_UNSPECIFIED;
-  }
-
-  // Use 0 to indicate not found, since offsets are always relative to start
-  // of ICC data and therefore a tag offset of zero would never be valid.
-  size_t red_primary_offset = 0, green_primary_offset = 0, blue_primary_offset = 0;
-  size_t red_primary_size = 0, green_primary_size = 0, blue_primary_size = 0;
-  size_t cicp_size = 0, cicp_offset = 0;
-  for (size_t tag_idx = 0; tag_idx < tag_count; ++tag_idx) {
-    uint32_t* tag_entry_start =
-        reinterpret_cast<uint32_t*>(icc_bytes + sizeof(ICCHeader) + tag_idx * kTagTableEntrySize);
-    // first 4 bytes are the tag signature, next 4 bytes are the tag offset,
-    // last 4 bytes are the tag length in bytes.
-    if (red_primary_offset == 0 && *tag_entry_start == Endian_SwapBE32(kTAG_rXYZ)) {
-      red_primary_offset = Endian_SwapBE32(*(tag_entry_start + 1));
-      red_primary_size = Endian_SwapBE32(*(tag_entry_start + 2));
-    } else if (green_primary_offset == 0 && *tag_entry_start == Endian_SwapBE32(kTAG_gXYZ)) {
-      green_primary_offset = Endian_SwapBE32(*(tag_entry_start + 1));
-      green_primary_size = Endian_SwapBE32(*(tag_entry_start + 2));
-    } else if (blue_primary_offset == 0 && *tag_entry_start == Endian_SwapBE32(kTAG_bXYZ)) {
-      blue_primary_offset = Endian_SwapBE32(*(tag_entry_start + 1));
-      blue_primary_size = Endian_SwapBE32(*(tag_entry_start + 2));
-    } else if (cicp_offset == 0 && *tag_entry_start == Endian_SwapBE32(kTAG_cicp)) {
-      cicp_offset = Endian_SwapBE32(*(tag_entry_start + 1));
-      cicp_size = Endian_SwapBE32(*(tag_entry_start + 2));
-    }
-  }
-
-  if (cicp_offset != 0 && cicp_size == kCicpTagSize &&
-      cicp_offset <= profile_size && cicp_size <= profile_size - cicp_offset) {
-    uint8_t* cicp = icc_bytes + cicp_offset;
-    uint8_t primaries = cicp[8];
-    uhdr_color_gamut_t gamut = UHDR_CG_UNSPECIFIED;
-    if (primaries == kCICPPrimariesSRGB) {
-      gamut = UHDR_CG_BT_709;
-    } else if (primaries == kCICPPrimariesP3) {
-      gamut = UHDR_CG_DISPLAY_P3;
-    } else if (primaries == kCICPPrimariesRec2020) {
-      gamut = UHDR_CG_BT_2100;
-    }
-    if (gamut != UHDR_CG_UNSPECIFIED) {
-      if (aligned_block) ::operator delete[](aligned_block, std::align_val_t(alignment_needs));
-      return gamut;
-    }
-  }
-
-  if (red_primary_offset == 0 || red_primary_size != kColorantTagSize ||
-      red_primary_offset > profile_size || red_primary_size > profile_size - red_primary_offset ||
-      green_primary_offset == 0 || green_primary_size != kColorantTagSize ||
-      green_primary_offset > profile_size || green_primary_size > profile_size - green_primary_offset ||
-      blue_primary_offset == 0 || blue_primary_size != kColorantTagSize ||
-      blue_primary_offset > profile_size || blue_primary_size > profile_size - blue_primary_offset) {
-    if (aligned_block) ::operator delete[](aligned_block, std::align_val_t(alignment_needs));
-    return UHDR_CG_UNSPECIFIED;
-  }
-
-  uint8_t* red_tag = icc_bytes + red_primary_offset;
-  uint8_t* green_tag = icc_bytes + green_primary_offset;
-  uint8_t* blue_tag = icc_bytes + blue_primary_offset;
-
-  // Serialize tags as we do on encode and compare what we find to that to
-  // determine the gamut (since we don't have a need yet for full deserialize).
-  uhdr_color_gamut_t gamut = UHDR_CG_UNSPECIFIED;
-  if (tagsEqualToMatrix(kSRGB, red_tag, green_tag, blue_tag)) {
-    gamut = UHDR_CG_BT_709;
-  } else if (tagsEqualToMatrix(kDisplayP3, red_tag, green_tag, blue_tag)) {
-    gamut = UHDR_CG_DISPLAY_P3;
-  } else if (tagsEqualToMatrix(kRec2020, red_tag, green_tag, blue_tag)) {
-    gamut = UHDR_CG_BT_2100;
-  }
-
-  if (aligned_block) ::operator delete[](aligned_block, std::align_val_t(alignment_needs));
-  // Didn't find a match to one of the profiles we write; indicate the gamut
-  // is unspecified since we don't understand it.
-  return gamut;
 }
 
 namespace {
-
-inline uint32_t readIccBE32(const uint8_t* ptr) {
-  return (static_cast<uint32_t>(ptr[0]) << 24) | (static_cast<uint32_t>(ptr[1]) << 16) |
-         (static_cast<uint32_t>(ptr[2]) << 8) | static_cast<uint32_t>(ptr[3]);
-}
-
-inline void writeIccBE32(uint8_t* ptr, uint32_t val) {
-  ptr[0] = static_cast<uint8_t>((val >> 24) & 0xFFu);
-  ptr[1] = static_cast<uint8_t>((val >> 16) & 0xFFu);
-  ptr[2] = static_cast<uint8_t>((val >> 8) & 0xFFu);
-  ptr[3] = static_cast<uint8_t>(val & 0xFFu);
-}
 
 bool unwrapIccProfile(const void* icc_data, size_t icc_size, const uint8_t*& out_profile,
                       size_t& out_profile_size, bool& out_has_jpeg_id) {
@@ -800,10 +588,14 @@ bool unwrapIccProfile(const void* icc_data, size_t icc_size, const uint8_t*& out
     return false;
   }
   const uint8_t* bytes = static_cast<const uint8_t*>(icc_data);
-  if (icc_size >= kICCIdentifierSize + sizeof(ICCHeader) &&
+  if (icc_size >= sizeof(kICCIdentifier) &&
       memcmp(bytes, kICCIdentifier, sizeof(kICCIdentifier)) == 0) {
-    // Reject partial multi-chunk APP2 ICC segments that have not been reassembled.
-    if (bytes[13] > 1) {
+    if (icc_size < kICCIdentifierSize + sizeof(ICCHeader)) {
+      return false;
+    }
+    // Single-chunk APP2 ICC segments must carry chunk_index == 1 and chunk_count == 1.
+    // Unreassembled multi-chunk or malformed APP2 headers are rejected.
+    if (bytes[12] != 1 || bytes[13] != 1) {
       return false;
     }
     out_profile = bytes + kICCIdentifierSize;
@@ -822,148 +614,636 @@ bool unwrapIccProfile(const void* icc_data, size_t icc_size, const uint8_t*& out
 
 }  // namespace
 
+struct IccHelper::Serializer {
+  template <typename AllocateFn>
+  static bool serializeProfile(uhdr_color_transfer_t tf, uhdr_color_gamut_t gamut,
+                               const void* hagc_data, size_t hagc_size,
+                               bool include_jpeg_identifier, AllocateFn&& allocate_dst) {
+    const int tf_raw = loadIccEnumRaw(tf);
+    const int gamut_raw = loadIccEnumRaw(gamut);
+    if (tf_raw != UHDR_CT_SRGB && tf_raw != UHDR_CT_LINEAR && tf_raw != UHDR_CT_HLG &&
+        tf_raw != UHDR_CT_PQ) {
+      return false;
+    }
+    if ((hagc_data == nullptr) != (hagc_size == 0)) {
+      return false;
+    }
+    if (hagc_size > 0 && !isValidHagcTagSize(hagc_data, hagc_size)) {
+      return false;
+    }
+
+    Matrix3x3 toXYZD50;
+    switch (gamut_raw) {
+      case UHDR_CG_BT_709:
+        toXYZD50 = kSRGB;
+        break;
+      case UHDR_CG_DISPLAY_P3:
+        toXYZD50 = kDisplayP3;
+        break;
+      case UHDR_CG_BT_2100:
+        toXYZD50 = kRec2020;
+        break;
+      default:
+        return false;
+    }
+
+    const char* desc_text = getDescLiteral(tf_raw, gamut_raw);
+    if (desc_text == nullptr) {
+      return false;
+    }
+    const size_t desc_text_len = std::strlen(desc_text);
+    static constexpr char kCprtText[] = "Google Inc. 2022";
+    static constexpr size_t kCprtTextLen = sizeof(kCprtText) - 1;
+
+    std::array<uint8_t, IccHelper::kTrcTableSize * 2> hlg_trc_table{};
+    size_t trc_tag_len = 0;
+    if (tf_raw == UHDR_CT_HLG) {
+      for (uint32_t i = 0; i < IccHelper::kTrcTableSize; ++i) {
+        float x = i / (IccHelper::kTrcTableSize - 1.f);
+        float y = hlgOetf(x);
+        y *= IccHelper::compute_tone_map_gain(UHDR_CT_HLG, y);
+        float_to_table16(y, &hlg_trc_table[2 * i]);
+      }
+      trc_tag_len = curveTableTagPaddedSize(IccHelper::kTrcTableSize);
+    } else if (tf_raw == UHDR_CT_SRGB) {
+      trc_tag_len = paraCurveTagSize(kSRGB_TransFun);
+    } else if (tf_raw == UHDR_CT_LINEAR) {
+      trc_tag_len = paraCurveTagSize(kLinear_TransFun);
+    }
+
+    static constexpr std::array<uint8_t, IccHelper::kNumChannels> kPqGridPoints = {
+        IccHelper::kGridSize, IccHelper::kGridSize, IccHelper::kGridSize};
+
+    enum class TagKind : uint8_t {
+      kDesc,
+      kRxyz,
+      kGxyz,
+      kBxyz,
+      kWtpt,
+      kTrc,
+      kCicp,
+      kHagc,
+      kA2B0,
+      kB2A0,
+      kCprt,
+    };
+    struct TagPlan {
+      uint32_t sig = 0;
+      TagKind kind = TagKind::kDesc;
+      size_t length = 0;
+    };
+
+    ICCHeader header;
+    std::array<TagPlan, 16> tags{};
+    size_t num_tags = 0;
+
+    tags[num_tags++] = {kTAG_desc, TagKind::kDesc, textTagPaddedSize(desc_text_len)};
+    tags[num_tags++] = {kTAG_rXYZ, TagKind::kRxyz, kColorantTagSize};
+    tags[num_tags++] = {kTAG_gXYZ, TagKind::kGxyz, kColorantTagSize};
+    tags[num_tags++] = {kTAG_bXYZ, TagKind::kBxyz, kColorantTagSize};
+    tags[num_tags++] = {kTAG_wtpt, TagKind::kWtpt, kColorantTagSize};
+
+    if (tf_raw != UHDR_CT_PQ) {
+      tags[num_tags++] = {kTAG_rTRC, TagKind::kTrc, trc_tag_len};
+      tags[num_tags++] = {kTAG_gTRC, TagKind::kTrc, trc_tag_len};
+      tags[num_tags++] = {kTAG_bTRC, TagKind::kTrc, trc_tag_len};
+    }
+
+    uint32_t color_primaries = kCICPPrimariesUnSpecified;
+    uint32_t transfer_characteristics = kCICPTrfnUnSpecified;
+    if (tf_raw == UHDR_CT_HLG || tf_raw == UHDR_CT_PQ || tf_raw == UHDR_CT_LINEAR) {
+      header.version = Endian_SwapBE32(0x04400000);
+      if (gamut_raw == UHDR_CG_BT_709) {
+        color_primaries = kCICPPrimariesSRGB;
+      } else if (gamut_raw == UHDR_CG_DISPLAY_P3) {
+        color_primaries = kCICPPrimariesP3;
+      } else if (gamut_raw == UHDR_CG_BT_2100) {
+        color_primaries = kCICPPrimariesRec2020;
+      }
+
+      if (tf_raw == UHDR_CT_LINEAR) {
+        transfer_characteristics = kCICPTrfnLinear;
+      } else if (tf_raw == UHDR_CT_PQ) {
+        transfer_characteristics = kCICPTrfnPQ;
+      } else if (tf_raw == UHDR_CT_HLG) {
+        transfer_characteristics = kCICPTrfnHLG;
+      }
+      tags[num_tags++] = {kTAG_cicp, TagKind::kCicp, kCicpTagSize};
+    }
+
+    if (hagc_size > 0) {
+      header.version = Endian_SwapBE32(0x04400000);
+      tags[num_tags++] = {kTAG_HAGC, TagKind::kHagc, ALIGNM(kHagcTagHeaderSize + hagc_size, 4)};
+    }
+
+    if (tf_raw == UHDR_CT_PQ) {
+      tags[num_tags++] = {
+          kTAG_A2B0, TagKind::kA2B0,
+          mabOrMbaTagSize(/*has_a_curves=*/true, IccHelper::kNumChannels, kPqGridPoints.data())};
+      tags[num_tags++] = {
+          kTAG_B2A0, TagKind::kB2A0,
+          mabOrMbaTagSize(/*has_a_curves=*/false, IccHelper::kNumChannels, nullptr)};
+    }
+
+    tags[num_tags++] = {kTAG_cprt, TagKind::kCprt, textTagPaddedSize(kCprtTextLen)};
+
+    const size_t tag_table_size = kICCTagTableEntrySize * num_tags;
+    size_t profile_size = kICCHeaderSize + tag_table_size;
+    for (size_t i = 0; i < num_tags; ++i) {
+      if (tags[i].length > (std::numeric_limits<uint32_t>::max)() - profile_size) {
+        return false;
+      }
+      profile_size += tags[i].length;
+    }
+
+    const size_t prefix_len = include_jpeg_identifier ? kICCIdentifierSize : 0;
+    if (profile_size > (std::numeric_limits<size_t>::max)() - prefix_len) {
+      return false;
+    }
+    uint8_t* dst = allocate_dst(prefix_len + profile_size);
+    if (dst == nullptr) {
+      return false;
+    }
+
+    if (include_jpeg_identifier) {
+      std::memcpy(dst, kICCIdentifier, sizeof(kICCIdentifier));
+      dst[12] = 1;
+      dst[13] = 1;
+      dst += kICCIdentifierSize;
+    }
+
+    header.data_color_space = Endian_SwapBE32(Signature_RGB);
+    header.pcs = Endian_SwapBE32(tf_raw == UHDR_CT_PQ ? Signature_Lab : Signature_XYZ);
+    header.size = Endian_SwapBE32(static_cast<uint32_t>(profile_size));
+    header.tag_count = Endian_SwapBE32(static_cast<uint32_t>(num_tags));
+    std::memcpy(dst, &header, sizeof(header));
+
+    size_t tag_offset = sizeof(header) + tag_table_size;
+    for (size_t i = 0; i < num_tags; ++i) {
+      uint8_t* entry = dst + sizeof(header) + i * kICCTagTableEntrySize;
+      writeIccBE32(entry, tags[i].sig);
+      writeIccBE32(entry + 4, static_cast<uint32_t>(tag_offset));
+      writeIccBE32(entry + 8, static_cast<uint32_t>(tags[i].length));
+
+      uint8_t* tag_dst = dst + tag_offset;
+      switch (tags[i].kind) {
+        case TagKind::kDesc:
+          writeTextTagBytes(tag_dst, desc_text, desc_text_len, tags[i].length);
+          break;
+        case TagKind::kRxyz:
+          writeXyzTagBytes(tag_dst, toXYZD50.vals[0][0], toXYZD50.vals[1][0], toXYZD50.vals[2][0]);
+          break;
+        case TagKind::kGxyz:
+          writeXyzTagBytes(tag_dst, toXYZD50.vals[0][1], toXYZD50.vals[1][1], toXYZD50.vals[2][1]);
+          break;
+        case TagKind::kBxyz:
+          writeXyzTagBytes(tag_dst, toXYZD50.vals[0][2], toXYZD50.vals[1][2], toXYZD50.vals[2][2]);
+          break;
+        case TagKind::kWtpt:
+          writeXyzTagBytes(tag_dst, kD50_x, kD50_y, kD50_z);
+          break;
+        case TagKind::kTrc:
+          if (tf_raw == UHDR_CT_HLG) {
+            writeCurveTableTagBytes(tag_dst, IccHelper::kTrcTableSize, hlg_trc_table.data(),
+                                    tags[i].length);
+          } else if (tf_raw == UHDR_CT_SRGB) {
+            writeParaCurveTagBytes(tag_dst, kSRGB_TransFun);
+          } else {
+            writeParaCurveTagBytes(tag_dst, kLinear_TransFun);
+          }
+          break;
+        case TagKind::kCicp:
+          writeCicpTagBytes(tag_dst, color_primaries, transfer_characteristics);
+          break;
+        case TagKind::kHagc:
+          writeHagcTagBytes(tag_dst, hagc_data, hagc_size, tags[i].length);
+          break;
+        case TagKind::kA2B0: {
+          writeMabOrMbaHeaderAndCurves(tag_dst, kTAG_mABType, /*has_a_curves=*/true,
+                                       IccHelper::kNumChannels, kPqGridPoints.data());
+          const size_t clut_offset =
+              32 + IccHelper::kNumChannels * paraCurveTagSize(kLinear_TransFun);
+          const size_t clut_len = clutPaddedSize(IccHelper::kNumChannels, kPqGridPoints.data());
+          uint8_t* clut_dst = tag_dst + clut_offset;
+          writeClutHeaderBytes(clut_dst, IccHelper::kNumChannels, kPqGridPoints.data());
+          uint8_t* grid_dst = clut_dst + 20;
+          size_t grid_byte_off = 0;
+          for (uint32_t r_index = 0; r_index < IccHelper::kGridSize; ++r_index) {
+            for (uint32_t g_index = 0; g_index < IccHelper::kGridSize; ++g_index) {
+              for (uint32_t b_index = 0; b_index < IccHelper::kGridSize; ++b_index) {
+                float rgb[3] = {
+                    r_index / (IccHelper::kGridSize - 1.f),
+                    g_index / (IccHelper::kGridSize - 1.f),
+                    b_index / (IccHelper::kGridSize - 1.f),
+                };
+                IccHelper::compute_lut_entry(toXYZD50, rgb);
+                float_XYZD50_to_grid16_lab(rgb, grid_dst + grid_byte_off);
+                grid_byte_off += 6;
+              }
+            }
+          }
+          const size_t unpadded = 20 + grid_byte_off;
+          if (clut_len > unpadded) {
+            std::memset(clut_dst + unpadded, 0, clut_len - unpadded);
+          }
+          break;
+        }
+        case TagKind::kB2A0:
+          writeMabOrMbaHeaderAndCurves(tag_dst, kTAG_mBAType, /*has_a_curves=*/false,
+                                       IccHelper::kNumChannels, nullptr);
+          break;
+        case TagKind::kCprt:
+          writeTextTagBytes(tag_dst, kCprtText, kCprtTextLen, tags[i].length);
+          break;
+      }
+      tag_offset += tags[i].length;
+    }
+    return true;
+  }
+
+  template <typename AllocateFn>
+  static bool injectHagc(const void* icc_data, size_t icc_size, const void* hagc_data,
+                         size_t hagc_size, bool force_raw_output, AllocateFn&& allocate_dst) {
+    const uint8_t* profile = nullptr;
+    size_t profile_buf_size = 0;
+    bool has_jpeg_id = false;
+    if (!unwrapIccProfile(icc_data, icc_size, profile, profile_buf_size, has_jpeg_id) ||
+        !isValidHagcTagSize(hagc_data, hagc_size)) {
+      return false;
+    }
+
+    const size_t encoded_size = readIccBE32(profile);
+    if (encoded_size < sizeof(ICCHeader) || encoded_size > profile_buf_size) {
+      return false;
+    }
+    if (readIccBE32(profile + offsetof(ICCHeader, signature)) != kACSP_Signature) {
+      return false;
+    }
+    const uint32_t orig_version = readIccBE32(profile + offsetof(ICCHeader, version));
+    if ((orig_version >> 24) > 4u) {
+      return false;
+    }
+    const uint32_t pcs = readIccBE32(profile + offsetof(ICCHeader, pcs));
+    if (pcs != Signature_XYZ && pcs != Signature_Lab) {
+      return false;
+    }
+
+    const size_t tag_count = readIccBE32(profile + offsetof(ICCHeader, tag_count));
+    const size_t max_tags = (encoded_size - sizeof(ICCHeader)) / kICCTagTableEntrySize;
+    if (tag_count == 0 || tag_count > max_tags) {
+      return false;
+    }
+
+    const size_t old_table_end = sizeof(ICCHeader) + tag_count * kICCTagTableEntrySize;
+    struct KeptTag {
+      uint32_t sig = 0;
+      size_t old_off = 0;
+      size_t old_sz = 0;
+      size_t new_off = 0;
+    };
+    struct PlacedSlice {
+      size_t old_off = 0;
+      size_t old_sz = 0;
+      size_t new_off = 0;
+    };
+
+    constexpr size_t kInlineTagCap = 32;
+    std::array<KeptTag, kInlineTagCap> inline_kept{};
+    std::vector<KeptTag> heap_kept;
+    KeptTag* kept_ptr = inline_kept.data();
+    if (tag_count > kInlineTagCap) {
+      heap_kept.resize(tag_count);
+      kept_ptr = heap_kept.data();
+    }
+
+    size_t kept_count = 0;
+    for (size_t i = 0; i < tag_count; ++i) {
+      const uint8_t* entry = profile + sizeof(ICCHeader) + i * kICCTagTableEntrySize;
+      const uint32_t sig = readIccBE32(entry);
+      const size_t off = readIccBE32(entry + 4);
+      const size_t sz = readIccBE32(entry + 8);
+      if (sz < 4 || off < old_table_end || off > encoded_size || sz > encoded_size - off) {
+        return false;
+      }
+      if (sig == kTAG_HAGC) {
+        continue;
+      }
+      kept_ptr[kept_count++] = {sig, off, sz, 0};
+    }
+    if (kept_count == 0) {
+      return false;
+    }
+
+    std::array<PlacedSlice, kInlineTagCap> inline_slices{};
+    std::vector<PlacedSlice> heap_slices;
+    PlacedSlice* slices_ptr = inline_slices.data();
+    if (kept_count > kInlineTagCap) {
+      heap_slices.resize(kept_count);
+      slices_ptr = heap_slices.data();
+    }
+    size_t slice_count = 0;
+
+    const size_t new_tag_count = kept_count + 1;
+    const size_t new_table_end = sizeof(ICCHeader) + new_tag_count * kICCTagTableEntrySize;
+    size_t current_off = new_table_end;
+
+    for (size_t i = 0; i < kept_count; ++i) {
+      KeptTag& tag = kept_ptr[i];
+      bool reused = false;
+      for (size_t s = 0; s < slice_count; ++s) {
+        if (slices_ptr[s].old_off == tag.old_off && slices_ptr[s].old_sz == tag.old_sz) {
+          tag.new_off = slices_ptr[s].new_off;
+          reused = true;
+          break;
+        }
+      }
+      if (!reused) {
+        tag.new_off = current_off;
+        slices_ptr[slice_count++] = {tag.old_off, tag.old_sz, current_off};
+        const size_t padded_sz = ALIGNM(tag.old_sz, 4);
+        if (padded_sz > (std::numeric_limits<uint32_t>::max)() - current_off) {
+          return false;
+        }
+        current_off += padded_sz;
+      }
+    }
+
+    const size_t hagc_tag_len = ALIGNM(kHagcTagHeaderSize + hagc_size, 4);
+    if (hagc_tag_len > (std::numeric_limits<uint32_t>::max)() - current_off) {
+      return false;
+    }
+    const size_t hagc_new_off = current_off;
+    current_off += hagc_tag_len;
+    const size_t new_profile_size = current_off;
+
+    const bool emit_jpeg_id = !force_raw_output && has_jpeg_id;
+    const size_t prefix_len = emit_jpeg_id ? kICCIdentifierSize : 0;
+    if (new_profile_size > (std::numeric_limits<size_t>::max)() - prefix_len) {
+      return false;
+    }
+    uint8_t* dst = allocate_dst(prefix_len + new_profile_size);
+    if (dst == nullptr) {
+      return false;
+    }
+
+    if (emit_jpeg_id) {
+      std::memcpy(dst, kICCIdentifier, sizeof(kICCIdentifier));
+      dst[12] = 1;
+      dst[13] = 1;
+      dst += kICCIdentifierSize;
+    }
+
+    // Copy 128-byte header + 4-byte tag_count, then update size, version (>= 4.4),
+    // clear any stale MD5 Profile ID checksum, and write updated tag_count.
+    std::memcpy(dst, profile, sizeof(ICCHeader));
+    writeIccBE32(dst + offsetof(ICCHeader, size), static_cast<uint32_t>(new_profile_size));
+    if (orig_version < 0x04400000u) {
+      writeIccBE32(dst + offsetof(ICCHeader, version), 0x04400000u);
+    }
+    std::memset(dst + offsetof(ICCHeader, profile_id), 0, sizeof(ICCHeader::profile_id));
+    writeIccBE32(dst + offsetof(ICCHeader, tag_count), static_cast<uint32_t>(new_tag_count));
+
+    for (size_t i = 0; i < kept_count; ++i) {
+      uint8_t* entry = dst + sizeof(ICCHeader) + i * kICCTagTableEntrySize;
+      writeIccBE32(entry, kept_ptr[i].sig);
+      writeIccBE32(entry + 4, static_cast<uint32_t>(kept_ptr[i].new_off));
+      writeIccBE32(entry + 8, static_cast<uint32_t>(kept_ptr[i].old_sz));
+    }
+    {
+      uint8_t* hagc_entry = dst + sizeof(ICCHeader) + kept_count * kICCTagTableEntrySize;
+      writeIccBE32(hagc_entry, kTAG_HAGC);
+      writeIccBE32(hagc_entry + 4, static_cast<uint32_t>(hagc_new_off));
+      writeIccBE32(hagc_entry + 8, static_cast<uint32_t>(hagc_tag_len));
+    }
+
+    for (size_t s = 0; s < slice_count; ++s) {
+      const PlacedSlice& slice = slices_ptr[s];
+      std::memcpy(dst + slice.new_off, profile + slice.old_off, slice.old_sz);
+      const size_t padded_sz = ALIGNM(slice.old_sz, 4);
+      if (padded_sz > slice.old_sz) {
+        std::memset(dst + slice.new_off + slice.old_sz, 0, padded_sz - slice.old_sz);
+      }
+    }
+    writeHagcTagBytes(dst + hagc_new_off, hagc_data, hagc_size, hagc_tag_len);
+    return true;
+  }
+};
+
+std::shared_ptr<DataStruct> IccHelper::writeIccProfile(uhdr_color_transfer_t tf,
+                                                       uhdr_color_gamut_t gamut,
+                                                       const void* hagc_data, size_t hagc_size) {
+  std::shared_ptr<DataStruct> out;
+  if (!Serializer::serializeProfile(tf, gamut, hagc_data, hagc_size,
+                                    /*include_jpeg_identifier=*/true,
+                                    [&out](size_t total_size) -> uint8_t* {
+                                      out = std::make_shared<DataStruct>(total_size);
+                                      return static_cast<uint8_t*>(out->getData());
+                                    })) {
+    return nullptr;
+  }
+  return out;
+}
+
+std::shared_ptr<DataStruct> IccHelper::writeRawIccProfile(uhdr_color_transfer_t tf,
+                                                          uhdr_color_gamut_t gamut,
+                                                          const void* hagc_data, size_t hagc_size) {
+  std::shared_ptr<DataStruct> out;
+  if (!Serializer::serializeProfile(tf, gamut, hagc_data, hagc_size,
+                                    /*include_jpeg_identifier=*/false,
+                                    [&out](size_t total_size) -> uint8_t* {
+                                      out = std::make_shared<DataStruct>(total_size);
+                                      return static_cast<uint8_t*>(out->getData());
+                                    })) {
+    return nullptr;
+  }
+  return out;
+}
+
+bool IccHelper::tagsEqualToMatrix(const Matrix3x3& matrix, const uint8_t* red_tag,
+                                  const uint8_t* green_tag, const uint8_t* blue_tag) {
+  const float tolerance = 0.001f;
+  Fixed r_x_fixed = static_cast<Fixed>(readIccBE32(red_tag + 8));
+  Fixed r_y_fixed = static_cast<Fixed>(readIccBE32(red_tag + 12));
+  Fixed r_z_fixed = static_cast<Fixed>(readIccBE32(red_tag + 16));
+  float r_x = FixedToFloat(r_x_fixed);
+  float r_y = FixedToFloat(r_y_fixed);
+  float r_z = FixedToFloat(r_z_fixed);
+  if (fabs(r_x - matrix.vals[0][0]) > tolerance || fabs(r_y - matrix.vals[1][0]) > tolerance ||
+      fabs(r_z - matrix.vals[2][0]) > tolerance) {
+    return false;
+  }
+
+  Fixed g_x_fixed = static_cast<Fixed>(readIccBE32(green_tag + 8));
+  Fixed g_y_fixed = static_cast<Fixed>(readIccBE32(green_tag + 12));
+  Fixed g_z_fixed = static_cast<Fixed>(readIccBE32(green_tag + 16));
+  float g_x = FixedToFloat(g_x_fixed);
+  float g_y = FixedToFloat(g_y_fixed);
+  float g_z = FixedToFloat(g_z_fixed);
+  if (fabs(g_x - matrix.vals[0][1]) > tolerance || fabs(g_y - matrix.vals[1][1]) > tolerance ||
+      fabs(g_z - matrix.vals[2][1]) > tolerance) {
+    return false;
+  }
+
+  Fixed b_x_fixed = static_cast<Fixed>(readIccBE32(blue_tag + 8));
+  Fixed b_y_fixed = static_cast<Fixed>(readIccBE32(blue_tag + 12));
+  Fixed b_z_fixed = static_cast<Fixed>(readIccBE32(blue_tag + 16));
+  float b_x = FixedToFloat(b_x_fixed);
+  float b_y = FixedToFloat(b_y_fixed);
+  float b_z = FixedToFloat(b_z_fixed);
+  if (fabs(b_x - matrix.vals[0][2]) > tolerance || fabs(b_y - matrix.vals[1][2]) > tolerance ||
+      fabs(b_z - matrix.vals[2][2]) > tolerance) {
+    return false;
+  }
+
+  return true;
+}
+
+uhdr_color_gamut_t IccHelper::readIccColorGamut(void* icc_data, size_t icc_size) {
+  const uint8_t* raw_profile = nullptr;
+  size_t profile_size = 0;
+  bool has_jpeg_id = false;
+  if (!unwrapIccProfile(icc_data, icc_size, raw_profile, profile_size, has_jpeg_id)) {
+    return UHDR_CG_UNSPECIFIED;
+  }
+  if (!has_jpeg_id &&
+      readIccBE32(raw_profile + offsetof(ICCHeader, signature)) != kACSP_Signature) {
+    return UHDR_CG_UNSPECIFIED;
+  }
+
+  const size_t max_tags = (profile_size - sizeof(ICCHeader)) / kICCTagTableEntrySize;
+  const size_t tag_count = readIccBE32(raw_profile + offsetof(ICCHeader, tag_count));
+  if (tag_count > max_tags) {
+    ALOGE("Tag table size exceeds buffer size during icc parsing. tag count %zu, max tags %zu",
+          tag_count, max_tags);
+    return UHDR_CG_UNSPECIFIED;
+  }
+
+  // Use 0 to indicate not found, since offsets are always relative to start
+  // of ICC data and therefore a tag offset of zero would never be valid.
+  size_t red_primary_offset = 0, green_primary_offset = 0, blue_primary_offset = 0;
+  size_t red_primary_size = 0, green_primary_size = 0, blue_primary_size = 0;
+  size_t cicp_size = 0, cicp_offset = 0;
+  for (size_t tag_idx = 0; tag_idx < tag_count; ++tag_idx) {
+    const uint8_t* tag_entry = raw_profile + sizeof(ICCHeader) + tag_idx * kICCTagTableEntrySize;
+    const uint32_t sig = readIccBE32(tag_entry);
+    const size_t off = readIccBE32(tag_entry + 4);
+    const size_t sz = readIccBE32(tag_entry + 8);
+    if (red_primary_offset == 0 && sig == kTAG_rXYZ) {
+      red_primary_offset = off;
+      red_primary_size = sz;
+    } else if (green_primary_offset == 0 && sig == kTAG_gXYZ) {
+      green_primary_offset = off;
+      green_primary_size = sz;
+    } else if (blue_primary_offset == 0 && sig == kTAG_bXYZ) {
+      blue_primary_offset = off;
+      blue_primary_size = sz;
+    } else if (cicp_offset == 0 && sig == kTAG_cicp) {
+      cicp_offset = off;
+      cicp_size = sz;
+    }
+  }
+
+  if (cicp_offset != 0 && cicp_size == kCicpTagSize && cicp_offset <= profile_size &&
+      cicp_size <= profile_size - cicp_offset) {
+    const uint8_t* cicp = raw_profile + cicp_offset;
+    uint8_t primaries = cicp[8];
+    uhdr_color_gamut_t gamut = UHDR_CG_UNSPECIFIED;
+    if (primaries == kCICPPrimariesSRGB) {
+      gamut = UHDR_CG_BT_709;
+    } else if (primaries == kCICPPrimariesP3) {
+      gamut = UHDR_CG_DISPLAY_P3;
+    } else if (primaries == kCICPPrimariesRec2020) {
+      gamut = UHDR_CG_BT_2100;
+    }
+    if (gamut != UHDR_CG_UNSPECIFIED) {
+      return gamut;
+    }
+  }
+
+  if (red_primary_offset == 0 || red_primary_size != kColorantTagSize ||
+      red_primary_offset > profile_size || red_primary_size > profile_size - red_primary_offset ||
+      green_primary_offset == 0 || green_primary_size != kColorantTagSize ||
+      green_primary_offset > profile_size ||
+      green_primary_size > profile_size - green_primary_offset || blue_primary_offset == 0 ||
+      blue_primary_size != kColorantTagSize || blue_primary_offset > profile_size ||
+      blue_primary_size > profile_size - blue_primary_offset) {
+    return UHDR_CG_UNSPECIFIED;
+  }
+
+  const uint8_t* red_tag = raw_profile + red_primary_offset;
+  const uint8_t* green_tag = raw_profile + green_primary_offset;
+  const uint8_t* blue_tag = raw_profile + blue_primary_offset;
+
+  // Serialize tags as we do on encode and compare what we find to that to
+  // determine the gamut (since we don't have a need yet for full deserialize).
+  if (tagsEqualToMatrix(kSRGB, red_tag, green_tag, blue_tag)) {
+    return UHDR_CG_BT_709;
+  }
+  if (tagsEqualToMatrix(kDisplayP3, red_tag, green_tag, blue_tag)) {
+    return UHDR_CG_DISPLAY_P3;
+  }
+  if (tagsEqualToMatrix(kRec2020, red_tag, green_tag, blue_tag)) {
+    return UHDR_CG_BT_2100;
+  }
+  // Didn't find a match to one of the profiles we write; indicate the gamut
+  // is unspecified since we don't understand it.
+  return UHDR_CG_UNSPECIFIED;
+}
+
 std::shared_ptr<DataStruct> IccHelper::injectHagcIntoIccProfile(const void* icc_data,
                                                                 size_t icc_size,
                                                                 const void* hagc_data,
                                                                 size_t hagc_size) {
-  const uint8_t* profile = nullptr;
-  size_t profile_buf_size = 0;
-  bool has_jpeg_id = false;
-  if (!unwrapIccProfile(icc_data, icc_size, profile, profile_buf_size, has_jpeg_id)) {
+  std::shared_ptr<DataStruct> out;
+  if (!Serializer::injectHagc(icc_data, icc_size, hagc_data, hagc_size,
+                              /*force_raw_output=*/false, [&out](size_t total_size) -> uint8_t* {
+                                out = std::make_shared<DataStruct>(total_size);
+                                return static_cast<uint8_t*>(out->getData());
+                              })) {
     return nullptr;
   }
-
-  std::shared_ptr<DataStruct> hagc_tag = write_hagc_tag(hagc_data, hagc_size);
-  if (hagc_tag == nullptr) {
-    return nullptr;
-  }
-
-  const size_t encoded_size = readIccBE32(profile);
-  if (encoded_size < sizeof(ICCHeader) || encoded_size > profile_buf_size) {
-    return nullptr;
-  }
-  if (readIccBE32(profile + offsetof(ICCHeader, signature)) != kACSP_Signature) {
-    return nullptr;
-  }
-
-  const size_t tag_count = readIccBE32(profile + offsetof(ICCHeader, tag_count));
-  const size_t max_tags = (encoded_size - sizeof(ICCHeader)) / kICCTagTableEntrySize;
-  if (tag_count > max_tags) {
-    return nullptr;
-  }
-
-  const size_t old_table_end = sizeof(ICCHeader) + tag_count * kICCTagTableEntrySize;
-  struct KeptTag {
-    uint32_t sig;
-    size_t old_off;
-    size_t old_sz;
-    size_t new_off;
-  };
-  std::vector<KeptTag> kept_tags;
-  kept_tags.reserve(tag_count);
-
-  for (size_t i = 0; i < tag_count; ++i) {
-    const uint8_t* entry = profile + sizeof(ICCHeader) + i * kICCTagTableEntrySize;
-    const uint32_t sig = readIccBE32(entry);
-    const size_t off = readIccBE32(entry + 4);
-    const size_t sz = readIccBE32(entry + 8);
-    if (off < old_table_end || off > encoded_size || sz > encoded_size - off) {
-      return nullptr;
-    }
-    if (sig == kTAG_HAGC) {
-      continue;
-    }
-    kept_tags.push_back({sig, off, sz, 0});
-  }
-
-  const size_t new_tag_count = kept_tags.size() + 1;
-  const size_t new_table_end = sizeof(ICCHeader) + new_tag_count * kICCTagTableEntrySize;
-  size_t current_off = new_table_end;
-
-  struct PlacedSlice {
-    size_t old_off;
-    size_t old_sz;
-    size_t new_off;
-  };
-  std::vector<PlacedSlice> placed_slices;
-  placed_slices.reserve(kept_tags.size());
-
-  for (auto& tag : kept_tags) {
-    bool reused = false;
-    for (const auto& slice : placed_slices) {
-      if (slice.old_off == tag.old_off && slice.old_sz == tag.old_sz) {
-        tag.new_off = slice.new_off;
-        reused = true;
-        break;
-      }
-    }
-    if (!reused) {
-      tag.new_off = current_off;
-      placed_slices.push_back({tag.old_off, tag.old_sz, current_off});
-      const size_t padded_sz = ALIGNM(tag.old_sz, 4);
-      if (padded_sz > (std::numeric_limits<uint32_t>::max)() - current_off) {
-        return nullptr;
-      }
-      current_off += padded_sz;
-    }
-  }
-
-  const size_t hagc_tag_len = hagc_tag->getLength();
-  if (hagc_tag_len > (std::numeric_limits<uint32_t>::max)() - current_off) {
-    return nullptr;
-  }
-  const size_t hagc_new_off = current_off;
-  current_off += hagc_tag_len;
-  const size_t new_profile_size = current_off;
-
-  const size_t prefix_len = has_jpeg_id ? kICCIdentifierSize : 0;
-  if (new_profile_size > (std::numeric_limits<size_t>::max)() - prefix_len) {
-    return nullptr;
-  }
-  std::shared_ptr<DataStruct> out = std::make_shared<DataStruct>(prefix_len + new_profile_size);
-  uint8_t* dst = static_cast<uint8_t*>(out->getData());
-  if (dst == nullptr) {
-    return nullptr;
-  }
-
-  if (has_jpeg_id) {
-    memcpy(dst, kICCIdentifier, sizeof(kICCIdentifier));
-    dst[12] = 1;
-    dst[13] = 1;
-    dst += kICCIdentifierSize;
-  }
-
-  // Copy 128-byte header + 4-byte tag_count, then update size, version (>= 4.4),
-  // clear any stale MD5 Profile ID checksum, and write updated tag_count.
-  memcpy(dst, profile, sizeof(ICCHeader));
-  writeIccBE32(dst + offsetof(ICCHeader, size), static_cast<uint32_t>(new_profile_size));
-  if (readIccBE32(dst + offsetof(ICCHeader, version)) < 0x04400000u) {
-    writeIccBE32(dst + offsetof(ICCHeader, version), 0x04400000u);
-  }
-  memset(dst + offsetof(ICCHeader, profile_id), 0, sizeof(ICCHeader::profile_id));
-  writeIccBE32(dst + offsetof(ICCHeader, tag_count), static_cast<uint32_t>(new_tag_count));
-
-  for (size_t i = 0; i < kept_tags.size(); ++i) {
-    uint8_t* entry = dst + sizeof(ICCHeader) + i * kICCTagTableEntrySize;
-    writeIccBE32(entry, kept_tags[i].sig);
-    writeIccBE32(entry + 4, static_cast<uint32_t>(kept_tags[i].new_off));
-    writeIccBE32(entry + 8, static_cast<uint32_t>(kept_tags[i].old_sz));
-  }
-  {
-    uint8_t* hagc_entry = dst + sizeof(ICCHeader) + kept_tags.size() * kICCTagTableEntrySize;
-    writeIccBE32(hagc_entry, kTAG_HAGC);
-    writeIccBE32(hagc_entry + 4, static_cast<uint32_t>(hagc_new_off));
-    writeIccBE32(hagc_entry + 8, static_cast<uint32_t>(hagc_tag_len));
-  }
-
-  for (const auto& slice : placed_slices) {
-    if (slice.old_sz > 0) {
-      memcpy(dst + slice.new_off, profile + slice.old_off, slice.old_sz);
-    }
-  }
-  memcpy(dst + hagc_new_off, hagc_tag->getData(), hagc_tag_len);
-
   return out;
+}
+
+bool detail::writeRawIccProfile(uhdr_color_transfer_t tf, uhdr_color_gamut_t gamut,
+                                const void* hagc_data, size_t hagc_size,
+                                std::vector<uint8_t>& out_raw_icc) {
+  const bool aliases = bufferAliasesVector(out_raw_icc, hagc_data);
+  std::vector<uint8_t> scratch;
+  if (!IccHelper::Serializer::serializeProfile(
+          tf, gamut, hagc_data, hagc_size, /*include_jpeg_identifier=*/false,
+          [&](size_t total_size) -> uint8_t* {
+            std::vector<uint8_t>& target = aliases ? scratch : out_raw_icc;
+            target.resize(total_size);
+            return target.data();
+          })) {
+    return false;
+  }
+  if (aliases) {
+    out_raw_icc = std::move(scratch);
+  }
+  return true;
+}
+
+bool detail::injectHagcIntoRawIccProfile(const void* base_icc_data, size_t base_icc_size,
+                                         const void* hagc_data, size_t hagc_size,
+                                         std::vector<uint8_t>& out_raw_icc) {
+  const bool aliases = bufferAliasesVector(out_raw_icc, base_icc_data) ||
+                       bufferAliasesVector(out_raw_icc, hagc_data);
+  std::vector<uint8_t> scratch;
+  if (!IccHelper::Serializer::injectHagc(
+          base_icc_data, base_icc_size, hagc_data, hagc_size,
+          /*force_raw_output=*/true, [&](size_t total_size) -> uint8_t* {
+            std::vector<uint8_t>& target = aliases ? scratch : out_raw_icc;
+            target.resize(total_size);
+            return target.data();
+          })) {
+    return false;
+  }
+  if (aliases) {
+    out_raw_icc = std::move(scratch);
+  }
+  return true;
 }
 
 bool IccHelper::readIccHagc(const void* icc_data, size_t icc_size, std::vector<uint8_t>& out_hagc) {

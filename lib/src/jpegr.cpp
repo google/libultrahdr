@@ -158,35 +158,6 @@ static uhdr_error_info_t validateHagcMode(int mode) {
   return g_no_error;
 }
 
-// Maximum raw ST 2094-50 Annex C payload that can fit in a single 65535-byte JPEG APP2 segment.
-constexpr size_t kMaxSideloadHagcBytes = 65533;
-
-static uhdr_error_info_t validateHagcPayload(const uint8_t* data, size_t size) {
-  if (data == nullptr || size < 2 || size > kMaxSideloadHagcBytes) {
-    return makeJpegrError(UHDR_CODEC_INVALID_PARAM, "invalid HAGC payload pointer or size %zu",
-                          size);
-  }
-  smpte2094_50::DynamicMetadata parsed{};
-  UHDR_ERR_CHECK(smpte2094_50::parseSt2094_50(data, size, parsed));
-  UHDR_ERR_CHECK(smpte2094_50::validateDynamicMetadata(parsed));
-  return g_no_error;
-}
-
-static uhdr_error_info_t validateHagcMemBlock(const uhdr_mem_block_t* hagc) {
-  if (hagc == nullptr) {
-    return makeJpegrError(UHDR_CODEC_INVALID_PARAM, "received nullptr for hagc descriptor");
-  }
-  if (hagc->data == nullptr) {
-    return makeJpegrError(UHDR_CODEC_INVALID_PARAM, "received nullptr for hagc->data field");
-  }
-  if (hagc->capacity < hagc->data_sz) {
-    return makeJpegrError(UHDR_CODEC_INVALID_PARAM,
-                          "hagc->capacity %zu is less than hagc->data_sz %zu", hagc->capacity,
-                          hagc->data_sz);
-  }
-  return validateHagcPayload(static_cast<const uint8_t*>(hagc->data), hagc->data_sz);
-}
-
 static uhdr_error_info_t validateGainMapAppColorSpaceIcc(
     const uhdr_compressed_image_t* gainmap_img_compressed,
     const uhdr_gainmap_metadata_ext_t* metadata) {
@@ -776,6 +747,9 @@ uhdr_error_info_t JpegR::compressGainMap(uhdr_raw_image_t* gainmap_img,
                                          JpegEncoderHelper* jpeg_enc_obj) {
   if (!kWriteXmpMetadata) {
     std::shared_ptr<DataStruct> icc = IccHelper::writeIccProfile(gainmap_img->ct, gainmap_img->cg);
+    if (icc == nullptr) {
+      return makeJpegrError(UHDR_CODEC_INVALID_PARAM, "failed to serialize gainmap ICC profile");
+    }
     return jpeg_enc_obj->compressImage(gainmap_img, mMapCompressQuality, icc->getData(),
                                        icc->getLength());
   }

@@ -235,6 +235,37 @@ uhdr_error_info_t toneMapCurveToGainCurve(const PchipInterpolator& tone_map_curv
 using HagcMetadata = smpte2094_50::DynamicMetadata;
 
 /**
+ * Maximum byte length accepted for an externally supplied bare SMPTE ST 2094-50:2026 Annex C
+ * payload (bounded by a single 65535-byte JPEG APP2 segment minus its 2-byte length field).
+ */
+inline constexpr size_t kMaxHagcPayloadBytes = 65533;
+
+/**
+ * Validates a bare SMPTE ST 2094-50:2026 Annex C binary payload (e.g., Camera HAL AGTM output).
+ *
+ * Fails closed with #UHDR_CODEC_INVALID_PARAM if \p hagc_data is null, \p hagc_size is outside
+ * `[2, kMaxHagcPayloadBytes]`, the bitstream carries an ITU-T T.35 (`0xB5`) prefix instead of bare
+ * Annex C syntax, trailing bits or bytes remain after the Annex C payload, or any field violates
+ * normative SMPTE ST 2094-50 constraints.
+ *
+ * @param hagc_data Pointer to bare SMPTE ST 2094-50:2026 Annex C bytes.
+ * @param hagc_size Size of \p hagc_data in bytes.
+ * @return #UHDR_CODEC_OK on valid Annex C payload, or #UHDR_CODEC_INVALID_PARAM otherwise.
+ */
+uhdr_error_info_t validateHagcPayload(const void* hagc_data, size_t hagc_size);
+
+/**
+ * Validates a `uhdr_mem_block_t` descriptor carrying a bare SMPTE ST 2094-50:2026 Annex C payload.
+ *
+ * Fails closed with #UHDR_CODEC_INVALID_PARAM if \p hagc or `hagc->data` is null,
+ * `hagc->capacity < hagc->data_sz`, or #validateHagcPayload(`hagc->data`, `hagc->data_sz`) fails.
+ *
+ * @param hagc Memory block descriptor containing bare SMPTE ST 2094-50:2026 Annex C bytes.
+ * @return #UHDR_CODEC_OK on valid descriptor and payload, or #UHDR_CODEC_INVALID_PARAM otherwise.
+ */
+uhdr_error_info_t validateHagcMemBlock(const uhdr_mem_block_t* hagc);
+
+/**
  * Derives SMPTE ST 2094-50:2026 (HAGC) dynamic metadata from an SDR base image and its
  * associated Ultra HDR / ISO 21496-1 gain map.
  */
@@ -250,6 +281,82 @@ uhdr_error_info_t deriveHagcFromGainMap(
 uhdr_error_info_t deriveEncodedHagcFromGainMap(
     uhdr_raw_image_t* sdr_intent, uhdr_raw_image_t* gainmap_img,
     const uhdr_gainmap_metadata_ext_t* gainmap_metadata, std::vector<uint8_t>& out_bitstream,
+    const smpte2094_50::HagcDerivationOptions& options = {});
+
+/**
+ * Serializes a standalone raw ICC v4.4 profile (`'acsp'` header at offset 0, with no 14-byte JPEG
+ * `APP2` `"ICC_PROFILE\0\x01\x01"` prefix) suitable for ISO/IEC 14496-12 `'colr'` (`'prof'`) boxes
+ * (HEIF/HEIC, AVIF, MP4), embedding a pre-encoded bare SMPTE ST 2094-50:2026 Annex C `'HAGC'` tag.
+ *
+ * Validates \p hagc_data via #validateHagcPayload without running GainMap-to-HAGC curve
+ * derivation. Fails closed with #UHDR_CODEC_INVALID_PARAM on invalid color enums or malformed
+ * \p hagc_data, leaving \p out_raw_icc unmodified.
+ *
+ * @param tf Color transfer function (#UHDR_CT_SRGB, #UHDR_CT_LINEAR, #UHDR_CT_HLG, or #UHDR_CT_PQ).
+ * @param cg Color gamut (#UHDR_CG_BT_709, #UHDR_CG_DISPLAY_P3, or #UHDR_CG_BT_2100).
+ * @param hagc_data Pointer to bare SMPTE ST 2094-50:2026 Annex C payload bytes.
+ * @param hagc_size Size of \p hagc_data in bytes (`[2, kMaxHagcPayloadBytes]`).
+ * @param out_raw_icc Output buffer receiving the raw `'acsp'` ICC v4.4 profile in a single
+ *                    exact-sized allocation on success; left unmodified on error.
+ * @return #UHDR_CODEC_OK on success, or #UHDR_CODEC_INVALID_PARAM on invalid arguments/payload.
+ */
+uhdr_error_info_t encodeRawIccProfileWithEncodedHagc(uhdr_color_transfer_t tf,
+                                                     uhdr_color_gamut_t cg, const void* hagc_data,
+                                                     size_t hagc_size,
+                                                     std::vector<uint8_t>& out_raw_icc);
+
+/**
+ * Serializes a standalone raw ICC v4.4 profile (`'acsp'` header at offset 0, with no 14-byte JPEG
+ * `APP2` `"ICC_PROFILE\0\x01\x01"` prefix) suitable for ISO/IEC 14496-12 `'colr'` (`'prof'`) boxes
+ * by injecting or replacing the canonical `'HAGC'` tag (SMPTE ST 2094-50:2026) in an existing base
+ * ICC profile.
+ *
+ * Accepts \p base_icc_data either as a raw `'acsp'` profile or with a single-chunk 14-byte JPEG
+ * `APP2` `"ICC_PROFILE\0\x01\x01"` header, and always outputs raw `'acsp'` bytes without the
+ * 14-byte `APP2` prefix. Preserves all non-`'HAGC'` tags (including custom tags and shared/aliased
+ * tag offsets), upgrades the profile version to `>= 4.4`, clears any stale MD5 Profile ID checksum
+ * (`[84..99]`), and validates \p hagc_data via #validateHagcPayload without running the
+ * GainMap-to-HAGC solver. Fails closed with #UHDR_CODEC_INVALID_PARAM on null, truncated,
+ * malformed, tagless, unsupported-version (`major > 4`), or unreassembled multi-chunk
+ * (`chunk_count > 1`) \p base_icc_data or invalid \p hagc_data, leaving \p out_raw_icc unmodified.
+ *
+ * @param base_icc_data Pointer to the existing raw `'acsp'` or single-chunk `APP2` ICC profile.
+ * @param base_icc_size Size of \p base_icc_data in bytes.
+ * @param hagc_data Pointer to bare SMPTE ST 2094-50:2026 Annex C payload bytes.
+ * @param hagc_size Size of \p hagc_data in bytes (`[2, kMaxHagcPayloadBytes]`).
+ * @param out_raw_icc Output buffer receiving the raw `'acsp'` ICC v4.4 profile in a single
+ *                    exact-sized allocation on success (`out_raw_icc` may alias input buffers);
+ *                    left unmodified on error.
+ * @return #UHDR_CODEC_OK on success, or #UHDR_CODEC_INVALID_PARAM on invalid base ICC or payload.
+ */
+uhdr_error_info_t encodeRawIccProfileWithEncodedHagc(const void* base_icc_data,
+                                                     size_t base_icc_size, const void* hagc_data,
+                                                     size_t hagc_size,
+                                                     std::vector<uint8_t>& out_raw_icc);
+
+/**
+ * Derives SMPTE ST 2094-50:2026 (HAGC) dynamic metadata from an SDR base image and its gain map
+ * and serializes a standalone raw `'acsp'` ICC v4.4 profile (with no 14-byte JPEG `APP2`
+ * `"ICC_PROFILE\0\x01\x01"` prefix) containing the `'HAGC'` tag, suitable for ISO/IEC 14496-12
+ * `'colr'` (`'prof'`) boxes (HEIF/HEIC, AVIF, MP4).
+ *
+ * Uses `sdr_intent->cg` (must be #UHDR_CG_BT_709, #UHDR_CG_DISPLAY_P3, or #UHDR_CG_BT_2100) and
+ * `sdr_intent->ct` (defaults #UHDR_CT_UNSPECIFIED to #UHDR_CT_SRGB). Fails closed with
+ * #UHDR_CODEC_INVALID_PARAM on null, invalid, or mismatched image/metadata descriptors, leaving
+ * \p out_raw_icc unmodified.
+ *
+ * @param sdr_intent Base SDR raw image descriptor.
+ * @param gainmap_img Gain-map raw image descriptor (`YCbCr400`, `RGB888`, or `RGBA8888`, with
+ *                    dimensions `<= sdr_intent`).
+ * @param gainmap_metadata Gain-map metadata descriptor.
+ * @param out_raw_icc Output buffer receiving the raw `'acsp'` ICC v4.4 profile in a single
+ *                    exact-sized allocation on success; left unmodified on error.
+ * @param options Optional GainMap-to-HAGC curve-fitting options.
+ * @return #UHDR_CODEC_OK on success, or #UHDR_CODEC_INVALID_PARAM on invalid inputs.
+ */
+uhdr_error_info_t encodeRawIccProfileWithDerivedHagc(
+    const uhdr_raw_image_t* sdr_intent, const uhdr_raw_image_t* gainmap_img,
+    const uhdr_gainmap_metadata_t* gainmap_metadata, std::vector<uint8_t>& out_raw_icc,
     const smpte2094_50::HagcDerivationOptions& options = {});
 
 /**

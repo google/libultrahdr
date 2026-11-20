@@ -165,8 +165,9 @@ class JpegR : public UltraHdr {
    * \param[in]       sdr_intent_compressed    sdr intent compressed input image descriptor
    * \param[in, out]  dest                     output image descriptor to store compressed ultrahdr
    *                                           image
-   * \param[in]       hagc                     pre-encoded SMPTE ST 2094-50 Annex C payload
-   *                                           descriptor (non-null data and capacity >= data_sz)
+   * \param[in]       hagc                     bare SMPTE ST 2094-50:2026 Annex C payload
+   *                                           descriptor (non-null data, capacity >= data_sz,
+   *                                           2..65533 bytes, without ITU-T T.35 0xB5 framing)
    *
    * \return uhdr_error_info_t #UHDR_CODEC_OK if operation succeeds, uhdr_codec_err_t otherwise.
    */
