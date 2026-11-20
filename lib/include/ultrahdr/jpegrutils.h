@@ -150,9 +150,10 @@ std::string generateXmpForPrimaryImage(size_t secondary_image_length,
 
 /*
  * Slices off an optional JPEG APP1 XMP namespace prefix ("http://ns.adobe.com/xap/1.0/" with or
- * without trailing NUL) without copying.
+ * without trailing NUL) without copying, and optionally trims trailing NUL padding.
  */
-std::string_view stripXmpApp1HeaderView(const void* data, size_t size);
+std::string_view stripXmpApp1HeaderView(const void* data, size_t size,
+                                        bool trim_trailing_nulls = false);
 
 /*
  * Validates and strips gain-map XMP metadata from an optional caller/container XMP block for

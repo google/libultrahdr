@@ -1308,7 +1308,9 @@ uhdr_error_info_t JpegR::appendGainMap(uhdr_compressed_image_t* sdr_intent_compr
   bool spill_user_xmp_to_extended = false;
   if (kWriteXmpMetadata) {
     const std::string_view user_xmp_view =
-        (pXmp != nullptr) ? stripXmpApp1HeaderView(pXmp->data, pXmp->data_sz) : std::string_view{};
+        (pXmp != nullptr)
+            ? stripXmpApp1HeaderView(pXmp->data, pXmp->data_sz, /*trim_trailing_nulls=*/true)
+            : std::string_view{};
     if (user_xmp_view.empty()) {
       xmp_primary_str = generateXmpForPrimaryImage(secondary_image_size, *metadata, nullptr);
     } else if (user_xmp_view.size() <= kMaxStandardXmpPayload) {

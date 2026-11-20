@@ -1488,7 +1488,148 @@ TEST_F(UltraHdrApiTest, JpegApi4XmpMergeKeepsOwnedPropertiesOnNodeIdDescription)
   EXPECT_NE(decoded_packet.find("primary-probe"), std::string::npos);
 }
 
+TEST_F(UltraHdrApiTest, JpegXmpModeStripsAllStaleGainMapUrisAndEmptyDescriptions) {
+  uhdr_gainmap_metadata_t metadata = makeTestGainmapMetadata();
+  const std::string seeded_xmp =
+      "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF "
+      "xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">"
+      "<rdf:Description rdf:about=\"\" xmlns:dc=\"http://purl.org/dc/elements/1.1/\" "
+      "xmlns:hdrgm=\"http://ns.adobe.com/hdr-gain-map/1.0/\" "
+      "xmlns:HDRGainMap=\"http://ns.apple.com/HDRGainMap/1.0/\" "
+      "xmlns:apdi=\"http://ns.apple.com/pixeldatainfo/1.0/\" "
+      "dc:creator=\"xmp-mode-user\" hdrgm:GainMapMax=\"9.5\" "
+      "HDRGainMap:HDRGainMapHeadroom=\"4.5\" "
+      "apdi:AuxiliaryImageType=\"urn:com:apple:photo:2020:aux:hdrgainmap\">"
+      "<dc:title>keep-xmp-mode-title</dc:title>"
+      "<apdi:StoredFormat>1278226488</apdi:StoredFormat>"
+      "</rdf:Description>"
+      "<rdf:Description rdf:about=\"\" "
+      "xmlns:Container=\"http://ns.google.com/photos/1.0/container/\" "
+      "xmlns:Item=\"http://ns.google.com/photos/1.0/container/item/\" "
+      "xmlns:hdrgm=\"http://ns.adobe.com/hdr-gain-map/1.0/\" hdrgm:Version=\"1.0\">"
+      "<Container:Directory><rdf:Seq><rdf:li rdf:parseType=\"Resource\">"
+      "<Container:Item Item:Semantic=\"GainMap\" Item:Mime=\"image/jpeg\" Item:Length=\"77777\"/>"
+      "</rdf:li></rdf:Seq></Container:Directory>"
+      "</rdf:Description></rdf:RDF></x:xmpmeta>";
+
+  auto countSubstr = [](const std::string& haystack, std::string_view needle) {
+    size_t count = 0;
+    size_t pos = 0;
+    while ((pos = haystack.find(needle, pos)) != std::string::npos) {
+      ++count;
+      pos += needle.size();
+    }
+    return count;
+  };
+
+  uhdr_mem_block_t xmp_block{const_cast<char*>(seeded_xmp.data()), seeded_xmp.size(),
+                             seeded_xmp.size()};
+  JpegXmpRoundTrip rt1;
+  ASSERT_TRUE(encodeAndProbeJpegXmp(&mSdrCompressed, &mSdrCompressed, &metadata, &xmp_block, rt1));
+  uhdr_mem_block_t* xmp1 = uhdr_dec_get_xmp(rt1.decoder.get());
+  ASSERT_NE(xmp1, nullptr);
+  const std::string pkt1 = getXmpPacket(xmp1);
+  EXPECT_NE(pkt1.find("xmp-mode-user"), std::string::npos);
+  EXPECT_NE(pkt1.find("keep-xmp-mode-title"), std::string::npos);
+  EXPECT_EQ(pkt1.find("hdrgm:GainMapMax"), std::string::npos);
+  EXPECT_EQ(pkt1.find("HDRGainMapHeadroom"), std::string::npos);
+  EXPECT_EQ(pkt1.find("AuxiliaryImageType"), std::string::npos);
+  EXPECT_EQ(pkt1.find("StoredFormat"), std::string::npos);
+  EXPECT_EQ(pkt1.find("77777"), std::string::npos);
+  // Exactly 2 <rdf:Description elements: 1 retained user description + 1 fresh gain-map directory.
+  EXPECT_EQ(countSubstr(pkt1, "<rdf:Description"), 2u) << pkt1;
+
+  // Re-encode via API-4 from extracted base image: <rdf:Description count must stay 2 (no empty
+  // shell accumulation across re-encodes).
+  uhdr_mem_block_t* base1 = uhdr_dec_get_base_image(rt1.decoder.get());
+  ASSERT_NE(base1, nullptr);
+  uhdr_compressed_image_t base_desc{base1->data, base1->data_sz, base1->capacity, UHDR_CG_BT_709,
+                                    UHDR_CT_SRGB, UHDR_CR_FULL_RANGE};
+  JpegXmpRoundTrip rt2;
+  ASSERT_TRUE(encodeAndProbeJpegXmp(&base_desc, &mSdrCompressed, &metadata, nullptr, rt2));
+  uhdr_mem_block_t* xmp2 = uhdr_dec_get_xmp(rt2.decoder.get());
+  ASSERT_NE(xmp2, nullptr);
+  const std::string pkt2 = getXmpPacket(xmp2);
+  EXPECT_EQ(countSubstr(pkt2, "<rdf:Description"), 2u) << pkt2;
+  EXPECT_NE(pkt2.find("keep-xmp-mode-title"), std::string::npos);
+}
+
 #endif
+
+TEST_F(UltraHdrApiTest, JpegXmpAcceptsNullPaddedPacketsAndHeaderOnlyNullPadding) {
+  uhdr_gainmap_metadata_t metadata = makeTestGainmapMetadata();
+  const std::string user_xml =
+      "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF "
+      "xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description "
+      "rdf:about=\"\" xmlns:dc=\"http://purl.org/dc/elements/1.1/\" "
+      "dc:creator=\"null-padded-user\"/></rdf:RDF></x:xmpmeta>";
+
+  // 1. NUL-padded standard XMP packet via uhdr_enc_set_xmp_data.
+  {
+    std::string padded = user_xml;
+    padded.append(4, '\0');
+    uhdr_mem_block_t xmp_block{padded.data(), padded.size(), padded.size()};
+    JpegXmpRoundTrip rt;
+    ASSERT_TRUE(encodeAndProbeJpegXmp(&mSdrCompressed, &mSdrCompressed, &metadata, &xmp_block, rt));
+    uhdr_mem_block_t* decoded_xmp = uhdr_dec_get_xmp(rt.decoder.get());
+    ASSERT_NE(decoded_xmp, nullptr);
+    const std::string pkt = getXmpPacket(decoded_xmp);
+    EXPECT_NE(pkt.find("null-padded-user"), std::string::npos);
+    EXPECT_EQ(pkt.find('\0'), std::string::npos);
+  }
+
+  // 2. NUL-padded APP1 XMP inside base JPEG in API-4 re-encode.
+  {
+    const auto* src = static_cast<const uint8_t*>(mSdrCompressed.data);
+    std::vector<uint8_t> base_bytes(src, src + 2);
+    constexpr std::string_view kNs = "http://ns.adobe.com/xap/1.0/";
+    std::string body = user_xml;
+    body.append(3, '\0');
+    const size_t seg_len = 2 + kNs.size() + 1 + body.size();
+    const uint8_t hdr[4] = {0xFF, 0xE1, static_cast<uint8_t>((seg_len >> 8) & 0xFF),
+                            static_cast<uint8_t>(seg_len & 0xFF)};
+    base_bytes.insert(base_bytes.end(), hdr, hdr + 4);
+    base_bytes.insert(base_bytes.end(), kNs.begin(), kNs.end());
+    const uint8_t nul = 0;
+    base_bytes.insert(base_bytes.end(), &nul, &nul + 1);
+    base_bytes.insert(base_bytes.end(), body.begin(), body.end());
+    base_bytes.insert(base_bytes.end(), src + 2, src + mSdrCompressed.data_sz);
+
+    uhdr_compressed_image_t base_desc = mSdrCompressed;
+    base_desc.data = base_bytes.data();
+    base_desc.data_sz = base_desc.capacity = base_bytes.size();
+    JpegXmpRoundTrip rt;
+    ASSERT_TRUE(encodeAndProbeJpegXmp(&base_desc, &mSdrCompressed, &metadata, nullptr, rt));
+    uhdr_mem_block_t* decoded_xmp = uhdr_dec_get_xmp(rt.decoder.get());
+    ASSERT_NE(decoded_xmp, nullptr);
+    EXPECT_NE(getXmpPacket(decoded_xmp).find("null-padded-user"), std::string::npos);
+  }
+
+  // 3. APP1 header followed only by NUL padding ("http://ns.adobe.com/xap/1.0/\0\0\0").
+  {
+    std::string header_only("http://ns.adobe.com/xap/1.0/\0\0\0", 31);
+    uhdr_mem_block_t xmp_block{header_only.data(), header_only.size(), header_only.size()};
+    JpegXmpRoundTrip rt;
+    ASSERT_TRUE(encodeAndProbeJpegXmp(&mSdrCompressed, &mSdrCompressed, &metadata, &xmp_block, rt));
+#if defined(UHDR_WRITE_XMP)
+    ASSERT_NE(uhdr_dec_get_xmp(rt.decoder.get()), nullptr);
+#else
+    EXPECT_EQ(uhdr_dec_get_xmp(rt.decoder.get()), nullptr);
+#endif
+  }
+
+  // 4. Max-standard-size XML (65,504 B) + trailing NUL padding succeeds cleanly.
+  {
+    std::string limit_padded = makeLargeXmp(kMaxStandardXmpPayload);
+    limit_padded.append(8, '\0');
+    uhdr_mem_block_t xmp_block{limit_padded.data(), limit_padded.size(), limit_padded.size()};
+    JpegXmpRoundTrip rt;
+    ASSERT_TRUE(encodeAndProbeJpegXmp(&mSdrCompressed, &mSdrCompressed, &metadata, &xmp_block, rt));
+    uhdr_mem_block_t* decoded_xmp = uhdr_dec_get_xmp(rt.decoder.get());
+    ASSERT_NE(decoded_xmp, nullptr);
+    EXPECT_NE(getXmpPacket(decoded_xmp).find("<dc:Pad"), std::string::npos);
+  }
+}
 
 TEST_F(UltraHdrApiTest, JpegApi4RejectsMalformedOrUnmergeableXmp) {
   const char* packets[] = {

@@ -1602,157 +1602,14 @@ bool ProcessExtendedXmpGuid(const string& xmp_data, const string* replacement_gu
   return true;
 }
 
-string MergePrimaryXmp(std::string_view existing_xmp, size_t secondary_image_length,
-                       uhdr_gainmap_metadata_ext_t& metadata,
-                       const string& extended_xmp_guid) {
-  ParsedXmpPacket pkt;
-  if (!ParseXmpPacket(existing_xmp, &pkt)) return string();
-
-  const vector<XmpElementSpan>& elements = pkt.elements();
-  if (elements[pkt.rdf_root].self_closing ||
-      elements[pkt.rdf_root].end_begin <= elements[pkt.rdf_root].start_begin ||
-      elements[pkt.rdf_root].end_begin < kSyntheticOffset ||
-      elements[pkt.rdf_root].end_begin - kSyntheticOffset > existing_xmp.size()) {
-    return string();
-  }
-
-  vector<pair<size_t, size_t>> removals;
-  for (const size_t description : pkt.primary_descriptions) {
-    const XmpElementSpan& primary = elements[description];
-    for (const XmpAttributeSpan& attribute : primary.attributes) {
-      if ((attribute.uri == kContainerUri && attribute.local_name == "Directory") ||
-          (attribute.uri == kGainMapUri && attribute.local_name == "Version")) {
-        removals.emplace_back(attribute.name_begin, attribute.value_end);
-      }
-    }
-    for (const XmpElementSpan& child : elements) {
-      if (child.parent == description &&
-          ((child.uri == kContainerUri && child.local_name == "Directory") ||
-           (child.uri == kGainMapUri && child.local_name == "Version"))) {
-        removals.emplace_back(child.start_begin, child.end_end);
-      }
-    }
-  }
-
-  const size_t insertion = elements[pkt.rdf_root].end_begin - kSyntheticOffset;
-  for (auto& [begin, end] : removals) {
-    if (begin < kSyntheticOffset || end < begin) return string();
-    begin -= kSyntheticOffset;
-    end -= kSyntheticOffset;
-    if (end > insertion) return string();
-  }
-  sort(removals.begin(), removals.end());
-  for (size_t index = 1; index < removals.size(); ++index) {
-    if (removals[index].first < removals[index - 1].second) return string();
-  }
-
-  stringstream ss;
-  photos_editing_formats::image_io::XmlWriter writer(ss);
-  WritePrimaryDescriptionElement(&writer, true, secondary_image_length, metadata,
-                                 extended_xmp_guid);
-  string merged;
-  size_t cursor = 0;
-  for (const auto& [begin, end] : removals) {
-    if (begin < cursor || end > insertion || end > existing_xmp.size()) return string();
-    merged.append(existing_xmp.data() + cursor, begin - cursor);
-    cursor = end;
-  }
-  merged.append(existing_xmp.data() + cursor, insertion - cursor);
-  merged.append(ss.str());
-  merged.push_back('\n');
-  merged.append(existing_xmp.data() + insertion, existing_xmp.size() - insertion);
-  return merged;
-}
-
-}  // namespace
-
-bool getExtendedXmpGuidFromXmp(const string& xmp_data, string* guid) {
-  if (guid == nullptr) return false;
-  return ProcessExtendedXmpGuid(xmp_data, nullptr, guid, nullptr);
-}
-
-bool replaceExtendedXmpGuidInXmp(const string& xmp_data, const string& new_guid,
-                                 string* rewritten_xmp) {
-  if (rewritten_xmp == nullptr) return false;
-  return ProcessExtendedXmpGuid(xmp_data, &new_guid, nullptr, rewritten_xmp);
-}
-
-std::string_view stripXmpApp1HeaderView(const void* data, size_t size) {
-  if (data == nullptr || size == 0) return {};
-  constexpr std::string_view kXmpHeader = "http://ns.adobe.com/xap/1.0/";
-  std::string_view view(static_cast<const char*>(data), size);
-  if (view.size() >= kXmpHeader.size() && view.substr(0, kXmpHeader.size()) == kXmpHeader) {
-    view.remove_prefix(kXmpHeader.size());
-    if (!view.empty() && view.front() == '\0') {
-      view.remove_prefix(1);
-    }
-  }
-  return view;
-}
-
-uhdr_error_info_t prepareXmpForEncoding(const uhdr_mem_block_t* xmp, std::string* cleaned_xmp,
-                                        size_t max_size) {
-  uhdr_error_info_t status = g_no_error;
-  if (cleaned_xmp == nullptr) {
-    status.error_code = UHDR_CODEC_INVALID_PARAM;
-    status.has_detail = 1;
-    snprintf(status.detail, sizeof status.detail, "cleaned_xmp output pointer is null");
-    return status;
-  }
-  cleaned_xmp->clear();
-  if (xmp == nullptr) return status;
-  if (xmp->data == nullptr) {
-    if (xmp->data_sz > 0) {
-      status.error_code = UHDR_CODEC_INVALID_PARAM;
-      status.has_detail = 1;
-      snprintf(status.detail, sizeof status.detail, "received nullptr for xmp->data");
-    }
-    return status;
-  }
-  const std::string_view xml_view = stripXmpApp1HeaderView(xmp->data, xmp->data_sz);
-  if (xml_view.size() > max_size) {
-    status.error_code = UHDR_CODEC_INVALID_PARAM;
-    status.has_detail = 1;
-    snprintf(status.detail, sizeof status.detail,
-             "xmp size %zu exceeds maximum supported size %zu", xml_view.size(), max_size);
-    return status;
-  }
-  if (xml_view.empty()) return status;
-  if (!stripGainMapFromXmp(xml_view, cleaned_xmp)) {
-    cleaned_xmp->clear();
-    status.error_code = UHDR_CODEC_INVALID_PARAM;
-    status.has_detail = 1;
-    snprintf(status.detail, sizeof status.detail,
-             "unable to parse or strip gain map metadata from XMP packet");
-    return status;
-  }
-  if (cleaned_xmp->size() > max_size) {
-    cleaned_xmp->clear();
-    status.error_code = UHDR_CODEC_INVALID_PARAM;
-    status.has_detail = 1;
-    snprintf(status.detail, sizeof status.detail,
-             "cleaned xmp size %zu exceeds maximum supported size %zu", cleaned_xmp->size(),
-             max_size);
-    return status;
-  }
-  return status;
-}
-
-bool stripGainMapFromXmp(std::string_view xmp_data, std::string* stripped_xmp) {
-  if (stripped_xmp == nullptr) return false;
-  const std::string_view clean_xmp = TrimTrailingNulls(xmp_data);
-  if (clean_xmp.empty()) {
-    stripped_xmp->clear();
-    return true;
-  }
-
-  ParsedXmpPacket pkt;
-  if (!ParseXmpPacket(clean_xmp, &pkt)) return false;
+bool CollectGainMapRemovals(const ParsedXmpPacket& pkt, size_t clean_size,
+                            vector<pair<size_t, size_t>>* coalesced,
+                            size_t* removed_descriptions) {
+  coalesced->clear();
+  *removed_descriptions = 0;
 
   const vector<XmpElementSpan>& elements = pkt.elements();
   vector<pair<size_t, size_t>> removals;
-  size_t removed_descriptions = 0;
-
   for (const size_t description : pkt.primary_descriptions) {
     const XmpElementSpan& primary = elements[description];
     bool has_removable = false;
@@ -1761,7 +1618,7 @@ bool stripGainMapFromXmp(std::string_view xmp_data, std::string* stripped_xmp) {
     if (!has_removable) continue;
 
     if (!has_user) {
-      ++removed_descriptions;
+      ++(*removed_descriptions);
       size_t remove_end = primary.end_end;
       while (remove_end < pkt.parse_xml.size() &&
              (pkt.parse_xml[remove_end] == '\n' || pkt.parse_xml[remove_end] == '\r')) {
@@ -1802,29 +1659,166 @@ bool stripGainMapFromXmp(std::string_view xmp_data, std::string* stripped_xmp) {
     }
   }
 
-  if (!pkt.all_descriptions.empty() && removed_descriptions == pkt.all_descriptions.size()) {
-    stripped_xmp->clear();
-    return true;
-  }
-  if (removals.empty()) {
-    stripped_xmp->assign(clean_xmp.data(), clean_xmp.size());
-    return true;
-  }
-
   for (auto& [begin, end] : removals) {
     if (begin < kSyntheticOffset || end < begin) return false;
     begin -= kSyntheticOffset;
     end -= kSyntheticOffset;
-    if (end > clean_xmp.size()) return false;
+    if (end > clean_size) return false;
   }
   sort(removals.begin(), removals.end());
-  vector<pair<size_t, size_t>> coalesced;
   for (const auto& [begin, end] : removals) {
-    if (!coalesced.empty() && begin <= coalesced.back().second) {
-      coalesced.back().second = (std::max)(coalesced.back().second, end);
+    if (!coalesced->empty() && begin <= coalesced->back().second) {
+      coalesced->back().second = (std::max)(coalesced->back().second, end);
     } else {
-      coalesced.emplace_back(begin, end);
+      coalesced->emplace_back(begin, end);
     }
+  }
+  return true;
+}
+
+string MergePrimaryXmp(std::string_view existing_xmp, size_t secondary_image_length,
+                       uhdr_gainmap_metadata_ext_t& metadata,
+                       const string& extended_xmp_guid) {
+  const std::string_view clean_xmp = TrimTrailingNulls(existing_xmp);
+  ParsedXmpPacket pkt;
+  if (!ParseXmpPacket(clean_xmp, &pkt)) return string();
+
+  const vector<XmpElementSpan>& elements = pkt.elements();
+  if (elements[pkt.rdf_root].self_closing ||
+      elements[pkt.rdf_root].end_begin <= elements[pkt.rdf_root].start_begin ||
+      elements[pkt.rdf_root].end_begin < kSyntheticOffset ||
+      elements[pkt.rdf_root].end_begin - kSyntheticOffset > clean_xmp.size()) {
+    return string();
+  }
+
+  vector<pair<size_t, size_t>> coalesced;
+  size_t removed_descriptions = 0;
+  if (!CollectGainMapRemovals(pkt, clean_xmp.size(), &coalesced, &removed_descriptions)) {
+    return string();
+  }
+
+  const size_t insertion = elements[pkt.rdf_root].end_begin - kSyntheticOffset;
+  for (const auto& [begin, end] : coalesced) {
+    if (end > insertion) return string();
+  }
+
+  stringstream ss;
+  photos_editing_formats::image_io::XmlWriter writer(ss);
+  WritePrimaryDescriptionElement(&writer, true, secondary_image_length, metadata,
+                                 extended_xmp_guid);
+  string merged;
+  size_t cursor = 0;
+  for (const auto& [begin, end] : coalesced) {
+    if (begin < cursor || end > insertion || end > clean_xmp.size()) return string();
+    merged.append(clean_xmp.data() + cursor, begin - cursor);
+    cursor = end;
+  }
+  merged.append(clean_xmp.data() + cursor, insertion - cursor);
+  merged.append(ss.str());
+  merged.push_back('\n');
+  merged.append(clean_xmp.data() + insertion, clean_xmp.size() - insertion);
+  return merged;
+}
+
+}  // namespace
+
+bool getExtendedXmpGuidFromXmp(const string& xmp_data, string* guid) {
+  if (guid == nullptr) return false;
+  return ProcessExtendedXmpGuid(xmp_data, nullptr, guid, nullptr);
+}
+
+bool replaceExtendedXmpGuidInXmp(const string& xmp_data, const string& new_guid,
+                                 string* rewritten_xmp) {
+  if (rewritten_xmp == nullptr) return false;
+  return ProcessExtendedXmpGuid(xmp_data, &new_guid, nullptr, rewritten_xmp);
+}
+
+std::string_view stripXmpApp1HeaderView(const void* data, size_t size, bool trim_trailing_nulls) {
+  if (data == nullptr || size == 0) return {};
+  constexpr std::string_view kXmpHeader = "http://ns.adobe.com/xap/1.0/";
+  std::string_view view(static_cast<const char*>(data), size);
+  if (view.size() >= kXmpHeader.size() && view.substr(0, kXmpHeader.size()) == kXmpHeader) {
+    view.remove_prefix(kXmpHeader.size());
+    if (!view.empty() && view.front() == '\0') {
+      view.remove_prefix(1);
+    }
+  }
+  return trim_trailing_nulls ? TrimTrailingNulls(view) : view;
+}
+
+uhdr_error_info_t prepareXmpForEncoding(const uhdr_mem_block_t* xmp, std::string* cleaned_xmp,
+                                        size_t max_size) {
+  uhdr_error_info_t status = g_no_error;
+  if (cleaned_xmp == nullptr) {
+    status.error_code = UHDR_CODEC_INVALID_PARAM;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail, "cleaned_xmp output pointer is null");
+    return status;
+  }
+  cleaned_xmp->clear();
+  if (xmp == nullptr) return status;
+  if (xmp->data == nullptr) {
+    if (xmp->data_sz > 0) {
+      status.error_code = UHDR_CODEC_INVALID_PARAM;
+      status.has_detail = 1;
+      snprintf(status.detail, sizeof status.detail, "received nullptr for xmp->data");
+    }
+    return status;
+  }
+  const std::string_view xml_view =
+      stripXmpApp1HeaderView(xmp->data, xmp->data_sz, /*trim_trailing_nulls=*/true);
+  if (xml_view.size() > max_size) {
+    status.error_code = UHDR_CODEC_INVALID_PARAM;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "xmp size %zu exceeds maximum supported size %zu", xml_view.size(), max_size);
+    return status;
+  }
+  if (xml_view.empty()) return status;
+  if (!stripGainMapFromXmp(xml_view, cleaned_xmp)) {
+    cleaned_xmp->clear();
+    status.error_code = UHDR_CODEC_INVALID_PARAM;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "unable to parse or strip gain map metadata from XMP packet");
+    return status;
+  }
+  if (cleaned_xmp->size() > max_size) {
+    cleaned_xmp->clear();
+    status.error_code = UHDR_CODEC_INVALID_PARAM;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "cleaned xmp size %zu exceeds maximum supported size %zu", cleaned_xmp->size(),
+             max_size);
+    return status;
+  }
+  return status;
+}
+
+bool stripGainMapFromXmp(std::string_view xmp_data, std::string* stripped_xmp) {
+  if (stripped_xmp == nullptr) return false;
+  const std::string_view clean_xmp = TrimTrailingNulls(xmp_data);
+  if (clean_xmp.empty()) {
+    stripped_xmp->clear();
+    return true;
+  }
+
+  ParsedXmpPacket pkt;
+  if (!ParseXmpPacket(clean_xmp, &pkt)) return false;
+
+  vector<pair<size_t, size_t>> coalesced;
+  size_t removed_descriptions = 0;
+  if (!CollectGainMapRemovals(pkt, clean_xmp.size(), &coalesced, &removed_descriptions)) {
+    return false;
+  }
+
+  if (!pkt.all_descriptions.empty() && removed_descriptions == pkt.all_descriptions.size()) {
+    stripped_xmp->clear();
+    return true;
+  }
+  if (coalesced.empty()) {
+    stripped_xmp->assign(clean_xmp.data(), clean_xmp.size());
+    return true;
   }
 
   string result;
@@ -2018,7 +2012,7 @@ string generateXmpForPrimaryImage(size_t secondary_image_length,
                                   const std::string& extended_xmp_guid) {
   if (user_xmp != nullptr && user_xmp->data != nullptr && user_xmp->data_sz > 0) {
     const std::string_view existing_xmp =
-        stripXmpApp1HeaderView(user_xmp->data, user_xmp->data_sz);
+        stripXmpApp1HeaderView(user_xmp->data, user_xmp->data_sz, /*trim_trailing_nulls=*/true);
     if (!existing_xmp.empty()) {
       return MergePrimaryXmp(existing_xmp, secondary_image_length, metadata, extended_xmp_guid);
     }
