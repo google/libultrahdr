@@ -597,6 +597,32 @@ if(UHDR_ENABLE_HEIF)
     endif()
     set(LIBHEIF_LIBRARIES ${LIBHEIF_LIB_PREFIX}${LIBHEIF_LIB})
 
+    set(LIBHEIF_CODEC_ARGS -DENABLE_PLUGIN_LOADING=ON)
+    set(LIBHEIF_LINK_DEPS ${CMAKE_DL_LIBS})
+    if(UHDR_BUILD_FUZZERS AND UHDR_FUZZ_AOM_PREFIX)
+      # The OSS-Fuzz build supplies an instrumented, decoder-only libaom.
+      set(FUZZ_AOM_INCLUDE_DIR "${UHDR_FUZZ_AOM_PREFIX}/include")
+      set(FUZZ_AOM_LIBRARY "${UHDR_FUZZ_AOM_PREFIX}/lib/${CMAKE_STATIC_LIBRARY_PREFIX}aom${CMAKE_STATIC_LIBRARY_SUFFIX}")
+      if(NOT EXISTS "${FUZZ_AOM_LIBRARY}" OR
+         NOT EXISTS "${FUZZ_AOM_INCLUDE_DIR}/aom/aom_decoder.h")
+        message(FATAL_ERROR "UHDR_FUZZ_AOM_PREFIX must point to a static libaom installation")
+      endif()
+      set(LIBHEIF_CODEC_ARGS
+          "-DAOM_INCLUDE_DIR:PATH=${FUZZ_AOM_INCLUDE_DIR}"
+          "-DAOM_LIBRARY:FILEPATH=${FUZZ_AOM_LIBRARY}"
+          -DENABLE_PLUGIN_LOADING=OFF
+          -DWITH_AOM_DECODER=ON
+          -DWITH_AOM_ENCODER=OFF
+          -DWITH_DAV1D=OFF
+          -DWITH_RAV1E=OFF
+          -DWITH_SvtEnc=OFF
+          -DWITH_LIBDE265=OFF
+          -DWITH_X265=OFF
+          -DWITH_OpenH264_DECODER=OFF)
+      # Consumers of the static libheif archive also need its codec dependencies.
+      set(LIBHEIF_LINK_DEPS "${FUZZ_AOM_LIBRARY}" Threads::Threads m)
+    endif()
+
     if(GIT_FOUND)
       set(LIBHEIF_PATCH_CMD ${GIT_EXECUTABLE} checkout 4a3f74bc593ebfc29becc1ed5dd0a61cc66d40e1 -- .
                             COMMAND ${GIT_EXECUTABLE} apply --ignore-space-change --whitespace=nowarn ${CMAKE_CURRENT_SOURCE_DIR}/cmake/patches/libheif_pr1503.patch)
@@ -615,10 +641,10 @@ if(UHDR_ENABLE_HEIF)
         BUILD_COMMAND ${CMAKE_COMMAND} --build <BINARY_DIR> --config $<CONFIG> --target heif
         INSTALL_COMMAND ""
         CMAKE_ARGS ${UHDR_CMAKE_ARGS}
+                   ${LIBHEIF_CODEC_ARGS}
                    -DBUILD_SHARED_LIBS=OFF
                    -DCMAKE_DISABLE_FIND_PACKAGE_Doxygen=ON
                    -DWITH_DOCS=OFF
-                   -DENABLE_PLUGIN_LOADING=ON
                    -DWITH_EXAMPLES=OFF
                    -DWITH_GDK_PIXBUF=OFF
                    -DWITH_LIBSHARPYUV=OFF
@@ -641,7 +667,7 @@ if(UHDR_ENABLE_HEIF)
         IMPORTED_LOCATION "${LIBHEIF_LIBRARIES}"
         INTERFACE_INCLUDE_DIRECTORIES "${LIBHEIF_INCLUDE_DIRS}"
         INTERFACE_COMPILE_DEFINITIONS "LIBHEIF_STATIC_BUILD;WITH_EXPERIMENTAL_GAIN_MAP=1"
-        INTERFACE_LINK_LIBRARIES "${CMAKE_DL_LIBS}"
+        INTERFACE_LINK_LIBRARIES "${LIBHEIF_LINK_DEPS}"
       )
     endif()
     set(LIBHEIF_HAS_GAIN_MAP TRUE)
