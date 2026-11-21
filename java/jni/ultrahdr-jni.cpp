@@ -91,7 +91,7 @@ Java_com_google_media_codecs_ultrahdr_UltraHDREncoder_setRawImageNative___3IIIII
   GET_HANDLE()
   RET_IF_TRUE(handle == 0, "java/io/IOException", "invalid encoder instance")
   jsize length = env->GetArrayLength(rgb_buff);
-  RET_IF_TRUE(length < height * rgb_stride, "java/io/IOException",
+  RET_IF_TRUE(length < (jlong)height * rgb_stride, "java/io/IOException",
               "raw image rgba byteArray size is less than required size")
   jint *rgbBody = env->GetIntArrayElements(rgb_buff, nullptr);
   uhdr_raw_image_t img{(uhdr_img_fmt_t)color_format,
@@ -116,7 +116,7 @@ Java_com_google_media_codecs_ultrahdr_UltraHDREncoder_setRawImageNative___3JIIII
   GET_HANDLE()
   RET_IF_TRUE(handle == 0, "java/io/IOException", "invalid encoder instance")
   jsize length = env->GetArrayLength(rgb_buff);
-  RET_IF_TRUE(length < height * rgb_stride, "java/io/IOException",
+  RET_IF_TRUE(length < (jlong)height * rgb_stride, "java/io/IOException",
               "raw image rgba byteArray size is less than required size")
   jlong *rgbBody = env->GetLongArrayElements(rgb_buff, nullptr);
   uhdr_raw_image_t img{(uhdr_img_fmt_t)color_format,
@@ -142,10 +142,10 @@ Java_com_google_media_codecs_ultrahdr_UltraHDREncoder_setRawImageNative___3S_3SI
   GET_HANDLE()
   RET_IF_TRUE(handle == 0, "java/io/IOException", "invalid encoder instance")
   jsize length = env->GetArrayLength(y_buff);
-  RET_IF_TRUE(length < height * y_stride, "java/io/IOException",
+  RET_IF_TRUE(length < (jlong)height * y_stride, "java/io/IOException",
               "raw image luma byteArray size is less than required size")
   length = env->GetArrayLength(uv_buff);
-  RET_IF_TRUE(length < height * uv_stride / 2, "java/io/IOException",
+  RET_IF_TRUE(length < (jlong)(height / 2 + height % 2) * uv_stride, "java/io/IOException",
               "raw image chroma byteArray size is less than required size")
   jshort *lumaBody = env->GetShortArrayElements(y_buff, nullptr);
   jshort *chromaBody = env->GetShortArrayElements(uv_buff, nullptr);
@@ -173,13 +173,13 @@ Java_com_google_media_codecs_ultrahdr_UltraHDREncoder_setRawImageNative___3B_3B_
   GET_HANDLE()
   RET_IF_TRUE(handle == 0, "java/io/IOException", "invalid encoder instance")
   jsize length = env->GetArrayLength(y_buff);
-  RET_IF_TRUE(length < height * y_stride, "java/io/IOException",
+  RET_IF_TRUE(length < (jlong)height * y_stride, "java/io/IOException",
               "raw image luma byteArray size is less than required size")
   length = env->GetArrayLength(u_buff);
-  RET_IF_TRUE(length < height * u_stride / 4, "java/io/IOException",
+  RET_IF_TRUE(length < (jlong)(height / 2 + height % 2) * u_stride, "java/io/IOException",
               "raw image cb byteArray size is less than required size")
   length = env->GetArrayLength(v_buff);
-  RET_IF_TRUE(length < height * v_stride / 4, "java/io/IOException",
+  RET_IF_TRUE(length < (jlong)(height / 2 + height % 2) * v_stride, "java/io/IOException",
               "raw image cb byteArray size is less than required size")
   jbyte *lumaBody = env->GetByteArrayElements(y_buff, nullptr);
   jbyte *cbBody = env->GetByteArrayElements(u_buff, nullptr);
