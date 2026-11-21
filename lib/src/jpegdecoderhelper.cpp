@@ -537,8 +537,14 @@ uhdr_error_info_t JpegDecoderHelper::decodeToCSYCbCr(jpeg_decompress_struct* cin
            j++, mem += alignedPlaneWidth[i]) {
         mcuRowsTmp[i][j] = mem;
       }
-    } else if (mPlaneVStride[i] % DCTSIZE != 0) {
-      mPlanesMCURow[i] = std::make_unique<uint8_t[]>(alignedPlaneWidth[i]);
+    } else {
+      JDIMENSION total_iMCU_rows = (JDIMENSION)std::ceil(
+          (double)cinfo->image_height / (cinfo->max_v_samp_factor * DCTSIZE));
+      JDIMENSION total_scanlines =
+          total_iMCU_rows * cinfo->comp_info[i].v_samp_factor * DCTSIZE;
+      if (total_scanlines > mPlaneVStride[i]) {
+        mPlanesMCURow[i] = std::make_unique<uint8_t[]>(alignedPlaneWidth[i]);
+      }
     }
     subImage[i] = mPlaneHStride[i] == alignedPlaneWidth[i] ? mcuRows[i] : mcuRowsTmp[i];
   }
