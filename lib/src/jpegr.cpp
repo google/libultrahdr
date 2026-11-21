@@ -1230,6 +1230,18 @@ uhdr_error_info_t JpegR::appendGainMap(uhdr_compressed_image_t* sdr_intent_compr
     pExif = &exif_from_jpg;
   }
 
+  // The APP1 length field is 16 bits and counts its own 2 bytes. A larger EXIF block would wrap
+  // the length and leave the rest of the EXIF bytes to be parsed as JPEG markers.
+  if (pExif != nullptr && pExif->data_sz > 0xFFFF - 2) {
+    uhdr_error_info_t status;
+    status.error_code = UHDR_CODEC_INVALID_PARAM;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "exif block of size %zu does not fit in a single APP1 segment, max size is %d",
+             pExif->data_sz, 0xFFFF - 2);
+    return status;
+  }
+
   uhdr_compressed_image_t* final_primary_jpg_image_ptr =
       new_jpg_image.data_sz == 0 ? sdr_intent_compressed : &new_jpg_image;
 
