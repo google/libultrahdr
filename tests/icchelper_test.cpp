@@ -8,8 +8,12 @@
  * except according to those terms.
  */
 
+#include <cmath>
+#include <limits>
+
 #include <gtest/gtest.h>
 
+#include "ultrahdr/gainmapmath.h"
 #include "ultrahdr/icc.h"
 
 namespace ultrahdr {
@@ -159,6 +163,23 @@ TEST_F(IccHelperTest, iccUnalignedColorantOffset) {
     }
   }
   EXPECT_EQ(IccHelper::readIccColorGamut(hlg_buf.data(), hlg_buf.size()), UHDR_CG_BT_2100);
+}
+
+TEST_F(IccHelperTest, gainLutBoundarySafety) {
+  uhdr_gainmap_metadata_ext_t meta("1.0");
+  for (int i = 0; i < 3; ++i) {
+    meta.min_content_boost[i] = 1.0f;
+    meta.max_content_boost[i] = 2.0f + i;
+    meta.gamma[i] = 0.0f;  // Must not divide by zero
+    meta.offset_sdr[i] = 0.0f;
+    meta.offset_hdr[i] = 0.0f;
+  }
+  GainLUT lut(&meta, 1.0f);
+  EXPECT_TRUE(std::isfinite(lut.getGainFactor(1e30f, 0)));
+  EXPECT_TRUE(std::isfinite(lut.getGainFactor(-1e30f, 1)));
+  EXPECT_TRUE(std::isfinite(lut.getGainFactor(std::numeric_limits<float>::quiet_NaN(), 2)));
+  EXPECT_TRUE(std::isfinite(lut.getGainFactor(0.5f, -1)));
+  EXPECT_TRUE(std::isfinite(lut.getGainFactor(0.5f, 5)));
 }
 
 }  // namespace ultrahdr

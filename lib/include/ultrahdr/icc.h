@@ -222,9 +222,9 @@ struct ICCHeader {
   // Relative colorimetric rendering intent
   uint32_t rendering_intent = Endian_SwapBE32(1);
   // D50 standard illuminant (X, Y, Z)
-  uint32_t illuminant_X = Endian_SwapBE32(float_round_to_fixed(kD50_x));
-  uint32_t illuminant_Y = Endian_SwapBE32(float_round_to_fixed(kD50_y));
-  uint32_t illuminant_Z = Endian_SwapBE32(float_round_to_fixed(kD50_z));
+  uint32_t illuminant_X = Endian_SwapBE32(static_cast<uint32_t>(float_round_to_fixed(kD50_x)));
+  uint32_t illuminant_Y = Endian_SwapBE32(static_cast<uint32_t>(float_round_to_fixed(kD50_y)));
+  uint32_t illuminant_Z = Endian_SwapBE32(static_cast<uint32_t>(float_round_to_fixed(kD50_z)));
   // Profile creator (ignored)
   uint32_t creator = 0;
   // Profile id checksum (ignored)
