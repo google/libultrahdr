@@ -388,7 +388,7 @@ std::shared_ptr<DataStruct> IccHelper::write_mAB_or_mBA_tag(uint32_t type, bool 
   dataStruct->write32(Endian_SwapBE32(clut_offset));      // CLUT offset
   dataStruct->write32(Endian_SwapBE32(a_curves_offset));  // A curve offset
   for (size_t i = 0; i < kNumChannels; ++i) {
-    if (dataStruct->write(b_curves_data[i]->getData(), b_curves_data[i]->getLength())) {
+    if (!dataStruct->write(b_curves_data[i]->getData(), b_curves_data[i]->getLength())) {
       return dataStruct;
     }
   }
