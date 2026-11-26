@@ -44,12 +44,11 @@ static inline uint16_t EndianSwap16(uint16_t value) {
  */
 class DataStruct {
  private:
-  void* data;
+  std::vector<uint8_t> data;
   size_t writePos;
-  size_t length;
 
  public:
-  DataStruct(size_t s);
+  explicit DataStruct(size_t s);
   ~DataStruct();
 
   void* getData();
