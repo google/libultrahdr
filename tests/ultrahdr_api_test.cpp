@@ -2162,4 +2162,91 @@ TEST_F(UltraHdrApiTest, ContentBoostFloorWithNonUnitGammaClampsBelowMinGain) {
   }
 }
 
+TEST(UltraHdrEffectsSafetyTest, CropAndResizeOverflowAndHasDetail) {
+  constexpr unsigned width = 16;
+  constexpr unsigned height = 16;
+  std::vector<uint32_t> hdr_pixels(static_cast<size_t>(width) * height, 0x3fffffffu);
+  uhdr_raw_image_t hdr{};
+  hdr.fmt = UHDR_IMG_FMT_32bppRGBA1010102;
+  hdr.cg = UHDR_CG_BT_2100;
+  hdr.ct = UHDR_CT_HLG;
+  hdr.range = UHDR_CR_FULL_RANGE;
+  hdr.w = width;
+  hdr.h = height;
+  hdr.planes[UHDR_PLANE_PACKED] = hdr_pixels.data();
+  hdr.stride[UHDR_PLANE_PACKED] = width;
+
+  // Encoder crop with extreme left/right must not overflow right - left or read OOB.
+  {
+    uhdr_codec_private_t* enc = uhdr_create_encoder();
+    ASSERT_NE(enc, nullptr);
+    ASSERT_EQ(UHDR_CODEC_OK, uhdr_enc_set_raw_image(enc, &hdr, UHDR_HDR_IMG).error_code);
+    ASSERT_EQ(UHDR_CODEC_OK,
+              uhdr_add_effect_crop(enc, 2147483640, -2147483640, 0, 16).error_code);
+    uhdr_error_info_t st = uhdr_encode(enc);
+    EXPECT_EQ(st.error_code, UHDR_CODEC_INVALID_PARAM);
+    EXPECT_EQ(st.has_detail, 1);
+    uhdr_release_encoder(enc);
+  }
+
+  // Encoder invalid resize must set has_detail = 1.
+  {
+    uhdr_codec_private_t* enc = uhdr_create_encoder();
+    ASSERT_NE(enc, nullptr);
+    ASSERT_EQ(UHDR_CODEC_OK, uhdr_enc_set_raw_image(enc, &hdr, UHDR_HDR_IMG).error_code);
+    ASSERT_EQ(UHDR_CODEC_OK,
+              uhdr_add_effect_resize(enc, std::numeric_limits<int>::max(), 16).error_code);
+    uhdr_error_info_t st = uhdr_encode(enc);
+    EXPECT_EQ(st.error_code, UHDR_CODEC_INVALID_PARAM);
+    EXPECT_EQ(st.has_detail, 1);
+    uhdr_release_encoder(enc);
+  }
+
+  // Produce a valid UltraHDR JPEG for decoder crop/resize overflow tests.
+  std::vector<uint8_t> encoded;
+  {
+    uhdr_codec_private_t* enc = uhdr_create_encoder();
+    ASSERT_NE(enc, nullptr);
+    ASSERT_EQ(UHDR_CODEC_OK, uhdr_enc_set_raw_image(enc, &hdr, UHDR_HDR_IMG).error_code);
+    ASSERT_EQ(UHDR_CODEC_OK, uhdr_encode(enc).error_code);
+    uhdr_compressed_image_t* stream = uhdr_get_encoded_stream(enc);
+    ASSERT_NE(stream, nullptr);
+    encoded.assign(static_cast<uint8_t*>(stream->data),
+                   static_cast<uint8_t*>(stream->data) + stream->data_sz);
+    uhdr_release_encoder(enc);
+  }
+
+  // Decoder crop with INT_MAX / INT_MIN must not overflow in snprintf.
+  {
+    uhdr_codec_private_t* dec = uhdr_create_decoder();
+    ASSERT_NE(dec, nullptr);
+    uhdr_compressed_image_t img{encoded.data(), encoded.size(), encoded.size(),
+                                UHDR_CG_UNSPECIFIED, UHDR_CT_UNSPECIFIED, UHDR_CR_UNSPECIFIED};
+    ASSERT_EQ(UHDR_CODEC_OK, uhdr_dec_set_image(dec, &img).error_code);
+    ASSERT_EQ(UHDR_CODEC_OK,
+              uhdr_add_effect_crop(dec, std::numeric_limits<int>::max(),
+                                   std::numeric_limits<int>::min(), 0, 16)
+                  .error_code);
+    uhdr_error_info_t st = uhdr_decode(dec);
+    EXPECT_EQ(st.error_code, UHDR_CODEC_INVALID_PARAM);
+    EXPECT_EQ(st.has_detail, 1);
+    uhdr_release_decoder(dec);
+  }
+
+  // Decoder resize with INT_MAX must not trigger float-cast-overflow and must set has_detail = 1.
+  {
+    uhdr_codec_private_t* dec = uhdr_create_decoder();
+    ASSERT_NE(dec, nullptr);
+    uhdr_compressed_image_t img{encoded.data(), encoded.size(), encoded.size(),
+                                UHDR_CG_UNSPECIFIED, UHDR_CT_UNSPECIFIED, UHDR_CR_UNSPECIFIED};
+    ASSERT_EQ(UHDR_CODEC_OK, uhdr_dec_set_image(dec, &img).error_code);
+    ASSERT_EQ(UHDR_CODEC_OK,
+              uhdr_add_effect_resize(dec, std::numeric_limits<int>::max(), 16).error_code);
+    uhdr_error_info_t st = uhdr_decode(dec);
+    EXPECT_EQ(st.error_code, UHDR_CODEC_INVALID_PARAM);
+    EXPECT_EQ(st.has_detail, 1);
+    uhdr_release_decoder(dec);
+  }
+}
+
 }  // namespace ultrahdr
