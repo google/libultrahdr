@@ -67,6 +67,8 @@ option_if_not_defined(UHDR_ENABLE_INSTALL "Enable install and uninstall targets 
 option_if_not_defined(UHDR_ENABLE_INTRINSICS "Build with SIMD acceleration " TRUE)
 option_if_not_defined(UHDR_ENABLE_GLES "Build with GPU acceleration " FALSE)
 option_if_not_defined(UHDR_ENABLE_WERROR "Build with -Werror" FALSE)
+option_if_not_defined(UHDR_ENABLE_SAFE_BUFFERS_CHECK
+                      "Enforce -Wunsafe-buffer-usage on hardened metadata parsers (Clang)" FALSE)
 option_if_not_defined(UHDR_ENABLE_SMPTE2094_50 "Build with SMPTE 2094-50 support" FALSE)
 option_if_not_defined(UHDR_ENABLE_HEIF "Build with HEIF/AVIF support via libheif" TRUE)
 
@@ -689,6 +691,15 @@ if(TARGET libheif)
 endif()
 if(NOT MSVC)
   target_compile_options(${UHDR_CORE_LIB_NAME} PRIVATE -Wall -Wextra -Wshadow)
+endif()
+if(UHDR_ENABLE_SAFE_BUFFERS_CHECK AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+  check_cxx_compiler_flag("-Wunsafe-buffer-usage" UHDR_SUPPORTS_UNSAFE_BUFFER_USAGE)
+  if(UHDR_SUPPORTS_UNSAFE_BUFFER_USAGE)
+    set_source_files_properties(
+      "${SOURCE_DIR}/src/gainmapmetadata.cpp"
+      PROPERTIES COMPILE_OPTIONS "-Wunsafe-buffer-usage;-Werror=unsafe-buffer-usage"
+    )
+  endif()
 endif()
 if(DEFINED UHDR_MAX_DIMENSION)
   target_compile_options(${UHDR_CORE_LIB_NAME} PRIVATE -DUHDR_MAX_DIMENSION=${UHDR_MAX_DIMENSION})

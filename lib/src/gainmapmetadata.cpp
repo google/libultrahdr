@@ -12,6 +12,7 @@
 #include <cmath>
 #include <cstdint>
 
+#include "ultrahdr/bytebuffer.h"
 #include "ultrahdr/gainmapmath.h"
 #include "ultrahdr/gainmapmetadata.h"
 #include "ultrahdr/ultrahdrcommon.h"
@@ -21,80 +22,70 @@ namespace ultrahdr {
 void streamWriteU8(std::vector<uint8_t> &data, uint8_t value) { data.push_back(value); }
 
 void streamWriteU16(std::vector<uint8_t> &data, uint16_t value) {
-  data.push_back((value >> 8) & 0xff);
-  data.push_back(value & 0xff);
+  data.push_back(static_cast<uint8_t>((value >> 8) & 0xffu));
+  data.push_back(static_cast<uint8_t>(value & 0xffu));
 }
 
 void streamWriteU32(std::vector<uint8_t> &data, uint32_t value) {
-  data.push_back((value >> 24) & 0xff);
-  data.push_back((value >> 16) & 0xff);
-  data.push_back((value >> 8) & 0xff);
-  data.push_back(value & 0xff);
+  data.push_back(static_cast<uint8_t>((value >> 24) & 0xffu));
+  data.push_back(static_cast<uint8_t>((value >> 16) & 0xffu));
+  data.push_back(static_cast<uint8_t>((value >> 8) & 0xffu));
+  data.push_back(static_cast<uint8_t>(value & 0xffu));
 }
 
 void streamWriteS32(std::vector<uint8_t> &data, int32_t value) {
-  data.push_back((value >> 24) & 0xff);
-  data.push_back((value >> 16) & 0xff);
-  data.push_back((value >> 8) & 0xff);
-  data.push_back(value & 0xff);
+  streamWriteU32(data, static_cast<uint32_t>(value));
 }
 
 uhdr_error_info_t streamReadU8(const std::vector<uint8_t> &data, uint8_t &value, size_t &pos) {
-  if (pos >= data.size()) {
+  if (!ByteSpan(data).readU8(pos, &value)) {
     uhdr_error_info_t status;
     status.error_code = UHDR_CODEC_MEM_ERROR;
     status.has_detail = 1;
     snprintf(status.detail, sizeof status.detail,
-             "attempting to read byte at position %d when the buffer size is %d", (int)pos,
-             (int)data.size());
+             "attempting to read byte at position %zu when the buffer size is %zu", pos,
+             data.size());
     return status;
   }
-  value = data[pos++];
   return g_no_error;
 }
 
 uhdr_error_info_t streamReadU16(const std::vector<uint8_t> &data, uint16_t &value, size_t &pos) {
-  if (pos > data.size() || data.size() - pos < 2) {
+  if (!ByteSpan(data).readU16BE(pos, &value)) {
     uhdr_error_info_t status;
     status.error_code = UHDR_CODEC_MEM_ERROR;
     status.has_detail = 1;
     snprintf(status.detail, sizeof status.detail,
-             "attempting to read 2 bytes from position %d when the buffer size is %d", (int)pos,
-             (int)data.size());
+             "attempting to read 2 bytes from position %zu when the buffer size is %zu", pos,
+             data.size());
     return status;
   }
-  value = (data[pos] << 8 | data[pos + 1]);
-  pos += 2;
   return g_no_error;
 }
 
 uhdr_error_info_t streamReadU32(const std::vector<uint8_t> &data, uint32_t &value, size_t &pos) {
-  if (pos > data.size() || data.size() - pos < 4) {
+  if (!ByteSpan(data).readU32BE(pos, &value)) {
     uhdr_error_info_t status;
     status.error_code = UHDR_CODEC_MEM_ERROR;
     status.has_detail = 1;
     snprintf(status.detail, sizeof status.detail,
-             "attempting to read 4 bytes from position %d when the buffer size is %d", (int)pos,
-             (int)data.size());
+             "attempting to read 4 bytes from position %zu when the buffer size is %zu", pos,
+             data.size());
     return status;
   }
-  value = (data[pos] << 24 | data[pos + 1] << 16 | data[pos + 2] << 8 | data[pos + 3]);
-  pos += 4;
   return g_no_error;
 }
 
 uhdr_error_info_t streamReadS32(const std::vector<uint8_t> &data, int32_t &value, size_t &pos) {
-  if (pos > data.size() || data.size() - pos < 4) {
+  if (!ByteSpan(data).readS32BE(pos, &value)) {
     uhdr_error_info_t status;
     status.error_code = UHDR_CODEC_MEM_ERROR;
     status.has_detail = 1;
     snprintf(status.detail, sizeof status.detail,
-             "attempting to read 4 bytes from position %d when the buffer size is %d", (int)pos,
-             (int)data.size());
+             "attempting to read 4 bytes from position %zu when the buffer size is %zu", pos,
+             data.size());
     return status;
   }
-  value = (data[pos] << 24 | data[pos + 1] << 16 | data[pos + 2] << 8 | data[pos + 3]);
-  pos += 4;
   return g_no_error;
 }
 
@@ -374,15 +365,20 @@ uhdr_error_info_t uhdr_gainmap_metadata_frac::gainmapMetadataFractionToFloat(
   }
 
   to->version = kJpegrVersion;
-  for (int i = 0; i < 3; i++) {
-    to->max_content_boost[i] = exp2((float)from->gainMapMaxN[i] / from->gainMapMaxD[i]);
-    to->min_content_boost[i] = exp2((float)from->gainMapMinN[i] / from->gainMapMinD[i]);
+  auto maxBoost = asSpan(to->max_content_boost);
+  auto minBoost = asSpan(to->min_content_boost);
+  auto gammaSpan = asSpan(to->gamma);
+  auto offsetSdr = asSpan(to->offset_sdr);
+  auto offsetHdr = asSpan(to->offset_hdr);
+  for (size_t i = 0; i < 3; i++) {
+    maxBoost[i] = exp2((float)from->gainMapMaxN[i] / from->gainMapMaxD[i]);
+    minBoost[i] = exp2((float)from->gainMapMinN[i] / from->gainMapMinD[i]);
 
-    to->gamma[i] = (float)from->gainMapGammaN[i] / from->gainMapGammaD[i];
+    gammaSpan[i] = (float)from->gainMapGammaN[i] / from->gainMapGammaD[i];
 
     // BaseRenditionIsHDR is false
-    to->offset_sdr[i] = (float)from->baseOffsetN[i] / from->baseOffsetD[i];
-    to->offset_hdr[i] = (float)from->alternateOffsetN[i] / from->alternateOffsetD[i];
+    offsetSdr[i] = (float)from->baseOffsetN[i] / from->baseOffsetD[i];
+    offsetHdr[i] = (float)from->alternateOffsetN[i] / from->alternateOffsetD[i];
   }
   to->hdr_capacity_max = exp2((float)from->alternateHdrHeadroomN / from->alternateHdrHeadroomD);
   to->hdr_capacity_min = exp2((float)from->baseHdrHeadroomN / from->baseHdrHeadroomD);
@@ -428,18 +424,21 @@ uhdr_error_info_t uhdr_gainmap_metadata_frac::gainmapMetadataFloatToFraction(
   }
 
   bool isSingleChannel = from->are_all_channels_identical();
-  for (int i = 0; i < (isSingleChannel ? 1 : 3); i++) {
-    CONVERT_FLT_TO_SIGNED_FRACTION(log2(from->max_content_boost[i]), &to->gainMapMaxN[i],
-                                   &to->gainMapMaxD[i])
+  const auto maxBoost = asSpan(from->max_content_boost);
+  const auto minBoost = asSpan(from->min_content_boost);
+  const auto gammaSpan = asSpan(from->gamma);
+  const auto offsetSdr = asSpan(from->offset_sdr);
+  const auto offsetHdr = asSpan(from->offset_hdr);
+  for (size_t i = 0; i < (isSingleChannel ? 1u : 3u); i++) {
+    CONVERT_FLT_TO_SIGNED_FRACTION(log2(maxBoost[i]), &to->gainMapMaxN[i], &to->gainMapMaxD[i])
 
-    CONVERT_FLT_TO_SIGNED_FRACTION(log2(from->min_content_boost[i]), &to->gainMapMinN[i],
-                                   &to->gainMapMinD[i]);
+    CONVERT_FLT_TO_SIGNED_FRACTION(log2(minBoost[i]), &to->gainMapMinN[i], &to->gainMapMinD[i]);
 
-    CONVERT_FLT_TO_UNSIGNED_FRACTION(from->gamma[i], &to->gainMapGammaN[i], &to->gainMapGammaD[i]);
+    CONVERT_FLT_TO_UNSIGNED_FRACTION(gammaSpan[i], &to->gainMapGammaN[i], &to->gainMapGammaD[i]);
 
-    CONVERT_FLT_TO_SIGNED_FRACTION(from->offset_sdr[i], &to->baseOffsetN[i], &to->baseOffsetD[i]);
+    CONVERT_FLT_TO_SIGNED_FRACTION(offsetSdr[i], &to->baseOffsetN[i], &to->baseOffsetD[i]);
 
-    CONVERT_FLT_TO_SIGNED_FRACTION(from->offset_hdr[i], &to->alternateOffsetN[i],
+    CONVERT_FLT_TO_SIGNED_FRACTION(offsetHdr[i], &to->alternateOffsetN[i],
                                    &to->alternateOffsetD[i]);
   }
 
