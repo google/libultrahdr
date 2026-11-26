@@ -482,8 +482,9 @@ struct GainLUT {
   ~GainLUT() = default;
 
   float getGainFactor(float gain, int index) {
-    const size_t ch = mIsSingleChannel ? 0u : static_cast<size_t>(index);
+    const size_t ch = mIsSingleChannel ? 0u : static_cast<size_t>(CLIP3(index, 0, 2));
     if (mGammaInv[ch] != 1.0f) gain = pow(gain, mGammaInv[ch]);
+    if (!std::isfinite(gain)) gain = 0.0f;
     int32_t idx = static_cast<int32_t>(gain * (kGainFactorNumEntries - 1) + 0.5);
     // TODO() : Remove once conversion modules have appropriate clamping in place
     idx = CLIP3(idx, 0, kGainFactorNumEntries - 1);

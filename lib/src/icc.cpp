@@ -201,9 +201,9 @@ std::shared_ptr<DataStruct> IccHelper::write_xyz_tag(float x, float y, float z) 
   std::array<uint32_t, 5> data = {
       Endian_SwapBE32(kXYZ_PCSSpace),
       0,
-      static_cast<uint32_t>(Endian_SwapBE32(float_round_to_fixed(x))),
-      static_cast<uint32_t>(Endian_SwapBE32(float_round_to_fixed(y))),
-      static_cast<uint32_t>(Endian_SwapBE32(float_round_to_fixed(z))),
+      Endian_SwapBE32(static_cast<uint32_t>(float_round_to_fixed(x))),
+      Endian_SwapBE32(static_cast<uint32_t>(float_round_to_fixed(y))),
+      Endian_SwapBE32(static_cast<uint32_t>(float_round_to_fixed(z))),
   };
   std::shared_ptr<DataStruct> dataStruct = std::make_shared<DataStruct>(sizeof(data));
   dataStruct->write(data.data(), sizeof(data));
@@ -214,8 +214,8 @@ std::shared_ptr<DataStruct> IccHelper::write_trc_tag(const std::vector<uint16_t>
   size_t total_length = 4 + 4 + 4 + table_16.size() * 2;
   total_length = (((total_length + 2) >> 2) << 2);  // 4 aligned
   std::shared_ptr<DataStruct> dataStruct = std::make_shared<DataStruct>(total_length);
-  dataStruct->write32(Endian_SwapBE32(kTAG_CurveType));                     // Type
-  dataStruct->write32(0);                                                   // Reserved
+  dataStruct->write32(Endian_SwapBE32(kTAG_CurveType));                          // Type
+  dataStruct->write32(0);                                                        // Reserved
   dataStruct->write32(Endian_SwapBE32(static_cast<uint32_t>(table_16.size())));  // Value count
   for (uint16_t value : table_16) {
     dataStruct->write16(value);
@@ -225,27 +225,27 @@ std::shared_ptr<DataStruct> IccHelper::write_trc_tag(const std::vector<uint16_t>
 
 std::shared_ptr<DataStruct> IccHelper::write_trc_tag(const TransferFunction& fn) {
   if (fn.a == 1.f && fn.b == 0.f && fn.c == 0.f && fn.d == 0.f && fn.e == 0.f && fn.f == 0.f) {
-    int total_length = 16;
+    size_t total_length = 16;
     std::shared_ptr<DataStruct> dataStruct = std::make_shared<DataStruct>(total_length);
     dataStruct->write32(Endian_SwapBE32(kTAG_ParaCurveType));  // Type
     dataStruct->write32(0);                                    // Reserved
     dataStruct->write32(Endian_SwapBE16(kExponential_ParaCurveType));
-    dataStruct->write32(Endian_SwapBE32(float_round_to_fixed(fn.g)));
+    dataStruct->write32(Endian_SwapBE32(static_cast<uint32_t>(float_round_to_fixed(fn.g))));
     return dataStruct;
   }
 
-  int total_length = 40;
+  size_t total_length = 40;
   std::shared_ptr<DataStruct> dataStruct = std::make_shared<DataStruct>(total_length);
   dataStruct->write32(Endian_SwapBE32(kTAG_ParaCurveType));  // Type
   dataStruct->write32(0);                                    // Reserved
   dataStruct->write32(Endian_SwapBE16(kGABCDEF_ParaCurveType));
-  dataStruct->write32(Endian_SwapBE32(float_round_to_fixed(fn.g)));
-  dataStruct->write32(Endian_SwapBE32(float_round_to_fixed(fn.a)));
-  dataStruct->write32(Endian_SwapBE32(float_round_to_fixed(fn.b)));
-  dataStruct->write32(Endian_SwapBE32(float_round_to_fixed(fn.c)));
-  dataStruct->write32(Endian_SwapBE32(float_round_to_fixed(fn.d)));
-  dataStruct->write32(Endian_SwapBE32(float_round_to_fixed(fn.e)));
-  dataStruct->write32(Endian_SwapBE32(float_round_to_fixed(fn.f)));
+  dataStruct->write32(Endian_SwapBE32(static_cast<uint32_t>(float_round_to_fixed(fn.g))));
+  dataStruct->write32(Endian_SwapBE32(static_cast<uint32_t>(float_round_to_fixed(fn.a))));
+  dataStruct->write32(Endian_SwapBE32(static_cast<uint32_t>(float_round_to_fixed(fn.b))));
+  dataStruct->write32(Endian_SwapBE32(static_cast<uint32_t>(float_round_to_fixed(fn.c))));
+  dataStruct->write32(Endian_SwapBE32(static_cast<uint32_t>(float_round_to_fixed(fn.d))));
+  dataStruct->write32(Endian_SwapBE32(static_cast<uint32_t>(float_round_to_fixed(fn.e))));
+  dataStruct->write32(Endian_SwapBE32(static_cast<uint32_t>(float_round_to_fixed(fn.f))));
   return dataStruct;
 }
 
@@ -280,8 +280,8 @@ std::shared_ptr<DataStruct> IccHelper::write_cicp_tag(uint32_t color_primaries,
   std::shared_ptr<DataStruct> dataStruct = std::make_shared<DataStruct>(kCicpTagSize);
   dataStruct->write32(Endian_SwapBE32(kTAG_cicp));  // Type signature
   dataStruct->write32(0);                           // Reserved
-  dataStruct->write8(color_primaries);              // Color primaries
-  dataStruct->write8(transfer_characteristics);     // Transfer characteristics
+  dataStruct->write8(static_cast<uint8_t>(color_primaries));           // Color primaries
+  dataStruct->write8(static_cast<uint8_t>(transfer_characteristics));  // Transfer characteristics
   dataStruct->write8(0);                            // RGB matrix
   dataStruct->write8(1);                            // Full range
   return dataStruct;
@@ -364,6 +364,9 @@ std::shared_ptr<DataStruct> IccHelper::write_mAB_or_mBA_tag(
 
   // The "A" curve and CLUT are optional.
   if (has_a_curves) {
+    if (grid_points == nullptr || grid_16 == nullptr) {
+      return nullptr;
+    }
     clut_offset = b_curves_offset;
     for (size_t i = 0; i < kNumChannels; ++i) {
       clut_offset += b_curves_data[i]->getLength();
@@ -387,16 +390,16 @@ std::shared_ptr<DataStruct> IccHelper::write_mAB_or_mBA_tag(
     }
   }
   std::shared_ptr<DataStruct> dataStruct = std::make_shared<DataStruct>(total_length);
-  dataStruct->write32(Endian_SwapBE32(type));             // Type signature
-  dataStruct->write32(0);                                 // Reserved
-  dataStruct->write8(kNumChannels);                       // Input channels
-  dataStruct->write8(kNumChannels);                       // Output channels
-  dataStruct->write16(0);                                 // Reserved
-  dataStruct->write32(Endian_SwapBE32(b_curves_offset));  // B curve offset
-  dataStruct->write32(Endian_SwapBE32(0));                // Matrix offset (ignored)
-  dataStruct->write32(Endian_SwapBE32(0));                // M curve offset (ignored)
-  dataStruct->write32(Endian_SwapBE32(clut_offset));      // CLUT offset
-  dataStruct->write32(Endian_SwapBE32(a_curves_offset));  // A curve offset
+  dataStruct->write32(Endian_SwapBE32(type));                                    // Type signature
+  dataStruct->write32(0);                                                        // Reserved
+  dataStruct->write8(kNumChannels);                                              // Input channels
+  dataStruct->write8(kNumChannels);                                              // Output channels
+  dataStruct->write16(0);                                                        // Reserved
+  dataStruct->write32(Endian_SwapBE32(static_cast<uint32_t>(b_curves_offset)));  // B curve offset
+  dataStruct->write32(Endian_SwapBE32(0));  // Matrix offset (ignored)
+  dataStruct->write32(Endian_SwapBE32(0));  // M curve offset (ignored)
+  dataStruct->write32(Endian_SwapBE32(static_cast<uint32_t>(clut_offset)));      // CLUT offset
+  dataStruct->write32(Endian_SwapBE32(static_cast<uint32_t>(a_curves_offset)));  // A curve offset
   for (size_t i = 0; i < kNumChannels; ++i) {
     if (dataStruct->write(b_curves_data[i]->getData(), b_curves_data[i]->getLength())) {
       return dataStruct;

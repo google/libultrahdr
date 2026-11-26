@@ -22,8 +22,8 @@
 #include <array>
 #include <cfloat>
 #include <cstdint>
-#include <iterator>
 #include <deque>
+#include <iterator>
 #include <map>
 #include <memory>
 #include <string>
@@ -249,7 +249,7 @@ typedef struct uhdr_gainmap_metadata_ext : uhdr_gainmap_metadata {
   }
 
   bool are_all_channels_identical() const {
-    auto all_equal = [](const float (&arr)[3]) {
+    auto all_equal = [](const float(&arr)[3]) {
       return std::all_of(std::begin(arr), std::end(arr), [&](float v) { return v == arr[0]; });
     };
     return all_equal(max_content_boost) && all_equal(min_content_boost) && all_equal(gamma) &&

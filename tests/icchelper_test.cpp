@@ -131,6 +131,34 @@ TEST_F(IccHelperTest, iccUnalignedColorantOffset) {
     }
   }
   EXPECT_EQ(IccHelper::readIccColorGamut(buffer.data(), buffer.size()), UHDR_CG_UNSPECIFIED);
+
+  // Also verify unaligned input buffer (+1 byte) parses cleanly without UB.
+  std::vector<uint8_t> shifted(icc->getLength() + 1, 0);
+  memcpy(shifted.data() + 1, icc->getData(), icc->getLength());
+  EXPECT_EQ(IccHelper::readIccColorGamut(shifted.data() + 1, icc->getLength()), UHDR_CG_BT_709);
+
+  // Also verify unaligned cicp tag offset on an HLG profile parses cleanly without UB.
+  std::shared_ptr<DataStruct> hlg = IccHelper::writeIccProfile(UHDR_CT_HLG, UHDR_CG_BT_2100);
+  ASSERT_NE(hlg->getLength(), 0);
+  ASSERT_NE(hlg->getData(), nullptr);
+  std::vector<uint8_t> hlg_buf(reinterpret_cast<uint8_t*>(hlg->getData()),
+                               reinterpret_cast<uint8_t*>(hlg->getData()) + hlg->getLength());
+  hlg_buf.push_back(0);
+  uint8_t* hlg_bytes = hlg_buf.data() + kICCIdentifierSize;
+  memcpy(&tag_count_be, hlg_bytes + offsetof(ICCHeader, tag_count), sizeof(tag_count_be));
+  tag_count = Endian_SwapBE32(tag_count_be);
+  for (size_t tag_idx = 0; tag_idx < tag_count; ++tag_idx) {
+    size_t entry_offset = sizeof(ICCHeader) + tag_idx * 12;
+    uint32_t sig_be, off_be;
+    memcpy(&sig_be, hlg_bytes + entry_offset, sizeof(sig_be));
+    if (sig_be == Endian_SwapBE32(kTAG_cicp)) {
+      memcpy(&off_be, hlg_bytes + entry_offset + 4, sizeof(off_be));
+      uint32_t unaligned_be = Endian_SwapBE32(Endian_SwapBE32(off_be) + 1);
+      memcpy(hlg_bytes + entry_offset + 4, &unaligned_be, sizeof(unaligned_be));
+      break;
+    }
+  }
+  EXPECT_EQ(IccHelper::readIccColorGamut(hlg_buf.data(), hlg_buf.size()), UHDR_CG_BT_2100);
 }
 
 }  // namespace ultrahdr

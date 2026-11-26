@@ -693,10 +693,13 @@ if(NOT MSVC)
   if(SUPPORTS_WUNSAFE_BUFFER_USAGE)
     set(UHDR_SAFE_BUFFER_FILES
       "${SOURCE_DIR}/src/icc.cpp"
-      "${SOURCE_DIR}/src/multipictureformat.cpp"
     )
+    set(UHDR_SAFE_BUFFER_FLAGS "-Wunsafe-buffer-usage")
+    if(UHDR_ENABLE_WERROR)
+      list(APPEND UHDR_SAFE_BUFFER_FLAGS "-Werror=unsafe-buffer-usage")
+    endif()
     set_source_files_properties(${UHDR_SAFE_BUFFER_FILES}
-      PROPERTIES COMPILE_OPTIONS "-Wunsafe-buffer-usage;-Werror=unsafe-buffer-usage")
+      PROPERTIES COMPILE_OPTIONS "${UHDR_SAFE_BUFFER_FLAGS}")
   endif()
 endif()
 if(DEFINED UHDR_MAX_DIMENSION)
