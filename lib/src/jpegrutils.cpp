@@ -770,10 +770,7 @@ uhdr_error_info_t getMetadataFromXMP(uint8_t* xmp_data, size_t xmp_size, uint8_t
                        "and Exif Headroom missing");
     }
 
-    uhdr_error_info_t status;
-    status.error_code = UHDR_CODEC_OK;
-    status.has_detail = 0;
-    return status;
+    return g_no_error;
   }
 
   // Apply default values to any not-present fields, except for Version,
