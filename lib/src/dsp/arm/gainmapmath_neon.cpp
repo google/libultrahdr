@@ -231,6 +231,7 @@ uhdr_error_info_t convertYuv_neon(uhdr_raw_image_t* image, uhdr_color_gamut_t sr
                                   uhdr_color_gamut_t dst_encoding) {
   uhdr_error_info_t status = g_no_error;
   const int16_t* coeffs = nullptr;
+  const std::array<float, 9>* scalar_coeffs = nullptr;
 
   switch (src_encoding) {
     case UHDR_CG_BT_709:
@@ -239,9 +240,11 @@ uhdr_error_info_t convertYuv_neon(uhdr_raw_image_t* image, uhdr_color_gamut_t sr
           return status;
         case UHDR_CG_DISPLAY_P3:
           coeffs = kYuv709To601_coeffs_neon;
+          scalar_coeffs = &kYuvBt709ToBt601;
           break;
         case UHDR_CG_BT_2100:
           coeffs = kYuv709To2100_coeffs_neon;
+          scalar_coeffs = &kYuvBt709ToBt2100;
           break;
         default:
           status.error_code = UHDR_CODEC_INVALID_PARAM;
@@ -255,11 +258,13 @@ uhdr_error_info_t convertYuv_neon(uhdr_raw_image_t* image, uhdr_color_gamut_t sr
       switch (dst_encoding) {
         case UHDR_CG_BT_709:
           coeffs = kYuv601To709_coeffs_neon;
+          scalar_coeffs = &kYuvBt601ToBt709;
           break;
         case UHDR_CG_DISPLAY_P3:
           return status;
         case UHDR_CG_BT_2100:
           coeffs = kYuv601To2100_coeffs_neon;
+          scalar_coeffs = &kYuvBt601ToBt2100;
           break;
         default:
           status.error_code = UHDR_CODEC_INVALID_PARAM;
@@ -273,9 +278,11 @@ uhdr_error_info_t convertYuv_neon(uhdr_raw_image_t* image, uhdr_color_gamut_t sr
       switch (dst_encoding) {
         case UHDR_CG_BT_709:
           coeffs = kYuv2100To709_coeffs_neon;
+          scalar_coeffs = &kYuvBt2100ToBt709;
           break;
         case UHDR_CG_DISPLAY_P3:
           coeffs = kYuv2100To601_coeffs_neon;
+          scalar_coeffs = &kYuvBt2100ToBt601;
           break;
         case UHDR_CG_BT_2100:
           return status;
@@ -296,9 +303,17 @@ uhdr_error_info_t convertYuv_neon(uhdr_raw_image_t* image, uhdr_color_gamut_t sr
   }
 
   if (image->fmt == UHDR_IMG_FMT_12bppYCbCr420) {
-    transformYuv420_neon(image, coeffs);
+    if (image->w > 0 && image->h > 0 && image->w % 16 == 0 && image->h % 2 == 0) {
+      transformYuv420_neon(image, coeffs);
+    } else {
+      transformYuv420(image, *scalar_coeffs);
+    }
   } else if (image->fmt == UHDR_IMG_FMT_24bppYCbCr444) {
-    transformYuv444_neon(image, coeffs);
+    if (image->w > 0 && image->h > 0 && image->w % 16 == 0) {
+      transformYuv444_neon(image, coeffs);
+    } else {
+      transformYuv444(image, *scalar_coeffs);
+    }
   } else {
     status.error_code = UHDR_CODEC_UNSUPPORTED_FEATURE;
     status.has_detail = 1;
@@ -461,6 +476,9 @@ std::unique_ptr<uhdr_raw_image_ext_t> convert_raw_input_to_ycbcr_neon(uhdr_raw_i
       coeffs_ptr = kRgb601ToYuv_coeffs_neon;
     } else {
       return dst;
+    }
+    if (src->w == 0 || src->h == 0 || src->stride[UHDR_PLANE_PACKED] % 16 != 0) {
+      return convert_raw_input_to_ycbcr(src);
     }
     dst = std::make_unique<uhdr_raw_image_ext_t>(UHDR_IMG_FMT_24bppYCbCr444, src->cg, src->ct,
                                                  UHDR_CR_FULL_RANGE, src->w, src->h, 64);

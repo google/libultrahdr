@@ -2145,4 +2145,93 @@ TEST_F(GainMapMathTest, AffineMapGainClampsBeforeGamma) {
   EXPECT_EQ(affineMapGain(mid_boost, min_boost, max_boost, 2.0f), 64);
 }
 
+#if (defined(UHDR_ENABLE_INTRINSICS) && (defined(__ARM_NEON__) || defined(__ARM_NEON)))
+TEST_F(GainMapMathTest, ConvertYuvAndRgbaNeonNonMod16WidthsFallbackSafely) {
+  constexpr unsigned kWidth = 10;
+  constexpr unsigned kHeight = 10;
+
+  // Tightly-packed YUV420 (non-mod-16 width) must not assert or overrun in convertYuv_neon.
+  std::vector<uint8_t> y420(kWidth * kHeight, 128);
+  std::vector<uint8_t> u420((kWidth / 2) * (kHeight / 2), 96);
+  std::vector<uint8_t> v420((kWidth / 2) * (kHeight / 2), 160);
+  std::vector<uint8_t> y420_ref = y420, u420_ref = u420, v420_ref = v420;
+
+  uhdr_raw_image_t img420{};
+  img420.fmt = UHDR_IMG_FMT_12bppYCbCr420;
+  img420.cg = UHDR_CG_BT_709;
+  img420.ct = UHDR_CT_SRGB;
+  img420.range = UHDR_CR_FULL_RANGE;
+  img420.w = kWidth;
+  img420.h = kHeight;
+  img420.planes[UHDR_PLANE_Y] = y420.data();
+  img420.planes[UHDR_PLANE_U] = u420.data();
+  img420.planes[UHDR_PLANE_V] = v420.data();
+  img420.stride[UHDR_PLANE_Y] = kWidth;
+  img420.stride[UHDR_PLANE_U] = kWidth / 2;
+  img420.stride[UHDR_PLANE_V] = kWidth / 2;
+
+  uhdr_raw_image_t img420_ref = img420;
+  img420_ref.planes[UHDR_PLANE_Y] = y420_ref.data();
+  img420_ref.planes[UHDR_PLANE_U] = u420_ref.data();
+  img420_ref.planes[UHDR_PLANE_V] = v420_ref.data();
+
+  EXPECT_EQ(convertYuv_neon(&img420, UHDR_CG_BT_709, UHDR_CG_DISPLAY_P3).error_code, UHDR_CODEC_OK);
+  transformYuv420(&img420_ref, kYuvBt709ToBt601);
+  EXPECT_EQ(y420, y420_ref);
+  EXPECT_EQ(u420, u420_ref);
+  EXPECT_EQ(v420, v420_ref);
+
+  // Tightly-packed YUV444 (non-mod-16 width) must not assert or overrun in convertYuv_neon.
+  std::vector<uint8_t> y444(kWidth * kHeight, 128);
+  std::vector<uint8_t> u444(kWidth * kHeight, 96);
+  std::vector<uint8_t> v444(kWidth * kHeight, 160);
+  std::vector<uint8_t> y444_ref = y444, u444_ref = u444, v444_ref = v444;
+
+  uhdr_raw_image_t img444{};
+  img444.fmt = UHDR_IMG_FMT_24bppYCbCr444;
+  img444.cg = UHDR_CG_BT_709;
+  img444.ct = UHDR_CT_SRGB;
+  img444.range = UHDR_CR_FULL_RANGE;
+  img444.w = kWidth;
+  img444.h = kHeight;
+  img444.planes[UHDR_PLANE_Y] = y444.data();
+  img444.planes[UHDR_PLANE_U] = u444.data();
+  img444.planes[UHDR_PLANE_V] = v444.data();
+  img444.stride[UHDR_PLANE_Y] = kWidth;
+  img444.stride[UHDR_PLANE_U] = kWidth;
+  img444.stride[UHDR_PLANE_V] = kWidth;
+
+  uhdr_raw_image_t img444_ref = img444;
+  img444_ref.planes[UHDR_PLANE_Y] = y444_ref.data();
+  img444_ref.planes[UHDR_PLANE_U] = u444_ref.data();
+  img444_ref.planes[UHDR_PLANE_V] = v444_ref.data();
+
+  EXPECT_EQ(convertYuv_neon(&img444, UHDR_CG_BT_709, UHDR_CG_DISPLAY_P3).error_code, UHDR_CODEC_OK);
+  transformYuv444(&img444_ref, kYuvBt709ToBt601);
+  EXPECT_EQ(y444, y444_ref);
+  EXPECT_EQ(u444, u444_ref);
+  EXPECT_EQ(v444, v444_ref);
+
+  // Tightly-packed RGBA8888 (non-mod-16 stride) must not assert or overrun in
+  // convert_raw_input_to_ycbcr_neon.
+  std::vector<uint8_t> rgba(kWidth * kHeight * 4, 180);
+  uhdr_raw_image_t img_rgba{};
+  img_rgba.fmt = UHDR_IMG_FMT_32bppRGBA8888;
+  img_rgba.cg = UHDR_CG_BT_709;
+  img_rgba.ct = UHDR_CT_SRGB;
+  img_rgba.range = UHDR_CR_FULL_RANGE;
+  img_rgba.w = kWidth;
+  img_rgba.h = kHeight;
+  img_rgba.planes[UHDR_PLANE_PACKED] = rgba.data();
+  img_rgba.stride[UHDR_PLANE_PACKED] = kWidth;
+
+  auto neon_yuv = convert_raw_input_to_ycbcr_neon(&img_rgba);
+  auto scalar_yuv = convert_raw_input_to_ycbcr(&img_rgba);
+  ASSERT_NE(neon_yuv, nullptr);
+  ASSERT_NE(scalar_yuv, nullptr);
+  EXPECT_EQ(neon_yuv->w, kWidth);
+  EXPECT_EQ(neon_yuv->h, kHeight);
+}
+#endif
+
 }  // namespace ultrahdr
