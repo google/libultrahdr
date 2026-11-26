@@ -43,26 +43,12 @@ static inline string Name(const string& prefix, const string& suffix) {
   return ss.str();
 }
 
-static void setErrorDetail(uhdr_error_info_t& status, std::string_view message) {
-  status.has_detail = 1;
-  const size_t max_len = sizeof(status.detail) - 1;
-  const std::string_view clipped = message.substr(0, std::min(message.size(), max_len));
-  const size_t copy_len = clipped.size();
-  std::copy(clipped.begin(), clipped.end(), std::begin(status.detail));
-  // Null-terminate safely within fixed-size detail buffer.
-#if defined(__clang__)
-#pragma clang unsafe_buffer_usage begin
-#endif
-  status.detail[copy_len] = '\0';
-#if defined(__clang__)
-#pragma clang unsafe_buffer_usage end
-#endif
-}
-
 static uhdr_error_info_t makeError(uhdr_codec_err_t code, std::string_view message) {
-  uhdr_error_info_t status;
+  uhdr_error_info_t status{};
   status.error_code = code;
-  setErrorDetail(status, message);
+  status.has_detail = 1;
+  const std::string_view clipped = message.substr(0, sizeof(status.detail) - 1);
+  std::copy(clipped.begin(), clipped.end(), std::begin(status.detail));
   return status;
 }
 
@@ -694,6 +680,9 @@ static bool getExifAppleHeadroom(std::string_view exif, float* altHeadroom) {
 
 uhdr_error_info_t getMetadataFromXMP(uint8_t* xmp_data, size_t xmp_size, uint8_t* exif_data,
                                      int exif_size, uhdr_gainmap_metadata_ext_t* metadata) {
+  if (metadata == nullptr) {
+    return makeError(UHDR_CODEC_INVALID_PARAM, "received nullptr for gain map metadata descriptor");
+  }
   static constexpr std::string_view kNameSpace = "http://ns.adobe.com/xap/1.0/";
 
   if (xmp_data == nullptr || xmp_size < kNameSpace.size() + 2) {

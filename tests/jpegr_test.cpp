@@ -2824,4 +2824,35 @@ TEST(JpegRTest, ProfileGainMapFuncs) {
 #endif
 }
 
+TEST(JpegrUtilsSafeBuffersTest, DataStructAndWriteBounds) {
+  DataStruct empty(0);
+  EXPECT_EQ(empty.getLength(), 0u);
+  EXPECT_EQ(empty.getData(), nullptr);
+  EXPECT_TRUE(empty.write(nullptr, 0));
+  EXPECT_FALSE(empty.write("x", 1));
+
+  DataStruct ds(16);
+  EXPECT_TRUE(ds.write("abcd", 4));
+  EXPECT_FALSE(ds.write("x", SIZE_MAX - 2));
+  EXPECT_FALSE(ds.write(nullptr, 4));
+  EXPECT_TRUE(ds.write(nullptr, 0));
+
+  std::vector<uint8_t> out(16, 0);
+  uhdr_compressed_image_t img{};
+  img.data = out.data();
+  img.capacity = out.size();
+  size_t pos = 0;
+  EXPECT_EQ(Write(&img, "abcd", 4, pos).error_code, UHDR_CODEC_OK);
+  EXPECT_EQ(Write(&img, nullptr, 0, pos).error_code, UHDR_CODEC_OK);
+  EXPECT_EQ(Write(&img, "x", SIZE_MAX - 2, pos).error_code, UHDR_CODEC_MEM_ERROR);
+  EXPECT_EQ(Write(&img, nullptr, 4, pos).error_code, UHDR_CODEC_INVALID_PARAM);
+  EXPECT_EQ(Write(nullptr, "x", 1, pos).error_code, UHDR_CODEC_MEM_ERROR);
+
+  uhdr_gainmap_metadata_ext_t meta;
+  EXPECT_EQ(getMetadataFromXMP(nullptr, 100, nullptr, 0, &meta).error_code, UHDR_CODEC_ERROR);
+  std::vector<uint8_t> dummy(64, ' ');
+  EXPECT_EQ(getMetadataFromXMP(dummy.data(), dummy.size(), nullptr, 0, nullptr).error_code,
+            UHDR_CODEC_INVALID_PARAM);
+}
+
 }  // namespace ultrahdr
