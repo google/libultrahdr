@@ -13,6 +13,7 @@
 
 #include "ultrahdr/ultrahdrcommon.h"
 
+#include <array>
 #include <memory>
 #include <vector>
 
@@ -23,17 +24,17 @@ constexpr uint8_t kUseBaseColorSpaceMask = (1u << 6);
 // Gain map metadata, for tone mapping between SDR and HDR.
 // This is the fraction version of {@code uhdr_gainmap_metadata_ext_t}.
 struct uhdr_gainmap_metadata_frac {
-  int32_t gainMapMinN[3] = {0, 0, 0};
-  uint32_t gainMapMinD[3] = {1, 1, 1};
-  int32_t gainMapMaxN[3] = {1, 1, 1};
-  uint32_t gainMapMaxD[3] = {1, 1, 1};
-  uint32_t gainMapGammaN[3] = {1, 1, 1};
-  uint32_t gainMapGammaD[3] = {1, 1, 1};
+  std::array<int32_t, 3> gainMapMinN = {0, 0, 0};
+  std::array<uint32_t, 3> gainMapMinD = {1, 1, 1};
+  std::array<int32_t, 3> gainMapMaxN = {1, 1, 1};
+  std::array<uint32_t, 3> gainMapMaxD = {1, 1, 1};
+  std::array<uint32_t, 3> gainMapGammaN = {1, 1, 1};
+  std::array<uint32_t, 3> gainMapGammaD = {1, 1, 1};
 
-  int32_t baseOffsetN[3] = {0, 0, 0};
-  uint32_t baseOffsetD[3] = {1, 1, 1};
-  int32_t alternateOffsetN[3] = {0, 0, 0};
-  uint32_t alternateOffsetD[3] = {1, 1, 1};
+  std::array<int32_t, 3> baseOffsetN = {0, 0, 0};
+  std::array<uint32_t, 3> baseOffsetD = {1, 1, 1};
+  std::array<int32_t, 3> alternateOffsetN = {0, 0, 0};
+  std::array<uint32_t, 3> alternateOffsetD = {1, 1, 1};
 
   uint32_t baseHdrHeadroomN = 0;
   uint32_t baseHdrHeadroomD = 1;

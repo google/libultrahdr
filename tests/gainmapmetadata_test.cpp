@@ -9,9 +9,12 @@
  */
 
 #include <gtest/gtest.h>
+#include <array>
 #include <cstdint>
+#include <limits>
 #include <vector>
 
+#include "ultrahdr/bytebuffer.h"
 #include "ultrahdr/gainmapmetadata.h"
 
 namespace ultrahdr {
@@ -555,6 +558,92 @@ TEST_F(GainMapMetadataTest, EncodeLeavesOutputUntouchedOnValidationFailure) {
   EXPECT_EQ(uhdr_gainmap_metadata_frac::encodeGainmapMetadata(&frac, data).error_code,
             UHDR_CODEC_INVALID_PARAM);
   EXPECT_TRUE(data.empty()) << "encoder wrote " << data.size() << " byte(s) before failing";
+}
+
+TEST_F(GainMapMetadataTest, DecodesHighBitSetUnsignedAndNegativeSignedFields) {
+  uhdr_gainmap_metadata_frac frac{};
+  frac.baseHdrHeadroomN = 0x80000001u;
+  frac.baseHdrHeadroomD = 0x80000002u;
+  frac.alternateHdrHeadroomN = 0xffffffffu;
+  frac.alternateHdrHeadroomD = 0x80000000u;
+  for (int c = 0; c < 3; ++c) {
+    frac.gainMapMinN[c] = INT32_MIN;
+    frac.gainMapMinD[c] = 0x80000005u;
+    frac.gainMapMaxN[c] = -1;
+    frac.gainMapMaxD[c] = 0x80000006u;
+    frac.gainMapGammaN[c] = 0x80000007u;
+    frac.gainMapGammaD[c] = 0x80000008u;
+    frac.baseOffsetN[c] = -64;
+    frac.baseOffsetD[c] = 0x80000009u;
+    frac.alternateOffsetN[c] = INT32_MIN + 1;
+    frac.alternateOffsetD[c] = 0xffffffffu;
+  }
+  frac.useBaseColorSpace = true;
+
+  std::vector<uint8_t> encoded;
+  ASSERT_EQ(uhdr_gainmap_metadata_frac::encodeGainmapMetadata(&frac, encoded).error_code,
+            UHDR_CODEC_OK);
+
+  uhdr_gainmap_metadata_frac decoded{};
+  ASSERT_EQ(uhdr_gainmap_metadata_frac::decodeGainmapMetadata(encoded, &decoded).error_code,
+            UHDR_CODEC_OK);
+  EXPECT_EQ(decoded.baseHdrHeadroomN, frac.baseHdrHeadroomN);
+  EXPECT_EQ(decoded.baseHdrHeadroomD, frac.baseHdrHeadroomD);
+  EXPECT_EQ(decoded.alternateHdrHeadroomN, frac.alternateHdrHeadroomN);
+  EXPECT_EQ(decoded.alternateHdrHeadroomD, frac.alternateHdrHeadroomD);
+  for (int c = 0; c < 3; ++c) {
+    EXPECT_EQ(decoded.gainMapMinN[c], frac.gainMapMinN[c]);
+    EXPECT_EQ(decoded.gainMapMinD[c], frac.gainMapMinD[c]);
+    EXPECT_EQ(decoded.gainMapMaxN[c], frac.gainMapMaxN[c]);
+    EXPECT_EQ(decoded.gainMapMaxD[c], frac.gainMapMaxD[c]);
+    EXPECT_EQ(decoded.gainMapGammaN[c], frac.gainMapGammaN[c]);
+    EXPECT_EQ(decoded.gainMapGammaD[c], frac.gainMapGammaD[c]);
+    EXPECT_EQ(decoded.baseOffsetN[c], frac.baseOffsetN[c]);
+    EXPECT_EQ(decoded.baseOffsetD[c], frac.baseOffsetD[c]);
+    EXPECT_EQ(decoded.alternateOffsetN[c], frac.alternateOffsetN[c]);
+    EXPECT_EQ(decoded.alternateOffsetD[c], frac.alternateOffsetD[c]);
+  }
+
+  for (size_t truncated_len = 0; truncated_len < encoded.size(); ++truncated_len) {
+    std::vector<uint8_t> truncated(encoded.begin(),
+                                   encoded.begin() + static_cast<ptrdiff_t>(truncated_len));
+    uhdr_gainmap_metadata_frac out{};
+    EXPECT_EQ(uhdr_gainmap_metadata_frac::decodeGainmapMetadata(truncated, &out).error_code,
+              UHDR_CODEC_MEM_ERROR)
+        << "truncated_len=" << truncated_len;
+  }
+}
+
+TEST_F(GainMapMetadataTest, ByteSpanCheckedArithmeticAndEndianness) {
+  const size_t kMax = std::numeric_limits<size_t>::max();
+  EXPECT_TRUE(checkedRangeFits(0, 0, 0));
+  EXPECT_TRUE(checkedRangeFits(4, 12, 16));
+  EXPECT_FALSE(checkedRangeFits(1, kMax, 16));
+  EXPECT_FALSE(checkedRangeFits(kMax, 1, 16));
+  EXPECT_FALSE(checkedRangeFits(17, 0, 16));
+
+  const std::array<uint8_t, 4> bytes = {0x80, 0x01, 0x02, 0xfe};
+  const ByteSpan span(bytes);
+  uint32_t u32_be = 0;
+  uint32_t u32_le = 0;
+  int32_t s32_be = 0;
+  EXPECT_TRUE(span.readU32BEAt(0, &u32_be));
+  EXPECT_EQ(u32_be, 0x800102feu);
+  EXPECT_TRUE(span.readU32LEAt(0, &u32_le));
+  EXPECT_EQ(u32_le, 0xfe020180u);
+  EXPECT_TRUE(span.readS32BEAt(0, &s32_be));
+  EXPECT_EQ(s32_be, static_cast<int32_t>(0x800102feu));
+
+  ByteSpan sub;
+  EXPECT_FALSE(span.subspan(1, kMax, &sub));
+  EXPECT_FALSE(span.readU32BEAt(1, &u32_be));
+
+  std::vector<uint8_t> out(4, 0);
+  const MutableByteSpan outSpan(out);
+  EXPECT_FALSE(outSpan.writeAt(1, bytes.data(), kMax));
+  EXPECT_TRUE(outSpan.writeU16BEAt(1, 0xabcd));
+  EXPECT_EQ(out[1], 0xab);
+  EXPECT_EQ(out[2], 0xcd);
 }
 
 }  // namespace ultrahdr
