@@ -689,6 +689,15 @@ if(TARGET libheif)
 endif()
 if(NOT MSVC)
   target_compile_options(${UHDR_CORE_LIB_NAME} PRIVATE -Wall -Wextra -Wshadow)
+  check_cxx_compiler_flag("-Wunsafe-buffer-usage" SUPPORTS_WUNSAFE_BUFFER_USAGE)
+  if(SUPPORTS_WUNSAFE_BUFFER_USAGE)
+    set(UHDR_SAFE_BUFFER_FILES
+      "${SOURCE_DIR}/src/icc.cpp"
+      "${SOURCE_DIR}/src/multipictureformat.cpp"
+    )
+    set_source_files_properties(${UHDR_SAFE_BUFFER_FILES}
+      PROPERTIES COMPILE_OPTIONS "-Wunsafe-buffer-usage;-Werror=unsafe-buffer-usage")
+  endif()
 endif()
 if(DEFINED UHDR_MAX_DIMENSION)
   target_compile_options(${UHDR_CORE_LIB_NAME} PRIVATE -DUHDR_MAX_DIMENSION=${UHDR_MAX_DIMENSION})

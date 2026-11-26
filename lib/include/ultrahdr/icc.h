@@ -11,7 +11,10 @@
 #ifndef ULTRAHDR_ICC_H
 #define ULTRAHDR_ICC_H
 
+#include <array>
 #include <memory>
+#include <string_view>
+#include <vector>
 
 #include "ultrahdr/jpegr.h"
 #include "ultrahdr/gainmapmath.h"
@@ -37,7 +40,7 @@ typedef int32_t Fixed;
 #define FixedToFloat(x) ((x)*1.52587890625e-5f)
 
 typedef struct Matrix3x3 {
-  float vals[3][3];
+  std::array<std::array<float, 3>, 3> vals;
 } Matrix3x3;
 
 // A transfer function mapping encoded values to linear values,
@@ -122,27 +125,27 @@ static constexpr uint32_t kTAG_mABType = SetFourByteTag('m', 'A', 'B', ' ');
 static constexpr uint32_t kTAG_mBAType = SetFourByteTag('m', 'B', 'A', ' ');
 static constexpr uint32_t kTAG_ParaCurveType = SetFourByteTag('p', 'a', 'r', 'a');
 
-static constexpr Matrix3x3 kSRGB = {{
+static constexpr Matrix3x3 kSRGB = {{{
     // ICC fixed-point (16.16) representation, taken from skcms. Please keep them exactly in sync.
     // 0.436065674f, 0.385147095f, 0.143066406f,
     // 0.222488403f, 0.716873169f, 0.060607910f,
     // 0.013916016f, 0.097076416f, 0.714096069f,
-    {FixedToFloat(0x6FA2), FixedToFloat(0x6299), FixedToFloat(0x24A0)},
-    {FixedToFloat(0x38F5), FixedToFloat(0xB785), FixedToFloat(0x0F84)},
-    {FixedToFloat(0x0390), FixedToFloat(0x18DA), FixedToFloat(0xB6CF)},
-}};
+    {{FixedToFloat(0x6FA2), FixedToFloat(0x6299), FixedToFloat(0x24A0)}},
+    {{FixedToFloat(0x38F5), FixedToFloat(0xB785), FixedToFloat(0x0F84)}},
+    {{FixedToFloat(0x0390), FixedToFloat(0x18DA), FixedToFloat(0xB6CF)}},
+}}};
 
-static constexpr Matrix3x3 kDisplayP3 = {{
-    {0.515102f, 0.291965f, 0.157153f},
-    {0.241182f, 0.692236f, 0.0665819f},
-    {-0.00104941f, 0.0418818f, 0.784378f},
-}};
+static constexpr Matrix3x3 kDisplayP3 = {{{
+    {{0.515102f, 0.291965f, 0.157153f}},
+    {{0.241182f, 0.692236f, 0.0665819f}},
+    {{-0.00104941f, 0.0418818f, 0.784378f}},
+}}};
 
-static constexpr Matrix3x3 kRec2020 = {{
-    {0.673459f, 0.165661f, 0.125100f},
-    {0.279033f, 0.675338f, 0.0456288f},
-    {-0.00193139f, 0.0299794f, 0.797162f},
-}};
+static constexpr Matrix3x3 kRec2020 = {{{
+    {{0.673459f, 0.165661f, 0.125100f}},
+    {{0.279033f, 0.675338f, 0.0456288f}},
+    {{-0.00193139f, 0.0299794f, 0.797162f}},
+}}};
 
 static constexpr uint32_t kCICPPrimariesUnSpecified = 2;
 static constexpr uint32_t kCICPPrimariesSRGB = 1;
@@ -238,25 +241,26 @@ class IccHelper {
   static constexpr uint32_t kGridSize = 17;
   static constexpr size_t kNumChannels = 3;
 
-  static std::shared_ptr<DataStruct> write_text_tag(const char* text);
+  static std::shared_ptr<DataStruct> write_text_tag(std::string_view text);
   static std::string get_desc_string(const uhdr_color_transfer_t tf,
                                      const uhdr_color_gamut_t gamut);
   static std::shared_ptr<DataStruct> write_xyz_tag(float x, float y, float z);
-  static std::shared_ptr<DataStruct> write_trc_tag(const int table_entries, const void* table_16);
+  static std::shared_ptr<DataStruct> write_trc_tag(const std::vector<uint16_t>& table_16);
   static std::shared_ptr<DataStruct> write_trc_tag(const TransferFunction& fn);
   static float compute_tone_map_gain(const uhdr_color_transfer_t tf, float L);
   static std::shared_ptr<DataStruct> write_cicp_tag(uint32_t color_primaries,
                                                     uint32_t transfer_characteristics);
-  static std::shared_ptr<DataStruct> write_mAB_or_mBA_tag(uint32_t type, bool has_a_curves,
-                                                          const uint8_t* grid_points,
-                                                          const uint8_t* grid_16);
-  static void compute_lut_entry(const Matrix3x3& src_to_XYZD50, float rgb[3]);
-  static std::shared_ptr<DataStruct> write_clut(const uint8_t* grid_points, const uint8_t* grid_16);
+  static std::shared_ptr<DataStruct> write_mAB_or_mBA_tag(
+      uint32_t type, bool has_a_curves, const std::array<uint8_t, kNumChannels>* grid_points,
+      const std::vector<uint16_t>* grid_16);
+  static void compute_lut_entry(const Matrix3x3& src_to_XYZD50, std::array<float, 3>& rgb);
+  static std::shared_ptr<DataStruct> write_clut(
+      const std::array<uint8_t, kNumChannels>& grid_points, const std::vector<uint16_t>& grid_16);
 
   // Checks if a set of xyz tags is equivalent to a 3x3 Matrix. Each input
-  // tag buffer assumed to be at least kColorantTagSize in size.
-  static bool tagsEqualToMatrix(const Matrix3x3& matrix, const uint8_t* red_tag,
-                                const uint8_t* green_tag, const uint8_t* blue_tag);
+  // tag view must be at least kColorantTagSize bytes.
+  static bool tagsEqualToMatrix(const Matrix3x3& matrix, std::string_view red_tag,
+                                std::string_view green_tag, std::string_view blue_tag);
 
  public:
   // Output includes JPEG embedding identifier and chunk information, but not
