@@ -118,6 +118,7 @@ TEST_F(IccHelperTest, iccPqA2B0AndB2A0Populated) {
   uint32_t tag_count_be = 0;
   memcpy(&tag_count_be, icc_bytes + offsetof(ICCHeader, tag_count), sizeof(tag_count_be));
   const size_t tag_count = Endian_SwapBE32(tag_count_be);
+  ASSERT_LE(tag_count, (profile_size - sizeof(ICCHeader)) / 12u);
 
   bool found_a2b0 = false;
   bool found_b2a0 = false;
@@ -145,6 +146,16 @@ TEST_F(IccHelperTest, iccPqA2B0AndB2A0Populated) {
       const size_t clut_off = Endian_SwapBE32(clut_off_be);
       const size_t a_off = Endian_SwapBE32(a_off_be);
 
+      constexpr size_t kCurvesBytes = 3u * 16u;
+      constexpr size_t kClutHeaderBytes = 20u;
+      constexpr size_t kClutTableBytes = 17u * 17u * 17u * 6u;
+      ASSERT_LE(b_off, sz);
+      ASSERT_LE(kCurvesBytes, sz - b_off);
+      ASSERT_LE(clut_off, sz);
+      ASSERT_LE(kClutHeaderBytes + kClutTableBytes, sz - clut_off);
+      ASSERT_LE(a_off, sz);
+      ASSERT_LE(kCurvesBytes, sz - a_off);
+
       // All 3 B-curves must be written (each is a 16-byte 'para' curve).
       for (size_t c = 0; c < 3; ++c) {
         uint32_t curve_sig_be = 0;
@@ -157,9 +168,10 @@ TEST_F(IccHelperTest, iccPqA2B0AndB2A0Populated) {
       EXPECT_EQ(tag[clut_off + 1], 17u);
       EXPECT_EQ(tag[clut_off + 2], 17u);
       EXPECT_EQ(tag[clut_off + 16], 2u);
+      const size_t clut_data_off = clut_off + kClutHeaderBytes;
       bool has_nonzero_clut = false;
-      for (size_t i = clut_off + 20; i < a_off; ++i) {
-        if (tag[i] != 0) {
+      for (size_t i = 0; i < kClutTableBytes; ++i) {
+        if (tag[clut_data_off + i] != 0) {
           has_nonzero_clut = true;
           break;
         }
@@ -167,7 +179,6 @@ TEST_F(IccHelperTest, iccPqA2B0AndB2A0Populated) {
       EXPECT_TRUE(has_nonzero_clut);
       // Verify mid-gray PQ RGB (0.5, 0.5, 0.5) at grid index (8, 8, 8) decodes via pqInvOetf and
       // tone-maps to ~L* 62.7 (neutral a*, b*), rather than near-white (~99.9).
-      const size_t clut_data_off = clut_off + 20;
       auto read_lab_at = [&](size_t r, size_t g, size_t b, float& L_out, float& a_out,
                              float& b_out) {
         const size_t entry_off = clut_data_off + ((r * 17u + g) * 17u + b) * 6u;
@@ -205,6 +216,8 @@ TEST_F(IccHelperTest, iccPqA2B0AndB2A0Populated) {
       uint32_t b_off_be = 0;
       memcpy(&b_off_be, tag + 12, 4);
       const size_t b_off = Endian_SwapBE32(b_off_be);
+      ASSERT_LE(b_off, sz);
+      ASSERT_LE(3u * 16u, sz - b_off);
       for (size_t c = 0; c < 3; ++c) {
         uint32_t curve_sig_be = 0;
         memcpy(&curve_sig_be, tag + b_off + c * 16, 4);
