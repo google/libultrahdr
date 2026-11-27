@@ -289,7 +289,7 @@ void IccHelper::compute_lut_entry(const Matrix3x3& src_to_XYZD50, float rgb[3]) 
 
   // Convert the source signal to linear.
   for (size_t i = 0; i < kNumChannels; ++i) {
-    rgb[i] = pqOetf(rgb[i]);
+    rgb[i] = pqInvOetf(rgb[i]);
   }
 
   // Convert source gamut to Rec2020.

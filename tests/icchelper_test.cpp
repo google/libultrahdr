@@ -165,6 +165,33 @@ TEST_F(IccHelperTest, iccPqA2B0AndB2A0Populated) {
         }
       }
       EXPECT_TRUE(has_nonzero_clut);
+      // Verify mid-gray PQ RGB (0.5, 0.5, 0.5) at grid index (8, 8, 8) decodes via pqInvOetf and
+      // tone-maps to ~L* 62.7 (neutral a*, b*), rather than near-white (~99.9).
+      const size_t clut_data_off = clut_off + 20;
+      auto read_lab_at = [&](size_t r, size_t g, size_t b, float& L_out, float& a_out,
+                             float& b_out) {
+        const size_t entry_off = clut_data_off + ((r * 17u + g) * 17u + b) * 6u;
+        uint16_t l_be = 0, a_be = 0, b_be = 0;
+        memcpy(&l_be, tag + entry_off + 0, 2);
+        memcpy(&a_be, tag + entry_off + 2, 2);
+        memcpy(&b_be, tag + entry_off + 4, 2);
+        L_out = (Endian_SwapBE16(l_be) / 65535.0f) * 100.0f;
+        a_out = (Endian_SwapBE16(a_be) / 65535.0f) * 255.0f - 128.0f;
+        b_out = (Endian_SwapBE16(b_be) / 65535.0f) * 255.0f - 128.0f;
+      };
+      float L_mid = 0.0f, a_mid = 0.0f, b_mid = 0.0f;
+      read_lab_at(8, 8, 8, L_mid, a_mid, b_mid);
+      EXPECT_NEAR(L_mid, 62.7f, 0.5f);
+      EXPECT_NEAR(a_mid, 0.0f, 1.0f);
+      EXPECT_NEAR(b_mid, 0.0f, 1.0f);
+
+      float L_black = 0.0f, a_black = 0.0f, b_black = 0.0f;
+      read_lab_at(0, 0, 0, L_black, a_black, b_black);
+      EXPECT_NEAR(L_black, 0.0f, 0.5f);
+
+      float L_white = 0.0f, a_white = 0.0f, b_white = 0.0f;
+      read_lab_at(16, 16, 16, L_white, a_white, b_white);
+      EXPECT_NEAR(L_white, 100.0f, 0.5f);
       // All 3 A-curves must be written.
       for (size_t c = 0; c < 3; ++c) {
         uint32_t curve_sig_be = 0;
