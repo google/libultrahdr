@@ -2824,4 +2824,125 @@ TEST(JpegRTest, ProfileGainMapFuncs) {
 #endif
 }
 
+TEST(JpegRTest, EncodeBoundsAndExifSafety) {
+  // Build a valid minimal 16x16 UltraHDR stream for API-4 / decode tests.
+  UhdrUnCompressedStructWrapper rawImg(16, 16, YCbCr_p010);
+  ASSERT_TRUE(rawImg.setImageColorGamut(ULTRAHDR_COLORGAMUT_BT2100));
+  ASSERT_TRUE(rawImg.allocateMemory());
+  memset(rawImg.getImageHandle()->data, 0x40, 16 * 16 * 3);
+
+  UhdrCompressedStructWrapper encodedImg(16, 16);
+  ASSERT_TRUE(encodedImg.allocateMemory());
+  JpegR uHdrLib;
+  ASSERT_EQ(JPEGR_NO_ERROR,
+            uHdrLib.encodeJPEGR(rawImg.getImageHandle(), ULTRAHDR_TF_HLG,
+                                encodedImg.getImageHandle(), kQuality, nullptr));
+
+  // 1. Legacy API-4 with nullptr metadata must return ERROR_JPEGR_BAD_PTR.
+  UhdrCompressedStructWrapper destImg(16, 16);
+  ASSERT_TRUE(destImg.allocateMemory());
+  EXPECT_EQ(ERROR_JPEGR_BAD_PTR,
+            uHdrLib.encodeJPEGR(encodedImg.getImageHandle(), encodedImg.getImageHandle(), nullptr,
+                                destImg.getImageHandle()));
+
+  // 2. API-4 with gainmap_compressed->data_sz < 2 must fail cleanly without size_t underflow.
+  uhdr_compressed_image_t base_img{};
+  base_img.data = encodedImg.getImageHandle()->data;
+  base_img.data_sz = encodedImg.getImageHandle()->length;
+  base_img.capacity = encodedImg.getImageHandle()->maxLength;
+  base_img.cg = UHDR_CG_BT_709;
+
+  uint8_t short_gm_buf[1] = {0xFF};
+  uhdr_compressed_image_t short_gm{};
+  short_gm.data = short_gm_buf;
+  short_gm.data_sz = 0;
+  short_gm.capacity = 1;
+
+  uhdr_gainmap_metadata_ext_t meta("1.0");
+  std::fill_n(meta.max_content_boost, 3, 2.0f);
+  std::fill_n(meta.min_content_boost, 3, 1.0f);
+  std::fill_n(meta.gamma, 3, 1.0f);
+  std::fill_n(meta.offset_sdr, 3, 0.0f);
+  std::fill_n(meta.offset_hdr, 3, 0.0f);
+  meta.hdr_capacity_min = 1.0f;
+  meta.hdr_capacity_max = 2.0f;
+  meta.use_base_cg = true;
+
+  uhdr_compressed_image_t out_img{};
+  out_img.data = destImg.getImageHandle()->data;
+  out_img.capacity = destImg.getImageHandle()->maxLength;
+
+  for (size_t bad_sz : {size_t{0}, size_t{1}}) {
+    short_gm.data_sz = bad_sz;
+    uhdr_error_info_t st = uHdrLib.encodeJPEGR(&base_img, &short_gm, &meta, &out_img);
+    EXPECT_EQ(st.error_code, UHDR_CODEC_INVALID_PARAM);
+    EXPECT_EQ(st.has_detail, 1);
+  }
+
+  // 2b. API-4 with nullptr gain-map descriptor and use_base_cg == false must fail cleanly before
+  //     attempting gain-map ICC lookup.
+  {
+    uhdr_gainmap_metadata_ext_t alt_meta = meta;
+    alt_meta.use_base_cg = false;
+    uhdr_error_info_t st = uHdrLib.encodeJPEGR(&base_img, nullptr, &alt_meta, &out_img);
+    EXPECT_EQ(st.error_code, UHDR_CODEC_INVALID_PARAM);
+    EXPECT_EQ(st.has_detail, 1);
+  }
+
+  // 3. Direct raw-image encodeJPEGR EXIF bounds & null-pointer checks with a large enough output
+  //    buffer so buffer capacity does not mask the EXIF APP1 limit check.
+  {
+    uhdr_raw_image_t hdr_raw{};
+    hdr_raw.fmt = UHDR_IMG_FMT_24bppYCbCrP010;
+    hdr_raw.cg = UHDR_CG_BT_2100;
+    hdr_raw.ct = UHDR_CT_HLG;
+    hdr_raw.range = UHDR_CR_LIMITED_RANGE;
+    hdr_raw.w = 16;
+    hdr_raw.h = 16;
+    hdr_raw.planes[UHDR_PLANE_Y] = rawImg.getImageHandle()->data;
+    hdr_raw.stride[UHDR_PLANE_Y] = 16;
+    hdr_raw.planes[UHDR_PLANE_UV] =
+        static_cast<uint8_t*>(rawImg.getImageHandle()->data) + 16 * 16 * 2;
+    hdr_raw.stride[UHDR_PLANE_UV] = 16;
+
+    std::vector<uint8_t> large_dest_buf(128 * 1024, 0);
+    uhdr_compressed_image_t large_dest{};
+    large_dest.data = large_dest_buf.data();
+    large_dest.capacity = large_dest_buf.size();
+
+    // Nonzero EXIF data_sz with nullptr data must return UHDR_CODEC_INVALID_PARAM.
+    uhdr_mem_block_t null_exif{nullptr, 16, 16};
+    large_dest.data_sz = 0;
+    uhdr_error_info_t st_null =
+        uHdrLib.encodeJPEGR(&hdr_raw, &large_dest, kQuality, &null_exif);
+    EXPECT_EQ(st_null.error_code, UHDR_CODEC_INVALID_PARAM);
+    EXPECT_EQ(st_null.has_detail, 1);
+
+    // 65533-byte EXIF payload (exact APP1 max) must succeed.
+    std::vector<uint8_t> max_exif_buf(65533, 0x41);
+    uhdr_mem_block_t max_exif{max_exif_buf.data(), max_exif_buf.size(), max_exif_buf.size()};
+    large_dest.data_sz = 0;
+    uhdr_error_info_t st_ok = uHdrLib.encodeJPEGR(&hdr_raw, &large_dest, kQuality, &max_exif);
+    EXPECT_EQ(st_ok.error_code, UHDR_CODEC_OK) << st_ok.detail;
+
+    // 65534-byte EXIF payload (1 byte over APP1 max) must return UHDR_CODEC_INVALID_PARAM.
+    std::vector<uint8_t> big_exif_buf(65534, 0x41);
+    uhdr_mem_block_t big_exif{big_exif_buf.data(), big_exif_buf.size(), big_exif_buf.size()};
+    large_dest.data_sz = 0;
+    uhdr_error_info_t st_over = uHdrLib.encodeJPEGR(&hdr_raw, &large_dest, kQuality, &big_exif);
+    EXPECT_EQ(st_over.error_code, UHDR_CODEC_INVALID_PARAM);
+    EXPECT_EQ(st_over.has_detail, 1);
+  }
+
+  // 4. Legacy decodeJPEGR with non-null exif buffer on an image without EXIF must succeed cleanly.
+  std::vector<uint8_t> dec_pixels(16 * 16 * 8, 0);
+  jpegr_uncompressed_struct dec_out{};
+  dec_out.data = dec_pixels.data();
+  std::vector<uint8_t> exif_out_buf(64, 0);
+  jpegr_exif_struct exif_out{exif_out_buf.data(), exif_out_buf.size()};
+  EXPECT_EQ(JPEGR_NO_ERROR,
+            uHdrLib.decodeJPEGR(encodedImg.getImageHandle(), &dec_out, FLT_MAX, &exif_out));
+  EXPECT_EQ(exif_out.length, 0u);
+}
+
 }  // namespace ultrahdr

@@ -395,6 +395,16 @@ uhdr_error_info_t JpegR::encodeJPEGR(uhdr_compressed_image_t* base_img_compresse
                                      uhdr_compressed_image_t* gainmap_img_compressed,
                                      uhdr_gainmap_metadata_ext_t* metadata,
                                      uhdr_compressed_image_t* dest) {
+  if (gainmap_img_compressed == nullptr || gainmap_img_compressed->data == nullptr ||
+      gainmap_img_compressed->data_sz < 2) {
+    uhdr_error_info_t status;
+    status.error_code = UHDR_CODEC_INVALID_PARAM;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "gainmap compressed image is null or smaller than JPEG SOI marker (2 bytes)");
+    return status;
+  }
+
   // We just want to check if ICC is present, so don't do a full decode. Note,
   // this doesn't verify that the ICC is valid.
   JpegDecoderHelper decoder;
@@ -1125,6 +1135,16 @@ uhdr_error_info_t JpegR::appendGainMap(uhdr_compressed_image_t* sdr_intent_compr
                                        uhdr_mem_block_t* pExif, void* pIcc, size_t icc_size,
                                        uhdr_gainmap_metadata_ext_t* metadata,
                                        uhdr_compressed_image_t* dest) {
+  if (gainmap_compressed == nullptr || gainmap_compressed->data == nullptr ||
+      gainmap_compressed->data_sz < 2) {
+    uhdr_error_info_t status;
+    status.error_code = UHDR_CODEC_INVALID_PARAM;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "gainmap compressed image is null or smaller than JPEG SOI marker (2 bytes)");
+    return status;
+  }
+
   if (kWriteXmpMetadata && !metadata->use_base_cg) {
     uhdr_error_info_t status;
     status.error_code = UHDR_CODEC_UNSUPPORTED_FEATURE;
@@ -1263,6 +1283,23 @@ uhdr_error_info_t JpegR::appendGainMap(uhdr_compressed_image_t* sdr_intent_compr
 
   // Write EXIF
   if (pExif != nullptr) {
+    if (pExif->data_sz > 0xFFFF - 2) {
+      uhdr_error_info_t status;
+      status.error_code = UHDR_CODEC_INVALID_PARAM;
+      status.has_detail = 1;
+      snprintf(status.detail, sizeof status.detail,
+               "EXIF payload size %zu exceeds maximum JPEG APP1 segment limit (65533 bytes)",
+               pExif->data_sz);
+      return status;
+    }
+    if (pExif->data_sz > 0 && pExif->data == nullptr) {
+      uhdr_error_info_t status;
+      status.error_code = UHDR_CODEC_INVALID_PARAM;
+      status.has_detail = 1;
+      snprintf(status.detail, sizeof status.detail,
+               "EXIF payload pointer is null while EXIF size is %zu bytes", pExif->data_sz);
+      return status;
+    }
     const size_t length = 2 + pExif->data_sz;
     const uint8_t lengthH = ((length >> 8) & 0xff);
     const uint8_t lengthL = (length & 0xff);
@@ -1270,7 +1307,9 @@ uhdr_error_info_t JpegR::appendGainMap(uhdr_compressed_image_t* sdr_intent_compr
     UHDR_ERR_CHECK(Write(dest, &photos_editing_formats::image_io::JpegMarker::kAPP1, 1, pos));
     UHDR_ERR_CHECK(Write(dest, &lengthH, 1, pos));
     UHDR_ERR_CHECK(Write(dest, &lengthL, 1, pos));
-    UHDR_ERR_CHECK(Write(dest, pExif->data, pExif->data_sz, pos));
+    if (pExif->data_sz > 0) {
+      UHDR_ERR_CHECK(Write(dest, pExif->data, pExif->data_sz, pos));
+    }
   }
 
   // Prepare and write XMP
@@ -2879,6 +2918,10 @@ status_t JpegR::encodeJPEGR(jr_compressed_ptr yuv420jpg_image_ptr,
     ALOGE("received nullptr for compressed gain map");
     return ERROR_JPEGR_BAD_PTR;
   }
+  if (metadata == nullptr) {
+    ALOGE("received nullptr for metadata");
+    return ERROR_JPEGR_BAD_PTR;
+  }
   if (dest == nullptr || dest->data == nullptr) {
     ALOGE("received nullptr for destination");
     return ERROR_JPEGR_BAD_PTR;
@@ -3015,7 +3058,9 @@ status_t JpegR::decodeJPEGR(jr_compressed_ptr jpegr_image_ptr, jr_uncompressed_p
     if (exif->length < primary_image.exifData.size()) {
       return ERROR_JPEGR_BUFFER_TOO_SMALL;
     }
-    memcpy(exif->data, primary_image.exifData.data(), primary_image.exifData.size());
+    if (!primary_image.exifData.empty()) {
+      memcpy(exif->data, primary_image.exifData.data(), primary_image.exifData.size());
+    }
     exif->length = primary_image.exifData.size();
   }
 
