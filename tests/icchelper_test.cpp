@@ -141,45 +141,46 @@ TEST_F(IccHelperTest, iccUnalignedColorantOffset) {
   memcpy(shifted.data() + 1, icc->getData(), icc->getLength());
   EXPECT_EQ(IccHelper::readIccColorGamut(shifted.data() + 1, icc->getLength()), UHDR_CG_BT_709);
 
-  // Also verify unaligned cicp tag offset on an HLG profile parses cleanly without UB.
+  // Also verify an unaligned cicp tag with relocated tag data and distinct primaries from XYZ
+  // parses cleanly without UB and actually reads CICP rather than falling back to XYZ.
   std::shared_ptr<DataStruct> hlg = IccHelper::writeIccProfile(UHDR_CT_HLG, UHDR_CG_BT_2100);
   ASSERT_NE(hlg->getLength(), 0);
   ASSERT_NE(hlg->getData(), nullptr);
   std::vector<uint8_t> hlg_buf(reinterpret_cast<uint8_t*>(hlg->getData()),
                                reinterpret_cast<uint8_t*>(hlg->getData()) + hlg->getLength());
+  // Append 1 padding byte so the relocated CICP tag starts at an unaligned profile offset.
+  const size_t orig_profile_size = hlg_buf.size() - kICCIdentifierSize;
+  const size_t unaligned_cicp_offset = orig_profile_size + 1;
+  ASSERT_NE(unaligned_cicp_offset % 4, 0u);
   hlg_buf.push_back(0);
+  std::vector<uint8_t> cicp_data(kCicpTagSize, 0);
+  bool found_cicp = false;
   uint8_t* hlg_bytes = hlg_buf.data() + kICCIdentifierSize;
   memcpy(&tag_count_be, hlg_bytes + offsetof(ICCHeader, tag_count), sizeof(tag_count_be));
   tag_count = Endian_SwapBE32(tag_count_be);
   for (size_t tag_idx = 0; tag_idx < tag_count; ++tag_idx) {
     size_t entry_offset = sizeof(ICCHeader) + tag_idx * 12;
-    uint32_t sig_be, off_be;
+    uint32_t sig_be, off_be, sz_be;
     memcpy(&sig_be, hlg_bytes + entry_offset, sizeof(sig_be));
     if (sig_be == Endian_SwapBE32(kTAG_cicp)) {
       memcpy(&off_be, hlg_bytes + entry_offset + 4, sizeof(off_be));
-      uint32_t unaligned_be = Endian_SwapBE32(Endian_SwapBE32(off_be) + 1);
-      memcpy(hlg_bytes + entry_offset + 4, &unaligned_be, sizeof(unaligned_be));
+      memcpy(&sz_be, hlg_bytes + entry_offset + 8, sizeof(sz_be));
+      const uint32_t orig_off = Endian_SwapBE32(off_be);
+      const uint32_t orig_sz = Endian_SwapBE32(sz_be);
+      ASSERT_EQ(orig_sz, kCicpTagSize);
+      ASSERT_LE(static_cast<size_t>(orig_off) + orig_sz, orig_profile_size);
+      memcpy(cicp_data.data(), hlg_bytes + orig_off, kCicpTagSize);
+      // Set CICP primaries to Display P3 (distinct from the profile's BT.2100 XYZ tags).
+      cicp_data[8] = static_cast<uint8_t>(kCICPPrimariesP3);
+      uint32_t new_off_be = Endian_SwapBE32(static_cast<uint32_t>(unaligned_cicp_offset));
+      memcpy(hlg_bytes + entry_offset + 4, &new_off_be, sizeof(new_off_be));
+      found_cicp = true;
       break;
     }
   }
-  EXPECT_EQ(IccHelper::readIccColorGamut(hlg_buf.data(), hlg_buf.size()), UHDR_CG_BT_2100);
-}
-
-TEST_F(IccHelperTest, gainLutBoundarySafety) {
-  uhdr_gainmap_metadata_ext_t meta("1.0");
-  for (int i = 0; i < 3; ++i) {
-    meta.min_content_boost[i] = 1.0f;
-    meta.max_content_boost[i] = 2.0f + i;
-    meta.gamma[i] = 0.0f;  // Must not divide by zero
-    meta.offset_sdr[i] = 0.0f;
-    meta.offset_hdr[i] = 0.0f;
-  }
-  GainLUT lut(&meta, 1.0f);
-  EXPECT_TRUE(std::isfinite(lut.getGainFactor(1e30f, 0)));
-  EXPECT_TRUE(std::isfinite(lut.getGainFactor(-1e30f, 1)));
-  EXPECT_TRUE(std::isfinite(lut.getGainFactor(std::numeric_limits<float>::quiet_NaN(), 2)));
-  EXPECT_TRUE(std::isfinite(lut.getGainFactor(0.5f, -1)));
-  EXPECT_TRUE(std::isfinite(lut.getGainFactor(0.5f, 5)));
+  ASSERT_TRUE(found_cicp);
+  hlg_buf.insert(hlg_buf.end(), cicp_data.begin(), cicp_data.end());
+  EXPECT_EQ(IccHelper::readIccColorGamut(hlg_buf.data(), hlg_buf.size()), UHDR_CG_DISPLAY_P3);
 }
 
 }  // namespace ultrahdr

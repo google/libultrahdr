@@ -689,12 +689,22 @@ if(TARGET libheif)
 endif()
 if(NOT MSVC)
   target_compile_options(${UHDR_CORE_LIB_NAME} PRIVATE -Wall -Wextra -Wshadow)
-  check_cxx_compiler_flag("-Wunsafe-buffer-usage" SUPPORTS_WUNSAFE_BUFFER_USAGE)
+  include(CheckCXXSourceCompiles)
+  set(_uhdr_saved_required_flags "${CMAKE_REQUIRED_FLAGS}")
+  set(CMAKE_REQUIRED_FLAGS "-Wunsafe-buffer-usage -Werror")
+  check_cxx_source_compiles([=[
+    #pragma clang unsafe_buffer_usage begin
+    int uhdr_check_unsafe_buf(int* p) { return p[1]; }
+    #pragma clang unsafe_buffer_usage end
+    int main() { int a[2] = {0, 1}; return uhdr_check_unsafe_buf(a); }
+  ]=] SUPPORTS_WUNSAFE_BUFFER_USAGE)
+  set(CMAKE_REQUIRED_FLAGS "${_uhdr_saved_required_flags}")
+  unset(_uhdr_saved_required_flags)
   if(SUPPORTS_WUNSAFE_BUFFER_USAGE)
     set(UHDR_SAFE_BUFFER_FILES
       "${SOURCE_DIR}/src/icc.cpp"
     )
-    set(UHDR_SAFE_BUFFER_FLAGS "-Wunsafe-buffer-usage")
+    set(UHDR_SAFE_BUFFER_FLAGS "-Wunsafe-buffer-usage" "-DUHDR_HAVE_UNSAFE_BUFFER_USAGE_PRAGMA")
     if(UHDR_ENABLE_WERROR)
       list(APPEND UHDR_SAFE_BUFFER_FLAGS "-Werror=unsafe-buffer-usage")
     endif()

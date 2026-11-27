@@ -17,7 +17,13 @@
 #include <vector>
 
 #include "ultrahdr/jpegr.h"
+#if defined(UHDR_HAVE_UNSAFE_BUFFER_USAGE_PRAGMA)
+#pragma clang unsafe_buffer_usage begin
+#endif
 #include "ultrahdr/gainmapmath.h"
+#if defined(UHDR_HAVE_UNSAFE_BUFFER_USAGE_PRAGMA)
+#pragma clang unsafe_buffer_usage end
+#endif
 #include "ultrahdr/jpegrutils.h"
 
 #undef Endian_SwapBE32
