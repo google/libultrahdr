@@ -13,6 +13,8 @@
 
 #include <array>
 #include <cmath>
+#include <limits>
+#include <type_traits>
 #include <vector>
 
 #include "ultrahdr/gainmapmath.h"
@@ -2143,6 +2145,63 @@ TEST_F(GainMapMathTest, AffineMapGainClampsBeforeGamma) {
   EXPECT_EQ(affineMapGain(mid_boost, min_boost, max_boost, 0.5f), 180);
   EXPECT_EQ(affineMapGain(mid_boost, min_boost, max_boost, 1.0f), 128);
   EXPECT_EQ(affineMapGain(mid_boost, min_boost, max_boost, 2.0f), 64);
+}
+
+TEST_F(GainMapMathTest, GainLutClampsBeforeGammaAndHandlesNonFiniteInputs) {
+  static_assert(!std::is_copy_constructible_v<GainLUT>);
+  static_assert(!std::is_copy_assignable_v<GainLUT>);
+
+  const float nan_val = std::numeric_limits<float>::quiet_NaN();
+  const float inf_val = std::numeric_limits<float>::infinity();
+
+  // Single-channel LUT with fractional inverse gamma (gamma = 2.0 -> 1/gamma = 0.5).
+  uhdr_gainmap_metadata_ext_t single_meta(kJpegrVersion);
+  std::fill_n(single_meta.min_content_boost, 3, 0.5f);
+  std::fill_n(single_meta.max_content_boost, 3, 8.0f);
+  std::fill_n(single_meta.gamma, 3, 2.0f);
+  std::fill_n(single_meta.offset_sdr, 3, 0.0f);
+  std::fill_n(single_meta.offset_hdr, 3, 0.0f);
+  single_meta.hdr_capacity_min = 1.0f;
+  single_meta.hdr_capacity_max = 8.0f;
+  single_meta.use_base_cg = true;
+
+  const GainLUT single_lut(&single_meta, 0.75f);
+  const float expected_min = single_lut.getGainFactor(0.0f, 0);
+  const float expected_max = single_lut.getGainFactor(1.0f, 0);
+  for (int ch : {-1, 0, 1, 2, 3}) {
+    EXPECT_FLOAT_EQ(single_lut.getGainFactor(-0.25f, ch), expected_min);
+    EXPECT_FLOAT_EQ(single_lut.getGainFactor(-1e10f, ch), expected_min);
+    EXPECT_FLOAT_EQ(single_lut.getGainFactor(-inf_val, ch), expected_min);
+    EXPECT_FLOAT_EQ(single_lut.getGainFactor(nan_val, ch), expected_min);
+    EXPECT_FLOAT_EQ(single_lut.getGainFactor(1.5f, ch), expected_max);
+    EXPECT_FLOAT_EQ(single_lut.getGainFactor(1e10f, ch), expected_max);
+    EXPECT_FLOAT_EQ(single_lut.getGainFactor(inf_val, ch), expected_max);
+  }
+
+  // Multi-channel LUT verifies per-channel tables and channel-index clamping.
+  uhdr_gainmap_metadata_ext_t multi_meta(kJpegrVersion);
+  multi_meta.min_content_boost[0] = 0.25f;
+  multi_meta.min_content_boost[1] = 0.5f;
+  multi_meta.min_content_boost[2] = 1.0f;
+  multi_meta.max_content_boost[0] = 2.0f;
+  multi_meta.max_content_boost[1] = 4.0f;
+  multi_meta.max_content_boost[2] = 8.0f;
+  multi_meta.gamma[0] = 0.5f;
+  multi_meta.gamma[1] = 1.0f;
+  multi_meta.gamma[2] = 2.2f;
+  std::fill_n(multi_meta.offset_sdr, 3, 0.0f);
+  std::fill_n(multi_meta.offset_hdr, 3, 0.0f);
+  multi_meta.hdr_capacity_min = 1.0f;
+  multi_meta.hdr_capacity_max = 8.0f;
+  multi_meta.use_base_cg = true;
+
+  const GainLUT multi_lut(&multi_meta, 1.0f);
+  EXPECT_FLOAT_EQ(multi_lut.getGainFactor(nan_val, -1), multi_lut.getGainFactor(0.0f, 0));
+  EXPECT_FLOAT_EQ(multi_lut.getGainFactor(inf_val, 3), multi_lut.getGainFactor(1.0f, 2));
+  for (int ch = 0; ch < 3; ++ch) {
+    EXPECT_FLOAT_EQ(multi_lut.getGainFactor(-0.5f, ch), multi_lut.getGainFactor(0.0f, ch));
+    EXPECT_FLOAT_EQ(multi_lut.getGainFactor(2.0f, ch), multi_lut.getGainFactor(1.0f, ch));
+  }
 }
 
 }  // namespace ultrahdr
