@@ -15,6 +15,7 @@
 #include <cmath>
 #include <cstring>
 #include <functional>
+#include <memory>
 
 #include "ultrahdr_api.h"
 #include "ultrahdr/ultrahdrcommon.h"
@@ -451,47 +452,49 @@ constexpr int32_t kGainFactorNumEntries = 1 << kGainFactorPrecision;
 
 struct GainLUT {
   GainLUT(uhdr_gainmap_metadata_ext_t* metadata, float gainmapWeight) {
-    bool isSingleChannel = metadata->are_all_channels_identical();
-    for (int i = 0; i < (isSingleChannel ? 1 : 3); i++) {
-      mGainTable[i] = memory[i] = new float[kGainFactorNumEntries];
+    const bool isSingleChannel = metadata->are_all_channels_identical();
+    for (size_t i = 0; i < (isSingleChannel ? 1u : 3u); i++) {
+      mMemory[i] = std::make_unique<std::array<float, kGainFactorNumEntries>>();
+      auto& table = *mMemory[i];
+      mGainTable[i] = mMemory[i].get();
       this->mGammaInv[i] = 1.0f / metadata->gamma[i];
-      for (int32_t idx = 0; idx < kGainFactorNumEntries; idx++) {
+      for (size_t idx = 0; idx < static_cast<size_t>(kGainFactorNumEntries); idx++) {
         float value = static_cast<float>(idx) / static_cast<float>(kGainFactorNumEntries - 1);
         float logBoost = log2(metadata->min_content_boost[i]) * (1.0f - value) +
                          log2(metadata->max_content_boost[i]) * value;
-        mGainTable[i][idx] = exp2(logBoost * gainmapWeight);
+        table[idx] = exp2(logBoost * gainmapWeight);
       }
     }
     if (isSingleChannel) {
-      memory[1] = memory[2] = nullptr;
+      mMemory[1].reset();
+      mMemory[2].reset();
       mGammaInv[1] = mGammaInv[2] = mGammaInv[0];
       mGainTable[1] = mGainTable[2] = mGainTable[0];
     }
   }
 
   GainLUT(uhdr_gainmap_metadata_ext_t* metadata) : GainLUT(metadata, 1.0f) {}
+  GainLUT(const GainLUT&) = delete;
+  GainLUT& operator=(const GainLUT&) = delete;
+  ~GainLUT() = default;
 
-  ~GainLUT() {
-    for (int i = 0; i < 3; i++) {
-      if (memory[i]) {
-        delete[] memory[i];
-        memory[i] = nullptr;
-      }
+  float getGainFactor(float gain, int index) const {
+    const size_t channel = static_cast<size_t>(CLIP3(index, 0, 2));
+    if (!(gain > 0.0f)) {
+      gain = 0.0f;
+    } else if (gain >= 1.0f) {
+      gain = 1.0f;
     }
-  }
-
-  float getGainFactor(float gain, int index) {
-    if (mGammaInv[index] != 1.0f) gain = pow(gain, mGammaInv[index]);
+    if (mGammaInv[channel] != 1.0f) gain = pow(gain, mGammaInv[channel]);
     int32_t idx = static_cast<int32_t>(gain * (kGainFactorNumEntries - 1) + 0.5);
-    // TODO() : Remove once conversion modules have appropriate clamping in place
     idx = CLIP3(idx, 0, kGainFactorNumEntries - 1);
-    return mGainTable[index][idx];
+    return (*mGainTable[channel])[static_cast<size_t>(idx)];
   }
 
  private:
-  float* memory[3]{};
-  float* mGainTable[3]{};
-  float mGammaInv[3]{};
+  std::array<std::unique_ptr<std::array<float, kGainFactorNumEntries>>, 3> mMemory;
+  std::array<const std::array<float, kGainFactorNumEntries>*, 3> mGainTable{};
+  std::array<float, 3> mGammaInv{};
 };
 
 /*
