@@ -2247,6 +2247,48 @@ TEST(UltraHdrEffectsSafetyTest, CropAndResizeOverflowAndHasDetail) {
     EXPECT_EQ(st.has_detail, 1);
     uhdr_release_decoder(dec);
   }
+
+  // Decoder resize of a 38x38 image (9x9 gain map at scale factor 4) back to 38x38 must preserve
+  // the 9x9 gain map dimensions without float-division rounding down to 8x8.
+  {
+    constexpr unsigned w38 = 38;
+    constexpr unsigned h38 = 38;
+    std::vector<uint32_t> hdr38_pixels(static_cast<size_t>(w38) * h38, 0x3fffffffu);
+    uhdr_raw_image_t hdr38{};
+    hdr38.fmt = UHDR_IMG_FMT_32bppRGBA1010102;
+    hdr38.cg = UHDR_CG_BT_2100;
+    hdr38.ct = UHDR_CT_HLG;
+    hdr38.range = UHDR_CR_FULL_RANGE;
+    hdr38.w = w38;
+    hdr38.h = h38;
+    hdr38.planes[UHDR_PLANE_PACKED] = hdr38_pixels.data();
+    hdr38.stride[UHDR_PLANE_PACKED] = w38;
+
+    std::vector<uint8_t> encoded38;
+    uhdr_codec_private_t* enc = uhdr_create_encoder();
+    ASSERT_NE(enc, nullptr);
+    ASSERT_EQ(UHDR_CODEC_OK, uhdr_enc_set_raw_image(enc, &hdr38, UHDR_HDR_IMG).error_code);
+    ASSERT_EQ(UHDR_CODEC_OK, uhdr_enc_set_gainmap_scale_factor(enc, 4).error_code);
+    ASSERT_EQ(UHDR_CODEC_OK, uhdr_encode(enc).error_code);
+    uhdr_compressed_image_t* stream = uhdr_get_encoded_stream(enc);
+    ASSERT_NE(stream, nullptr);
+    encoded38.assign(static_cast<uint8_t*>(stream->data),
+                     static_cast<uint8_t*>(stream->data) + stream->data_sz);
+    uhdr_release_encoder(enc);
+
+    uhdr_codec_private_t* dec = uhdr_create_decoder();
+    ASSERT_NE(dec, nullptr);
+    uhdr_compressed_image_t img38{encoded38.data(), encoded38.size(), encoded38.size(),
+                                  UHDR_CG_UNSPECIFIED, UHDR_CT_UNSPECIFIED, UHDR_CR_UNSPECIFIED};
+    ASSERT_EQ(UHDR_CODEC_OK, uhdr_dec_set_image(dec, &img38).error_code);
+    ASSERT_EQ(UHDR_CODEC_OK, uhdr_add_effect_resize(dec, w38, h38).error_code);
+    ASSERT_EQ(UHDR_CODEC_OK, uhdr_decode(dec).error_code);
+    uhdr_raw_image_t* gm = uhdr_get_decoded_gainmap_image(dec);
+    ASSERT_NE(gm, nullptr);
+    EXPECT_EQ(gm->w, 9u);
+    EXPECT_EQ(gm->h, 9u);
+    uhdr_release_decoder(dec);
+  }
 }
 
 }  // namespace ultrahdr

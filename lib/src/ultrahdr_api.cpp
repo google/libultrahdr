@@ -466,26 +466,25 @@ uhdr_error_info_t apply_effects(uhdr_decoder_private* dec) {
                  ultrahdr::kMaxWidth, ultrahdr::kMaxHeight, dst_w, dst_h);
         return status;
       }
-      float wd_ratio =
-          ((float)dec->m_decoded_img_buffer.get()->w) / dec->m_gainmap_img_buffer.get()->w;
-      float ht_ratio =
-          ((float)dec->m_decoded_img_buffer.get()->h) / dec->m_gainmap_img_buffer.get()->h;
-      double dst_gm_w_d = static_cast<double>(dst_w) / wd_ratio;
-      double dst_gm_h_d = static_cast<double>(dst_h) / ht_ratio;
-      if (dst_gm_w_d < 1.0 || dst_gm_h_d < 1.0 || dst_gm_w_d > ultrahdr::kMaxWidth ||
-          dst_gm_h_d > ultrahdr::kMaxHeight) {
+      const int64_t dst_gm_w_64 = static_cast<int64_t>(dst_w) * dec->m_gainmap_img_buffer.get()->w /
+                                  dec->m_decoded_img_buffer.get()->w;
+      const int64_t dst_gm_h_64 = static_cast<int64_t>(dst_h) * dec->m_gainmap_img_buffer.get()->h /
+                                  dec->m_decoded_img_buffer.get()->h;
+      if (dst_gm_w_64 <= 0 || dst_gm_h_64 <= 0 || dst_gm_w_64 > ultrahdr::kMaxWidth ||
+          dst_gm_h_64 > ultrahdr::kMaxHeight) {
         uhdr_error_info_t status;
         status.error_code = UHDR_CODEC_INVALID_PARAM;
         status.has_detail = 1;
         snprintf(status.detail, sizeof status.detail,
                  "destination dimension must be in range (0, %d] x (0, %d]. dest image width is "
-                 "%d, dest image height is %d, dest gainmap width is %.0f, dest gainmap height is "
-                 "%.0f",
-                 ultrahdr::kMaxWidth, ultrahdr::kMaxHeight, dst_w, dst_h, dst_gm_w_d, dst_gm_h_d);
+                 "%d, dest image height is %d, dest gainmap width is %lld, dest gainmap height is "
+                 "%lld",
+                 ultrahdr::kMaxWidth, ultrahdr::kMaxHeight, dst_w, dst_h,
+                 static_cast<long long>(dst_gm_w_64), static_cast<long long>(dst_gm_h_64));
         return status;
       }
-      int dst_gm_w = static_cast<int>(dst_gm_w_d);
-      int dst_gm_h = static_cast<int>(dst_gm_h_d);
+      int dst_gm_w = static_cast<int>(dst_gm_w_64);
+      int dst_gm_h = static_cast<int>(dst_gm_h_64);
       disp_img =
           apply_resize(dynamic_cast<uhdr_resize_effect_t*>(it), dec->m_decoded_img_buffer.get(),
                        dst_w, dst_h, gl_ctxt, disp_texture_ptr);
