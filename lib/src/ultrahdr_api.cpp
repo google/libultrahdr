@@ -222,16 +222,15 @@ uhdr_error_info_t apply_effects(uhdr_encoder_private* enc) {
       auto& hdr_raw_entry = enc->m_raw_images.find(UHDR_HDR_IMG)->second;
       int left = (std::max)(0, crop_effect->m_left);
       int right = (std::min)((int)hdr_raw_entry->w, crop_effect->m_right);
-      int crop_width = right - left;
-      if (crop_width <= 0) {
+      if (right <= left) {
         uhdr_error_info_t status;
         status.error_code = UHDR_CODEC_INVALID_PARAM;
         status.has_detail = 1;
         snprintf(status.detail, sizeof status.detail,
-                 "unexpected crop dimensions. crop width is expected to be > 0, crop width is %d",
-                 crop_width);
+                 "unexpected crop dimensions. crop right (%d) is <= crop left (%d)", right, left);
         return status;
       }
+      int crop_width = right - left;
       if (crop_width % 2 != 0 && hdr_raw_entry->fmt == UHDR_IMG_FMT_24bppYCbCrP010) {
         uhdr_error_info_t status;
         status.error_code = UHDR_CODEC_INVALID_PARAM;
@@ -245,16 +244,15 @@ uhdr_error_info_t apply_effects(uhdr_encoder_private* enc) {
 
       int top = (std::max)(0, crop_effect->m_top);
       int bottom = (std::min)((int)hdr_raw_entry->h, crop_effect->m_bottom);
-      int crop_height = bottom - top;
-      if (crop_height <= 0) {
+      if (bottom <= top) {
         uhdr_error_info_t status;
         status.error_code = UHDR_CODEC_INVALID_PARAM;
         status.has_detail = 1;
         snprintf(status.detail, sizeof status.detail,
-                 "unexpected crop dimensions. crop height is expected to be > 0, crop height is %d",
-                 crop_height);
+                 "unexpected crop dimensions. crop bottom (%d) is <= crop top (%d)", bottom, top);
         return status;
       }
+      int crop_height = bottom - top;
       if (crop_height % 2 != 0 && hdr_raw_entry->fmt == UHDR_IMG_FMT_24bppYCbCrP010) {
         uhdr_error_info_t status;
         status.error_code = UHDR_CODEC_INVALID_PARAM;
@@ -300,6 +298,7 @@ uhdr_error_info_t apply_effects(uhdr_encoder_private* enc) {
       if (dst_w <= 0 || dst_h <= 0 || dst_w > ultrahdr::kMaxWidth || dst_h > ultrahdr::kMaxHeight) {
         uhdr_error_info_t status;
         status.error_code = UHDR_CODEC_INVALID_PARAM;
+        status.has_detail = 1;
         snprintf(status.detail, sizeof status.detail,
                  "destination dimensions must be in range (0, %d] x (0, %d]. dest image width "
                  "is %d, dest image height is %d",
@@ -309,6 +308,7 @@ uhdr_error_info_t apply_effects(uhdr_encoder_private* enc) {
       if ((dst_w % 2 != 0 || dst_h % 2 != 0) && hdr_raw_entry->fmt == UHDR_IMG_FMT_24bppYCbCrP010) {
         uhdr_error_info_t status;
         status.error_code = UHDR_CODEC_INVALID_PARAM;
+        status.has_detail = 1;
         snprintf(status.detail, sizeof status.detail,
                  "destination dimensions cannot be odd for format {UHDR_IMG_FMT_24bppYCbCrP010}. "
                  "dest image width is %d, dest image height is %d",
@@ -323,6 +323,7 @@ uhdr_error_info_t apply_effects(uhdr_encoder_private* enc) {
             sdr_raw_entry->fmt == UHDR_IMG_FMT_12bppYCbCr420) {
           uhdr_error_info_t status;
           status.error_code = UHDR_CODEC_INVALID_PARAM;
+          status.has_detail = 1;
           snprintf(status.detail, sizeof status.detail,
                    "destination dimensions cannot be odd for format {UHDR_IMG_FMT_12bppYCbCr420}. "
                    "dest image width is %d, dest image height is %d",
@@ -403,10 +404,8 @@ uhdr_error_info_t apply_effects(uhdr_decoder_private* dec) {
         uhdr_error_info_t status;
         status.error_code = UHDR_CODEC_INVALID_PARAM;
         status.has_detail = 1;
-        snprintf(
-            status.detail, sizeof status.detail,
-            "unexpected crop dimensions. crop right is <= crop left, after crop image width is %d",
-            right - left);
+        snprintf(status.detail, sizeof status.detail,
+                 "unexpected crop dimensions. crop right (%d) is <= crop left (%d)", right, left);
         return status;
       }
 
@@ -416,10 +415,8 @@ uhdr_error_info_t apply_effects(uhdr_decoder_private* dec) {
         uhdr_error_info_t status;
         status.error_code = UHDR_CODEC_INVALID_PARAM;
         status.has_detail = 1;
-        snprintf(
-            status.detail, sizeof status.detail,
-            "unexpected crop dimensions. crop bottom is <= crop top, after crop image height is %d",
-            bottom - top);
+        snprintf(status.detail, sizeof status.detail,
+                 "unexpected crop dimensions. crop bottom (%d) is <= crop top (%d)", bottom, top);
         return status;
       }
 
@@ -459,23 +456,35 @@ uhdr_error_info_t apply_effects(uhdr_decoder_private* dec) {
       auto resize_effect = dynamic_cast<uhdr_resize_effect_t*>(it);
       int dst_w = resize_effect->m_width;
       int dst_h = resize_effect->m_height;
-      float wd_ratio =
-          ((float)dec->m_decoded_img_buffer.get()->w) / dec->m_gainmap_img_buffer.get()->w;
-      float ht_ratio =
-          ((float)dec->m_decoded_img_buffer.get()->h) / dec->m_gainmap_img_buffer.get()->h;
-      int dst_gm_w = (int)(dst_w / wd_ratio);
-      int dst_gm_h = (int)(dst_h / ht_ratio);
-      if (dst_w <= 0 || dst_h <= 0 || dst_gm_w <= 0 || dst_gm_h <= 0 ||
-          dst_w > ultrahdr::kMaxWidth || dst_h > ultrahdr::kMaxHeight ||
-          dst_gm_w > ultrahdr::kMaxWidth || dst_gm_h > ultrahdr::kMaxHeight) {
+      if (dst_w <= 0 || dst_h <= 0 || dst_w > ultrahdr::kMaxWidth || dst_h > ultrahdr::kMaxHeight) {
         uhdr_error_info_t status;
         status.error_code = UHDR_CODEC_INVALID_PARAM;
+        status.has_detail = 1;
         snprintf(status.detail, sizeof status.detail,
                  "destination dimension must be in range (0, %d] x (0, %d]. dest image width is "
-                 "%d, dest image height is %d, dest gainmap width is %d, dest gainmap height is %d",
-                 ultrahdr::kMaxWidth, ultrahdr::kMaxHeight, dst_w, dst_h, dst_gm_w, dst_gm_h);
+                 "%d, dest image height is %d",
+                 ultrahdr::kMaxWidth, ultrahdr::kMaxHeight, dst_w, dst_h);
         return status;
       }
+      const int64_t dst_gm_w_64 = static_cast<int64_t>(dst_w) * dec->m_gainmap_img_buffer.get()->w /
+                                  dec->m_decoded_img_buffer.get()->w;
+      const int64_t dst_gm_h_64 = static_cast<int64_t>(dst_h) * dec->m_gainmap_img_buffer.get()->h /
+                                  dec->m_decoded_img_buffer.get()->h;
+      if (dst_gm_w_64 <= 0 || dst_gm_h_64 <= 0 || dst_gm_w_64 > ultrahdr::kMaxWidth ||
+          dst_gm_h_64 > ultrahdr::kMaxHeight) {
+        uhdr_error_info_t status;
+        status.error_code = UHDR_CODEC_INVALID_PARAM;
+        status.has_detail = 1;
+        snprintf(status.detail, sizeof status.detail,
+                 "destination dimension must be in range (0, %d] x (0, %d]. dest image width is "
+                 "%d, dest image height is %d, dest gainmap width is %lld, dest gainmap height is "
+                 "%lld",
+                 ultrahdr::kMaxWidth, ultrahdr::kMaxHeight, dst_w, dst_h,
+                 static_cast<long long>(dst_gm_w_64), static_cast<long long>(dst_gm_h_64));
+        return status;
+      }
+      int dst_gm_w = static_cast<int>(dst_gm_w_64);
+      int dst_gm_h = static_cast<int>(dst_gm_h_64);
       disp_img =
           apply_resize(dynamic_cast<uhdr_resize_effect_t*>(it), dec->m_decoded_img_buffer.get(),
                        dst_w, dst_h, gl_ctxt, disp_texture_ptr);
@@ -859,6 +868,7 @@ uhdr_error_info_t uhdr_enc_validate_and_set_compressed_img(uhdr_codec_private_t*
   data_source.Reset();
   if (jpeg_scanner.HasError()) {
     status.error_code = UHDR_CODEC_INVALID_PARAM;
+    status.has_detail = 1;
     snprintf(status.detail, sizeof status.detail,
              "received bad/corrupted jpeg image as part of input configuration");
     return status;
