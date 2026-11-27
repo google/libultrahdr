@@ -477,7 +477,8 @@ std::unique_ptr<uhdr_raw_image_ext_t> convert_raw_input_to_ycbcr_neon(uhdr_raw_i
     } else {
       return dst;
     }
-    if (src->w == 0 || src->h == 0 || src->stride[UHDR_PLANE_PACKED] % 16 != 0) {
+    if (src->w == 0 || src->h == 0 || src->w % 16 != 0 ||
+        src->stride[UHDR_PLANE_PACKED] % 16 != 0) {
       return convert_raw_input_to_ycbcr(src);
     }
     dst = std::make_unique<uhdr_raw_image_ext_t>(UHDR_IMG_FMT_24bppYCbCr444, src->cg, src->ct,

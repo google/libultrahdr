@@ -2212,25 +2212,47 @@ TEST_F(GainMapMathTest, ConvertYuvAndRgbaNeonNonMod16WidthsFallbackSafely) {
   EXPECT_EQ(u444, u444_ref);
   EXPECT_EQ(v444, v444_ref);
 
-  // Tightly-packed RGBA8888 (non-mod-16 stride) must not assert or overrun in
-  // convert_raw_input_to_ycbcr_neon.
-  std::vector<uint8_t> rgba(kWidth * kHeight * 4, 180);
-  uhdr_raw_image_t img_rgba{};
-  img_rgba.fmt = UHDR_IMG_FMT_32bppRGBA8888;
-  img_rgba.cg = UHDR_CG_BT_709;
-  img_rgba.ct = UHDR_CT_SRGB;
-  img_rgba.range = UHDR_CR_FULL_RANGE;
-  img_rgba.w = kWidth;
-  img_rgba.h = kHeight;
-  img_rgba.planes[UHDR_PLANE_PACKED] = rgba.data();
-  img_rgba.stride[UHDR_PLANE_PACKED] = kWidth;
+  // Tightly-packed RGBA8888 (non-mod-16 width & stride) and padded non-mod-16 width (w=10,
+  // stride=16) must both fall back safely and match scalar output pixel-for-pixel.
+  for (unsigned stride : {kWidth, 16u}) {
+    std::vector<uint8_t> rgba(stride * kHeight * 4, 0);
+    for (unsigned y = 0; y < kHeight; ++y) {
+      for (unsigned x = 0; x < kWidth; ++x) {
+        size_t off = (static_cast<size_t>(y) * stride + x) * 4;
+        rgba[off + 0] = static_cast<uint8_t>(20 + x * 17 + y * 5);
+        rgba[off + 1] = static_cast<uint8_t>(40 + x * 11 + y * 13);
+        rgba[off + 2] = static_cast<uint8_t>(60 + x * 7 + y * 19);
+        rgba[off + 3] = 255;
+      }
+    }
+    uhdr_raw_image_t img_rgba{};
+    img_rgba.fmt = UHDR_IMG_FMT_32bppRGBA8888;
+    img_rgba.cg = UHDR_CG_BT_709;
+    img_rgba.ct = UHDR_CT_SRGB;
+    img_rgba.range = UHDR_CR_FULL_RANGE;
+    img_rgba.w = kWidth;
+    img_rgba.h = kHeight;
+    img_rgba.planes[UHDR_PLANE_PACKED] = rgba.data();
+    img_rgba.stride[UHDR_PLANE_PACKED] = stride;
 
-  auto neon_yuv = convert_raw_input_to_ycbcr_neon(&img_rgba);
-  auto scalar_yuv = convert_raw_input_to_ycbcr(&img_rgba);
-  ASSERT_NE(neon_yuv, nullptr);
-  ASSERT_NE(scalar_yuv, nullptr);
-  EXPECT_EQ(neon_yuv->w, kWidth);
-  EXPECT_EQ(neon_yuv->h, kHeight);
+    auto neon_yuv = convert_raw_input_to_ycbcr_neon(&img_rgba);
+    auto scalar_yuv = convert_raw_input_to_ycbcr(&img_rgba);
+    ASSERT_NE(neon_yuv, nullptr);
+    ASSERT_NE(scalar_yuv, nullptr);
+    EXPECT_EQ(neon_yuv->w, kWidth);
+    EXPECT_EQ(neon_yuv->h, kHeight);
+    for (auto plane : {UHDR_PLANE_Y, UHDR_PLANE_U, UHDR_PLANE_V}) {
+      const auto* n_ptr = static_cast<const uint8_t*>(neon_yuv->planes[plane]);
+      const auto* s_ptr = static_cast<const uint8_t*>(scalar_yuv->planes[plane]);
+      for (unsigned y = 0; y < kHeight; ++y) {
+        for (unsigned x = 0; x < kWidth; ++x) {
+          EXPECT_EQ(n_ptr[static_cast<size_t>(y) * neon_yuv->stride[plane] + x],
+                    s_ptr[static_cast<size_t>(y) * scalar_yuv->stride[plane] + x])
+              << "stride=" << stride << ", plane=" << plane << ", x=" << x << ", y=" << y;
+        }
+      }
+    }
+  }
 }
 #endif
 
