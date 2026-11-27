@@ -8,15 +8,27 @@
  * except according to those terms.
  */
 
-#include <cstring>
+#include <array>
 #include <cmath>
+#include <cstddef>
+#include <cstring>
+#include <string_view>
+#include <vector>
 
 #include "ultrahdr/ultrahdrcommon.h"
 #include "ultrahdr/icc.h"
 
 namespace ultrahdr {
 
-static void Matrix3x3_apply(const Matrix3x3* m, float* x) {
+static inline uint32_t readBE32(std::string_view data, size_t offset) {
+  const uint32_t b0 = static_cast<uint8_t>(data[offset]);
+  const uint32_t b1 = static_cast<uint8_t>(data[offset + 1]);
+  const uint32_t b2 = static_cast<uint8_t>(data[offset + 2]);
+  const uint32_t b3 = static_cast<uint8_t>(data[offset + 3]);
+  return (b0 << 24) | (b1 << 16) | (b2 << 8) | b3;
+}
+
+static void Matrix3x3_apply(const Matrix3x3* m, std::array<float, 3>& x) {
   float y0 = x[0] * m->vals[0][0] + x[1] * m->vals[0][1] + x[2] * m->vals[0][2];
   float y1 = x[0] * m->vals[1][0] + x[1] * m->vals[1][1] + x[2] * m->vals[1][2];
   float y2 = x[0] * m->vals[2][0] + x[1] * m->vals[2][1] + x[2] * m->vals[2][2];
@@ -71,8 +83,8 @@ bool Matrix3x3_invert(const Matrix3x3* src, Matrix3x3* dst) {
   dst->vals[1][2] = (float)(a01 * b3 - a00 * b4);
   dst->vals[2][2] = (float)(+b0);
 
-  for (int r = 0; r < 3; ++r)
-    for (int c = 0; c < 3; ++c) {
+  for (size_t r = 0; r < 3; ++r)
+    for (size_t c = 0; c < 3; ++c) {
       if (!isfinitef_(dst->vals[r][c])) {
         return false;
       }
@@ -81,17 +93,18 @@ bool Matrix3x3_invert(const Matrix3x3* src, Matrix3x3* dst) {
 }
 
 static Matrix3x3 Matrix3x3_concat(const Matrix3x3* A, const Matrix3x3* B) {
-  Matrix3x3 m = {{{0, 0, 0}, {0, 0, 0}, {0, 0, 0}}};
-  for (int r = 0; r < 3; r++)
-    for (int c = 0; c < 3; c++) {
+  Matrix3x3 m{};
+  for (size_t r = 0; r < 3; r++)
+    for (size_t c = 0; c < 3; c++) {
       m.vals[r][c] = A->vals[r][0] * B->vals[0][c] + A->vals[r][1] * B->vals[1][c] +
                      A->vals[r][2] * B->vals[2][c];
     }
   return m;
 }
 
-static void float_XYZD50_to_grid16_lab(const float* xyz_float, uint8_t* grid16_lab) {
-  float v[3] = {
+static void float_XYZD50_to_grid16_lab(const std::array<float, 3>& xyz_float,
+                                       std::vector<uint16_t>& grid16_lab) {
+  std::array<float, 3> v = {
       xyz_float[0] / kD50_x,
       xyz_float[1] / kD50_y,
       xyz_float[2] / kD50_z,
@@ -102,7 +115,7 @@ static void float_XYZD50_to_grid16_lab(const float* xyz_float, uint8_t* grid16_l
   const float L = v[1] * 116.0f - 16.0f;
   const float a = (v[0] - v[1]) * 500.0f;
   const float b = (v[1] - v[2]) * 200.0f;
-  const float Lab_unorm[3] = {
+  const std::array<float, 3> Lab_unorm = {
       L * (1 / 100.f),
       (a + 128.0f) * (1 / 255.0f),
       (b + 128.0f) * (1 / 255.0f),
@@ -111,8 +124,7 @@ static void float_XYZD50_to_grid16_lab(const float* xyz_float, uint8_t* grid16_l
   // table, but the spec appears to indicate that the value should be 0xFF00.
   // https://crbug.com/skia/13807
   for (size_t i = 0; i < 3; ++i) {
-    reinterpret_cast<uint16_t*>(grid16_lab)[i] =
-        Endian_SwapBE16(float_round_to_unorm16(Lab_unorm[i]));
+    grid16_lab.push_back(Endian_SwapBE16(float_round_to_unorm16(Lab_unorm[i])));
   }
 }
 
@@ -155,9 +167,9 @@ std::string IccHelper::get_desc_string(const uhdr_color_transfer_t tf,
   return result;
 }
 
-std::shared_ptr<DataStruct> IccHelper::write_text_tag(const char* text) {
-  uint32_t text_length = strlen(text);
-  uint32_t header[] = {
+std::shared_ptr<DataStruct> IccHelper::write_text_tag(std::string_view text) {
+  uint32_t text_length = static_cast<uint32_t>(text.size());
+  std::array<uint32_t, 7> header = {
       Endian_SwapBE32(kTAG_TextType),                       // Type signature
       0,                                                    // Reserved
       Endian_SwapBE32(1),                                   // Number of records
@@ -167,47 +179,45 @@ std::shared_ptr<DataStruct> IccHelper::write_text_tag(const char* text) {
       Endian_SwapBE32(28),                                  // Offset of string
   };
 
-  uint32_t total_length = text_length * 2 + sizeof(header);
+  uint32_t total_length = text_length * 2 + static_cast<uint32_t>(sizeof(header));
   total_length = (((total_length + 2) >> 2) << 2);  // 4 aligned
   std::shared_ptr<DataStruct> dataStruct = std::make_shared<DataStruct>(total_length);
 
-  if (!dataStruct->write(header, sizeof(header))) {
+  if (!dataStruct->write(header.data(), sizeof(header))) {
     ALOGE("write_text_tag(): error in writing data");
     return dataStruct;
   }
 
-  for (size_t i = 0; i < text_length; i++) {
+  for (char ch : text) {
     // Convert ASCII to big-endian UTF-16.
     dataStruct->write8(0);
-    dataStruct->write8(text[i]);
+    dataStruct->write8(static_cast<uint8_t>(ch));
   }
 
   return dataStruct;
 }
 
 std::shared_ptr<DataStruct> IccHelper::write_xyz_tag(float x, float y, float z) {
-  uint32_t data[] = {
+  std::array<uint32_t, 5> data = {
       Endian_SwapBE32(kXYZ_PCSSpace),
       0,
-      static_cast<uint32_t>(Endian_SwapBE32(float_round_to_fixed(x))),
-      static_cast<uint32_t>(Endian_SwapBE32(float_round_to_fixed(y))),
-      static_cast<uint32_t>(Endian_SwapBE32(float_round_to_fixed(z))),
+      Endian_SwapBE32(static_cast<uint32_t>(float_round_to_fixed(x))),
+      Endian_SwapBE32(static_cast<uint32_t>(float_round_to_fixed(y))),
+      Endian_SwapBE32(static_cast<uint32_t>(float_round_to_fixed(z))),
   };
   std::shared_ptr<DataStruct> dataStruct = std::make_shared<DataStruct>(sizeof(data));
-  dataStruct->write(&data, sizeof(data));
+  dataStruct->write(data.data(), sizeof(data));
   return dataStruct;
 }
 
-std::shared_ptr<DataStruct> IccHelper::write_trc_tag(const int table_entries,
-                                                     const void* table_16) {
-  int total_length = 4 + 4 + 4 + table_entries * 2;
+std::shared_ptr<DataStruct> IccHelper::write_trc_tag(const std::vector<uint16_t>& table_16) {
+  size_t total_length = 4 + 4 + 4 + table_16.size() * 2;
   total_length = (((total_length + 2) >> 2) << 2);  // 4 aligned
   std::shared_ptr<DataStruct> dataStruct = std::make_shared<DataStruct>(total_length);
-  dataStruct->write32(Endian_SwapBE32(kTAG_CurveType));  // Type
-  dataStruct->write32(0);                                // Reserved
-  dataStruct->write32(Endian_SwapBE32(table_entries));   // Value count
-  for (int i = 0; i < table_entries; ++i) {
-    uint16_t value = reinterpret_cast<const uint16_t*>(table_16)[i];
+  dataStruct->write32(Endian_SwapBE32(kTAG_CurveType));                          // Type
+  dataStruct->write32(0);                                                        // Reserved
+  dataStruct->write32(Endian_SwapBE32(static_cast<uint32_t>(table_16.size())));  // Value count
+  for (uint16_t value : table_16) {
     dataStruct->write16(value);
   }
   return dataStruct;
@@ -215,27 +225,27 @@ std::shared_ptr<DataStruct> IccHelper::write_trc_tag(const int table_entries,
 
 std::shared_ptr<DataStruct> IccHelper::write_trc_tag(const TransferFunction& fn) {
   if (fn.a == 1.f && fn.b == 0.f && fn.c == 0.f && fn.d == 0.f && fn.e == 0.f && fn.f == 0.f) {
-    int total_length = 16;
+    size_t total_length = 16;
     std::shared_ptr<DataStruct> dataStruct = std::make_shared<DataStruct>(total_length);
     dataStruct->write32(Endian_SwapBE32(kTAG_ParaCurveType));  // Type
     dataStruct->write32(0);                                    // Reserved
     dataStruct->write32(Endian_SwapBE16(kExponential_ParaCurveType));
-    dataStruct->write32(Endian_SwapBE32(float_round_to_fixed(fn.g)));
+    dataStruct->write32(Endian_SwapBE32(static_cast<uint32_t>(float_round_to_fixed(fn.g))));
     return dataStruct;
   }
 
-  int total_length = 40;
+  size_t total_length = 40;
   std::shared_ptr<DataStruct> dataStruct = std::make_shared<DataStruct>(total_length);
   dataStruct->write32(Endian_SwapBE32(kTAG_ParaCurveType));  // Type
   dataStruct->write32(0);                                    // Reserved
   dataStruct->write32(Endian_SwapBE16(kGABCDEF_ParaCurveType));
-  dataStruct->write32(Endian_SwapBE32(float_round_to_fixed(fn.g)));
-  dataStruct->write32(Endian_SwapBE32(float_round_to_fixed(fn.a)));
-  dataStruct->write32(Endian_SwapBE32(float_round_to_fixed(fn.b)));
-  dataStruct->write32(Endian_SwapBE32(float_round_to_fixed(fn.c)));
-  dataStruct->write32(Endian_SwapBE32(float_round_to_fixed(fn.d)));
-  dataStruct->write32(Endian_SwapBE32(float_round_to_fixed(fn.e)));
-  dataStruct->write32(Endian_SwapBE32(float_round_to_fixed(fn.f)));
+  dataStruct->write32(Endian_SwapBE32(static_cast<uint32_t>(float_round_to_fixed(fn.g))));
+  dataStruct->write32(Endian_SwapBE32(static_cast<uint32_t>(float_round_to_fixed(fn.a))));
+  dataStruct->write32(Endian_SwapBE32(static_cast<uint32_t>(float_round_to_fixed(fn.b))));
+  dataStruct->write32(Endian_SwapBE32(static_cast<uint32_t>(float_round_to_fixed(fn.c))));
+  dataStruct->write32(Endian_SwapBE32(static_cast<uint32_t>(float_round_to_fixed(fn.d))));
+  dataStruct->write32(Endian_SwapBE32(static_cast<uint32_t>(float_round_to_fixed(fn.e))));
+  dataStruct->write32(Endian_SwapBE32(static_cast<uint32_t>(float_round_to_fixed(fn.f))));
   return dataStruct;
 }
 
@@ -270,14 +280,14 @@ std::shared_ptr<DataStruct> IccHelper::write_cicp_tag(uint32_t color_primaries,
   std::shared_ptr<DataStruct> dataStruct = std::make_shared<DataStruct>(kCicpTagSize);
   dataStruct->write32(Endian_SwapBE32(kTAG_cicp));  // Type signature
   dataStruct->write32(0);                           // Reserved
-  dataStruct->write8(color_primaries);              // Color primaries
-  dataStruct->write8(transfer_characteristics);     // Transfer characteristics
+  dataStruct->write8(static_cast<uint8_t>(color_primaries));           // Color primaries
+  dataStruct->write8(static_cast<uint8_t>(transfer_characteristics));  // Transfer characteristics
   dataStruct->write8(0);                            // RGB matrix
   dataStruct->write8(1);                            // Full range
   return dataStruct;
 }
 
-void IccHelper::compute_lut_entry(const Matrix3x3& src_to_XYZD50, float rgb[3]) {
+void IccHelper::compute_lut_entry(const Matrix3x3& src_to_XYZD50, std::array<float, 3>& rgb) {
   // Compute the matrices to convert from source to Rec2020, and from Rec2020 to XYZD50.
   Matrix3x3 src_to_rec2020;
   const Matrix3x3 rec2020_to_XYZD50 = kRec2020;
@@ -310,14 +320,14 @@ void IccHelper::compute_lut_entry(const Matrix3x3& src_to_XYZD50, float rgb[3]) 
   Matrix3x3_apply(&rec2020_to_XYZD50, rgb);
 }
 
-std::shared_ptr<DataStruct> IccHelper::write_clut(const uint8_t* grid_points,
-                                                  const uint8_t* grid_16) {
+std::shared_ptr<DataStruct> IccHelper::write_clut(
+    const std::array<uint8_t, kNumChannels>& grid_points, const std::vector<uint16_t>& grid_16) {
   uint32_t value_count = kNumChannels;
   for (uint32_t i = 0; i < kNumChannels; ++i) {
     value_count *= grid_points[i];
   }
 
-  int total_length = 20 + 2 * value_count;
+  size_t total_length = 20 + 2 * static_cast<size_t>(value_count);
   total_length = (((total_length + 2) >> 2) << 2);  // 4 aligned
   std::shared_ptr<DataStruct> dataStruct = std::make_shared<DataStruct>(total_length);
 
@@ -329,20 +339,20 @@ std::shared_ptr<DataStruct> IccHelper::write_clut(const uint8_t* grid_points,
   dataStruct->write8(0);  // Reserved
   dataStruct->write8(0);  // Reserved
 
-  for (uint32_t i = 0; i < value_count; ++i) {
-    uint16_t value = reinterpret_cast<const uint16_t*>(grid_16)[i];
-    dataStruct->write16(value);
+  const size_t count = std::min<size_t>(value_count, grid_16.size());
+  for (size_t i = 0; i < count; ++i) {
+    dataStruct->write16(grid_16[i]);
   }
 
   return dataStruct;
 }
 
-std::shared_ptr<DataStruct> IccHelper::write_mAB_or_mBA_tag(uint32_t type, bool has_a_curves,
-                                                            const uint8_t* grid_points,
-                                                            const uint8_t* grid_16) {
+std::shared_ptr<DataStruct> IccHelper::write_mAB_or_mBA_tag(
+    uint32_t type, bool has_a_curves, const std::array<uint8_t, kNumChannels>* grid_points,
+    const std::vector<uint16_t>* grid_16) {
   const size_t b_curves_offset = 32;
-  std::shared_ptr<DataStruct> b_curves_data[kNumChannels];
-  std::shared_ptr<DataStruct> a_curves_data[kNumChannels];
+  std::array<std::shared_ptr<DataStruct>, kNumChannels> b_curves_data;
+  std::array<std::shared_ptr<DataStruct>, kNumChannels> a_curves_data;
   size_t clut_offset = 0;
   std::shared_ptr<DataStruct> clut;
   size_t a_curves_offset = 0;
@@ -354,11 +364,14 @@ std::shared_ptr<DataStruct> IccHelper::write_mAB_or_mBA_tag(uint32_t type, bool 
 
   // The "A" curve and CLUT are optional.
   if (has_a_curves) {
+    if (grid_points == nullptr || grid_16 == nullptr) {
+      return nullptr;
+    }
     clut_offset = b_curves_offset;
     for (size_t i = 0; i < kNumChannels; ++i) {
       clut_offset += b_curves_data[i]->getLength();
     }
-    clut = write_clut(grid_points, grid_16);
+    clut = write_clut(*grid_points, *grid_16);
 
     a_curves_offset = clut_offset + clut->getLength();
     for (size_t i = 0; i < kNumChannels; ++i) {
@@ -366,7 +379,7 @@ std::shared_ptr<DataStruct> IccHelper::write_mAB_or_mBA_tag(uint32_t type, bool 
     }
   }
 
-  int total_length = b_curves_offset;
+  size_t total_length = b_curves_offset;
   for (size_t i = 0; i < kNumChannels; ++i) {
     total_length += b_curves_data[i]->getLength();
   }
@@ -377,16 +390,16 @@ std::shared_ptr<DataStruct> IccHelper::write_mAB_or_mBA_tag(uint32_t type, bool 
     }
   }
   std::shared_ptr<DataStruct> dataStruct = std::make_shared<DataStruct>(total_length);
-  dataStruct->write32(Endian_SwapBE32(type));             // Type signature
-  dataStruct->write32(0);                                 // Reserved
-  dataStruct->write8(kNumChannels);                       // Input channels
-  dataStruct->write8(kNumChannels);                       // Output channels
-  dataStruct->write16(0);                                 // Reserved
-  dataStruct->write32(Endian_SwapBE32(b_curves_offset));  // B curve offset
-  dataStruct->write32(Endian_SwapBE32(0));                // Matrix offset (ignored)
-  dataStruct->write32(Endian_SwapBE32(0));                // M curve offset (ignored)
-  dataStruct->write32(Endian_SwapBE32(clut_offset));      // CLUT offset
-  dataStruct->write32(Endian_SwapBE32(a_curves_offset));  // A curve offset
+  dataStruct->write32(Endian_SwapBE32(type));                                    // Type signature
+  dataStruct->write32(0);                                                        // Reserved
+  dataStruct->write8(kNumChannels);                                              // Input channels
+  dataStruct->write8(kNumChannels);                                              // Output channels
+  dataStruct->write16(0);                                                        // Reserved
+  dataStruct->write32(Endian_SwapBE32(static_cast<uint32_t>(b_curves_offset)));  // B curve offset
+  dataStruct->write32(Endian_SwapBE32(0));  // Matrix offset (ignored)
+  dataStruct->write32(Endian_SwapBE32(0));  // M curve offset (ignored)
+  dataStruct->write32(Endian_SwapBE32(static_cast<uint32_t>(clut_offset)));      // CLUT offset
+  dataStruct->write32(Endian_SwapBE32(static_cast<uint32_t>(a_curves_offset)));  // A curve offset
   for (size_t i = 0; i < kNumChannels; ++i) {
     if (dataStruct->write(b_curves_data[i]->getData(), b_curves_data[i]->getLength())) {
       return dataStruct;
@@ -409,7 +422,7 @@ std::shared_ptr<DataStruct> IccHelper::writeIccProfile(uhdr_color_transfer_t tf,
 
   // Compute profile description tag
   std::string desc = get_desc_string(tf, gamut);
-  tags.emplace_back(kTAG_desc, write_text_tag(desc.c_str()));
+  tags.emplace_back(kTAG_desc, write_text_tag(desc));
 
   Matrix3x3 toXYZD50;
   switch (gamut) {
@@ -443,21 +456,18 @@ std::shared_ptr<DataStruct> IccHelper::writeIccProfile(uhdr_color_transfer_t tf,
   // Compute transfer curves.
   if (tf != UHDR_CT_PQ) {
     if (tf == UHDR_CT_HLG) {
-      std::vector<uint8_t> trc_table;
-      trc_table.resize(kTrcTableSize * 2);
+      std::vector<uint16_t> trc_table;
+      trc_table.reserve(kTrcTableSize);
       for (uint32_t i = 0; i < kTrcTableSize; ++i) {
         float x = i / (kTrcTableSize - 1.f);
         float y = hlgOetf(x);
         y *= compute_tone_map_gain(tf, y);
-        float_to_table16(y, &trc_table[2 * i]);
+        trc_table.push_back(Endian_SwapBE16(float_round_to_unorm16(y)));
       }
 
-      tags.emplace_back(kTAG_rTRC,
-                        write_trc_tag(kTrcTableSize, reinterpret_cast<uint8_t*>(trc_table.data())));
-      tags.emplace_back(kTAG_gTRC,
-                        write_trc_tag(kTrcTableSize, reinterpret_cast<uint8_t*>(trc_table.data())));
-      tags.emplace_back(kTAG_bTRC,
-                        write_trc_tag(kTrcTableSize, reinterpret_cast<uint8_t*>(trc_table.data())));
+      tags.emplace_back(kTAG_rTRC, write_trc_tag(trc_table));
+      tags.emplace_back(kTAG_gTRC, write_trc_tag(trc_table));
+      tags.emplace_back(kTAG_bTRC, write_trc_tag(trc_table));
     } else if (tf == UHDR_CT_SRGB) {
       tags.emplace_back(kTAG_rTRC, write_trc_tag(kSRGB_TransFun));
       tags.emplace_back(kTAG_gTRC, write_trc_tag(kSRGB_TransFun));
@@ -498,32 +508,27 @@ std::shared_ptr<DataStruct> IccHelper::writeIccProfile(uhdr_color_transfer_t tf,
 
   // Compute A2B0.
   if (tf == UHDR_CT_PQ) {
-    std::vector<uint8_t> a2b_grid;
-    a2b_grid.resize(kGridSize * kGridSize * kGridSize * kNumChannels * 2);
-    size_t a2b_grid_index = 0;
+    std::vector<uint16_t> a2b_grid;
+    a2b_grid.reserve(kGridSize * kGridSize * kGridSize * kNumChannels);
     for (uint32_t r_index = 0; r_index < kGridSize; ++r_index) {
       for (uint32_t g_index = 0; g_index < kGridSize; ++g_index) {
         for (uint32_t b_index = 0; b_index < kGridSize; ++b_index) {
-          float rgb[3] = {
+          std::array<float, 3> rgb = {
               r_index / (kGridSize - 1.f),
               g_index / (kGridSize - 1.f),
               b_index / (kGridSize - 1.f),
           };
           compute_lut_entry(toXYZD50, rgb);
-          float_XYZD50_to_grid16_lab(rgb, &a2b_grid[a2b_grid_index]);
-          a2b_grid_index += 6;
+          float_XYZD50_to_grid16_lab(rgb, a2b_grid);
         }
       }
     }
-    const uint8_t* grid_16 = reinterpret_cast<const uint8_t*>(a2b_grid.data());
 
-    uint8_t grid_points[kNumChannels];
-    for (size_t i = 0; i < kNumChannels; ++i) {
-      grid_points[i] = kGridSize;
-    }
+    std::array<uint8_t, kNumChannels> grid_points;
+    grid_points.fill(kGridSize);
 
     auto a2b_data = write_mAB_or_mBA_tag(kTAG_mABType,
-                                         /* has_a_curves */ true, grid_points, grid_16);
+                                         /* has_a_curves */ true, &grid_points, &a2b_grid);
     tags.emplace_back(kTAG_A2B0, std::move(a2b_data));
   }
 
@@ -560,8 +565,8 @@ std::shared_ptr<DataStruct> IccHelper::writeIccProfile(uhdr_color_transfer_t tf,
   // Write the header.
   header.data_color_space = Endian_SwapBE32(Signature_RGB);
   header.pcs = Endian_SwapBE32(tf == UHDR_CT_PQ ? Signature_Lab : Signature_XYZ);
-  header.size = Endian_SwapBE32(profile_size);
-  header.tag_count = Endian_SwapBE32(tags.size());
+  header.size = Endian_SwapBE32(static_cast<uint32_t>(profile_size));
+  header.tag_count = Endian_SwapBE32(static_cast<uint32_t>(tags.size()));
 
   if (!dataStruct->write(&header, sizeof(header))) {
     ALOGE("writeIccProfile(): error in header");
@@ -571,17 +576,17 @@ std::shared_ptr<DataStruct> IccHelper::writeIccProfile(uhdr_color_transfer_t tf,
   // Write the tag table. Track the offset and size of the previous tag to
   // compute each tag's offset. An empty SkData indicates that the previous
   // tag is to be reused.
-  uint32_t last_tag_offset = sizeof(header) + tag_table_size;
+  uint32_t last_tag_offset = static_cast<uint32_t>(sizeof(header) + tag_table_size);
   uint32_t last_tag_size = 0;
   for (const auto& tag : tags) {
     last_tag_offset = last_tag_offset + last_tag_size;
-    last_tag_size = tag.second->getLength();
-    uint32_t tag_table_entry[3] = {
+    last_tag_size = static_cast<uint32_t>(tag.second->getLength());
+    std::array<uint32_t, 3> tag_table_entry = {
         Endian_SwapBE32(tag.first),
         Endian_SwapBE32(last_tag_offset),
         Endian_SwapBE32(last_tag_size),
     };
-    if (!dataStruct->write(tag_table_entry, sizeof(tag_table_entry))) {
+    if (!dataStruct->write(tag_table_entry.data(), sizeof(tag_table_entry))) {
       ALOGE("writeIccProfile(): error in writing tag table");
       return dataStruct;
     }
@@ -598,12 +603,17 @@ std::shared_ptr<DataStruct> IccHelper::writeIccProfile(uhdr_color_transfer_t tf,
   return dataStruct;
 }
 
-bool IccHelper::tagsEqualToMatrix(const Matrix3x3& matrix, const uint8_t* red_tag,
-                                  const uint8_t* green_tag, const uint8_t* blue_tag) {
+bool IccHelper::tagsEqualToMatrix(const Matrix3x3& matrix, std::string_view red_tag,
+                                  std::string_view green_tag, std::string_view blue_tag) {
+  if (red_tag.size() < kColorantTagSize || green_tag.size() < kColorantTagSize ||
+      blue_tag.size() < kColorantTagSize) {
+    return false;
+  }
+
   const float tolerance = 0.001f;
-  Fixed r_x_fixed = Endian_SwapBE32(reinterpret_cast<int32_t*>(const_cast<uint8_t*>(red_tag))[2]);
-  Fixed r_y_fixed = Endian_SwapBE32(reinterpret_cast<int32_t*>(const_cast<uint8_t*>(red_tag))[3]);
-  Fixed r_z_fixed = Endian_SwapBE32(reinterpret_cast<int32_t*>(const_cast<uint8_t*>(red_tag))[4]);
+  Fixed r_x_fixed = static_cast<Fixed>(readBE32(red_tag, 8));
+  Fixed r_y_fixed = static_cast<Fixed>(readBE32(red_tag, 12));
+  Fixed r_z_fixed = static_cast<Fixed>(readBE32(red_tag, 16));
   float r_x = FixedToFloat(r_x_fixed);
   float r_y = FixedToFloat(r_y_fixed);
   float r_z = FixedToFloat(r_z_fixed);
@@ -612,9 +622,9 @@ bool IccHelper::tagsEqualToMatrix(const Matrix3x3& matrix, const uint8_t* red_ta
     return false;
   }
 
-  Fixed g_x_fixed = Endian_SwapBE32(reinterpret_cast<int32_t*>(const_cast<uint8_t*>(green_tag))[2]);
-  Fixed g_y_fixed = Endian_SwapBE32(reinterpret_cast<int32_t*>(const_cast<uint8_t*>(green_tag))[3]);
-  Fixed g_z_fixed = Endian_SwapBE32(reinterpret_cast<int32_t*>(const_cast<uint8_t*>(green_tag))[4]);
+  Fixed g_x_fixed = static_cast<Fixed>(readBE32(green_tag, 8));
+  Fixed g_y_fixed = static_cast<Fixed>(readBE32(green_tag, 12));
+  Fixed g_z_fixed = static_cast<Fixed>(readBE32(green_tag, 16));
   float g_x = FixedToFloat(g_x_fixed);
   float g_y = FixedToFloat(g_y_fixed);
   float g_z = FixedToFloat(g_z_fixed);
@@ -623,9 +633,9 @@ bool IccHelper::tagsEqualToMatrix(const Matrix3x3& matrix, const uint8_t* red_ta
     return false;
   }
 
-  Fixed b_x_fixed = Endian_SwapBE32(reinterpret_cast<int32_t*>(const_cast<uint8_t*>(blue_tag))[2]);
-  Fixed b_y_fixed = Endian_SwapBE32(reinterpret_cast<int32_t*>(const_cast<uint8_t*>(blue_tag))[3]);
-  Fixed b_z_fixed = Endian_SwapBE32(reinterpret_cast<int32_t*>(const_cast<uint8_t*>(blue_tag))[4]);
+  Fixed b_x_fixed = static_cast<Fixed>(readBE32(blue_tag, 8));
+  Fixed b_y_fixed = static_cast<Fixed>(readBE32(blue_tag, 12));
+  Fixed b_z_fixed = static_cast<Fixed>(readBE32(blue_tag, 16));
   float b_x = FixedToFloat(b_x_fixed);
   float b_y = FixedToFloat(b_y_fixed);
   float b_z = FixedToFloat(b_z_fixed);
@@ -639,38 +649,25 @@ bool IccHelper::tagsEqualToMatrix(const Matrix3x3& matrix, const uint8_t* red_ta
 
 uhdr_color_gamut_t IccHelper::readIccColorGamut(void* icc_data, size_t icc_size) {
   // Each tag table entry consists of 3 fields of 4 bytes each.
-  static const size_t kTagTableEntrySize = 12;
+  static constexpr size_t kTagTableEntrySize = 12;
+  static constexpr std::string_view kExpectedIdentifier(kICCIdentifier, sizeof(kICCIdentifier));
 
   if (icc_data == nullptr || icc_size < sizeof(ICCHeader) + kICCIdentifierSize) {
     return UHDR_CG_UNSPECIFIED;
   }
 
-  if (memcmp(icc_data, kICCIdentifier, sizeof(kICCIdentifier)) != 0) {
+  std::string_view icc_view(static_cast<const char*>(icc_data), icc_size);
+  if (icc_view.substr(0, kExpectedIdentifier.size()) != kExpectedIdentifier) {
     return UHDR_CG_UNSPECIFIED;
   }
 
-  uint8_t* icc_bytes = reinterpret_cast<uint8_t*>(icc_data) + kICCIdentifierSize;
-  auto alignment_needs = alignof(ICCHeader);
-  uint8_t* aligned_block = nullptr;
-  if (((uintptr_t)icc_bytes) % alignment_needs != 0) {
-    aligned_block = static_cast<uint8_t*>(
-        ::operator new[](icc_size - kICCIdentifierSize, std::align_val_t(alignment_needs)));
-    if (!aligned_block) {
-      ALOGE("unable allocate memory, icc parsing failed");
-      return UHDR_CG_UNSPECIFIED;
-    }
-    std::memcpy(aligned_block, icc_bytes, icc_size - kICCIdentifierSize);
-    icc_bytes = aligned_block;
-  }
-  ICCHeader* header = reinterpret_cast<ICCHeader*>(icc_bytes);
-
-  const size_t profile_size = icc_size - kICCIdentifierSize;
+  std::string_view profile = icc_view.substr(kICCIdentifierSize);
+  const size_t profile_size = profile.size();
   const size_t max_tags = (profile_size - sizeof(ICCHeader)) / kTagTableEntrySize;
-  size_t tag_count = Endian_SwapBE32(header->tag_count);
+  const size_t tag_count = readBE32(profile, offsetof(ICCHeader, tag_count));
   if (tag_count > max_tags) {
     ALOGE("Tag table size exceeds buffer size during icc parsing. tag count %zu, max tags %zu",
           tag_count, max_tags);
-    if (aligned_block) ::operator delete[](aligned_block, std::align_val_t(alignment_needs));
     return UHDR_CG_UNSPECIFIED;
   }
 
@@ -680,29 +677,29 @@ uhdr_color_gamut_t IccHelper::readIccColorGamut(void* icc_data, size_t icc_size)
   size_t red_primary_size = 0, green_primary_size = 0, blue_primary_size = 0;
   size_t cicp_size = 0, cicp_offset = 0;
   for (size_t tag_idx = 0; tag_idx < tag_count; ++tag_idx) {
-    uint32_t* tag_entry_start =
-        reinterpret_cast<uint32_t*>(icc_bytes + sizeof(ICCHeader) + tag_idx * kTagTableEntrySize);
+    const size_t entry_offset = sizeof(ICCHeader) + tag_idx * kTagTableEntrySize;
     // first 4 bytes are the tag signature, next 4 bytes are the tag offset,
     // last 4 bytes are the tag length in bytes.
-    if (red_primary_offset == 0 && *tag_entry_start == Endian_SwapBE32(kTAG_rXYZ)) {
-      red_primary_offset = Endian_SwapBE32(*(tag_entry_start + 1));
-      red_primary_size = Endian_SwapBE32(*(tag_entry_start + 2));
-    } else if (green_primary_offset == 0 && *tag_entry_start == Endian_SwapBE32(kTAG_gXYZ)) {
-      green_primary_offset = Endian_SwapBE32(*(tag_entry_start + 1));
-      green_primary_size = Endian_SwapBE32(*(tag_entry_start + 2));
-    } else if (blue_primary_offset == 0 && *tag_entry_start == Endian_SwapBE32(kTAG_bXYZ)) {
-      blue_primary_offset = Endian_SwapBE32(*(tag_entry_start + 1));
-      blue_primary_size = Endian_SwapBE32(*(tag_entry_start + 2));
-    } else if (cicp_offset == 0 && *tag_entry_start == Endian_SwapBE32(kTAG_cicp)) {
-      cicp_offset = Endian_SwapBE32(*(tag_entry_start + 1));
-      cicp_size = Endian_SwapBE32(*(tag_entry_start + 2));
+    const uint32_t tag_sig = readBE32(profile, entry_offset);
+    if (red_primary_offset == 0 && tag_sig == kTAG_rXYZ) {
+      red_primary_offset = readBE32(profile, entry_offset + 4);
+      red_primary_size = readBE32(profile, entry_offset + 8);
+    } else if (green_primary_offset == 0 && tag_sig == kTAG_gXYZ) {
+      green_primary_offset = readBE32(profile, entry_offset + 4);
+      green_primary_size = readBE32(profile, entry_offset + 8);
+    } else if (blue_primary_offset == 0 && tag_sig == kTAG_bXYZ) {
+      blue_primary_offset = readBE32(profile, entry_offset + 4);
+      blue_primary_size = readBE32(profile, entry_offset + 8);
+    } else if (cicp_offset == 0 && tag_sig == kTAG_cicp) {
+      cicp_offset = readBE32(profile, entry_offset + 4);
+      cicp_size = readBE32(profile, entry_offset + 8);
     }
   }
 
-  if (cicp_offset != 0 && cicp_size == kCicpTagSize &&
-      cicp_offset <= profile_size && cicp_size <= profile_size - cicp_offset) {
-    uint8_t* cicp = icc_bytes + cicp_offset;
-    uint8_t primaries = cicp[8];
+  if (cicp_offset != 0 && cicp_size == kCicpTagSize && cicp_offset <= profile_size &&
+      cicp_size <= profile_size - cicp_offset) {
+    std::string_view cicp = profile.substr(cicp_offset, cicp_size);
+    uint8_t primaries = static_cast<uint8_t>(cicp[8]);
     uhdr_color_gamut_t gamut = UHDR_CG_UNSPECIFIED;
     if (primaries == kCICPPrimariesSRGB) {
       gamut = UHDR_CG_BT_709;
@@ -712,7 +709,6 @@ uhdr_color_gamut_t IccHelper::readIccColorGamut(void* icc_data, size_t icc_size)
       gamut = UHDR_CG_BT_2100;
     }
     if (gamut != UHDR_CG_UNSPECIFIED) {
-      if (aligned_block) ::operator delete[](aligned_block, std::align_val_t(alignment_needs));
       return gamut;
     }
   }
@@ -720,16 +716,16 @@ uhdr_color_gamut_t IccHelper::readIccColorGamut(void* icc_data, size_t icc_size)
   if (red_primary_offset == 0 || red_primary_size != kColorantTagSize ||
       red_primary_offset > profile_size || red_primary_size > profile_size - red_primary_offset ||
       green_primary_offset == 0 || green_primary_size != kColorantTagSize ||
-      green_primary_offset > profile_size || green_primary_size > profile_size - green_primary_offset ||
-      blue_primary_offset == 0 || blue_primary_size != kColorantTagSize ||
-      blue_primary_offset > profile_size || blue_primary_size > profile_size - blue_primary_offset) {
-    if (aligned_block) ::operator delete[](aligned_block, std::align_val_t(alignment_needs));
+      green_primary_offset > profile_size ||
+      green_primary_size > profile_size - green_primary_offset || blue_primary_offset == 0 ||
+      blue_primary_size != kColorantTagSize || blue_primary_offset > profile_size ||
+      blue_primary_size > profile_size - blue_primary_offset) {
     return UHDR_CG_UNSPECIFIED;
   }
 
-  uint8_t* red_tag = icc_bytes + red_primary_offset;
-  uint8_t* green_tag = icc_bytes + green_primary_offset;
-  uint8_t* blue_tag = icc_bytes + blue_primary_offset;
+  std::string_view red_tag = profile.substr(red_primary_offset, red_primary_size);
+  std::string_view green_tag = profile.substr(green_primary_offset, green_primary_size);
+  std::string_view blue_tag = profile.substr(blue_primary_offset, blue_primary_size);
 
   // Serialize tags as we do on encode and compare what we find to that to
   // determine the gamut (since we don't have a need yet for full deserialize).
@@ -742,7 +738,6 @@ uhdr_color_gamut_t IccHelper::readIccColorGamut(void* icc_data, size_t icc_size)
     gamut = UHDR_CG_BT_2100;
   }
 
-  if (aligned_block) ::operator delete[](aligned_block, std::align_val_t(alignment_needs));
   // Didn't find a match to one of the profiles we write; indicate the gamut
   // is unspecified since we don't understand it.
   return gamut;

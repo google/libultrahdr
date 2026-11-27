@@ -18,10 +18,12 @@
 #include <GLES3/gl3.h>
 #endif
 
+#include <algorithm>
 #include <array>
 #include <cfloat>
 #include <cstdint>
 #include <deque>
+#include <iterator>
 #include <map>
 #include <memory>
 #include <string>
@@ -232,24 +234,26 @@ typedef struct uhdr_gainmap_metadata_ext : uhdr_gainmap_metadata {
 
   uhdr_gainmap_metadata_ext(uhdr_gainmap_metadata& metadata, std::string ver)
       : uhdr_gainmap_metadata_ext(ver) {
-    std::copy(metadata.max_content_boost, metadata.max_content_boost + 3, max_content_boost);
-    std::copy(metadata.min_content_boost, metadata.min_content_boost + 3, min_content_boost);
-    std::copy(metadata.gamma, metadata.gamma + 3, gamma);
-    std::copy(metadata.offset_sdr, metadata.offset_sdr + 3, offset_sdr);
-    std::copy(metadata.offset_hdr, metadata.offset_hdr + 3, offset_hdr);
+    std::copy(std::begin(metadata.max_content_boost), std::end(metadata.max_content_boost),
+              std::begin(max_content_boost));
+    std::copy(std::begin(metadata.min_content_boost), std::end(metadata.min_content_boost),
+              std::begin(min_content_boost));
+    std::copy(std::begin(metadata.gamma), std::end(metadata.gamma), std::begin(gamma));
+    std::copy(std::begin(metadata.offset_sdr), std::end(metadata.offset_sdr),
+              std::begin(offset_sdr));
+    std::copy(std::begin(metadata.offset_hdr), std::end(metadata.offset_hdr),
+              std::begin(offset_hdr));
     hdr_capacity_min = metadata.hdr_capacity_min;
     hdr_capacity_max = metadata.hdr_capacity_max;
     use_base_cg = metadata.use_base_cg;
   }
 
   bool are_all_channels_identical() const {
-    return max_content_boost[0] == max_content_boost[1] &&
-           max_content_boost[0] == max_content_boost[2] &&
-           min_content_boost[0] == min_content_boost[1] &&
-           min_content_boost[0] == min_content_boost[2] && gamma[0] == gamma[1] &&
-           gamma[0] == gamma[2] && offset_sdr[0] == offset_sdr[1] &&
-           offset_sdr[0] == offset_sdr[2] && offset_hdr[0] == offset_hdr[1] &&
-           offset_hdr[0] == offset_hdr[2];
+    auto all_equal = [](const float(&arr)[3]) {
+      return std::all_of(std::begin(arr), std::end(arr), [&](float v) { return v == arr[0]; });
+    };
+    return all_equal(max_content_boost) && all_equal(min_content_boost) && all_equal(gamma) &&
+           all_equal(offset_sdr) && all_equal(offset_hdr);
   }
 
   std::string version;         /**< Ultra HDR format version */
