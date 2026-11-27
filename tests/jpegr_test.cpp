@@ -2824,4 +2824,59 @@ TEST(JpegRTest, ProfileGainMapFuncs) {
 #endif
 }
 
+TEST(JpegrUtilsSafeBuffersTest, DataStructAndWriteBounds) {
+  DataStruct empty(0);
+  EXPECT_EQ(empty.getLength(), 0u);
+  EXPECT_EQ(empty.getData(), nullptr);
+  EXPECT_TRUE(empty.write(nullptr, 0));
+  EXPECT_FALSE(empty.write("x", 1));
+
+  DataStruct ds(16);
+  EXPECT_TRUE(ds.write("abcd", 4));
+  EXPECT_FALSE(ds.write("x", SIZE_MAX - 2));
+  EXPECT_FALSE(ds.write(nullptr, 4));
+  EXPECT_TRUE(ds.write(nullptr, 0));
+
+  std::vector<uint8_t> out(16, 0);
+  uhdr_compressed_image_t img{};
+  img.data = out.data();
+  img.capacity = out.size();
+  size_t pos = 0;
+  EXPECT_EQ(Write(&img, "abcd", 4, pos).error_code, UHDR_CODEC_OK);
+  EXPECT_EQ(Write(&img, nullptr, 0, pos).error_code, UHDR_CODEC_OK);
+  EXPECT_EQ(Write(&img, "x", SIZE_MAX - 2, pos).error_code, UHDR_CODEC_MEM_ERROR);
+  EXPECT_EQ(Write(&img, nullptr, 4, pos).error_code, UHDR_CODEC_INVALID_PARAM);
+  EXPECT_EQ(Write(nullptr, "x", 1, pos).error_code, UHDR_CODEC_MEM_ERROR);
+
+  uhdr_gainmap_metadata_ext_t meta;
+  uhdr_error_info_t err = getMetadataFromXMP(nullptr, 100, nullptr, 0, &meta);
+  EXPECT_EQ(err.error_code, UHDR_CODEC_ERROR);
+  EXPECT_EQ(err.has_detail, 1);
+  EXPECT_LT(std::strlen(err.detail), sizeof(err.detail));
+
+  std::vector<uint8_t> dummy(64, ' ');
+  EXPECT_EQ(getMetadataFromXMP(dummy.data(), dummy.size(), nullptr, 0, nullptr).error_code,
+            UHDR_CODEC_INVALID_PARAM);
+
+  // Verify every truncated prefix of Apple EXIF MakerNotes fails cleanly without OOB reads.
+  std::vector<uint8_t> xmpData = appleXmpWithoutHeadroom();
+  std::vector<uint8_t> fullExif = appleExif(AppleExifOffsets());
+  for (size_t len = 0; len < fullExif.size(); ++len) {
+    uhdr_gainmap_metadata_ext_t truncated_meta;
+    EXPECT_EQ(getMetadataFromXMP(xmpData.data(), xmpData.size(), fullExif.data(),
+                                 static_cast<int>(len), &truncated_meta)
+                  .error_code,
+              UHDR_CODEC_ERROR)
+        << "truncated EXIF length " << len;
+  }
+
+  // Verify Apple XMP success path returns cleanly initialized g_no_error status.
+  uhdr_gainmap_metadata_ext_t apple_meta;
+  uhdr_error_info_t ok = getMetadataFromXMP(xmpData.data(), xmpData.size(), fullExif.data(),
+                                            static_cast<int>(fullExif.size()), &apple_meta);
+  EXPECT_EQ(ok.error_code, UHDR_CODEC_OK);
+  EXPECT_EQ(ok.has_detail, 0);
+  EXPECT_EQ(ok.detail[0], '\0');
+}
+
 }  // namespace ultrahdr
