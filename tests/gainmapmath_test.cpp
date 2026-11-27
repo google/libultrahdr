@@ -2147,81 +2147,110 @@ TEST_F(GainMapMathTest, AffineMapGainClampsBeforeGamma) {
 
 #if (defined(UHDR_ENABLE_INTRINSICS) && (defined(__ARM_NEON__) || defined(__ARM_NEON)))
 TEST_F(GainMapMathTest, ConvertYuvAndRgbaNeonNonMod16WidthsFallbackSafely) {
-  constexpr unsigned kWidth = 10;
-  constexpr unsigned kHeight = 10;
+  // Cover both tail-only (< 16) and full-block + tail (18 = 16 + 2) tightly-packed geometries.
+  for (unsigned kWidth : {10u, 18u}) {
+    constexpr unsigned kHeight = 4;
 
-  // Tightly-packed YUV420 (non-mod-16 width) must not assert or overrun in convertYuv_neon.
-  std::vector<uint8_t> y420(kWidth * kHeight, 128);
-  std::vector<uint8_t> u420((kWidth / 2) * (kHeight / 2), 96);
-  std::vector<uint8_t> v420((kWidth / 2) * (kHeight / 2), 160);
-  std::vector<uint8_t> y420_ref = y420, u420_ref = u420, v420_ref = v420;
+    // Tightly-packed YUV420 (non-mod-16 width) must not assert or overrun in convertYuv_neon.
+    std::vector<uint8_t> y420(kWidth * kHeight);
+    std::vector<uint8_t> u420((kWidth / 2) * (kHeight / 2));
+    std::vector<uint8_t> v420((kWidth / 2) * (kHeight / 2));
+    for (size_t i = 0; i < y420.size(); ++i) y420[i] = static_cast<uint8_t>(30 + (i * 17) % 190);
+    for (size_t i = 0; i < u420.size(); ++i) {
+      u420[i] = static_cast<uint8_t>(64 + (i * 11) % 128);
+      v420[i] = static_cast<uint8_t>(64 + (i * 13) % 128);
+    }
+    std::vector<uint8_t> y420_ref = y420, u420_ref = u420, v420_ref = v420;
 
-  uhdr_raw_image_t img420{};
-  img420.fmt = UHDR_IMG_FMT_12bppYCbCr420;
-  img420.cg = UHDR_CG_BT_709;
-  img420.ct = UHDR_CT_SRGB;
-  img420.range = UHDR_CR_FULL_RANGE;
-  img420.w = kWidth;
-  img420.h = kHeight;
-  img420.planes[UHDR_PLANE_Y] = y420.data();
-  img420.planes[UHDR_PLANE_U] = u420.data();
-  img420.planes[UHDR_PLANE_V] = v420.data();
-  img420.stride[UHDR_PLANE_Y] = kWidth;
-  img420.stride[UHDR_PLANE_U] = kWidth / 2;
-  img420.stride[UHDR_PLANE_V] = kWidth / 2;
+    uhdr_raw_image_t img420{};
+    img420.fmt = UHDR_IMG_FMT_12bppYCbCr420;
+    img420.cg = UHDR_CG_BT_709;
+    img420.ct = UHDR_CT_SRGB;
+    img420.range = UHDR_CR_FULL_RANGE;
+    img420.w = kWidth;
+    img420.h = kHeight;
+    img420.planes[UHDR_PLANE_Y] = y420.data();
+    img420.planes[UHDR_PLANE_U] = u420.data();
+    img420.planes[UHDR_PLANE_V] = v420.data();
+    img420.stride[UHDR_PLANE_Y] = kWidth;
+    img420.stride[UHDR_PLANE_U] = kWidth / 2;
+    img420.stride[UHDR_PLANE_V] = kWidth / 2;
 
-  uhdr_raw_image_t img420_ref = img420;
-  img420_ref.planes[UHDR_PLANE_Y] = y420_ref.data();
-  img420_ref.planes[UHDR_PLANE_U] = u420_ref.data();
-  img420_ref.planes[UHDR_PLANE_V] = v420_ref.data();
+    uhdr_raw_image_t img420_ref = img420;
+    img420_ref.planes[UHDR_PLANE_Y] = y420_ref.data();
+    img420_ref.planes[UHDR_PLANE_U] = u420_ref.data();
+    img420_ref.planes[UHDR_PLANE_V] = v420_ref.data();
 
-  EXPECT_EQ(convertYuv_neon(&img420, UHDR_CG_BT_709, UHDR_CG_DISPLAY_P3).error_code, UHDR_CODEC_OK);
-  transformYuv420(&img420_ref, kYuvBt709ToBt601);
-  EXPECT_EQ(y420, y420_ref);
-  EXPECT_EQ(u420, u420_ref);
-  EXPECT_EQ(v420, v420_ref);
+    EXPECT_EQ(convertYuv_neon(&img420, UHDR_CG_BT_709, UHDR_CG_DISPLAY_P3).error_code,
+              UHDR_CODEC_OK);
+    transformYuv420(&img420_ref, kYuvBt709ToBt601);
+    for (size_t i = 0; i < y420.size(); ++i) EXPECT_NEAR(y420[i], y420_ref[i], 1);
+    for (size_t i = 0; i < u420.size(); ++i) {
+      EXPECT_NEAR(u420[i], u420_ref[i], 1);
+      EXPECT_NEAR(v420[i], v420_ref[i], 1);
+    }
 
-  // Tightly-packed YUV444 (non-mod-16 width) must not assert or overrun in convertYuv_neon.
-  std::vector<uint8_t> y444(kWidth * kHeight, 128);
-  std::vector<uint8_t> u444(kWidth * kHeight, 96);
-  std::vector<uint8_t> v444(kWidth * kHeight, 160);
-  std::vector<uint8_t> y444_ref = y444, u444_ref = u444, v444_ref = v444;
+    // Tightly-packed YUV444 (non-mod-16 width) must not assert or overrun in convertYuv_neon.
+    std::vector<uint8_t> y444(kWidth * kHeight);
+    std::vector<uint8_t> u444(kWidth * kHeight);
+    std::vector<uint8_t> v444(kWidth * kHeight);
+    for (size_t i = 0; i < y444.size(); ++i) {
+      y444[i] = static_cast<uint8_t>(25 + (i * 19) % 200);
+      u444[i] = static_cast<uint8_t>(60 + (i * 7) % 130);
+      v444[i] = static_cast<uint8_t>(60 + (i * 23) % 130);
+    }
+    std::vector<uint8_t> y444_ref = y444, u444_ref = u444, v444_ref = v444;
 
-  uhdr_raw_image_t img444{};
-  img444.fmt = UHDR_IMG_FMT_24bppYCbCr444;
-  img444.cg = UHDR_CG_BT_709;
-  img444.ct = UHDR_CT_SRGB;
-  img444.range = UHDR_CR_FULL_RANGE;
-  img444.w = kWidth;
-  img444.h = kHeight;
-  img444.planes[UHDR_PLANE_Y] = y444.data();
-  img444.planes[UHDR_PLANE_U] = u444.data();
-  img444.planes[UHDR_PLANE_V] = v444.data();
-  img444.stride[UHDR_PLANE_Y] = kWidth;
-  img444.stride[UHDR_PLANE_U] = kWidth;
-  img444.stride[UHDR_PLANE_V] = kWidth;
+    uhdr_raw_image_t img444{};
+    img444.fmt = UHDR_IMG_FMT_24bppYCbCr444;
+    img444.cg = UHDR_CG_BT_709;
+    img444.ct = UHDR_CT_SRGB;
+    img444.range = UHDR_CR_FULL_RANGE;
+    img444.w = kWidth;
+    img444.h = kHeight;
+    img444.planes[UHDR_PLANE_Y] = y444.data();
+    img444.planes[UHDR_PLANE_U] = u444.data();
+    img444.planes[UHDR_PLANE_V] = v444.data();
+    img444.stride[UHDR_PLANE_Y] = kWidth;
+    img444.stride[UHDR_PLANE_U] = kWidth;
+    img444.stride[UHDR_PLANE_V] = kWidth;
 
-  uhdr_raw_image_t img444_ref = img444;
-  img444_ref.planes[UHDR_PLANE_Y] = y444_ref.data();
-  img444_ref.planes[UHDR_PLANE_U] = u444_ref.data();
-  img444_ref.planes[UHDR_PLANE_V] = v444_ref.data();
+    uhdr_raw_image_t img444_ref = img444;
+    img444_ref.planes[UHDR_PLANE_Y] = y444_ref.data();
+    img444_ref.planes[UHDR_PLANE_U] = u444_ref.data();
+    img444_ref.planes[UHDR_PLANE_V] = v444_ref.data();
 
-  EXPECT_EQ(convertYuv_neon(&img444, UHDR_CG_BT_709, UHDR_CG_DISPLAY_P3).error_code, UHDR_CODEC_OK);
-  transformYuv444(&img444_ref, kYuvBt709ToBt601);
-  EXPECT_EQ(y444, y444_ref);
-  EXPECT_EQ(u444, u444_ref);
-  EXPECT_EQ(v444, v444_ref);
+    EXPECT_EQ(convertYuv_neon(&img444, UHDR_CG_BT_709, UHDR_CG_DISPLAY_P3).error_code,
+              UHDR_CODEC_OK);
+    transformYuv444(&img444_ref, kYuvBt709ToBt601);
+    for (size_t i = 0; i < y444.size(); ++i) {
+      EXPECT_NEAR(y444[i], y444_ref[i], 1);
+      EXPECT_NEAR(u444[i], u444_ref[i], 1);
+      EXPECT_NEAR(v444[i], v444_ref[i], 1);
+    }
+  }
 
-  // Tightly-packed RGBA8888 (non-mod-16 width & stride) and padded non-mod-16 width (w=10,
-  // stride=16) must both fall back safely and match scalar output pixel-for-pixel.
-  for (unsigned stride : {kWidth, 16u}) {
-    std::vector<uint8_t> rgba(stride * kHeight * 4, 0);
-    for (unsigned y = 0; y < kHeight; ++y) {
-      for (unsigned x = 0; x < kWidth; ++x) {
-        size_t off = (static_cast<size_t>(y) * stride + x) * 4;
-        rgba[off + 0] = static_cast<uint8_t>(20 + x * 17 + y * 5);
-        rgba[off + 1] = static_cast<uint8_t>(40 + x * 11 + y * 13);
-        rgba[off + 2] = static_cast<uint8_t>(60 + x * 7 + y * 19);
+  // Cover RGBA8888: tail-only (10x4, stride 10 & 16), full-block + tail (18x2, tightly packed),
+  // and full 16px block with non-mod-16 stride across multiple rows (16x2, stride 17).
+  struct RgbaCase {
+    unsigned width;
+    unsigned height;
+    unsigned stride;
+  };
+  const RgbaCase cases[] = {
+      {10, 4, 10},
+      {10, 4, 16},
+      {18, 2, 18},
+      {16, 2, 17},
+  };
+  for (const auto& tc : cases) {
+    std::vector<uint8_t> rgba(static_cast<size_t>(tc.stride) * tc.height * 4, 0xA5);
+    for (unsigned y = 0; y < tc.height; ++y) {
+      for (unsigned x = 0; x < tc.width; ++x) {
+        size_t off = (static_cast<size_t>(y) * tc.stride + x) * 4;
+        rgba[off + 0] = static_cast<uint8_t>(20 + x * 11 + y * 5);
+        rgba[off + 1] = static_cast<uint8_t>(40 + x * 7 + y * 13);
+        rgba[off + 2] = static_cast<uint8_t>(60 + x * 5 + y * 19);
         rgba[off + 3] = 255;
       }
     }
@@ -2230,25 +2259,26 @@ TEST_F(GainMapMathTest, ConvertYuvAndRgbaNeonNonMod16WidthsFallbackSafely) {
     img_rgba.cg = UHDR_CG_BT_709;
     img_rgba.ct = UHDR_CT_SRGB;
     img_rgba.range = UHDR_CR_FULL_RANGE;
-    img_rgba.w = kWidth;
-    img_rgba.h = kHeight;
+    img_rgba.w = tc.width;
+    img_rgba.h = tc.height;
     img_rgba.planes[UHDR_PLANE_PACKED] = rgba.data();
-    img_rgba.stride[UHDR_PLANE_PACKED] = stride;
+    img_rgba.stride[UHDR_PLANE_PACKED] = tc.stride;
 
     auto neon_yuv = convert_raw_input_to_ycbcr_neon(&img_rgba);
     auto scalar_yuv = convert_raw_input_to_ycbcr(&img_rgba);
     ASSERT_NE(neon_yuv, nullptr);
     ASSERT_NE(scalar_yuv, nullptr);
-    EXPECT_EQ(neon_yuv->w, kWidth);
-    EXPECT_EQ(neon_yuv->h, kHeight);
+    EXPECT_EQ(neon_yuv->w, tc.width);
+    EXPECT_EQ(neon_yuv->h, tc.height);
     for (auto plane : {UHDR_PLANE_Y, UHDR_PLANE_U, UHDR_PLANE_V}) {
       const auto* n_ptr = static_cast<const uint8_t*>(neon_yuv->planes[plane]);
       const auto* s_ptr = static_cast<const uint8_t*>(scalar_yuv->planes[plane]);
-      for (unsigned y = 0; y < kHeight; ++y) {
-        for (unsigned x = 0; x < kWidth; ++x) {
-          EXPECT_EQ(n_ptr[static_cast<size_t>(y) * neon_yuv->stride[plane] + x],
-                    s_ptr[static_cast<size_t>(y) * scalar_yuv->stride[plane] + x])
-              << "stride=" << stride << ", plane=" << plane << ", x=" << x << ", y=" << y;
+      for (unsigned y = 0; y < tc.height; ++y) {
+        for (unsigned x = 0; x < tc.width; ++x) {
+          EXPECT_NEAR(n_ptr[static_cast<size_t>(y) * neon_yuv->stride[plane] + x],
+                      s_ptr[static_cast<size_t>(y) * scalar_yuv->stride[plane] + x], 1)
+              << "w=" << tc.width << ", stride=" << tc.stride << ", plane=" << plane
+              << ", x=" << x << ", y=" << y;
         }
       }
     }

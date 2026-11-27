@@ -12,6 +12,7 @@
 
 #include <arm_neon.h>
 #include <cassert>
+#include <cstring>
 
 #ifdef _MSC_VER
 #define ALIGNED(x) __declspec(align(x))
@@ -111,9 +112,47 @@ int16x8x3_t yuvConversion_neon(uint8x8_t y, int16x8_t u, int16x8_t v, int16x8_t 
   return {y_output, u_output, v_output};
 }
 
+static inline void transformYuv420Block_neon(uint8_t* y0_ptr, uint8_t* y1_ptr, uint8_t* u_ptr,
+                                             uint8_t* v_ptr, int16x8_t coeffs,
+                                             uint16x8_t uv_bias) {
+  uint8x16_t y0 = vld1q_u8(y0_ptr);
+  uint8x16_t y1 = vld1q_u8(y1_ptr);
+  uint8x8_t u = vld1_u8(u_ptr);
+  uint8x8_t v = vld1_u8(v_ptr);
+
+  // 128 bias for UV given we are using libjpeg; see:
+  // https://github.com/kornelski/libjpeg/blob/master/structure.doc
+  int16x8_t u_wide_s16 = vreinterpretq_s16_u16(vaddw_u8(uv_bias, u));  // -128 + u
+  int16x8_t v_wide_s16 = vreinterpretq_s16_u16(vaddw_u8(uv_bias, v));  // -128 + v
+
+  const int16x8_t u_wide_lo = vzipq_s16(u_wide_s16, u_wide_s16).val[0];
+  const int16x8_t u_wide_hi = vzipq_s16(u_wide_s16, u_wide_s16).val[1];
+  const int16x8_t v_wide_lo = vzipq_s16(v_wide_s16, v_wide_s16).val[0];
+  const int16x8_t v_wide_hi = vzipq_s16(v_wide_s16, v_wide_s16).val[1];
+
+  const int16x8_t y0_lo = yConversion_neon(vget_low_u8(y0), u_wide_lo, v_wide_lo, coeffs);
+  const int16x8_t y0_hi = yConversion_neon(vget_high_u8(y0), u_wide_hi, v_wide_hi, coeffs);
+  const int16x8_t y1_lo = yConversion_neon(vget_low_u8(y1), u_wide_lo, v_wide_lo, coeffs);
+  const int16x8_t y1_hi = yConversion_neon(vget_high_u8(y1), u_wide_hi, v_wide_hi, coeffs);
+
+  const int16x8_t new_u = uConversion_neon(u_wide_s16, v_wide_s16, coeffs);
+  const int16x8_t new_v = vConversion_neon(u_wide_s16, v_wide_s16, coeffs);
+
+  // Narrow from 16-bit to 8-bit with saturation.
+  const uint8x16_t y0_output = vcombine_u8(vqmovun_s16(y0_lo), vqmovun_s16(y0_hi));
+  const uint8x16_t y1_output = vcombine_u8(vqmovun_s16(y1_lo), vqmovun_s16(y1_hi));
+  const uint8x8_t u_output = vqmovun_s16(vaddq_s16(new_u, vdupq_n_s16(128)));
+  const uint8x8_t v_output = vqmovun_s16(vaddq_s16(new_v, vdupq_n_s16(128)));
+
+  vst1q_u8(y0_ptr, y0_output);
+  vst1q_u8(y1_ptr, y1_output);
+  vst1_u8(u_ptr, u_output);
+  vst1_u8(v_ptr, v_output);
+}
+
 void transformYuv420_neon(uhdr_raw_image_t* image, const int16_t* coeffs_ptr) {
-  // Implementation assumes image buffer is multiple of 16.
-  assert(image->w % 16 == 0);
+  if (image->w == 0 || image->h == 0) return;
+  assert(image->w % 2 == 0 && image->h % 2 == 0);
   uint8_t* y0_ptr = static_cast<uint8_t*>(image->planes[UHDR_PLANE_Y]);
   uint8_t* y1_ptr = y0_ptr + image->stride[UHDR_PLANE_Y];
   uint8_t* u_ptr = static_cast<uint8_t*>(image->planes[UHDR_PLANE_U]);
@@ -121,110 +160,109 @@ void transformYuv420_neon(uhdr_raw_image_t* image, const int16_t* coeffs_ptr) {
 
   const int16x8_t coeffs = vld1q_s16(coeffs_ptr);
   const uint16x8_t uv_bias = vreinterpretq_u16_s16(vdupq_n_s16(-128));
-  size_t h = 0;
-  do {
-    size_t w = 0;
-    do {
-      uint8x16_t y0 = vld1q_u8(y0_ptr + w * 2);
-      uint8x16_t y1 = vld1q_u8(y1_ptr + w * 2);
-      uint8x8_t u = vld1_u8(u_ptr + w);
-      uint8x8_t v = vld1_u8(v_ptr + w);
+  const size_t chroma_w = image->w / 2;
+  const size_t full_chroma_w = (chroma_w / 8) * 8;
+  const size_t tail_chroma_w = chroma_w - full_chroma_w;
+  const size_t tail_luma_w = tail_chroma_w * 2;
 
-      // 128 bias for UV given we are using libjpeg; see:
-      // https://github.com/kornelski/libjpeg/blob/master/structure.doc
-      int16x8_t u_wide_s16 = vreinterpretq_s16_u16(vaddw_u8(uv_bias, u));  // -128 + u
-      int16x8_t v_wide_s16 = vreinterpretq_s16_u16(vaddw_u8(uv_bias, v));  // -128 + v
-
-      const int16x8_t u_wide_lo = vzipq_s16(u_wide_s16, u_wide_s16).val[0];
-      const int16x8_t u_wide_hi = vzipq_s16(u_wide_s16, u_wide_s16).val[1];
-      const int16x8_t v_wide_lo = vzipq_s16(v_wide_s16, v_wide_s16).val[0];
-      const int16x8_t v_wide_hi = vzipq_s16(v_wide_s16, v_wide_s16).val[1];
-
-      const int16x8_t y0_lo = yConversion_neon(vget_low_u8(y0), u_wide_lo, v_wide_lo, coeffs);
-      const int16x8_t y0_hi = yConversion_neon(vget_high_u8(y0), u_wide_hi, v_wide_hi, coeffs);
-      const int16x8_t y1_lo = yConversion_neon(vget_low_u8(y1), u_wide_lo, v_wide_lo, coeffs);
-      const int16x8_t y1_hi = yConversion_neon(vget_high_u8(y1), u_wide_hi, v_wide_hi, coeffs);
-
-      const int16x8_t new_u = uConversion_neon(u_wide_s16, v_wide_s16, coeffs);
-      const int16x8_t new_v = vConversion_neon(u_wide_s16, v_wide_s16, coeffs);
-
-      // Narrow from 16-bit to 8-bit with saturation.
-      const uint8x16_t y0_output = vcombine_u8(vqmovun_s16(y0_lo), vqmovun_s16(y0_hi));
-      const uint8x16_t y1_output = vcombine_u8(vqmovun_s16(y1_lo), vqmovun_s16(y1_hi));
-      const uint8x8_t u_output = vqmovun_s16(vaddq_s16(new_u, vdupq_n_s16(128)));
-      const uint8x8_t v_output = vqmovun_s16(vaddq_s16(new_v, vdupq_n_s16(128)));
-
-      vst1q_u8(y0_ptr + w * 2, y0_output);
-      vst1q_u8(y1_ptr + w * 2, y1_output);
-      vst1_u8(u_ptr + w, u_output);
-      vst1_u8(v_ptr + w, v_output);
-
-      w += 8;
-    } while (w < image->w / 2);
+  for (size_t h = 0; h < image->h / 2; ++h) {
+    for (size_t w = 0; w < full_chroma_w; w += 8) {
+      transformYuv420Block_neon(y0_ptr + w * 2, y1_ptr + w * 2, u_ptr + w, v_ptr + w, coeffs,
+                                uv_bias);
+    }
+    if (tail_chroma_w > 0) {
+      uint8_t y0_buf[16] = {};
+      uint8_t y1_buf[16] = {};
+      uint8_t u_buf[8] = {};
+      uint8_t v_buf[8] = {};
+      std::memcpy(y0_buf, y0_ptr + full_chroma_w * 2, tail_luma_w);
+      std::memcpy(y1_buf, y1_ptr + full_chroma_w * 2, tail_luma_w);
+      std::memcpy(u_buf, u_ptr + full_chroma_w, tail_chroma_w);
+      std::memcpy(v_buf, v_ptr + full_chroma_w, tail_chroma_w);
+      transformYuv420Block_neon(y0_buf, y1_buf, u_buf, v_buf, coeffs, uv_bias);
+      std::memcpy(y0_ptr + full_chroma_w * 2, y0_buf, tail_luma_w);
+      std::memcpy(y1_ptr + full_chroma_w * 2, y1_buf, tail_luma_w);
+      std::memcpy(u_ptr + full_chroma_w, u_buf, tail_chroma_w);
+      std::memcpy(v_ptr + full_chroma_w, v_buf, tail_chroma_w);
+    }
     y0_ptr += image->stride[UHDR_PLANE_Y] * 2;
     y1_ptr += image->stride[UHDR_PLANE_Y] * 2;
     u_ptr += image->stride[UHDR_PLANE_U];
     v_ptr += image->stride[UHDR_PLANE_V];
-  } while (++h < image->h / 2);
+  }
+}
+
+static inline void transformYuv444Block_neon(uint8_t* y_ptr, uint8_t* u_ptr, uint8_t* v_ptr,
+                                             int16x8_t coeffs, uint16x8_t uv_bias) {
+  uint8x16_t y = vld1q_u8(y_ptr);
+  uint8x16_t u = vld1q_u8(u_ptr);
+  uint8x16_t v = vld1q_u8(v_ptr);
+
+  // 128 bias for UV given we are using libjpeg; see:
+  // https://github.com/kornelski/libjpeg/blob/master/structure.doc
+  int16x8_t u_wide_low_s16 =
+      vreinterpretq_s16_u16(vaddw_u8(uv_bias, vget_low_u8(u)));  // -128 + u
+  int16x8_t v_wide_low_s16 =
+      vreinterpretq_s16_u16(vaddw_u8(uv_bias, vget_low_u8(v)));  // -128 + v
+  int16x8_t u_wide_high_s16 =
+      vreinterpretq_s16_u16(vaddw_u8(uv_bias, vget_high_u8(u)));  // -128 + u
+  int16x8_t v_wide_high_s16 =
+      vreinterpretq_s16_u16(vaddw_u8(uv_bias, vget_high_u8(v)));  // -128 + v
+
+  const int16x8_t y_lo = yConversion_neon(vget_low_u8(y), u_wide_low_s16, v_wide_low_s16, coeffs);
+  const int16x8_t y_hi =
+      yConversion_neon(vget_high_u8(y), u_wide_high_s16, v_wide_high_s16, coeffs);
+
+  const int16x8_t new_u_lo = uConversion_neon(u_wide_low_s16, v_wide_low_s16, coeffs);
+  const int16x8_t new_v_lo = vConversion_neon(u_wide_low_s16, v_wide_low_s16, coeffs);
+  const int16x8_t new_u_hi = uConversion_neon(u_wide_high_s16, v_wide_high_s16, coeffs);
+  const int16x8_t new_v_hi = vConversion_neon(u_wide_high_s16, v_wide_high_s16, coeffs);
+
+  // Narrow from 16-bit to 8-bit with saturation.
+  const uint8x16_t y_output = vcombine_u8(vqmovun_s16(y_lo), vqmovun_s16(y_hi));
+  const uint8x8_t u_output_lo = vqmovun_s16(vaddq_s16(new_u_lo, vdupq_n_s16(128)));
+  const uint8x8_t u_output_hi = vqmovun_s16(vaddq_s16(new_u_hi, vdupq_n_s16(128)));
+  const uint8x8_t v_output_lo = vqmovun_s16(vaddq_s16(new_v_lo, vdupq_n_s16(128)));
+  const uint8x8_t v_output_hi = vqmovun_s16(vaddq_s16(new_v_hi, vdupq_n_s16(128)));
+  const uint8x16_t u_output = vcombine_u8(u_output_lo, u_output_hi);
+  const uint8x16_t v_output = vcombine_u8(v_output_lo, v_output_hi);
+
+  vst1q_u8(y_ptr, y_output);
+  vst1q_u8(u_ptr, u_output);
+  vst1q_u8(v_ptr, v_output);
 }
 
 void transformYuv444_neon(uhdr_raw_image_t* image, const int16_t* coeffs_ptr) {
-  // Implementation assumes image buffer is multiple of 16.
-  assert(image->w % 16 == 0);
+  if (image->w == 0 || image->h == 0) return;
   uint8_t* y_ptr = static_cast<uint8_t*>(image->planes[UHDR_PLANE_Y]);
   uint8_t* u_ptr = static_cast<uint8_t*>(image->planes[UHDR_PLANE_U]);
   uint8_t* v_ptr = static_cast<uint8_t*>(image->planes[UHDR_PLANE_V]);
 
   const int16x8_t coeffs = vld1q_s16(coeffs_ptr);
   const uint16x8_t uv_bias = vreinterpretq_u16_s16(vdupq_n_s16(-128));
-  size_t h = 0;
-  do {
-    size_t w = 0;
-    do {
-      uint8x16_t y = vld1q_u8(y_ptr + w);
-      uint8x16_t u = vld1q_u8(u_ptr + w);
-      uint8x16_t v = vld1q_u8(v_ptr + w);
+  const size_t full_w = (image->w / 16) * 16;
+  const size_t tail_w = image->w - full_w;
 
-      // 128 bias for UV given we are using libjpeg; see:
-      // https://github.com/kornelski/libjpeg/blob/master/structure.doc
-      int16x8_t u_wide_low_s16 =
-          vreinterpretq_s16_u16(vaddw_u8(uv_bias, vget_low_u8(u)));  // -128 + u
-      int16x8_t v_wide_low_s16 =
-          vreinterpretq_s16_u16(vaddw_u8(uv_bias, vget_low_u8(v)));  // -128 + v
-      int16x8_t u_wide_high_s16 =
-          vreinterpretq_s16_u16(vaddw_u8(uv_bias, vget_high_u8(u)));  // -128 + u
-      int16x8_t v_wide_high_s16 =
-          vreinterpretq_s16_u16(vaddw_u8(uv_bias, vget_high_u8(v)));  // -128 + v
-
-      const int16x8_t y_lo =
-          yConversion_neon(vget_low_u8(y), u_wide_low_s16, v_wide_low_s16, coeffs);
-      const int16x8_t y_hi =
-          yConversion_neon(vget_high_u8(y), u_wide_high_s16, v_wide_high_s16, coeffs);
-
-      const int16x8_t new_u_lo = uConversion_neon(u_wide_low_s16, v_wide_low_s16, coeffs);
-      const int16x8_t new_v_lo = vConversion_neon(u_wide_low_s16, v_wide_low_s16, coeffs);
-      const int16x8_t new_u_hi = uConversion_neon(u_wide_high_s16, v_wide_high_s16, coeffs);
-      const int16x8_t new_v_hi = vConversion_neon(u_wide_high_s16, v_wide_high_s16, coeffs);
-
-      // Narrow from 16-bit to 8-bit with saturation.
-      const uint8x16_t y_output = vcombine_u8(vqmovun_s16(y_lo), vqmovun_s16(y_hi));
-      const uint8x8_t u_output_lo = vqmovun_s16(vaddq_s16(new_u_lo, vdupq_n_s16(128)));
-      const uint8x8_t u_output_hi = vqmovun_s16(vaddq_s16(new_u_hi, vdupq_n_s16(128)));
-      const uint8x8_t v_output_lo = vqmovun_s16(vaddq_s16(new_v_lo, vdupq_n_s16(128)));
-      const uint8x8_t v_output_hi = vqmovun_s16(vaddq_s16(new_v_hi, vdupq_n_s16(128)));
-      const uint8x16_t u_output = vcombine_u8(u_output_lo, u_output_hi);
-      const uint8x16_t v_output = vcombine_u8(v_output_lo, v_output_hi);
-
-      vst1q_u8(y_ptr + w, y_output);
-      vst1q_u8(u_ptr + w, u_output);
-      vst1q_u8(v_ptr + w, v_output);
-
-      w += 16;
-    } while (w < image->w);
+  for (size_t h = 0; h < image->h; ++h) {
+    for (size_t w = 0; w < full_w; w += 16) {
+      transformYuv444Block_neon(y_ptr + w, u_ptr + w, v_ptr + w, coeffs, uv_bias);
+    }
+    if (tail_w > 0) {
+      uint8_t y_buf[16] = {};
+      uint8_t u_buf[16] = {};
+      uint8_t v_buf[16] = {};
+      std::memcpy(y_buf, y_ptr + full_w, tail_w);
+      std::memcpy(u_buf, u_ptr + full_w, tail_w);
+      std::memcpy(v_buf, v_ptr + full_w, tail_w);
+      transformYuv444Block_neon(y_buf, u_buf, v_buf, coeffs, uv_bias);
+      std::memcpy(y_ptr + full_w, y_buf, tail_w);
+      std::memcpy(u_ptr + full_w, u_buf, tail_w);
+      std::memcpy(v_ptr + full_w, v_buf, tail_w);
+    }
     y_ptr += image->stride[UHDR_PLANE_Y];
     u_ptr += image->stride[UHDR_PLANE_U];
     v_ptr += image->stride[UHDR_PLANE_V];
-  } while (++h < image->h);
+  }
 }
 
 uhdr_error_info_t convertYuv_neon(uhdr_raw_image_t* image, uhdr_color_gamut_t src_encoding,
@@ -302,18 +340,18 @@ uhdr_error_info_t convertYuv_neon(uhdr_raw_image_t* image, uhdr_color_gamut_t sr
       return status;
   }
 
+  if (image->w == 0 || image->h == 0) {
+    return status;
+  }
+
   if (image->fmt == UHDR_IMG_FMT_12bppYCbCr420) {
-    if (image->w > 0 && image->h > 0 && image->w % 16 == 0 && image->h % 2 == 0) {
+    if (image->w % 2 == 0 && image->h % 2 == 0) {
       transformYuv420_neon(image, coeffs);
     } else {
       transformYuv420(image, *scalar_coeffs);
     }
   } else if (image->fmt == UHDR_IMG_FMT_24bppYCbCr444) {
-    if (image->w > 0 && image->h > 0 && image->w % 16 == 0) {
-      transformYuv444_neon(image, coeffs);
-    } else {
-      transformYuv444(image, *scalar_coeffs);
-    }
+    transformYuv444_neon(image, coeffs);
   } else {
     status.error_code = UHDR_CODEC_UNSUPPORTED_FEATURE;
     status.has_detail = 1;
@@ -355,10 +393,87 @@ const uint16_t kRgb2100ToYuv_coeffs_neon[8] = {4304, 11108, 972, 2288, 5904, 819
 
 // The core logic is taken from jsimd_rgb_ycc_convert_neon implementation in jccolext-neon.c of
 // libjpeg-turbo
+static inline void ConvertRgba8888ToYuv444Block_neon(const uint8_t* rgba_ptr, uint8_t* y_ptr,
+                                                     uint8_t* u_ptr, uint8_t* v_ptr,
+                                                     uint16x8_t coeffs, uint32x4_t bias) {
+  uint8x16x4_t rgb_pixels = vld4q_u8(rgba_ptr);
+
+  uint16x8_t r_l = vmovl_u8(vget_low_u8(rgb_pixels.val[0]));
+  uint16x8_t g_l = vmovl_u8(vget_low_u8(rgb_pixels.val[1]));
+  uint16x8_t b_l = vmovl_u8(vget_low_u8(rgb_pixels.val[2]));
+  uint16x8_t r_h = vmovl_u8(vget_high_u8(rgb_pixels.val[0]));
+  uint16x8_t g_h = vmovl_u8(vget_high_u8(rgb_pixels.val[1]));
+  uint16x8_t b_h = vmovl_u8(vget_high_u8(rgb_pixels.val[2]));
+
+  /* Compute Y */
+  uint32x4_t y_ll = vmull_lane_u16(vget_low_u16(r_l), vget_low_u16(coeffs), 0);
+  y_ll = vmlal_lane_u16(y_ll, vget_low_u16(g_l), vget_low_u16(coeffs), 1);
+  y_ll = vmlal_lane_u16(y_ll, vget_low_u16(b_l), vget_low_u16(coeffs), 2);
+  uint32x4_t y_lh = vmull_lane_u16(vget_high_u16(r_l), vget_low_u16(coeffs), 0);
+  y_lh = vmlal_lane_u16(y_lh, vget_high_u16(g_l), vget_low_u16(coeffs), 1);
+  y_lh = vmlal_lane_u16(y_lh, vget_high_u16(b_l), vget_low_u16(coeffs), 2);
+  uint32x4_t y_hl = vmull_lane_u16(vget_low_u16(r_h), vget_low_u16(coeffs), 0);
+  y_hl = vmlal_lane_u16(y_hl, vget_low_u16(g_h), vget_low_u16(coeffs), 1);
+  y_hl = vmlal_lane_u16(y_hl, vget_low_u16(b_h), vget_low_u16(coeffs), 2);
+  uint32x4_t y_hh = vmull_lane_u16(vget_high_u16(r_h), vget_low_u16(coeffs), 0);
+  y_hh = vmlal_lane_u16(y_hh, vget_high_u16(g_h), vget_low_u16(coeffs), 1);
+  y_hh = vmlal_lane_u16(y_hh, vget_high_u16(b_h), vget_low_u16(coeffs), 2);
+
+  /* Compute Cb */
+  uint32x4_t cb_ll = bias;
+  cb_ll = vmlsl_lane_u16(cb_ll, vget_low_u16(r_l), vget_low_u16(coeffs), 3);
+  cb_ll = vmlsl_lane_u16(cb_ll, vget_low_u16(g_l), vget_high_u16(coeffs), 0);
+  cb_ll = vmlal_lane_u16(cb_ll, vget_low_u16(b_l), vget_high_u16(coeffs), 1);
+  uint32x4_t cb_lh = bias;
+  cb_lh = vmlsl_lane_u16(cb_lh, vget_high_u16(r_l), vget_low_u16(coeffs), 3);
+  cb_lh = vmlsl_lane_u16(cb_lh, vget_high_u16(g_l), vget_high_u16(coeffs), 0);
+  cb_lh = vmlal_lane_u16(cb_lh, vget_high_u16(b_l), vget_high_u16(coeffs), 1);
+  uint32x4_t cb_hl = bias;
+  cb_hl = vmlsl_lane_u16(cb_hl, vget_low_u16(r_h), vget_low_u16(coeffs), 3);
+  cb_hl = vmlsl_lane_u16(cb_hl, vget_low_u16(g_h), vget_high_u16(coeffs), 0);
+  cb_hl = vmlal_lane_u16(cb_hl, vget_low_u16(b_h), vget_high_u16(coeffs), 1);
+  uint32x4_t cb_hh = bias;
+  cb_hh = vmlsl_lane_u16(cb_hh, vget_high_u16(r_h), vget_low_u16(coeffs), 3);
+  cb_hh = vmlsl_lane_u16(cb_hh, vget_high_u16(g_h), vget_high_u16(coeffs), 0);
+  cb_hh = vmlal_lane_u16(cb_hh, vget_high_u16(b_h), vget_high_u16(coeffs), 1);
+
+  /* Compute Cr */
+  uint32x4_t cr_ll = bias;
+  cr_ll = vmlal_lane_u16(cr_ll, vget_low_u16(r_l), vget_high_u16(coeffs), 1);
+  cr_ll = vmlsl_lane_u16(cr_ll, vget_low_u16(g_l), vget_high_u16(coeffs), 2);
+  cr_ll = vmlsl_lane_u16(cr_ll, vget_low_u16(b_l), vget_high_u16(coeffs), 3);
+  uint32x4_t cr_lh = bias;
+  cr_lh = vmlal_lane_u16(cr_lh, vget_high_u16(r_l), vget_high_u16(coeffs), 1);
+  cr_lh = vmlsl_lane_u16(cr_lh, vget_high_u16(g_l), vget_high_u16(coeffs), 2);
+  cr_lh = vmlsl_lane_u16(cr_lh, vget_high_u16(b_l), vget_high_u16(coeffs), 3);
+  uint32x4_t cr_hl = bias;
+  cr_hl = vmlal_lane_u16(cr_hl, vget_low_u16(r_h), vget_high_u16(coeffs), 1);
+  cr_hl = vmlsl_lane_u16(cr_hl, vget_low_u16(g_h), vget_high_u16(coeffs), 2);
+  cr_hl = vmlsl_lane_u16(cr_hl, vget_low_u16(b_h), vget_high_u16(coeffs), 3);
+  uint32x4_t cr_hh = bias;
+  cr_hh = vmlal_lane_u16(cr_hh, vget_high_u16(r_h), vget_high_u16(coeffs), 1);
+  cr_hh = vmlsl_lane_u16(cr_hh, vget_high_u16(g_h), vget_high_u16(coeffs), 2);
+  cr_hh = vmlsl_lane_u16(cr_hh, vget_high_u16(b_h), vget_high_u16(coeffs), 3);
+
+  /* Descale Y values (rounding right shift) and narrow to 16-bit. */
+  uint16x8_t y_l = vcombine_u16(vrshrn_n_u32(y_ll, 14), vrshrn_n_u32(y_lh, 14));
+  uint16x8_t y_h = vcombine_u16(vrshrn_n_u32(y_hl, 14), vrshrn_n_u32(y_hh, 14));
+  /* Descale Cb values (right shift) and narrow to 16-bit. */
+  uint16x8_t cb_l = vcombine_u16(vshrn_n_u32(cb_ll, 14), vshrn_n_u32(cb_lh, 14));
+  uint16x8_t cb_h = vcombine_u16(vshrn_n_u32(cb_hl, 14), vshrn_n_u32(cb_hh, 14));
+  /* Descale Cr values (right shift) and narrow to 16-bit. */
+  uint16x8_t cr_l = vcombine_u16(vshrn_n_u32(cr_ll, 14), vshrn_n_u32(cr_lh, 14));
+  uint16x8_t cr_h = vcombine_u16(vshrn_n_u32(cr_hl, 14), vshrn_n_u32(cr_hh, 14));
+
+  /* Narrow Y, Cb, and Cr values to 8-bit and store to memory. */
+  vst1q_u8(y_ptr, vcombine_u8(vmovn_u16(y_l), vmovn_u16(y_h)));
+  vst1q_u8(u_ptr, vcombine_u8(vmovn_u16(cb_l), vmovn_u16(cb_h)));
+  vst1q_u8(v_ptr, vcombine_u8(vmovn_u16(cr_l), vmovn_u16(cr_h)));
+}
+
 static void ConvertRgba8888ToYuv444_neon(uhdr_raw_image_t* src, uhdr_raw_image_t* dst,
                                          const uint16_t* coeffs_ptr) {
-  // Implementation processes 16 pixel per iteration.
-  assert(src->stride[UHDR_PLANE_PACKED] % 16 == 0);
+  if (src->w == 0 || src->h == 0) return;
   uint8_t* rgba_base_ptr = static_cast<uint8_t*>(src->planes[UHDR_PLANE_PACKED]);
 
   uint8_t* y_base_ptr = static_cast<uint8_t*>(dst->planes[UHDR_PLANE_Y]);
@@ -367,100 +482,30 @@ static void ConvertRgba8888ToYuv444_neon(uhdr_raw_image_t* src, uhdr_raw_image_t
 
   const uint16x8_t coeffs = vld1q_u16(coeffs_ptr);
   const uint32x4_t bias = vdupq_n_u32((128 << 14) + 8191);
+  const unsigned int full_w = (src->w / 16) * 16;
+  const unsigned int tail_w = src->w - full_w;
 
-  unsigned int h = 0;
-  do {
-    unsigned int w = 0;
+  for (unsigned int h = 0; h < src->h; ++h) {
     uint8_t* rgba_ptr = rgba_base_ptr + (size_t)src->stride[UHDR_PLANE_PACKED] * 4 * h;
     uint8_t* y_ptr = y_base_ptr + (size_t)dst->stride[UHDR_PLANE_Y] * h;
     uint8_t* u_ptr = u_base_ptr + (size_t)dst->stride[UHDR_PLANE_U] * h;
     uint8_t* v_ptr = v_base_ptr + (size_t)dst->stride[UHDR_PLANE_V] * h;
-    do {
-      uint8x16x4_t rgb_pixels = vld4q_u8(rgba_ptr);
-
-      uint16x8_t r_l = vmovl_u8(vget_low_u8(rgb_pixels.val[0]));
-      uint16x8_t g_l = vmovl_u8(vget_low_u8(rgb_pixels.val[1]));
-      uint16x8_t b_l = vmovl_u8(vget_low_u8(rgb_pixels.val[2]));
-      uint16x8_t r_h = vmovl_u8(vget_high_u8(rgb_pixels.val[0]));
-      uint16x8_t g_h = vmovl_u8(vget_high_u8(rgb_pixels.val[1]));
-      uint16x8_t b_h = vmovl_u8(vget_high_u8(rgb_pixels.val[2]));
-
-      /* Compute Y */
-      uint32x4_t y_ll = vmull_lane_u16(vget_low_u16(r_l), vget_low_u16(coeffs), 0);
-      y_ll = vmlal_lane_u16(y_ll, vget_low_u16(g_l), vget_low_u16(coeffs), 1);
-      y_ll = vmlal_lane_u16(y_ll, vget_low_u16(b_l), vget_low_u16(coeffs), 2);
-      uint32x4_t y_lh = vmull_lane_u16(vget_high_u16(r_l), vget_low_u16(coeffs), 0);
-      y_lh = vmlal_lane_u16(y_lh, vget_high_u16(g_l), vget_low_u16(coeffs), 1);
-      y_lh = vmlal_lane_u16(y_lh, vget_high_u16(b_l), vget_low_u16(coeffs), 2);
-      uint32x4_t y_hl = vmull_lane_u16(vget_low_u16(r_h), vget_low_u16(coeffs), 0);
-      y_hl = vmlal_lane_u16(y_hl, vget_low_u16(g_h), vget_low_u16(coeffs), 1);
-      y_hl = vmlal_lane_u16(y_hl, vget_low_u16(b_h), vget_low_u16(coeffs), 2);
-      uint32x4_t y_hh = vmull_lane_u16(vget_high_u16(r_h), vget_low_u16(coeffs), 0);
-      y_hh = vmlal_lane_u16(y_hh, vget_high_u16(g_h), vget_low_u16(coeffs), 1);
-      y_hh = vmlal_lane_u16(y_hh, vget_high_u16(b_h), vget_low_u16(coeffs), 2);
-
-      /* Compute Cb */
-      uint32x4_t cb_ll = bias;
-      cb_ll = vmlsl_lane_u16(cb_ll, vget_low_u16(r_l), vget_low_u16(coeffs), 3);
-      cb_ll = vmlsl_lane_u16(cb_ll, vget_low_u16(g_l), vget_high_u16(coeffs), 0);
-      cb_ll = vmlal_lane_u16(cb_ll, vget_low_u16(b_l), vget_high_u16(coeffs), 1);
-      uint32x4_t cb_lh = bias;
-      cb_lh = vmlsl_lane_u16(cb_lh, vget_high_u16(r_l), vget_low_u16(coeffs), 3);
-      cb_lh = vmlsl_lane_u16(cb_lh, vget_high_u16(g_l), vget_high_u16(coeffs), 0);
-      cb_lh = vmlal_lane_u16(cb_lh, vget_high_u16(b_l), vget_high_u16(coeffs), 1);
-      uint32x4_t cb_hl = bias;
-      cb_hl = vmlsl_lane_u16(cb_hl, vget_low_u16(r_h), vget_low_u16(coeffs), 3);
-      cb_hl = vmlsl_lane_u16(cb_hl, vget_low_u16(g_h), vget_high_u16(coeffs), 0);
-      cb_hl = vmlal_lane_u16(cb_hl, vget_low_u16(b_h), vget_high_u16(coeffs), 1);
-      uint32x4_t cb_hh = bias;
-      cb_hh = vmlsl_lane_u16(cb_hh, vget_high_u16(r_h), vget_low_u16(coeffs), 3);
-      cb_hh = vmlsl_lane_u16(cb_hh, vget_high_u16(g_h), vget_high_u16(coeffs), 0);
-      cb_hh = vmlal_lane_u16(cb_hh, vget_high_u16(b_h), vget_high_u16(coeffs), 1);
-
-      /* Compute Cr */
-      uint32x4_t cr_ll = bias;
-      cr_ll = vmlal_lane_u16(cr_ll, vget_low_u16(r_l), vget_high_u16(coeffs), 1);
-      cr_ll = vmlsl_lane_u16(cr_ll, vget_low_u16(g_l), vget_high_u16(coeffs), 2);
-      cr_ll = vmlsl_lane_u16(cr_ll, vget_low_u16(b_l), vget_high_u16(coeffs), 3);
-      uint32x4_t cr_lh = bias;
-      cr_lh = vmlal_lane_u16(cr_lh, vget_high_u16(r_l), vget_high_u16(coeffs), 1);
-      cr_lh = vmlsl_lane_u16(cr_lh, vget_high_u16(g_l), vget_high_u16(coeffs), 2);
-      cr_lh = vmlsl_lane_u16(cr_lh, vget_high_u16(b_l), vget_high_u16(coeffs), 3);
-      uint32x4_t cr_hl = bias;
-      cr_hl = vmlal_lane_u16(cr_hl, vget_low_u16(r_h), vget_high_u16(coeffs), 1);
-      cr_hl = vmlsl_lane_u16(cr_hl, vget_low_u16(g_h), vget_high_u16(coeffs), 2);
-      cr_hl = vmlsl_lane_u16(cr_hl, vget_low_u16(b_h), vget_high_u16(coeffs), 3);
-      uint32x4_t cr_hh = bias;
-      cr_hh = vmlal_lane_u16(cr_hh, vget_high_u16(r_h), vget_high_u16(coeffs), 1);
-      cr_hh = vmlsl_lane_u16(cr_hh, vget_high_u16(g_h), vget_high_u16(coeffs), 2);
-      cr_hh = vmlsl_lane_u16(cr_hh, vget_high_u16(b_h), vget_high_u16(coeffs), 3);
-
-      /* Descale Y values (rounding right shift) and narrow to 16-bit. */
-      uint16x8_t y_l = vcombine_u16(vrshrn_n_u32(y_ll, 14), vrshrn_n_u32(y_lh, 14));
-      uint16x8_t y_h = vcombine_u16(vrshrn_n_u32(y_hl, 14), vrshrn_n_u32(y_hh, 14));
-      /* Descale Cb values (right shift) and narrow to 16-bit. */
-      uint16x8_t cb_l = vcombine_u16(vshrn_n_u32(cb_ll, 14), vshrn_n_u32(cb_lh, 14));
-      uint16x8_t cb_h = vcombine_u16(vshrn_n_u32(cb_hl, 14), vshrn_n_u32(cb_hh, 14));
-      /* Descale Cr values (right shift) and narrow to 16-bit. */
-      uint16x8_t cr_l = vcombine_u16(vshrn_n_u32(cr_ll, 14), vshrn_n_u32(cr_lh, 14));
-      uint16x8_t cr_h = vcombine_u16(vshrn_n_u32(cr_hl, 14), vshrn_n_u32(cr_hh, 14));
-
-      /* Narrow Y, Cb, and Cr values to 8-bit and store to memory.  Buffer
-       * overwrite is permitted up to the next multiple of ALIGN_SIZE bytes.
-       */
-      vst1q_u8(y_ptr, vcombine_u8(vmovn_u16(y_l), vmovn_u16(y_h)));
-      vst1q_u8(u_ptr, vcombine_u8(vmovn_u16(cb_l), vmovn_u16(cb_h)));
-      vst1q_u8(v_ptr, vcombine_u8(vmovn_u16(cr_l), vmovn_u16(cr_h)));
-
-      /* Increment pointers. */
-      rgba_ptr += (16 * 4);
-      y_ptr += 16;
-      u_ptr += 16;
-      v_ptr += 16;
-
-      w += 16;
-    } while (w < src->w);
-  } while (++h < src->h);
+    for (unsigned int w = 0; w < full_w; w += 16) {
+      ConvertRgba8888ToYuv444Block_neon(rgba_ptr + (size_t)w * 4, y_ptr + w, u_ptr + w, v_ptr + w,
+                                        coeffs, bias);
+    }
+    if (tail_w > 0) {
+      uint8_t rgba_buf[16 * 4] = {};
+      uint8_t y_buf[16] = {};
+      uint8_t u_buf[16] = {};
+      uint8_t v_buf[16] = {};
+      std::memcpy(rgba_buf, rgba_ptr + (size_t)full_w * 4, (size_t)tail_w * 4);
+      ConvertRgba8888ToYuv444Block_neon(rgba_buf, y_buf, u_buf, v_buf, coeffs, bias);
+      std::memcpy(y_ptr + full_w, y_buf, tail_w);
+      std::memcpy(u_ptr + full_w, u_buf, tail_w);
+      std::memcpy(v_ptr + full_w, v_buf, tail_w);
+    }
+  }
 }
 
 std::unique_ptr<uhdr_raw_image_ext_t> convert_raw_input_to_ycbcr_neon(uhdr_raw_image_t* src) {
@@ -477,8 +522,7 @@ std::unique_ptr<uhdr_raw_image_ext_t> convert_raw_input_to_ycbcr_neon(uhdr_raw_i
     } else {
       return dst;
     }
-    if (src->w == 0 || src->h == 0 || src->w % 16 != 0 ||
-        src->stride[UHDR_PLANE_PACKED] % 16 != 0) {
+    if (src->w == 0 || src->h == 0) {
       return convert_raw_input_to_ycbcr(src);
     }
     dst = std::make_unique<uhdr_raw_image_ext_t>(UHDR_IMG_FMT_24bppYCbCr444, src->cg, src->ct,
