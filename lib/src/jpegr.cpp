@@ -1282,6 +1282,14 @@ uhdr_error_info_t JpegR::appendGainMap(uhdr_compressed_image_t* sdr_intent_compr
                pExif->data_sz);
       return status;
     }
+    if (pExif->data_sz > 0 && pExif->data == nullptr) {
+      uhdr_error_info_t status;
+      status.error_code = UHDR_CODEC_INVALID_PARAM;
+      status.has_detail = 1;
+      snprintf(status.detail, sizeof status.detail,
+               "EXIF payload pointer is null while EXIF size is %zu bytes", pExif->data_sz);
+      return status;
+    }
     const size_t length = 2 + pExif->data_sz;
     const uint8_t lengthH = ((length >> 8) & 0xff);
     const uint8_t lengthL = (length & 0xff);
