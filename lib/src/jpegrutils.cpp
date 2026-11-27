@@ -750,6 +750,7 @@ uhdr_error_info_t getMetadataFromXMP(uint8_t* xmp_data, size_t xmp_size, uint8_t
     std::fill(std::begin(metadata->offset_sdr), std::end(metadata->offset_sdr), 0.0f);
     std::fill(std::begin(metadata->offset_hdr), std::end(metadata->offset_hdr), 0.0f);
     metadata->hdr_capacity_min = 1.0f;
+    metadata->use_base_cg = true;
 
     float max_content_boost;
     bool present = false;
