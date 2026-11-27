@@ -2879,12 +2879,60 @@ TEST(JpegRTest, EncodeBoundsAndExifSafety) {
     EXPECT_EQ(st.has_detail, 1);
   }
 
-  // 3. Oversized EXIF (> 65533 bytes) must be rejected instead of silently truncating APP1 length.
-  std::vector<uint8_t> big_exif(65534, 0x41);
-  jpegr_exif_struct exif_in{big_exif.data(), big_exif.size()};
-  EXPECT_NE(JPEGR_NO_ERROR,
-            uHdrLib.encodeJPEGR(rawImg.getImageHandle(), ULTRAHDR_TF_HLG,
-                                destImg.getImageHandle(), kQuality, &exif_in));
+  // 2b. API-4 with nullptr gain-map descriptor and use_base_cg == false must fail cleanly before
+  //     attempting gain-map ICC lookup.
+  {
+    uhdr_gainmap_metadata_ext_t alt_meta = meta;
+    alt_meta.use_base_cg = false;
+    uhdr_error_info_t st = uHdrLib.encodeJPEGR(&base_img, nullptr, &alt_meta, &out_img);
+    EXPECT_EQ(st.error_code, UHDR_CODEC_INVALID_PARAM);
+    EXPECT_EQ(st.has_detail, 1);
+  }
+
+  // 3. Direct raw-image encodeJPEGR EXIF bounds & null-pointer checks with a large enough output
+  //    buffer so buffer capacity does not mask the EXIF APP1 limit check.
+  {
+    uhdr_raw_image_t hdr_raw{};
+    hdr_raw.fmt = UHDR_IMG_FMT_24bppYCbCrP010;
+    hdr_raw.cg = UHDR_CG_BT_2100;
+    hdr_raw.ct = UHDR_CT_HLG;
+    hdr_raw.range = UHDR_CR_LIMITED_RANGE;
+    hdr_raw.w = 16;
+    hdr_raw.h = 16;
+    hdr_raw.planes[UHDR_PLANE_Y] = rawImg.getImageHandle()->data;
+    hdr_raw.stride[UHDR_PLANE_Y] = 16;
+    hdr_raw.planes[UHDR_PLANE_UV] =
+        static_cast<uint8_t*>(rawImg.getImageHandle()->data) + 16 * 16 * 2;
+    hdr_raw.stride[UHDR_PLANE_UV] = 16;
+
+    std::vector<uint8_t> large_dest_buf(128 * 1024, 0);
+    uhdr_compressed_image_t large_dest{};
+    large_dest.data = large_dest_buf.data();
+    large_dest.capacity = large_dest_buf.size();
+
+    // Nonzero EXIF data_sz with nullptr data must return UHDR_CODEC_INVALID_PARAM.
+    uhdr_mem_block_t null_exif{nullptr, 16, 16};
+    large_dest.data_sz = 0;
+    uhdr_error_info_t st_null =
+        uHdrLib.encodeJPEGR(&hdr_raw, &large_dest, kQuality, &null_exif);
+    EXPECT_EQ(st_null.error_code, UHDR_CODEC_INVALID_PARAM);
+    EXPECT_EQ(st_null.has_detail, 1);
+
+    // 65533-byte EXIF payload (exact APP1 max) must succeed.
+    std::vector<uint8_t> max_exif_buf(65533, 0x41);
+    uhdr_mem_block_t max_exif{max_exif_buf.data(), max_exif_buf.size(), max_exif_buf.size()};
+    large_dest.data_sz = 0;
+    uhdr_error_info_t st_ok = uHdrLib.encodeJPEGR(&hdr_raw, &large_dest, kQuality, &max_exif);
+    EXPECT_EQ(st_ok.error_code, UHDR_CODEC_OK) << st_ok.detail;
+
+    // 65534-byte EXIF payload (1 byte over APP1 max) must return UHDR_CODEC_INVALID_PARAM.
+    std::vector<uint8_t> big_exif_buf(65534, 0x41);
+    uhdr_mem_block_t big_exif{big_exif_buf.data(), big_exif_buf.size(), big_exif_buf.size()};
+    large_dest.data_sz = 0;
+    uhdr_error_info_t st_over = uHdrLib.encodeJPEGR(&hdr_raw, &large_dest, kQuality, &big_exif);
+    EXPECT_EQ(st_over.error_code, UHDR_CODEC_INVALID_PARAM);
+    EXPECT_EQ(st_over.has_detail, 1);
+  }
 
   // 4. Legacy decodeJPEGR with non-null exif buffer on an image without EXIF must succeed cleanly.
   std::vector<uint8_t> dec_pixels(16 * 16 * 8, 0);

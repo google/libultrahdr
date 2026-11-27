@@ -395,6 +395,16 @@ uhdr_error_info_t JpegR::encodeJPEGR(uhdr_compressed_image_t* base_img_compresse
                                      uhdr_compressed_image_t* gainmap_img_compressed,
                                      uhdr_gainmap_metadata_ext_t* metadata,
                                      uhdr_compressed_image_t* dest) {
+  if (gainmap_img_compressed == nullptr || gainmap_img_compressed->data == nullptr ||
+      gainmap_img_compressed->data_sz < 2) {
+    uhdr_error_info_t status;
+    status.error_code = UHDR_CODEC_INVALID_PARAM;
+    status.has_detail = 1;
+    snprintf(status.detail, sizeof status.detail,
+             "gainmap compressed image is null or smaller than JPEG SOI marker (2 bytes)");
+    return status;
+  }
+
   // We just want to check if ICC is present, so don't do a full decode. Note,
   // this doesn't verify that the ICC is valid.
   JpegDecoderHelper decoder;
