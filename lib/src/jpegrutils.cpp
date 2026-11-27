@@ -115,11 +115,11 @@ uhdr_error_info_t Write(uhdr_compressed_image_t* destination, const void* source
   }
 
   // C API boundary: bounds checked above (position + length <= destination->capacity).
-#if defined(__clang__)
+#if defined(UHDR_HAVE_UNSAFE_BUFFER_USAGE_PRAGMA)
 #pragma clang unsafe_buffer_usage begin
 #endif
   std::memcpy(static_cast<uint8_t*>(destination->data) + position, source, length);
-#if defined(__clang__)
+#if defined(UHDR_HAVE_UNSAFE_BUFFER_USAGE_PRAGMA)
 #pragma clang unsafe_buffer_usage end
 #endif
   position += length;
